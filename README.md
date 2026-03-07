@@ -73,8 +73,8 @@ sequenceDiagram
 
     T->>E: reset()
     E->>B: Manifest + mutation directive
-    B->>B: Generate structured JSON spec<br/>(vuln type, golden path, flags)
-    B->>C: Render templates -> hot-swap configs
+    B->>B: Generate structured JSON spec
+    B->>C: Render templates, hot-swap configs
     C->>C: Restart affected services
     E->>V: Validate range
     V->>V: Phase A: LLM review
@@ -103,22 +103,22 @@ Every call to `reset()` triggers a **mutation** -- the Builder LLM swaps vulnera
 
 ```mermaid
 flowchart LR
-    subgraph Episode 1
+    subgraph ep1 [Episode 1]
         A1[SQLi in search form] --> F1[Flag in DB]
     end
-    subgraph Episode 2
+    subgraph ep2 [Episode 2]
         A2[Command injection<br/>in ping utility] --> F2[Flag on disk]
     end
-    subgraph Episode 3
-        A3[SSRF -> internal SQLi] --> F3[Flag in internal DB]
+    subgraph ep3 [Episode 3]
+        A3[SSRF to internal SQLi] --> F3[Flag in internal DB]
     end
 
-    Episode 1 -->|reset| Episode 2
-    Episode 2 -->|reset| Episode 3
+    ep1 -->|reset| ep2
+    ep2 -->|reset| ep3
 
-    style Episode 1 fill:#ff6b6b22,stroke:#ff6b6b
-    style Episode 2 fill:#ffd93d22,stroke:#ffd93d
-    style Episode 3 fill:#6bcb7722,stroke:#6bcb77
+    style ep1 fill:#ff6b6b22,stroke:#ff6b6b
+    style ep2 fill:#ffd93d22,stroke:#ffd93d
+    style ep3 fill:#6bcb7722,stroke:#6bcb77
 ```
 
 Agents must **generalize** across vulnerability classes, not memorize exploit chains.
@@ -154,28 +154,28 @@ All rewards are **verifiable** -- grounded in real container state, not LLM judg
 
 ```mermaid
 flowchart TB
-    subgraph Red Rewards
+    subgraph red [Red Rewards]
         RF[Flag Capture<br/>docker exec cat flag<br/>binary match]
         RE[Efficiency<br/>gamma^steps]
         RS[Stealth<br/>Did Blue detect?]
         RH[Anti-hallucination<br/>-0.3 per fake flag]
     end
 
-    subgraph Blue Rewards
-        BD[Detection<br/>TP rate vs Red's log]
+    subgraph blue [Blue Rewards]
+        BD[Detection<br/>TP rate vs Red log]
         BP[Patch<br/>Golden path re-run fails]
         BA[Availability<br/>Healthcheck fraction]
         BF[False Positive<br/>-0.2 per NPC flagged]
     end
 
-    subgraph Coupling
+    subgraph coupling [Coupling]
         RS -.-|depends on| BD
         BD -.-|depends on| RF
     end
 
-    style Red Rewards fill:#ff6b6b11,stroke:#ff6b6b
-    style Blue Rewards fill:#4a9eff11,stroke:#4a9eff
-    style Coupling fill:#ffd93d11,stroke:#ffd93d,stroke-dasharray: 5 5
+    style red fill:#ff6b6b11,stroke:#ff6b6b
+    style blue fill:#4a9eff11,stroke:#4a9eff
+    style coupling fill:#ffd93d11,stroke:#ffd93d,stroke-dasharray: 5 5
 ```
 
 ## Golden Path Validation
@@ -185,11 +185,11 @@ Every generated range passes a **7-check validation pipeline** before any agent 
 ```mermaid
 flowchart LR
     S1[1. Services up<br/>nc -z ports] --> S2[2. Flags exist<br/>docker exec cat]
-    S2 --> S3[3. Network isolation<br/>external !-> internal]
+    S2 --> S3[3. Network isolation<br/>external blocked from internal]
     S3 --> S4[4. Golden path<br/>execute exploit steps]
     S4 --> S5[5. Difficulty<br/>steps within 20%]
     S5 --> S6[6. No leaks<br/>grep description]
-    S6 --> S7[7. Inverse mutation<br/>revert vuln -> step fails]
+    S6 --> S7[7. Inverse mutation<br/>revert vuln, step fails]
 
     S7 -->|All pass| PASS[VALID]
     S7 -->|Any fail| FAIL[RETRY<br/>Builder gets error context]
@@ -207,25 +207,25 @@ Difficulty grows **horizontally** -- more hosts, more networks, more services. N
 
 ```mermaid
 flowchart TD
-    subgraph Tier 1 - Basic
+    subgraph t1 [Tier 1 - Basic]
         W1[web<br/>nginx + PHP] --> D1[db<br/>MySQL]
     end
 
-    subgraph Tier 2 - Corporate
+    subgraph t2 [Tier 2 - Corporate]
         W2[web] --> D2[db]
         W2 --> M2[mail<br/>SMTP]
         FW2[firewall<br/>iptables] --> W2
     end
 
-    subgraph Tier 3 - Enterprise
+    subgraph t3 [Tier 3 - Enterprise]
         W3[web] --> D3[db]
-        W3 --> DC3[DC<br/>LDAP/Kerberos]
+        W3 --> DC3[DC<br/>LDAP + Kerberos]
         FS3[files<br/>SMB] --> DC3
     end
 
-    style Tier 1 - Basic fill:#6bcb7722,stroke:#6bcb77
-    style Tier 2 - Corporate fill:#ffd93d22,stroke:#ffd93d
-    style Tier 3 - Enterprise fill:#ff6b6b22,stroke:#ff6b6b
+    style t1 fill:#6bcb7722,stroke:#6bcb77
+    style t2 fill:#ffd93d22,stroke:#ffd93d
+    style t3 fill:#ff6b6b22,stroke:#ff6b6b
 ```
 
 | Tier | Hosts | Networks | Services | Golden Steps |
@@ -240,37 +240,37 @@ flowchart TD
 
 ```mermaid
 sequenceDiagram
-    participant Red as Red Agent<br/>(attacker)
-    participant Env as Range<br/>(containers)
-    participant Blue as Blue Agent<br/>(defender)
+    participant Red as Red Agent
+    participant Env as Range
+    participant Blue as Blue Agent
 
-    Note over Red,Blue: Episode begins -- Builder mutated range
+    Note over Red,Blue: Episode begins - Builder mutated range
 
     Red->>Env: nmap -sV web
     Env-->>Red: 80/tcp open http nginx
     Note right of Env: Action logged
 
     Blue->>Env: tail_log access.log
-    Env-->>Blue: [NPC traffic + Red's scan mixed]
-    Blue->>Env: submit_finding: port scan detected
+    Env-->>Blue: NPC traffic + Red scan mixed
+    Blue->>Env: submit_finding port scan detected
     Note left of Blue: True positive!
 
-    Red->>Env: curl 'web/search?q=' OR 1=1--
+    Red->>Env: curl web/search?q= OR 1=1
     Env-->>Red: Database results + flag
     Note right of Env: Action logged
 
-    Red->>Env: submit_flag FLAG{abc123}
+    Red->>Env: submit_flag FLAG abc123
     Env-->>Red: Correct! reward=1.0
 
-    Blue->>Env: grep_log "UNION|SELECT|OR 1"
+    Blue->>Env: grep_log UNION SELECT OR 1
     Env-->>Blue: SQLi pattern found
-    Blue->>Env: patch search.php (parameterize query)
+    Blue->>Env: patch search.php parameterize query
     Env-->>Blue: Patch applied
 
     Note over Env: Re-run golden path exploit
-    Note over Env: Exploit FAILS -> patch valid
+    Note over Env: Exploit FAILS, patch valid
 
-    Note over Red,Blue: Red stealth: LOW (Blue caught it)<br/>Blue detection: HIGH (found real attack)
+    Note over Red,Blue: Red stealth LOW, Blue detection HIGH
 ```
 
 ## Project Structure
