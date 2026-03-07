@@ -1,0 +1,57 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+*.egg-info/
+dist/
+build/
+*.egg
+
+# Virtual environments
+.venv/
+venv/
+env/
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Docker build outputs (generated ranges)
+outputs/
+
+# Training outputs
+training/outputs/
+training/checkpoints/
+training/logs/
+wandb/
+*.pt
+*.safetensors
+*.gguf
+
+# Reward curves
+training/*.png
+
+# Environment
+.env
+.env.local
+CLAUDE.md
+IMPLEMENTATION_PLAN.md
+
+# Jupyter
+.ipynb_checkpoints/
+
+# Test artifacts
+.pytest_cache/
+.coverage
+htmlcov/
+
+# Pre-validated range pool (generated at startup)
+pool/
