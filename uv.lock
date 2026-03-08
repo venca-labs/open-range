@@ -1870,7 +1870,6 @@ dependencies = [
     { name = "docker" },
     { name = "fastapi" },
     { name = "jinja2" },
-    { name = "litellm" },
     { name = "openenv-core", extra = ["core"] },
     { name = "pydantic" },
     { name = "pyyaml" },
@@ -1878,6 +1877,9 @@ dependencies = [
 ]
 
 [package.optional-dependencies]
+builder = [
+    { name = "litellm" },
+]
 dev = [
     { name = "httpx" },
     { name = "pytest" },
@@ -1894,7 +1896,7 @@ requires-dist = [
     { name = "fastapi", specifier = ">=0.115" },
     { name = "httpx", marker = "extra == 'dev'", specifier = ">=0.27" },
     { name = "jinja2", specifier = ">=3.1" },
-    { name = "litellm", specifier = ">=1.30" },
+    { name = "litellm", marker = "extra == 'builder'", specifier = ">=1.30" },
     { name = "openenv-core", extras = ["core"], specifier = ">=0.2.1" },
     { name = "pydantic", specifier = ">=2.0" },
     { name = "pytest", marker = "extra == 'dev'", specifier = ">=8.0" },
@@ -1902,9 +1904,9 @@ requires-dist = [
     { name = "pyyaml", specifier = ">=6.0" },
     { name = "trl", marker = "extra == 'training'", specifier = ">=0.8" },
     { name = "unsloth", marker = "extra == 'training'" },
-    { name = "uvicorn", specifier = ">=0.24" },
+    { name = "uvicorn", specifier = ">=0.27" },
 ]
-provides-extras = ["dev", "training"]
+provides-extras = ["dev", "training", "builder"]
 
 [[package]]
 name = "openai"

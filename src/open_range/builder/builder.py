@@ -14,7 +14,10 @@ import random
 from pathlib import Path
 from typing import Any
 
-import litellm
+try:
+    import litellm
+except ImportError:  # pragma: no cover - exercised only without builder extra
+    litellm = None
 
 from open_range.protocols import (
     BuildContext,
@@ -66,6 +69,12 @@ class LLMSnapshotBuilder:
         context: BuildContext,
     ) -> SnapshotSpec:
         """Call LLM to generate a candidate snapshot spec."""
+        if litellm is None:
+            raise RuntimeError(
+                "LLMSnapshotBuilder requires the optional builder extra. "
+                "Install with `pip install open-range[builder]`."
+            )
+
         user_payload = json.dumps(
             {
                 "manifest": manifest,

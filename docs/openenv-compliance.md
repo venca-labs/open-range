@@ -6,46 +6,35 @@ OpenRange implements the OpenEnv 0.2.x environment contract. This doc maps every
 
 | Requirement | Status | Implementation |
 |-------------|--------|----------------|
-| `Environment` subclass | Done | `RangeEnvironment` extends `Environment[RangeAction, RangeObservation, RangeState]` when openenv is installed; falls back to plain `object` base with the same API surface |
+| `Environment` subclass | Done | `RangeEnvironment` extends `Environment[RangeAction, RangeObservation, RangeState]` |
 | `reset()` returns `ObsT` | Done | Returns `RangeObservation` with episode briefing |
 | `step()` returns `ObsT` | Done | Returns `RangeObservation` with stdout/stderr/reward/done |
 | `state` property returns `StateT` | Done | Returns `RangeState` (episode_id, step_count, mode, flags_found, services_status, tier) |
-| `Action` subclass (Pydantic, extra=forbid) | Done | `RangeAction(Action)` with `command: str`, `mode: Literal["red", "blue"]`. Note: `extra="forbid"` comes from the openenv `Action` base; the fallback stub inherits plain `BaseModel` without it |
+| `Action` subclass (Pydantic, extra=forbid) | Done | `RangeAction(Action)` with `command: str`, `mode: Literal["red", "blue"]` |
 | `Observation` subclass (Pydantic, extra=forbid) | Done | `RangeObservation(Observation)` — inherits `done`, `reward` from base; adds `stdout`, `stderr`, `flags_captured`, `alerts` |
 | `State` subclass (Pydantic, extra=allow) | Done | `RangeState(State)` — inherits `episode_id`, `step_count` from base; adds `mode`, `flags_found`, `services_status`, `tier` |
-| `create_app(Class, ActionType, ObsType)` | Done | `app.py` tries `openenv.core.env_server.create_app(RangeEnvironment, RangeAction, RangeObservation, env_name="open_range")`; falls back to a standalone FastAPI app with equivalent endpoints |
-| `EnvClient` subclass | Done | `OpenRangeEnv(EnvClient[RangeAction, RangeObservation, RangeState])` when openenv is installed; stub client otherwise |
+| `create_app(Class, ActionType, ObsType)` | Done | `open_range.server.app:create_app()` delegates directly to `openenv.core.env_server.create_app(...)` |
+| `EnvClient` subclass | Done | `OpenRangeEnv(EnvClient[RangeAction, RangeObservation, RangeState])` |
 | `_step_payload()` | Done | Returns `{"command": action.command, "mode": action.mode}` |
 | `_parse_result()` | Done | Parses server response to `StepResult[RangeObservation]` |
 | `_parse_state()` | Done | Parses server response to `RangeState` |
-| `/health` endpoint | Done | Returns `{"status": "ok"}` (standalone) or openenv default |
-| `/metadata` endpoint | Done | Returns name, version, description, supports_concurrent_sessions |
-| `/schema` endpoint | Done | Returns JSON schemas for RangeAction, RangeObservation, RangeState |
-| `/ws` WebSocket | Done | Standalone implementation with per-connection `RangeEnvironment` instance; accepts `reset`, `step`, `state` message types |
-| `/reset`, `/step`, `/state` HTTP | Done | POST /reset, POST /step, GET /state — all implemented in standalone fallback and via `create_app` |
+| `/health` endpoint | Done | Provided by `create_app(...)` |
+| `/metadata` endpoint | Done | Provided by `create_app(...)` |
+| `/schema` endpoint | Done | Provided by `create_app(...)` |
+| `/ws` WebSocket | Done | Provided by `create_app(...)` |
+| `/reset`, `/step`, `/state` HTTP | Done | Provided by `create_app(...)` |
 | `Rubric` for rewards | Done | `CompositeRedReward`, `CompositeBlueReward` (lazy-loaded in `RangeEnvironment._apply_rewards`) |
-| `openenv.yaml` manifest | Done | `openenv.yaml` at project root (name: open_range, version: 0.1.0) |
-| `Dockerfile` | Done | `server/Dockerfile` — Python 3.11-slim, docker.io + curl, healthcheck on `/health`, CMD uvicorn |
-| `python -m open_range.server` entry point | Done | `server/__main__.py` — starts uvicorn with `--host`, `--port`, `--reload`, `--log-level` flags |
+| `openenv.yaml` manifest | Done | Root `openenv.yaml` with `spec_version`, `type`, `runtime`, `app`, and `port` |
+| `Dockerfile` | Done | Root `Dockerfile` plus `server/Dockerfile`, both launching `uvicorn server.app:app` |
+| `python -m open_range.server` entry point | Done | `open_range.server.__main__` plus `server` console script |
 
-## Dual-Mode Server
+## Server Mode
 
-The server (`app.py`) operates in two modes:
+The server entrypoint is the standard OpenEnv app factory:
 
-1. **OpenEnv mode** — when `openenv` is installed, delegates to `openenv.core.env_server.create_app` which provides all endpoints automatically.
-2. **Standalone mode** — when `openenv` is not installed, runs a self-contained FastAPI app with equivalent HTTP endpoints (GET /health, GET /metadata, GET /schema, POST /reset, POST /step, GET /state) and a WebSocket endpoint at `/ws` with per-connection environment isolation.
-
-Both modes serve the same contract. The standalone fallback ensures the server works without the openenv package installed.
-
-### WebSocket Protocol
-
-The `/ws` endpoint accepts JSON messages with a `type` field:
-
-- `{"type": "reset"}` or `{"type": "reset", "seed": 42, "episode_id": "ep1"}` — reset the environment
-- `{"type": "step", "command": "nmap -sV 10.0.1.2", "mode": "red"}` — execute an action
-- `{"type": "state"}` — get current episode state
-
-Responses include a `type` field: `"observation"`, `"state"`, or `"error"`.
+- `open_range.server.app:create_app()` returns `create_app(RangeEnvironment, RangeAction, RangeObservation, env_name="open_range")`
+- `server.app:app` is the repository-level wrapper referenced by `openenv.yaml`
+- The OpenEnv-generated HTTP and WebSocket endpoints are the only public runtime contract
 
 ## Deployment
 

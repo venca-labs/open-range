@@ -31,14 +31,27 @@ Red and Blue operate on the **same infrastructure simultaneously**. Red's stealt
 ## Quick Start
 
 ```bash
-git clone https://github.com/open-cybernauts/open-range.git && cd open-range
-uv sync --all-extras
+# Install
+git clone https://github.com/open-cybernauts/open-range.git
+cd open-range
+uv sync
+
+# Optional: enable the LiteLLM-backed builder pipeline
+uv sync --extra builder
 
 # End-to-end demo (no Docker, no LLM)
 uv run python examples/demo.py
 
-# Run the server
-python -m open_range.server
+# Run the OpenEnv client against a running server
+uv run python examples/remote_client_demo.py --base-url http://localhost:8000
+
+# Run the FastAPI server
+uv run server                                   # default: 127.0.0.1:8000
+uv run server --port 9000                       # custom port
+uv run server --host 0.0.0.0                    # bind all interfaces
+
+# Or via uvicorn directly
+uv run uvicorn server.app:app --host 0.0.0.0 --port 8000 --reload
 
 # Tests
 uv run pytest tests/ -v --tb=short
@@ -49,6 +62,8 @@ uv run pytest tests/ -v --tb=short
 **Manifest** — YAML defining the legal world: hosts, zones, services, users, NPCs, data assets, credential policies, monitoring coverage, trust relationships, and which vulnerability classes the Builder may plant. Three example manifests ship (healthcare, fintech, SaaS) at tiers 1-3.
 
 **Builder** — Takes a manifest + curriculum context, outputs a `SnapshotSpec`: topology graph, truth graph (planted vulns + exploit chain), evidence graph (what Blue can find), flags, golden path, NPC traffic, and task briefings. Three implementations: `LLMSnapshotBuilder` (production, via litellm), `TemplateOnlyBuilder` (deterministic, for tests), `FileBuilder` (load from disk).
+
+The deployed package exposes the standard OpenEnv `reset()`, `step()`, and `state()` contract through `server.app:app`, which is the entrypoint referenced by `openenv.yaml`.
 
 **Validator** — 10-check admission pipeline. 8 mechanical checks (build/boot, exploitability, patchability, evidence sufficiency, reward grounding, isolation, task feasibility, difficulty calibration) + 2 LLM advisory checks (NPC consistency, realism review). Inverse mutation: patching each planted vuln must break its exploit step.
 
