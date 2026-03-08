@@ -181,7 +181,9 @@ class RangeEnvironment(Environment[RangeAction, RangeObservation, RangeState]):
             elif self._get_docker() is not None:
                 self._execution_mode = "docker"
             else:
-                self._execution_mode = "subprocess"
+                # Missing Docker must not silently change the environment
+                # semantics to host-shell execution. Degrade to mock mode.
+                self._execution_mode = "docker"
 
     # -----------------------------------------------------------------
     # Docker helpers
@@ -926,6 +928,20 @@ class RangeEnvironment(Environment[RangeAction, RangeObservation, RangeState]):
         snapshot.compose = compose
         return True
 
+    def _ensure_clean_reset_path(self, *, activated: bool) -> None:
+        """Reject live Docker resets that would overlay onto mutable containers."""
+        if activated or self._execution_mode != "docker":
+            return
+        if self._docker_available is False:
+            return
+        if self._get_docker() is None:
+            return
+        raise RuntimeError(
+            "Direct docker snapshot reset is disabled because it overlays mutable "
+            "container state across episodes. Use ManagedSnapshotRuntime or "
+            "explicitly opt into execution_mode='subprocess'."
+        )
+
     def _refresh_npc_traffic_log(self) -> None:
         """Pull latest NPC activity from the manager into the traffic log."""
         if self._npc_manager is not None:
@@ -1433,6 +1449,7 @@ class RangeEnvironment(Environment[RangeAction, RangeObservation, RangeState]):
         # Runtime-backed episodes boot a fresh project per reset. Manual/mock
         # snapshots still use direct artifact application.
         activated = self._activate_runtime_snapshot(self._snapshot, episode_id=eid)
+        self._ensure_clean_reset_path(activated=activated)
 
         # Start services BEFORE applying snapshot data so that daemons
         # (MySQL, slapd, etc.) are ready to receive SQL / LDIF payloads.

@@ -1,5 +1,7 @@
 """Tests for RangeEnvironment lifecycle — all run without Docker."""
 
+from unittest.mock import patch
+
 import pytest
 
 from open_range.protocols import (
@@ -71,6 +73,21 @@ class TestReset:
         env.reset(snapshot=_MINIMAL_SNAPSHOT)
         # In mock mode service health is unknown, but hosts should be tracked.
         assert set(env.state.services_status.keys()) == {"attacker", "siem"}
+
+    def test_auto_without_docker_uses_mock_docker_mode(self):
+        def fake_get_docker(self):
+            self._docker_available = False
+            return None
+
+        with patch.object(RangeEnvironment, "_get_docker", fake_get_docker):
+            env = RangeEnvironment(docker_available=None, execution_mode="auto")
+
+        env.reset(snapshot=_MINIMAL_SNAPSHOT)
+        obs = env.step(RangeAction(command="printf test", mode="red"))
+
+        assert env._execution_mode == "docker"
+        assert obs.stderr == ""
+        assert "[mock] executed on attacker" in obs.stdout
 
 
 class TestTargetResolution:

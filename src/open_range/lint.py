@@ -17,7 +17,7 @@ import sys
 from pathlib import Path
 from typing import Any
 
-from manifests.schema import Manifest, load_manifest
+from open_range.manifest_schema import Manifest, load_manifest
 
 
 # ---------------------------------------------------------------------------

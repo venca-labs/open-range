@@ -483,6 +483,22 @@ class TestManagedSnapshotRuntime:
 
 
 class TestEnvironmentRuntimeIntegration:
+    def test_reset_rejects_direct_live_docker_overlay(self):
+        snapshot = SnapshotSpec(
+            topology={"hosts": ["attacker", "siem", "web"]},
+            compose={"services": {"attacker": {}, "siem": {}, "web": {}}},
+            files={"web:/var/www/html/index.php": "<?php echo 'hi'; ?>"},
+            task={"red_briefing": "Go.", "blue_briefing": "Watch."},
+        )
+        env = RangeEnvironment(docker_available=True, execution_mode="docker")
+        env._get_docker = lambda: object()  # type: ignore[method-assign]
+
+        try:
+            with pytest.raises(RuntimeError, match="Direct docker snapshot reset is disabled"):
+                env.reset(snapshot=snapshot)
+        finally:
+            env.close()
+
     def test_reset_uses_managed_runtime_snapshot(self, tier1_manifest, tmp_path):
         runtime = ManagedSnapshotRuntime(
             manifest=tier1_manifest,
