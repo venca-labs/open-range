@@ -336,8 +336,7 @@ async def test_exploitability_skips_meta_commands(mock_containers):
     assert result.details["skipped_steps"] == [2]
 
 
-@pytest.mark.asyncio
-async def test_exploitability_fails_when_non_meta_step_has_no_expectation(mock_containers):
+async def test_exploitability_fails_when_expectation_missing_in_strict_mode(mock_containers):
     from open_range.validator.exploitability import ExploitabilityCheck
 
     spec = SnapshotSpec(
@@ -345,12 +344,31 @@ async def test_exploitability_fails_when_non_meta_step_has_no_expectation(mock_c
             GoldenPathStep(step=1, command="curl http://web/", expect_in_stdout=""),
         ],
     )
-    mock_containers.exec_results[("attacker", "curl http://web/")] = "ok"
+    mock_containers.exec_results[("attacker", "curl http://web/")] = "Welcome"
 
     result = await ExploitabilityCheck().check(spec, mock_containers)
     assert result.passed is False
+    assert result.details["require_expectation"] is True
+    assert result.details["failed_steps"][0]["error"] == (
+        "golden path step 1 has no expect_in_stdout"
+    )
+
+
+@pytest.mark.asyncio
+async def test_exploitability_allows_missing_expectation_in_lenient_mode(mock_containers):
+    from open_range.validator.exploitability import ExploitabilityCheck
+
+    spec = SnapshotSpec(
+        golden_path=[
+            GoldenPathStep(step=1, command="curl http://web/", expect_in_stdout=""),
+        ],
+    )
+    mock_containers.exec_results[("attacker", "curl http://web/")] = "Welcome"
+
+    result = await ExploitabilityCheck(require_expectation=False).check(spec, mock_containers)
+    assert result.passed is True
+    assert result.details["require_expectation"] is False
     assert result.details["unvalidated_steps"] == [1]
-    assert "missing expect_in_stdout" in result.error
 
 
 # ---------------------------------------------------------------------------

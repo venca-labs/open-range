@@ -91,6 +91,10 @@ ENV OPENRANGE_SNAPSHOT_POOL_SIZE=1
 # Enable the OpenEnv Gradio web interface at /web
 ENV ENABLE_WEB_INTERFACE=true
 
+# Clear any pre-existing snapshots so runtime always generates fresh ones
+# with current service specs from service_manifest.py
+RUN rm -rf /app/env/snapshots/* 2>/dev/null || true
+
 HEALTHCHECK --interval=30s --timeout=5s --start-period=60s --retries=3 \
     CMD python -c "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')" || exit 1
 

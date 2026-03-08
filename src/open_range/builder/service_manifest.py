@@ -56,6 +56,8 @@ _IMAGE_SERVICE_HINTS: dict[str, _ImageHint] = {
         [
             "mkdir -p /var/run/mysqld && chown mysql:mysql /var/run/mysqld 2>/dev/null || true",
             "mkdir -p /var/log/mysql && chown mysql:mysql /var/log/mysql 2>/dev/null || true",
+            # Ensure data directory is initialized (idempotent)
+            "test -d /var/lib/mysql/mysql || mysql_install_db --user=mysql --datadir=/var/lib/mysql 2>/dev/null || true",
         ],
         "mysqld --user=mysql --log-error={log_dir}/mysql.log &",
         ReadinessCheck(type="command", command="mysqladmin ping --silent 2>/dev/null || mariadb-admin ping --silent 2>/dev/null", timeout_s=30),
@@ -66,6 +68,8 @@ _IMAGE_SERVICE_HINTS: dict[str, _ImageHint] = {
         [
             "mkdir -p /var/run/mysqld && chown mysql:mysql /var/run/mysqld 2>/dev/null || true",
             "mkdir -p /var/log/mysql && chown mysql:mysql /var/log/mysql 2>/dev/null || true",
+            # Ensure data directory is initialized (idempotent)
+            "test -d /var/lib/mysql/mysql || mariadb-install-db --user=mysql --datadir=/var/lib/mysql 2>/dev/null || mysql_install_db --user=mysql --datadir=/var/lib/mysql 2>/dev/null || true",
         ],
         "mariadbd --user=mysql --log-error={log_dir}/mysql.log &",
         ReadinessCheck(type="command", command="mariadb-admin ping --silent 2>/dev/null || mysqladmin ping --silent 2>/dev/null", timeout_s=30),
@@ -100,7 +104,10 @@ _IMAGE_SERVICE_HINTS: dict[str, _ImageHint] = {
     "rsyslog": (
         "rsyslogd",
         ["rsyslog"],
-        [],
+        [
+            # Disable imklog (kernel log) — not available in containers
+            "sed -i '/imklog/s/^/#/' /etc/rsyslog.conf 2>/dev/null || true",
+        ],
         "rsyslogd -n > {log_dir}/rsyslog.log 2>&1 &",
         ReadinessCheck(type="command", command="pgrep -x rsyslogd", timeout_s=5),
     ),
@@ -118,7 +125,11 @@ _IMAGE_SERVICE_HINTS: dict[str, _ImageHint] = {
     "postfix": (
         "master",
         ["postfix"],
-        [],
+        [
+            # Ensure aliases DB exists and fix chroot dirs
+            "newaliases 2>/dev/null || true",
+            "mkdir -p /var/spool/postfix/pid 2>/dev/null || true",
+        ],
         "postfix start > {log_dir}/postfix.log 2>&1 || true",
         ReadinessCheck(type="tcp", port=25, timeout_s=10),
     ),

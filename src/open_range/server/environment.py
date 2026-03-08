@@ -15,6 +15,7 @@ from __future__ import annotations
 import logging
 import os
 import re
+import signal
 import shlex
 import socket
 import subprocess as sp
@@ -22,6 +23,30 @@ import time
 import urllib.request
 from typing import TYPE_CHECKING, Any
 from uuid import uuid4
+
+
+def _install_zombie_reaper() -> None:
+    """Install SIGCHLD handler to reap orphaned child processes.
+
+    When Python runs as PID 1 (e.g. in Docker containers), it doesn't
+    automatically reap zombie children.  This handler ensures service
+    daemons started via subprocess don't accumulate as zombies.
+    """
+    def _reap_children(signum: int, frame: Any) -> None:
+        while True:
+            try:
+                pid, _ = os.waitpid(-1, os.WNOHANG)
+                if pid == 0:
+                    break
+            except ChildProcessError:
+                break
+
+    signal.signal(signal.SIGCHLD, _reap_children)
+
+
+# Install at import time so it's active before any service starts
+if os.getpid() == 1:
+    _install_zombie_reaper()
 
 from openenv.core.env_server.interfaces import Environment
 from openenv.core.env_server.types import EnvironmentMetadata
@@ -543,8 +568,8 @@ class RangeEnvironment(Environment[RangeAction, RangeObservation, RangeState]):
     def _start_snapshot_services(self, snapshot: SnapshotSpec) -> None:
         """Start services based on snapshot spec (subprocess mode only).
 
-        The snapshot's ``services`` list is normally populated by the Renderer.
-        Older snapshots fall back to topology-derived service specs.
+        The snapshot's ``services`` list is normally populated by the renderer.
+        Snapshots without explicit service specs skip subprocess provisioning.
         """
         if self._execution_mode != "subprocess":
             return
@@ -615,7 +640,7 @@ class RangeEnvironment(Environment[RangeAction, RangeObservation, RangeState]):
             else svc.start_command
         )
 
-        # Run init commands
+        # Run init commands (isolated from PID 1's process group)
         for cmd in init_commands:
             try:
                 result = sp.run(
@@ -625,6 +650,7 @@ class RangeEnvironment(Environment[RangeAction, RangeObservation, RangeState]):
                     text=True,
                     env=env,
                     check=False,
+                    start_new_session=True,
                 )
                 if result.returncode != 0 and result.stderr:
                     logger.debug(
@@ -634,15 +660,20 @@ class RangeEnvironment(Environment[RangeAction, RangeObservation, RangeState]):
             except Exception as exc:
                 logger.warning("Init command failed for %s: %s", svc.daemon, exc)
 
-        # Start the daemon
+        # Start the daemon in a new session so it cannot send signals to
+        # PID 1 (uvicorn).  Ensure the command is backgrounded.
+        effective_cmd = start_command
+        if not effective_cmd.rstrip().endswith("&"):
+            effective_cmd = f"({effective_cmd}) &"
         try:
             result = sp.run(
-                ["bash", "-c", start_command],
+                ["bash", "-c", effective_cmd],
                 capture_output=True,
                 timeout=30,
                 text=True,
                 env=env,
                 check=False,
+                start_new_session=True,
             )
             if result.returncode != 0 and result.stderr:
                 logger.debug(
@@ -858,6 +889,15 @@ class RangeEnvironment(Environment[RangeAction, RangeObservation, RangeState]):
                 self._npc_traffic_log = self._npc_manager.get_traffic_log()
             except Exception as exc:
                 logger.debug("NPC traffic log refresh failed: %s", exc)
+
+    def _publish_console_state(self) -> None:
+        """Publish the latest snapshot/state to the operator console."""
+        try:
+            from open_range.server.console import publish_episode
+
+            publish_episode(self._snapshot, self._state)
+        except Exception:
+            pass
 
     # -----------------------------------------------------------------
     # Snapshot selection
@@ -1286,8 +1326,9 @@ class RangeEnvironment(Environment[RangeAction, RangeObservation, RangeState]):
         self._episode_start = time.time()
         self._episode_recorded = False
         try:
-            from open_range.server.console import clear_history
+            from open_range.server.console import clear_episode, clear_history
 
+            clear_episode()
             clear_history()
         except Exception:
             pass
@@ -1338,6 +1379,7 @@ class RangeEnvironment(Environment[RangeAction, RangeObservation, RangeState]):
             len(self._snapshot.golden_path or []),
         )
 
+        self._publish_console_state()
         return RangeObservation(stdout=briefing)
 
     def step(
@@ -1378,11 +1420,13 @@ class RangeEnvironment(Environment[RangeAction, RangeObservation, RangeState]):
 
         cmd_name = _extract_command_name(action.command)
         if not cmd_name:
-            return RangeObservation(
+            obs = RangeObservation(
                 stdout="",
                 stderr="Empty command",
                 done=self._state.step_count >= self._max_steps,
             )
+            self._publish_console_state()
+            return obs
 
         # Handle meta-commands (processed by environment, not forwarded to containers)
         meta_handlers = {
@@ -1398,6 +1442,7 @@ class RangeEnvironment(Environment[RangeAction, RangeObservation, RangeState]):
             obs = self._apply_rewards(action, obs)
             self._check_termination(obs)
             self._report_if_done(obs)
+            self._publish_console_state()
             return obs
 
         # Route to container
@@ -1453,6 +1498,7 @@ class RangeEnvironment(Environment[RangeAction, RangeObservation, RangeState]):
         self._check_termination(obs)
         self._report_if_done(obs)
 
+        self._publish_console_state()
         return obs
 
     @property
