@@ -249,5 +249,12 @@ class TestRunEpisodeCurriculumWiring:
                 return "noop"
 
         env = RangeEnvironment(docker_available=False, max_steps=2)
+        snapshot = SnapshotSpec(
+            topology={"hosts": ["attacker", "siem"]},
+            flags=[],
+            golden_path=[],
+            task=TaskSpec(red_briefing="Test.", blue_briefing="Test."),
+        )
+        env._select_snapshot = lambda **kw: snapshot
         result = run_episode(env, NoopAgent(), NoopAgent(), max_steps=2)
         assert result.outcome in ("red_win", "blue_win", "timeout")

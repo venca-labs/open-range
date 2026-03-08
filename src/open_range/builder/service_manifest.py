@@ -107,6 +107,8 @@ _IMAGE_SERVICE_HINTS: dict[str, _ImageHint] = {
         [
             # Disable imklog (kernel log) — not available in containers
             "sed -i '/imklog/s/^/#/' /etc/rsyslog.conf 2>/dev/null || true",
+            # Remove stale PID file from previous episode
+            "rm -f /run/rsyslogd.pid 2>/dev/null || true",
         ],
         "rsyslogd -n > {log_dir}/rsyslog.log 2>&1 &",
         ReadinessCheck(type="command", command="pgrep -x rsyslogd", timeout_s=5),
@@ -379,8 +381,13 @@ def _from_topology(
     topology: dict[str, Any],
     seen_identities: set[tuple[str, str]],
 ) -> list[ServiceSpec]:
-    """Generate specs from the topology hosts list (fallback path)."""
+    """Generate specs from the topology hosts list (fallback path).
+
+    Deduplicates on daemon name to avoid starting the same service twice
+    (e.g. both ``firewall`` and ``siem`` map to ``rsyslogd``).
+    """
     specs: list[ServiceSpec] = []
+    seen_daemons: set[str] = set()
     hosts = topology.get("hosts", [])
 
     for host_entry in hosts:
@@ -397,6 +404,14 @@ def _from_topology(
             continue
 
         daemon = hint[0]
+        # Skip if we already have a spec for this daemon process
+        if daemon in seen_daemons:
+            logger.debug(
+                "Skipping duplicate daemon %s for host %s", daemon, host_name
+            )
+            continue
+        seen_daemons.add(daemon)
+
         identity = (host_name, daemon)
         if identity in seen_identities:
             continue

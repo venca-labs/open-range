@@ -15,7 +15,7 @@ from __future__ import annotations
 import json
 import tempfile
 from pathlib import Path
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 import pytest
 
@@ -411,10 +411,15 @@ class TestEnvironmentServiceLifecycle:
         # Should not raise or attempt to start anything
         env._start_snapshot_services(snapshot)
 
+    @patch("subprocess.Popen")
     @patch("subprocess.run")
-    def test_start_snapshot_services_subprocess_mode(self, mock_run):
+    def test_start_snapshot_services_subprocess_mode(self, mock_run, mock_popen):
         """_start_snapshot_services starts declared services in subprocess mode."""
         from open_range.server.environment import RangeEnvironment
+
+        # Mock Popen to return an object with a wait() method
+        mock_proc = MagicMock()
+        mock_popen.return_value = mock_proc
 
         env = RangeEnvironment(docker_available=False, execution_mode="subprocess")
         snapshot = SnapshotSpec(
@@ -430,8 +435,9 @@ class TestEnvironmentServiceLifecycle:
             ],
         )
         env._start_snapshot_services(snapshot)
-        # Should have called subprocess.run at least for init + start
-        assert mock_run.call_count >= 2
+        # Init commands use subprocess.run, daemon start uses Popen
+        assert mock_run.call_count >= 1  # init command
+        assert mock_popen.call_count >= 1  # daemon start
 
     def test_start_services_empty_skips(self):
         """When no services are declared, logs and skips provisioning."""

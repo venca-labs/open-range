@@ -10,18 +10,41 @@ Stateful tests use WebSocket sessions.
 from __future__ import annotations
 
 import json
+from unittest.mock import patch
 
 import pytest
 from starlette.testclient import TestClient
 
-from open_range.server.app import create_app
+from open_range.protocols import SnapshotSpec
+
+
+_TEST_SNAPSHOT = SnapshotSpec(
+    topology={"hosts": ["attacker", "siem"]},
+    flags=[],
+    golden_path=[],
+    task={
+        "red_briefing": "Test mode — app endpoint tests.",
+        "blue_briefing": "Test mode — app endpoint tests.",
+    },
+)
 
 
 @pytest.fixture()
 def client():
-    """Create a TestClient against a fresh app instance."""
-    app = create_app()
-    return TestClient(app)
+    """Create a TestClient against a fresh app instance.
+
+    Patches ``_select_snapshot`` so HTTP /reset works without a
+    ManagedSnapshotRuntime (which requires a manifest and snapshot
+    store on disk).
+    """
+    with patch(
+        "open_range.server.environment.RangeEnvironment._select_snapshot",
+        return_value=_TEST_SNAPSHOT,
+    ):
+        from open_range.server.app import create_app
+
+        app = create_app()
+        yield TestClient(app)
 
 
 # ===================================================================

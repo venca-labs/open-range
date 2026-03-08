@@ -13,9 +13,20 @@ from __future__ import annotations
 import pytest
 from starlette.testclient import TestClient
 
+from open_range.protocols import SnapshotSpec
 from open_range.server.app import create_app
 from open_range.server.console import clear_history, record_action
 from open_range.server.environment import RangeEnvironment
+
+_TEST_SNAPSHOT = SnapshotSpec(
+    topology={"hosts": ["attacker", "siem"]},
+    flags=[],
+    golden_path=[],
+    task={
+        "red_briefing": "Console test mode.",
+        "blue_briefing": "Console test mode.",
+    },
+)
 
 
 @pytest.fixture()
@@ -74,7 +85,7 @@ class TestSnapshotAPI:
         assert data["id"] is None
 
     def test_snapshot_after_reset(self, client: TestClient, env: RangeEnvironment):
-        env.reset(episode_id="snap_test_1")
+        env.reset(snapshot=_TEST_SNAPSHOT, episode_id="snap_test_1")
         data = client.get("/console/api/snapshot").json()
         assert data["id"] == "snap_test_1"
         assert "hosts" in data
@@ -84,7 +95,7 @@ class TestSnapshotAPI:
 
     def test_snapshot_no_truth_graph_or_flags(self, client: TestClient, env: RangeEnvironment):
         """Snapshot API must NOT leak truth_graph or flag values."""
-        env.reset()
+        env.reset(snapshot=_TEST_SNAPSHOT)
         data = client.get("/console/api/snapshot").json()
         assert "truth_graph" not in data
         assert "flags" not in data
@@ -104,7 +115,7 @@ class TestEpisodeAPI:
         assert isinstance(data, dict)
 
     def test_episode_fields(self, client: TestClient, env: RangeEnvironment):
-        env.reset()
+        env.reset(snapshot=_TEST_SNAPSHOT)
         data = client.get("/console/api/episode").json()
         assert "step_count" in data
         assert "flags_found" in data
@@ -114,7 +125,7 @@ class TestEpisodeAPI:
     def test_episode_step_count_updates(self, client: TestClient, env: RangeEnvironment):
         from open_range.server.models import RangeAction
 
-        env.reset()
+        env.reset(snapshot=_TEST_SNAPSHOT)
         data = client.get("/console/api/episode").json()
         assert data["step_count"] == 0
 
@@ -162,7 +173,7 @@ class TestHistoryAPI:
     def test_history_updates_from_environment_steps(self, client: TestClient, env: RangeEnvironment):
         from open_range.server.models import RangeAction
 
-        env.reset()
+        env.reset(snapshot=_TEST_SNAPSHOT)
         env.step(RangeAction(command="nmap -sV web", mode="red"))
         data = client.get("/console/api/history").json()
         assert len(data) == 1
