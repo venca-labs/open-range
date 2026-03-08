@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+import asyncio
 import importlib
+import inspect
 from typing import Any
 
 from fastapi import FastAPI
@@ -12,12 +14,30 @@ from pydantic import ValidationError
 
 from open_range.client.client import OpenRangeEnv
 from open_range.models import RangeAction, RangeObservation, RangeState
+from open_range.server.app import create_app
 from open_range.server.environment import RangeEnvironment
+from openenv.core.env_server.types import Action, Observation, State
+
+
+def _call_route_endpoint(app: FastAPI, path: str, method: str = "GET") -> Any:
+    """Invoke a route endpoint directly for lightweight schema checks."""
+    for route in app.routes:
+        methods = getattr(route, "methods", set())
+        if getattr(route, "path", None) != path or method not in methods:
+            continue
+        result = route.endpoint()
+        if inspect.isawaitable(result):
+            return asyncio.run(result)
+        return result
+    raise AssertionError(f"Route {method} {path} not found")
 
 
 class TestModelContract:
     def test_models_do_not_redeclare_inherited_openenv_fields(self):
         # These fields must stay inherited from OpenEnv base models.
+        assert issubclass(RangeAction, Action)
+        assert issubclass(RangeObservation, Observation)
+        assert issubclass(RangeState, State)
         assert "metadata" not in RangeAction.__annotations__
         assert "done" not in RangeObservation.__annotations__
         assert "reward" not in RangeObservation.__annotations__
@@ -82,6 +102,39 @@ class TestAppFactoryContract:
         paths = {route.path for route in app.router.routes}
         required_paths = {"/health", "/metadata", "/schema", "/reset", "/step", "/state", "/ws"}
         assert required_paths.issubset(paths)
+
+    def test_create_app_exposes_openenv_server_state(self, monkeypatch):
+        monkeypatch.delenv("OPENRANGE_ENABLE_MANAGED_RUNTIME", raising=False)
+        monkeypatch.delenv("OPENRANGE_RUNTIME_MANIFEST", raising=False)
+
+        app = create_app()
+
+        assert hasattr(app.state, "openenv_server")
+        assert isinstance(app.state.env, RangeEnvironment)
+        assert hasattr(app.state.openenv_server, "_sessions")
+        assert app.state.openenv_server.active_sessions == 0
+
+    def test_schema_endpoints_expose_expected_contract_shapes(self, monkeypatch):
+        monkeypatch.delenv("OPENRANGE_ENABLE_MANAGED_RUNTIME", raising=False)
+        monkeypatch.delenv("OPENRANGE_RUNTIME_MANIFEST", raising=False)
+
+        app = create_app()
+
+        health_payload = _call_route_endpoint(app, "/health")
+        assert health_payload.model_dump() == {"status": "healthy"}
+
+        metadata_payload = _call_route_endpoint(app, "/metadata").model_dump()
+        assert metadata_payload["name"] == "open_range"
+        assert isinstance(metadata_payload["version"], str) and metadata_payload["version"]
+        assert isinstance(metadata_payload["description"], str) and metadata_payload["description"]
+
+        payload = _call_route_endpoint(app, "/schema").model_dump()
+        assert payload["action"]["properties"]["command"]["type"] == "string"
+        assert payload["action"]["properties"]["mode"]["enum"] == ["red", "blue"]
+        assert "stdout" in payload["observation"]["properties"]
+        assert "done" in payload["observation"]["properties"]
+        assert "episode_id" in payload["state"]["properties"]
+        assert "step_count" in payload["state"]["properties"]
 
 
 class TestClientContract:
