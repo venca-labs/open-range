@@ -2,27 +2,40 @@
 
 ## Overview
 
-**LLM generates, rules validate.** The builder uses LiteLLM to generate candidate company snapshots. The validator is purely mechanical -- executable checks against live containers, no LLM judgment.
+**LLM generates, renderer materializes, rules validate.** The builder uses LiteLLM to generate candidate snapshot specs as structured JSON. The renderer turns specs into Docker artifacts via Jinja2 templates. The validator runs a 10-check admission pipeline (8 mechanical + 2 LLM advisory) before admitting a snapshot.
 
-Snapshot creation happens **asynchronously between episodes**. `reset()` picks a pre-validated frozen snapshot. No LLM calls in the hot path.
+Snapshot creation happens **asynchronously between episodes**. `reset()` picks a pre-validated frozen snapshot from the `SnapshotStore`. No LLM calls in the hot path.
 
 ```mermaid
 flowchart LR
     MF[Manifest<br/>legal family] --> BLD[Builder LLM<br/>via LiteLLM]
     CURR[Curriculum stats<br/>solve rates, weaknesses] --> BLD
-    BLD --> SNAP[Candidate snapshot<br/>topology, truth graph,<br/>evidence, tasks, docker artifacts]
-    SNAP --> VAL{Validator gate<br/>mechanical checks only}
-    VAL -->|pass| STORE[Snapshot store<br/>frozen, ready for reset]
+    BLD --> SPEC[Candidate SnapshotSpec<br/>topology, truth graph,<br/>evidence, tasks]
+    SPEC --> RND[SnapshotRenderer<br/>Jinja2 templates]
+    RND --> ART[Docker artifacts<br/>compose, Dockerfiles,<br/>nginx, init.sql, iptables]
+    ART --> VAL{Validator gate<br/>8 mechanical +<br/>2 LLM advisory}
+    VAL -->|pass| STORE[SnapshotStore<br/>frozen, ready for reset]
     VAL -->|fail| BLD
 
     style BLD fill:#ff6b6b,color:#fff
+    style RND fill:#4ecdc4,color:#fff
     style VAL fill:#ffd93d,color:#333
     style STORE fill:#6bcb77,color:#fff
 ```
 
 ## Builder (LLM via LiteLLM)
 
-The Builder generates complete enterprise snapshots from YAML manifests. It runs asynchronously, producing a queue of validated snapshots that `reset()` draws from.
+Three builder implementations share the same `SnapshotBuilder` protocol (`async def build(manifest, context) -> SnapshotSpec`):
+
+| Class | Use case | LLM? |
+|-------|----------|------|
+| `LLMSnapshotBuilder` | Production -- generates specs via LiteLLM | Yes |
+| `TemplateOnlyBuilder` | Testing -- deterministic, picks from hardcoded vuln pool by seed | No |
+| `FileBuilder` | Demos -- loads a pre-built snapshot JSON from disk | No |
+
+All three live in `src/open_range/builder/builder.py`.
+
+The `LLMSnapshotBuilder` generates complete enterprise snapshots from YAML manifests. It runs asynchronously, producing a queue of validated snapshots that `reset()` draws from.
 
 ### Input
 
@@ -211,49 +224,102 @@ The Builder outputs a structured JSON snapshot spec. The LLM does the creative w
 
 ### LiteLLM Integration
 
-```python
-import litellm
+`LLMSnapshotBuilder.__init__` accepts `model`, `prompt_template`, `temperature`, and `max_retries` (default 3). On failure, it retries with the error context appended as an extra user message.
 
-response = litellm.completion(
-    model=os.environ.get("OPENRANGE_BUILDER_MODEL", "anthropic/claude-sonnet-4-20250514"),
+```python
+# Simplified -- see builder.py for full retry + error-feedback logic
+response = await litellm.acompletion(
+    model=self.model,   # default: "anthropic/claude-sonnet-4-20250514"
     messages=[
-        {"role": "system", "content": BUILDER_SYSTEM_PROMPT},
+        {"role": "system", "content": self.prompt_template},
         {"role": "user", "content": json.dumps({
-            "manifest": manifest_dict,
-            "runtime_context": runtime_context,
-        })}
+            "manifest": manifest,
+            "runtime_context": context.model_dump(),
+        }, indent=2)},
     ],
     response_format={"type": "json_object"},
-    temperature=0.7,
+    temperature=self.temperature,   # default: 0.7
 )
-snapshot_spec = json.loads(response.choices[0].message.content)
+spec = _parse_llm_response(response.choices[0].message.content)
 ```
+
+The internal `_parse_llm_response()` function handles schema differences between the LLM's raw JSON output and the `SnapshotSpec` Pydantic model (e.g. `expect_stdout` -> `expect_in_stdout`, dict-shaped `evidence_spec` -> `list[EvidenceItem]`).
 
 Configure via environment:
 - `OPENRANGE_BUILDER_MODEL` -- any LiteLLM-supported model string
 - Model-specific keys: `ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, `OLLAMA_API_BASE`, etc.
 
-### Template Layer
+### SnapshotRenderer (Template Layer)
 
-The LLM generates the structured spec. A thin template layer renders it into Docker artifacts:
+The `SnapshotRenderer` (`src/open_range/builder/renderer.py`) takes a validated `SnapshotSpec` and renders Jinja2 templates into Docker artifacts. This separates the LLM's creative work (designing vulnerabilities, code, exploit chains) from mechanical file rendering.
+
+```python
+renderer = SnapshotRenderer()           # uses built-in template dir
+output_dir = renderer.render(spec, Path("./output"))
+```
+
+`SnapshotRenderer.render(spec, output_dir)` iterates over the template map, builds a context dict from the `SnapshotSpec` (topology, zones, users, flags, vuln types, firewall rules), and writes each rendered file to `output_dir`.
 
 | Template | Renders from | Output |
 |----------|-------------|--------|
-| `docker-compose.yml.j2` | topology, zones, firewall_rules | Compose file with networks and services |
-| `Dockerfile.web.j2` | topology.hosts[web] | nginx + PHP app container |
-| `Dockerfile.db.j2` | topology.hosts[db] | MySQL with schema |
-| `nginx.conf.j2` | vuln injection points | Web server config |
-| `app.php.j2` | vulnerable_code from truth_graph | Vulnerable application code |
-| `init.sql.j2` | users, flags, app data | Database initialization |
-| `smb.conf.j2` | files host config | Samba share configuration |
-| `slapd.conf.j2` | users, groups | LDAP directory setup |
-| `iptables.rules.j2` | firewall_rules | Firewall rule set |
-| `npc_traffic.sh.j2` | npc_traffic rates | Background traffic scripts |
-| `npc_personas.yaml.j2` | npc_personas array | Persona cards for LLM-driven NPCs |
+| `docker-compose.yml.j2` | topology (hosts, zones, networks, users) | Compose file with networks and services |
+| `Dockerfile.web.j2` | users, app_files, flags | nginx + PHP app container |
+| `Dockerfile.db.j2` | db_user, db_pass, mysql_root_password | MySQL with schema |
+| `nginx.conf.j2` | vuln injection points (search/download endpoints auto-detected from vuln types) | Web server config |
+| `init.sql.j2` | users, flags | Database initialization |
+| `iptables.rules.j2` | firewall_rules, zone_cidrs | Firewall rule set |
 
-## Validator Gate (Mechanical Primary, LLM Advisory)
+The renderer auto-detects which nginx endpoint blocks to enable by inspecting vuln types and injection points (e.g. `sqli` or `q=` in injection points enables the search endpoint; `path_traversal` or `file=` enables the download endpoint).
 
-The validator is a **configurable pipeline of checks**. Checks 1-7 are mechanical -- executable scripts against live containers, deterministic pass/fail. Check 8 is an optional LLM realism review -- advisory, can trigger retry but never overrides a mechanical pass.
+### Mutator
+
+The `Mutator` (`src/open_range/builder/mutator.py`) wraps any `SnapshotBuilder` and adds mutation-specific context: ensuring vuln diversity, targeting weak areas, and feeding back error context from failed validations.
+
+```python
+mutator = Mutator(builder=LLMSnapshotBuilder(), max_retries=3)
+snapshot = await mutator.mutate(manifest, context=build_context, error=prev_error)
+```
+
+It tracks episode history internally:
+- `previous_vuln_classes` (last 3) -- injected into `BuildContext` so the builder avoids repeats
+- `recent_attack_surfaces` (last 5) -- injected so the builder varies injection points
+- `episode_count` -- monotonically increasing
+
+On each `mutate()` call, these are populated into the `BuildContext` before delegating to the underlying builder's `build()` method. If an `error` dict is provided (from a failed validation), it is attached to the context so the builder can correct the issue.
+
+### SnapshotStore
+
+The `SnapshotStore` (`src/open_range/builder/snapshot_store.py`) persists validated snapshots as frozen JSON under `snapshots/<id>/spec.json` with a `metadata.json` sidecar for fast listing.
+
+| Method | Description |
+|--------|-------------|
+| `async store(snapshot, snapshot_id=None) -> str` | Save a validated snapshot. Auto-generates ID from vuln types + timestamp if not provided. Writes `spec.json` + `metadata.json`. |
+| `async select(strategy="latest") -> SnapshotSpec` | Select a snapshot. Strategies: `"latest"` (most recent by mtime), `"random"` (uniform). |
+| `async list_snapshots() -> list[dict]` | List all snapshots with metadata (vuln classes, golden path steps, flag count, NPC count, stored_at). Sorted by `stored_at` descending. |
+| `async get(snapshot_id) -> SnapshotSpec` | Load a specific snapshot by ID. Raises `FileNotFoundError` if missing. |
+
+```python
+store = SnapshotStore(store_dir="snapshots")
+sid = await store.store(validated_snapshot)          # -> "snap_sqli_idor_1741234567"
+snap = await store.select(strategy="random")         # -> SnapshotSpec
+all_meta = await store.list_snapshots()              # -> [{"snapshot_id": ..., ...}, ...]
+snap = await store.get("snap_sqli_idor_1741234567")  # -> SnapshotSpec
+```
+
+### Prompts
+
+System prompts live in `src/open_range/builder/prompts.py`:
+
+| Constant | Used by | Purpose |
+|----------|---------|---------|
+| `BUILDER_SYSTEM_PROMPT` | `LLMSnapshotBuilder` | Instructs the LLM to generate structured JSON snapshot specs from manifests. Includes output schema, 10 rules (topology fidelity, vuln diversity, auth realism, golden path calibration, no flag leaks, etc.), and a worked example. |
+| `REALISM_REVIEW_PROMPT` | `RealismReviewCheck` | Instructs the validator LLM to check for briefing leakage, scenario plausibility, difficulty match, and narrative coherence. Returns `{pass, issues}`. |
+
+## Validator Gate (8 Mechanical + 2 LLM Advisory)
+
+The `ValidatorGate` (`src/open_range/validator/validator.py`) is a **configurable pipeline of `ValidatorCheck` instances** run in sequence. Checks 1-8 are mechanical -- executable scripts against live containers, deterministic pass/fail. Checks 9-10 are LLM-based advisory checks -- they can trigger retry but never block admission on their own.
+
+The gate uses **fail-fast** semantics: the first mechanical (non-advisory) failure stops the pipeline. Advisory checks (determined by membership in `_ADVISORY_CHECK_CLASSES = {"NPCConsistencyCheck", "RealismReviewCheck"}`) are always recorded but never prevent an overall pass.
 
 R2E-Gym found execution-only validation plateaus at ~43% and LLM-only at ~43%. Combined: 51%. Both matter.
 
@@ -291,8 +357,8 @@ flowchart LR
 | **6. Isolation + leakage** | Network segmentation holds, no answer leaks | Attacker tries to reach internal directly; grep task briefings for flag values | Connection refused; no flag strings in briefings |
 | **7. Task feasibility** | Tasks are solvable given the topology | Red tasks reference reachable hosts/services; Blue tasks reference existing logs/evidence | Every task action has a target that exists and is reachable |
 | **8. Difficulty calibration** | Golden path length matches tier target | Count golden path steps, compare against tier thresholds | Step count within +/-20% of tier target |
-| **9. NPC consistency** | Personas behave per security_awareness | Send calibrated test phishing to each NPC persona | High-awareness NPCs reject, low-awareness NPCs fall for well-crafted lures |
-| **10. Realism review** (LLM, optional) | Scenario is realistic and non-leaking | LLM reviews briefings, vuln context, difficulty | No flag values in briefings, vuln plausible for host, difficulty matches tier |
+| **9. NPC consistency** (LLM, advisory) | Personas behave per security_awareness | Phase 1: mechanical persona card validation (awareness/susceptibility ranges). Phase 2: LLM sends calibrated test phishing to each NPC via `litellm.acompletion` | High-awareness (>=0.8) NPCs reject; low-awareness (<=0.3) NPCs fall for lures; susceptibility scores consistent with awareness |
+| **10. Realism review** (LLM, advisory) | Scenario is realistic and non-leaking | LLM reviews redacted summary (briefings, vuln types, vuln hosts, topology hosts, golden path length, tier) via `litellm.acompletion` | No flag values in briefings, vuln plausible for host, difficulty matches tier, narrative coherent |
 
 ### Check 7: Task Feasibility
 
@@ -335,10 +401,12 @@ If patching a vuln doesn't break the golden path, the vuln is decorative -- the 
 ### Failure Handling
 
 ```
-Builder generates candidate snapshot
+Builder generates candidate SnapshotSpec
+  -> SnapshotRenderer renders templates to Docker artifacts
   -> Validator builds + boots containers
-  -> Runs 6 admission checks
-  -> Any fail -> Builder receives failure context, generates new snapshot
+  -> Runs 10 admission checks (8 mechanical fail-fast, 2 LLM advisory)
+  -> Any mechanical fail -> Builder receives failure context, generates new snapshot
+  -> Advisory fails -> logged, may trigger retry, never blocks on their own
   -> 3 consecutive failures -> Flag for human review, use last known-good snapshot
 ```
 
@@ -360,7 +428,7 @@ Every admission decision is logged for quality monitoring:
     "isolation_leakage": {"pass": true, "time_s": 4.0},
     "task_feasibility": {"pass": true, "time_s": 1.2},
     "difficulty_calibration": {"pass": true, "time_s": 0.3},
-    "npc_consistency": {"pass": true, "time_s": 6.1},
+    "npc_consistency": {"pass": true, "time_s": 6.1, "advisory": true},
     "realism_review": {"pass": true, "time_s": 3.8, "advisory": true}
   },
   "total_time_s": 45.1,
@@ -458,30 +526,43 @@ Blue sees the **effects** in logs, never the NPC's internal reasoning:
 | 3 | Voice | TTS/STT (Whisper + voice synthesis) | Vishing + voice phishing detection |
 | 4 | Documents | Multimodal LLM (vision) | Malicious document analysis |
 
-### Validator Check 9: NPC Consistency
+### Validator Check 9: NPC Consistency (`NPCConsistencyCheck`)
 
-For each NPC persona in the snapshot:
-1. Send a **calibrated test phishing email** matching the persona's role
-2. NPC with `security_awareness >= 0.8` MUST reject/report it
-3. NPC with `security_awareness <= 0.3` MUST fall for a well-crafted lure
-4. Verify communication style matches persona (formal CISO vs casual intern)
-5. Verify NPC never leaks flag values or truth graph details
+Fully implemented in `src/open_range/validator/npc_consistency.py` with two phases. Always advisory.
 
-### Validator Check 10: Realism Review (LLM, Optional)
+**Phase 1 -- Mechanical persona card validation** (no LLM):
+- `security_awareness` must be in [0.0, 1.0]
+- High-awareness (>=0.8) NPCs must have all susceptibility scores <= 0.5
+- Low-awareness (<=0.3) NPCs must have at least one susceptibility score >= 0.3
+- If mechanical checks fail, phase 2 is skipped
 
-This is the **only LLM call** in the validator pipeline. It is advisory -- can trigger a retry but never overrides a mechanical pass. Configurable via the `ValidatorCheck` protocol; remove it from the check list to run fully mechanical.
+**Phase 2 -- LLM behavioral testing** (via `litellm.acompletion`):
+1. For each NPC with clear high (>=0.8) or low (<0.3) awareness, send a **calibrated test phishing email** using `_PHISHING_TEMPLATE` (role-targeted urgent password reset)
+2. LLM responds in character using `NPC_CONSISTENCY_PROMPT`, returning `{action, reasoning, suspicious_elements_noticed}`
+3. High-awareness NPCs MUST reject (action in `{ignore, report_to_it, forward}`)
+4. Low-awareness NPCs SHOULD fall for it (action in `{click_link, reply_with_credentials, open_attachment, share_credentials}`)
+5. LLM failures degrade gracefully -- not counted as persona issues
 
-The LLM reviews the snapshot for issues that mechanical checks can't catch:
+If no NPC personas are configured, the check passes vacuously.
+
+Configure model via `OPENRANGE_NPC_MODEL` env var (default: `anthropic/claude-haiku-4-5-20251001`).
+
+### Validator Check 10: Realism Review (`RealismReviewCheck`)
+
+Fully implemented in `src/open_range/validator/realism_review.py`. One of two LLM calls in the validator pipeline (the other is Check 9). Always advisory -- can trigger a retry but never overrides a mechanical pass. Configurable via the `ValidatorCheck` protocol; remove it from the check list to run fully mechanical.
+
+The LLM reviews a **redacted summary** of the snapshot for issues that mechanical checks cannot catch:
 
 1. **Briefing leakage**: Do task briefings hint at the vuln class or leak exploitation details?
 2. **Scenario plausibility**: Does the vulnerability make sense for this host/service? (e.g., SQLi on a static file server is implausible)
 3. **Difficulty calibration**: Is the golden path step count appropriate for the tier?
-4. **Narrative coherence**: Do the company name, user roles, and service configurations form a believable enterprise?
-5. **Description alignment**: Does the challenge description match the planted vulns without leaking the answer?
+4. **Narrative coherence**: Do the hosts and services form a believable enterprise network?
+
+The prompt is defined in `src/open_range/builder/prompts.py` as `REALISM_REVIEW_PROMPT`.
 
 ```python
 class RealismReviewCheck:
-    """LLM-based realism review. Advisory only."""
+    """LLM-based realism review. Always advisory."""
 
     def __init__(self, model: str | None = None):
         self.model = model or os.environ.get(
@@ -489,26 +570,36 @@ class RealismReviewCheck:
         )
 
     async def check(self, snapshot, containers) -> CheckResult:
+        # Build redacted summary -- never expose flags or golden-path commands
+        summary = {
+            "task_briefings": {
+                "red_briefing": snapshot.task.red_briefing,
+                "blue_briefing": snapshot.task.blue_briefing,
+            },
+            "vuln_types": [v.type for v in snapshot.truth_graph.vulns],
+            "vuln_hosts": [v.host for v in snapshot.truth_graph.vulns],
+            "topology_hosts": snapshot.topology.get("hosts", []),
+            "golden_path_length": len(snapshot.golden_path),
+            "tier": snapshot.topology.get("tier", 1),
+        }
         response = await litellm.acompletion(
             model=self.model,
             messages=[
                 {"role": "system", "content": REALISM_REVIEW_PROMPT},
-                {"role": "user", "content": json.dumps({
-                    "task_briefings": snapshot.task,
-                    "vuln_types": [v.type for v in snapshot.truth_graph.vulns],
-                    "topology_summary": snapshot.topology_summary(),
-                    "golden_path_length": len(snapshot.golden_path),
-                    "tier": snapshot.tier,
-                })},
+                {"role": "user", "content": json.dumps(summary)},
             ],
             response_format={"type": "json_object"},
+            temperature=0.0,
         )
         review = json.loads(response.choices[0].message.content)
         return CheckResult(
+            name="realism_review",
             passed=review["pass"],
-            details=review.get("issues", []),
+            details={"issues": review.get("issues", []), "model": self.model},
             advisory=True,  # Never overrides mechanical checks
         )
 ```
 
-**Important**: The LLM never sees flag values, vulnerable code, or golden path commands. It sees only summaries and briefings -- enough to judge realism, not enough to leak answers.
+LLM failures degrade gracefully -- if `litellm.acompletion` raises, the check returns `passed=True` with a note, so it never blocks validation.
+
+**Important**: The LLM never sees flag values, vulnerable code, or golden path commands. It sees only vuln types, vuln hosts, topology hosts, briefings, golden path length, and tier -- enough to judge realism, not enough to leak answers.

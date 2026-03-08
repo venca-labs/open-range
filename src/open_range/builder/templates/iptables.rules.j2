@@ -1,0 +1,37 @@
+*filter
+:INPUT ACCEPT [0:0]
+:FORWARD DROP [0:0]
+:OUTPUT ACCEPT [0:0]
+
+# Allow established connections
+-A FORWARD -m state --state RELATED,ESTABLISHED -j ACCEPT
+
+# Allow loopback
+-A INPUT -i lo -j ACCEPT
+
+{% for rule in firewall_rules %}
+{% if rule.action == 'allow' %}
+{% for port in rule.ports %}
+# Allow {{ rule.from_zone }} -> {{ rule.to_zone }} port {{ port }}
+-A FORWARD -s {{ zone_cidrs.get(rule.from_zone, '0.0.0.0/0') }} -d {{ zone_cidrs.get(rule.to_zone, '0.0.0.0/0') }} -p tcp --dport {{ port }} -j ACCEPT
+{% endfor %}
+{% if not rule.ports %}
+# Allow {{ rule.from_zone }} -> {{ rule.to_zone }} all ports
+-A FORWARD -s {{ zone_cidrs.get(rule.from_zone, '0.0.0.0/0') }} -d {{ zone_cidrs.get(rule.to_zone, '0.0.0.0/0') }} -j ACCEPT
+{% endif %}
+{% elif rule.action == 'deny' %}
+# Deny {{ rule.from_zone }} -> {{ rule.to_zone }}
+-A FORWARD -s {{ zone_cidrs.get(rule.from_zone, '0.0.0.0/0') }} -d {{ zone_cidrs.get(rule.to_zone, '0.0.0.0/0') }} -j DROP
+{% endif %}
+{% endfor %}
+
+# Default deny forward
+-A FORWARD -j DROP
+
+# Allow SSH to firewall for management
+-A INPUT -p tcp --dport 22 -j ACCEPT
+
+# Log dropped packets
+-A FORWARD -j LOG --log-prefix "iptables-dropped: " --log-level 4
+
+COMMIT

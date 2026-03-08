@@ -50,7 +50,7 @@ flowchart LR
 
 ## Key Principle
 
-**LLM generates, rules validate.** The builder/mutator uses LiteLLM (any model -- Claude, GPT-4o, open models) to generate snapshots creatively. The validator gate is primarily mechanical: 7 deterministic checks against live containers. An optional 8th check uses an LLM for realism review (advisory only -- can trigger retry but never overrides mechanical pass). Rewards are grounded in container state, never LLM-evaluated.
+**LLM generates, rules validate.** The builder/mutator uses LiteLLM (any model -- Claude, GPT-4o, open models) to generate snapshots creatively. The validator gate runs a 10-check admission pipeline: 8 mechanical checks (deterministic, no LLM) plus 2 LLM advisory checks (configurable, removable). Advisory failures can trigger retry but never override a mechanical pass. Rewards are grounded in container state, never LLM-evaluated.
 
 ## Infrastructure
 
@@ -135,19 +135,47 @@ sequenceDiagram
     Note over B: Topology graph, truth graph,<br/>evidence spec, task set,<br/>Dockerfiles, configs, app code
 
     B->>V: Candidate snapshot artifacts
-    V->>V: 1. Build + boot all containers
-    V->>V: 2. Exploitability: run truth path
-    V->>V: 3. Patchability: revert bug, path breaks
-    V->>V: 4. Evidence sufficiency
-    V->>V: 5. Reward grounding check
-    V->>V: 6. Isolation + leakage check
+    V->>V: 1. BuildBootCheck: compose up + healthchecks
+    V->>V: 2. ExploitabilityCheck: golden path end-to-end
+    V->>V: 3. PatchabilityCheck: inverse mutation test
+    V->>V: 4. EvidenceSufficiencyCheck: logs + alerts exist
+    V->>V: 5. RewardGroundingCheck: rubrics produce valid scores
+    V->>V: 6. IsolationLeakageCheck: zones enforced, no flag leaks
+    V->>V: 7. TaskFeasibilityCheck: hosts/evidence/vulns reachable
+    V->>V: 8. DifficultyCheck: golden path steps ±20% of tier target
+    V->>V: 9. NPCConsistencyCheck: personas pass phish calibration (LLM, advisory)
+    V->>V: 10. RealismReviewCheck: scenario plausibility (LLM, advisory)
 
-    alt All checks pass
+    alt All mechanical checks pass
         V->>SS: Publish Acme v_k
     else Any check fails
         V-->>B: Reject with failure context, retry
     end
 ```
+
+### Rendering Pipeline
+
+Between validation and the episode loop, the `SnapshotRenderer` (`builder/renderer.py`) converts a validated `SnapshotSpec` into concrete Docker artifacts via Jinja2 templates:
+
+```
+SnapshotSpec (Pydantic model)
+    |
+    v
+SnapshotRenderer.render(spec, output_dir)
+    |
+    v
+Jinja2 templates (builder/templates/*.j2)
+    |
+    v
+Docker artifacts:
+  - docker-compose.yml
+  - Dockerfile.web, Dockerfile.db
+  - nginx.conf
+  - init.sql
+  - iptables.rules
+```
+
+The renderer flattens SnapshotSpec fields (topology, zones, hosts, flags, vuln types) into a template context. Templates use conditional blocks (e.g., `search_endpoint`, `download_endpoint`) driven by the snapshot's vulnerability types and injection points.
 
 ### Episode Loop (synchronous, standard OpenEnv)
 
@@ -206,26 +234,28 @@ Each validated snapshot contains:
 
 ## Reward Architecture
 
-All rewards implemented as OpenEnv `Rubric` subclasses:
+All rewards live in `server/rewards.py`. Composite classes use a weighted sum with configurable weights, plus tier-based complexity scaling and additive penalties.
 
 ```
-CompositeRedReward (WeightedSum)
-  ├── FlagReward              binary, docker exec verified
-  ├── EfficiencyReward        gamma^steps
-  ├── StealthReward           coupled to Blue detection history
-  ├── EvidenceReward          quality of submit_evidence
-  ├── SocialEngineeringReward NPC fell for phish/pretext (Level 1+)
-  ├── ComplexityBonus          tier_multiplier * base_reward (scales with snapshot complexity)
-  └── HallucinationPenalty    -0.3 per fake flag
+CompositeRedReward
+  ├── FlagReward                binary, docker exec verified (weight: 0.40)
+  ├── EfficiencyReward          gamma^steps (weight: 0.10)
+  ├── StealthReward             1 - (detected/total), coupled to Blue (weight: 0.15)
+  ├── EvidenceReward            structural quality of submit_evidence (weight: 0.10)
+  ├── SocialEngineeringReward   NPC fell for phish/pretext, Level 1+ (weight: 0.05)
+  ├── ComplexityBonus           tier_multiplier * base_reward (1.0x-3.0x)
+  └── HallucinationPenalty      -0.3 per fake flag (additive, not tier-scaled)
 
-CompositeBlueReward (WeightedSum)
-  ├── DetectionReward         TP rate vs Red action log
-  ├── PatchReward             binary, golden path re-execution
-  ├── AvailabilityReward      healthcheck fraction
-  ├── PhishingDetection       correctly identified social engineering in logs (Level 1+)
-  ├── ComplexityBonus          tier_multiplier * base_reward (scales with snapshot complexity)
-  └── FalsePositiveReward     -0.2 per NPC traffic/email flagged
+CompositeBlueReward
+  ├── DetectionReward           TP rate vs Red action log (weight: 0.35)
+  ├── PatchReward               binary, golden path re-execution (weight: 0.25)
+  ├── AvailabilityReward        healthcheck fraction (weight: 0.15)
+  ├── PhishingDetectionReward   correctly identified SE in logs, Level 1+ (weight: 0.05)
+  ├── ComplexityBonus           tier_multiplier * base_reward (1.0x-3.0x)
+  └── FalsePositiveReward       -0.2 per NPC traffic/email flagged (additive, not tier-scaled)
 ```
+
+Both composite classes expose a `compute(action, observation, state, snapshot, ctx)` method called by `RangeEnvironment.step()`, as well as a lower-level `score()` with explicit arguments for unit testing.
 
 Rewards are computed from **container state and action logs**, never from LLM judgment.
 
@@ -275,15 +305,26 @@ flowchart TB
 
 **Key design**: NPC LLM calls are **async, not in the step() hot path**. Red sends a phishing email to Postfix in one step. The NPC agent processes it on its own schedule (per `email_check_interval_min`). Red observes the result in later steps via access logs, new sessions, or SIEM alerts. Blue sees the same logs and must distinguish legitimate NPC-to-NPC email from Red's social engineering.
 
+**Implementations** (all in `builder/npc/npc_agent.py`):
+
+| Class | Level | LLM? | Description |
+|-------|-------|------|-------------|
+| `NullNPCBehavior` | 0 | No | No-op; always returns `ignore`. Shell scripts handle all traffic. |
+| `RuleBasedNPCBehavior` | 0-1 | No | Heuristic decisions based on `susceptibility * plausibility` score thresholds. |
+| `LLMNPCAgent` | 1+ | Yes | Full LLM-driven persona. Runs an async `run_loop()` polling for stimuli on the persona's schedule. |
+
+The `NPCManager` (`builder/npc/npc_manager.py`) orchestrates both levels: it starts Level 0 shell scripts (`http_traffic.sh`, `db_traffic.sh`, `ssh_traffic.sh`) and, when `npc_traffic.level >= 1`, spawns `LLMNPCAgent.run_loop()` as asyncio tasks for each persona.
+
 ## Pluggable Infrastructure Components
 
-Builder, NPC behavior, and validator checks are all **pluggable via Protocol-based structural subtyping**. No base class inheritance required. Any class with a matching method signature satisfies the protocol.
+Builder, NPC behavior, validator checks, and Red/Blue agents are all **pluggable via Protocol-based structural subtyping**. No base class inheritance required. Any class with a matching method signature satisfies the protocol.
 
 See [`docs/agent-protocols.md`](agent-protocols.md) for the full design.
 
-### Three Protocols
+### Four Protocols
 
 ```python
+# protocols.py — infrastructure components
 @runtime_checkable
 class SnapshotBuilder(Protocol):
     async def build(self, manifest: dict, context: BuildContext) -> SnapshotSpec: ...
@@ -295,6 +336,12 @@ class NPCBehavior(Protocol):
 @runtime_checkable
 class ValidatorCheck(Protocol):
     async def check(self, snapshot: SnapshotSpec, containers: ContainerSet) -> CheckResult: ...
+
+# agents/protocol.py — Red/Blue agents
+@runtime_checkable
+class RangeAgent(Protocol):
+    def reset(self, briefing: str, role: Literal["red", "blue"]) -> None: ...
+    def act(self, observation: str) -> str: ...
 ```
 
 ### Configuration via YAML
@@ -303,19 +350,26 @@ class ValidatorCheck(Protocol):
 # openrange.yaml
 agents:
   builder:
-    class: open_range.builder.LLMSnapshotBuilder
+    class: open_range.builder.builder.LLMSnapshotBuilder
     kwargs:
       model: "anthropic/claude-sonnet-4-20250514"
       temperature: 0.7
   npc_behavior:
-    class: open_range.npc.LLMNPCBehavior
+    class: open_range.builder.npc.npc_agent.LLMNPCAgent
     kwargs:
       model: "anthropic/claude-haiku-4-5-20251001"
   validator_checks:
-    - class: open_range.validator.BuildBootCheck
-    - class: open_range.validator.ExploitabilityCheck
-    - class: open_range.validator.PatchabilityCheck
-    # ... add, remove, or reorder checks
+    - class: open_range.validator.build_boot.BuildBootCheck
+    - class: open_range.validator.exploitability.ExploitabilityCheck
+    - class: open_range.validator.patchability.PatchabilityCheck
+    - class: open_range.validator.evidence.EvidenceSufficiencyCheck
+    - class: open_range.validator.reward_grounding.RewardGroundingCheck
+    - class: open_range.validator.isolation.IsolationLeakageCheck
+    - class: open_range.validator.task_feasibility.TaskFeasibilityCheck
+    - class: open_range.validator.difficulty.DifficultyCheck
+    - class: open_range.validator.npc_consistency.NPCConsistencyCheck
+    - class: open_range.validator.realism_review.RealismReviewCheck
+    # add, remove, or reorder checks as needed
 ```
 
 ### Resolution
@@ -338,8 +392,9 @@ def resolve_component(class_path: str, kwargs: dict, protocol: type) -> Any:
 | Protocol | Default | Alternatives |
 |----------|---------|-------------|
 | `SnapshotBuilder` | `LLMSnapshotBuilder` (LiteLLM) | `TemplateOnlyBuilder` (testing), `FileBuilder` (demo) |
-| `NPCBehavior` | `NullNPCBehavior` (Level 0) | `LLMNPCBehavior` (Level 1+), `RuleBasedNPCBehavior` (heuristic) |
-| `ValidatorCheck` | 7 mechanical + 1 LLM advisory | Add custom checks via config |
+| `NPCBehavior` | `NullNPCBehavior` (Level 0, no-op) | `LLMNPCAgent` (Level 1+, LiteLLM), `RuleBasedNPCBehavior` (heuristic, no LLM) |
+| `ValidatorCheck` | 8 mechanical + 2 LLM advisory | Add, remove, or reorder via config |
+| `RangeAgent` | `ScriptedAgent` (replay commands) | `LLMRangeAgent` (LiteLLM), `HumanAgent` (interactive stdin), `ScriptedRedAgent`/`ScriptedBlueAgent` (pre-built demo sequences) |
 
 ### Environment Variables
 
@@ -351,4 +406,4 @@ Env vars override YAML config at deploy time:
 | `OPENRANGE_NPC_MODEL` | NPC LLM model | `anthropic/claude-haiku-4-5-20251001` |
 | `LITELLM_API_KEY` | Global API key | (or model-specific keys) |
 
-Checks 1-7 are **purely mechanical** -- deterministic, no LLM. Check 7 (NPC consistency) uses an LLM for NPC persona testing. Check 8 (realism review) is an optional LLM advisory check. Both LLM checks are configurable -- remove them from the list to run fully mechanical.
+Checks 1-8 are **purely mechanical** -- deterministic, no LLM. Check 9 (NPC consistency) uses an LLM for NPC persona testing. Check 10 (realism review) is an LLM advisory check. Both LLM checks are advisory (`advisory=True`): failure triggers retry but never blocks admission. Both are configurable -- remove them from the validator_checks list to run fully mechanical.

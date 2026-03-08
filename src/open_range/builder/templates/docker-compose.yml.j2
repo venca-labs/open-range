@@ -1,0 +1,120 @@
+# OpenRange docker-compose -- generated from SnapshotSpec
+# Snapshot: {{ snapshot_id | default('unknown') }}
+
+version: "3.8"
+
+networks:
+{% for net in networks %}
+  {{ net.name }}:
+{% if net.cidr is defined and net.cidr %}
+    driver: bridge
+    ipam:
+      config:
+        - subnet: {{ net.cidr }}
+{% else %}
+    driver: bridge
+{% endif %}
+{% endfor %}
+
+volumes:
+  shared_logs:
+    driver: local
+  flag_data:
+    driver: local
+
+services:
+{% for host in hosts %}
+  {{ host.name }}:
+{% if host.name == 'web' %}
+    build:
+      context: .
+      dockerfile: Dockerfile.web
+    ports:
+      - "80:80"
+      - "443:443"
+    environment:
+      - DB_HOST={{ db_host | default('db') }}
+      - DB_USER={{ db_user | default('app_user') }}
+      - DB_PASS={{ db_pass | default('AppUs3r!2024') }}
+    volumes:
+      - shared_logs:/var/log/app
+{% if host.depends_on is defined %}
+    depends_on:
+{% for dep in host.depends_on %}
+      - {{ dep }}
+{% endfor %}
+{% elif 'db' in host_names %}
+    depends_on:
+      - db
+{% endif %}
+{% elif host.name == 'db' %}
+    build:
+      context: .
+      dockerfile: Dockerfile.db
+    environment:
+      - MYSQL_ROOT_PASSWORD={{ mysql_root_password | default('r00tP@ss!') }}
+      - MYSQL_DATABASE=app
+      - MYSQL_USER={{ db_user | default('app_user') }}
+      - MYSQL_PASSWORD={{ db_pass | default('AppUs3r!2024') }}
+    volumes:
+      - shared_logs:/var/log/mysql
+{% elif host.name == 'mail' %}
+    image: namshi/smtp:latest
+    environment:
+      - MAILNAME={{ domain | default('acmecorp.local') }}
+    volumes:
+      - shared_logs:/var/log/mail
+{% elif host.name == 'files' %}
+    image: dperson/samba:latest
+    environment:
+      - USER=smbuser;smbP@ss!
+      - SHARE=shared;/shared;yes;no;no;smbuser
+    volumes:
+      - shared_logs:/var/log/samba
+{% elif host.name == 'ldap' %}
+    image: osixia/openldap:latest
+    environment:
+      - LDAP_ORGANISATION={{ org_name | default('AcmeCorp') }}
+      - LDAP_DOMAIN={{ domain | default('acmecorp.local') }}
+      - LDAP_ADMIN_PASSWORD={{ ldap_admin_pass | default('LdapAdm1n!') }}
+    volumes:
+      - shared_logs:/var/log/ldap
+{% elif host.name == 'siem' %}
+    image: ubuntu:22.04
+    command: ["tail", "-f", "/dev/null"]
+    volumes:
+      - shared_logs:/var/log/siem:ro
+{% elif host.name == 'firewall' %}
+    image: ubuntu:22.04
+    cap_add:
+      - NET_ADMIN
+    command: ["bash", "-c", "iptables-restore < /etc/iptables.rules 2>/dev/null; tail -f /dev/null"]
+    volumes:
+      - ./iptables.rules:/etc/iptables.rules:ro
+{% elif host.name == 'attacker' %}
+    image: kalilinux/kali-rolling:latest
+    command: ["tail", "-f", "/dev/null"]
+{% else %}
+    image: ubuntu:22.04
+    command: ["tail", "-f", "/dev/null"]
+{% endif %}
+    networks:
+{% for net_name in host.networks | default([host.zone]) %}
+      - {{ net_name }}
+{% endfor %}
+    restart: unless-stopped
+{% endfor %}
+
+  # Server container for OpenEnv (mounts docker.sock)
+  openrange_server:
+    image: openrange:latest
+    ports:
+      - "8000:8000"
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - shared_logs:/var/log/range:ro
+    networks:
+{% for net in networks %}
+      - {{ net.name }}
+{% endfor %}
+    restart: unless-stopped

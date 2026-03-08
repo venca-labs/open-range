@@ -1,16 +1,19 @@
-# Agent Protocols: Pluggable Infrastructure Components
+# Agent Protocols: Pluggable Components
 
 ## Design Principle
 
-OpenRange has three kinds of "agents" that use LLMs as tools:
+OpenRange has four pluggable Protocol-based components:
 
 | Component | Role | Hot Path? | Default |
 |-----------|------|-----------|---------|
-| **Builder** | Generate snapshot specs from manifests | No (async between episodes) | LLM via LiteLLM |
-| **NPC Behavior** | Decide NPC response to stimuli | No (async on NPC schedule) | LLM via LiteLLM |
-| **Validator Checks** | Admission gate checks | No (async between episodes) | 7 mechanical + 1 LLM advisory |
+| **Builder** | Generate snapshot specs from manifests | No (async between episodes) | `LLMSnapshotBuilder` via LiteLLM |
+| **NPC Behavior** | Decide NPC response to stimuli | No (async on NPC schedule) | `LLMNPCAgent` via LiteLLM |
+| **Validator Checks** | Admission gate checks | No (async between episodes) | 6 mechanical + 2 LLM advisory |
+| **RangeAgent** | Red/Blue agent playing in episodes | Yes (in episode step loop) | `LLMRangeAgent` via LiteLLM |
 
-These are NOT training agents (Red/Blue are external). They are **infrastructure components** that happen to use LLMs. Each follows the same pluggability pattern:
+The first three are **infrastructure components** that happen to use LLMs. `RangeAgent` is the training/evaluation agent interface (Red or Blue).
+
+All four follow the same pluggability pattern:
 
 1. **Protocol** defines the interface (structural subtyping, no inheritance)
 2. **Default implementation** uses LiteLLM for model-agnostic LLM access
@@ -19,127 +22,155 @@ These are NOT training agents (Red/Blue are external). They are **infrastructure
 
 ## Protocols
 
+All protocols are defined in `src/open_range/protocols.py` (infrastructure) and `src/open_range/agents/protocol.py` (RangeAgent).
+
 ```python
-from typing import Protocol, runtime_checkable
+from typing import Literal, Protocol, runtime_checkable
 
 # ---------------------------------------------------------------------------
 # Builder — generates candidate snapshot specs
+# src/open_range/protocols.py
 # ---------------------------------------------------------------------------
 
 @runtime_checkable
 class SnapshotBuilder(Protocol):
-    """Generate a candidate snapshot spec from a manifest.
-
-    Any class with a matching build() signature satisfies this protocol.
-    No base class inheritance required.
-
-    Example::
-
-        class MyBuilder:
-            async def build(self, manifest, context) -> SnapshotSpec:
-                # Your logic — LLM, template, deterministic, whatever
-                return SnapshotSpec(...)
-
-        assert isinstance(MyBuilder(), SnapshotBuilder)
-    """
+    """Generate a candidate snapshot spec from a manifest."""
 
     async def build(
         self,
         manifest: dict,
         context: BuildContext,
-    ) -> SnapshotSpec:
-        """Generate a candidate snapshot spec.
-
-        Args:
-            manifest: Parsed YAML manifest (topology, bug_families, etc.)
-            context: Runtime context (curriculum stats, previous solve rates)
-
-        Returns:
-            SnapshotSpec with topology, truth_graph, golden_path, etc.
-        """
-        ...
+    ) -> SnapshotSpec: ...
 
 
 # ---------------------------------------------------------------------------
 # NPC Behavior — decides NPC response to stimuli
+# src/open_range/protocols.py
 # ---------------------------------------------------------------------------
 
 @runtime_checkable
 class NPCBehavior(Protocol):
-    """Decide how an NPC responds to a stimulus.
-
-    Example::
-
-        class MyNPCBehavior:
-            async def decide(self, persona, stimulus) -> NPCAction:
-                if persona.security_awareness > 0.8:
-                    return NPCAction(action="report_to_IT")
-                return NPCAction(action="click_link")
-
-        assert isinstance(MyNPCBehavior(), NPCBehavior)
-    """
+    """Decide how an NPC responds to a stimulus."""
 
     async def decide(
         self,
         persona: NPCPersona,
         stimulus: Stimulus,
-    ) -> NPCAction:
-        """Decide NPC response to a stimulus.
-
-        Args:
-            persona: NPC persona card (name, role, security_awareness, etc.)
-            stimulus: Incoming stimulus (email, chat message, file access, etc.)
-
-        Returns:
-            NPCAction with action type and optional response content.
-        """
-        ...
+    ) -> NPCAction: ...
 
 
 # ---------------------------------------------------------------------------
 # Validator Check — single admission check in the validation pipeline
+# src/open_range/protocols.py
 # ---------------------------------------------------------------------------
 
 @runtime_checkable
 class ValidatorCheck(Protocol):
-    """Single check in the validator admission pipeline.
-
-    Example::
-
-        class MyCheck:
-            async def check(self, snapshot, containers) -> CheckResult:
-                # Run your check against live containers
-                return CheckResult(passed=True, time_s=2.1)
-
-        assert isinstance(MyCheck(), ValidatorCheck)
-    """
+    """Single check in the validator admission pipeline."""
 
     async def check(
         self,
         snapshot: SnapshotSpec,
         containers: ContainerSet,
-    ) -> CheckResult:
-        """Run this admission check.
+    ) -> CheckResult: ...
+
+
+# ---------------------------------------------------------------------------
+# RangeAgent — Red or Blue agent playing in episodes
+# src/open_range/agents/protocol.py
+# ---------------------------------------------------------------------------
+
+@runtime_checkable
+class RangeAgent(Protocol):
+    """Agent that can play Red or Blue in OpenRange.
+
+    NOTE: Methods are synchronous (not async), unlike the infrastructure
+    protocols above. This keeps the agent interface simple for training
+    integrations.
+    """
+
+    def reset(self, briefing: str, role: Literal["red", "blue"]) -> None:
+        """Initialize agent for a new episode.
 
         Args:
-            snapshot: The candidate snapshot spec (truth_graph, golden_path, etc.)
-            containers: Handle to the live Docker containers for this snapshot.
+            briefing: Task description from the snapshot.
+            role: Which side this agent plays ("red" or "blue").
+        """
+        ...
+
+    def act(self, observation: str) -> str:
+        """Given an observation, return the next command to execute.
+
+        Args:
+            observation: stdout from the previous step, or initial briefing.
 
         Returns:
-            CheckResult with pass/fail, timing, and failure details.
+            Shell command string (e.g. "nmap -sV 10.0.1.0/24").
         """
         ...
 ```
 
 ## Default Implementations
 
+### RangeAgent
+
+| Implementation | File | When to use | LLM? |
+|----------------|------|------------|------|
+| `LLMRangeAgent` | `src/open_range/agents/llm_agent.py` | Production — model-agnostic via LiteLLM | Yes (LiteLLM) |
+| `ScriptedAgent` | `src/open_range/agents/scripted_agent.py` | Testing/CI/demos — replays fixed command list | No |
+| `HumanAgent` | `src/open_range/agents/human_agent.py` | Manual play/debugging — stdin/stdout | No |
+
+```python
+class LLMRangeAgent:
+    """Generic agent powered by any LiteLLM model."""
+
+    def __init__(
+        self,
+        model: str = "anthropic/claude-sonnet-4-20250514",
+        temperature: float = 0.3,
+        max_tokens: int = 512,
+        **litellm_kwargs,  # e.g. api_base, api_key
+    ) -> None: ...
+
+    def reset(self, briefing: str, role: Literal["red", "blue"]) -> None:
+        """Initialize conversation history with role-specific system prompt."""
+        ...
+
+    def act(self, observation: str) -> str:
+        """Call litellm.completion, extract shell command from response."""
+        ...
+
+
+class ScriptedAgent:
+    """Replays a fixed list of commands. After exhaustion, repeats fallback."""
+
+    def __init__(
+        self,
+        commands: list[str] | None = None,
+        fallback: str = "echo done",
+    ) -> None: ...
+
+    def reset(self, briefing: str, role: Literal["red", "blue"]) -> None: ...
+    def act(self, observation: str) -> str: ...
+
+
+class HumanAgent:
+    """Interactive agent: prints observations, reads commands from stdin."""
+
+    def __init__(self, prompt: str = "Enter command > ") -> None: ...
+    def reset(self, briefing: str, role: Literal["red", "blue"]) -> None: ...
+    def act(self, observation: str) -> str: ...
+```
+
+Pre-built demo agents are also available as `ScriptedRedAgent` and `ScriptedBlueAgent` in `src/open_range/agents/scripted_agent.py`.
+
 ### Builder
 
-| Implementation | When to use | LLM? |
-|----------------|------------|------|
-| `LLMSnapshotBuilder` | Production — creative snapshot generation | Yes (LiteLLM) |
-| `TemplateOnlyBuilder` | Testing/CI — deterministic, no API calls | No |
-| `FileBuilder` | Demo — load pre-built snapshot from JSON file | No |
+| Implementation | File | When to use | LLM? |
+|----------------|------|------------|------|
+| `LLMSnapshotBuilder` | `src/open_range/builder/builder.py` | Production — creative snapshot generation | Yes (LiteLLM) |
+| `TemplateOnlyBuilder` | `src/open_range/builder/builder.py` | Testing/CI — deterministic, no API calls | No |
+| `FileBuilder` | `src/open_range/builder/builder.py` | Demo — load pre-built snapshot from JSON file | No |
 
 ```python
 class LLMSnapshotBuilder:
@@ -155,104 +186,73 @@ class LLMSnapshotBuilder:
         self.model = model or os.environ.get(
             "OPENRANGE_BUILDER_MODEL", "anthropic/claude-sonnet-4-20250514"
         )
-        self.prompt_template = prompt_template or DEFAULT_BUILDER_PROMPT
-        self.temperature = temperature
-        self.max_retries = max_retries
+        ...
 
-    async def build(self, manifest: dict, context: BuildContext) -> SnapshotSpec:
-        response = await litellm.acompletion(
-            model=self.model,
-            messages=[
-                {"role": "system", "content": self.prompt_template},
-                {"role": "user", "content": json.dumps({
-                    "manifest": manifest,
-                    "runtime_context": asdict(context),
-                })},
-            ],
-            response_format={"type": "json_object"},
-            temperature=self.temperature,
-        )
-        return SnapshotSpec.model_validate_json(
-            response.choices[0].message.content
-        )
+    async def build(self, manifest: dict, context: BuildContext) -> SnapshotSpec: ...
 
 
 class TemplateOnlyBuilder:
     """Deterministic builder for testing. No LLM calls."""
 
-    def __init__(self, vuln_pool: list[dict] | None = None):
-        self.vuln_pool = vuln_pool or DEFAULT_VULN_POOL
-
-    async def build(self, manifest: dict, context: BuildContext) -> SnapshotSpec:
-        # Pick vulns deterministically from pool based on manifest
-        vulns = select_vulns(self.vuln_pool, manifest, context.seed)
-        return SnapshotSpec(
-            topology=manifest["topology"],
-            truth_graph=build_truth_graph(vulns),
-            golden_path=derive_golden_path(vulns),
-            # ... render mechanically from templates
-        )
+    def __init__(self, vuln_pool: list[dict] | None = None): ...
+    async def build(self, manifest: dict, context: BuildContext) -> SnapshotSpec: ...
 
 
 class FileBuilder:
     """Load a pre-built snapshot from disk. For demos and smoke tests."""
 
-    def __init__(self, snapshot_dir: str):
-        self.snapshot_dir = Path(snapshot_dir)
-
-    async def build(self, manifest: dict, context: BuildContext) -> SnapshotSpec:
-        files = sorted(self.snapshot_dir.glob("*.json"))
-        chosen = files[context.seed % len(files)] if context.seed else files[0]
-        return SnapshotSpec.model_validate_json(chosen.read_text())
+    def __init__(self, snapshot_dir: str): ...
+    async def build(self, manifest: dict, context: BuildContext) -> SnapshotSpec: ...
 ```
 
 ### NPC Behavior
 
+All NPC implementations live in `src/open_range/builder/npc/npc_agent.py`.
+
 | Implementation | When to use | LLM? |
 |----------------|------------|------|
-| `LLMNPCBehavior` | Level 1+ — persona-driven decisions | Yes (LiteLLM) |
+| `LLMNPCAgent` | Level 1+ — persona-driven decisions | Yes (LiteLLM) |
 | `RuleBasedNPCBehavior` | Mid-ground — heuristic susceptibility checks | No |
 | `NullNPCBehavior` | Level 0 — shell scripts handle everything | No |
 
 ```python
-class LLMNPCBehavior:
-    """LLM-driven NPC decisions based on persona cards."""
+class LLMNPCAgent:
+    """Async LLM NPC agent that responds to stimuli based on persona.
 
-    def __init__(self, model: str | None = None, temperature: float = 0.3):
+    Also has a run_loop() method for polling a mailbox on a schedule
+    (not part of the NPCBehavior protocol, but useful for live episodes).
+    """
+
+    def __init__(
+        self,
+        model: str | None = None,
+        temperature: float = 0.3,
+    ) -> None:
         self.model = model or os.environ.get(
             "OPENRANGE_NPC_MODEL", "anthropic/claude-haiku-4-5-20251001"
         )
-        self.temperature = temperature
+        ...
 
-    async def decide(self, persona: NPCPersona, stimulus: Stimulus) -> NPCAction:
-        response = await litellm.acompletion(
-            model=self.model,
-            messages=[
-                {"role": "system", "content": NPC_SYSTEM_PROMPT},
-                {"role": "user", "content": json.dumps({
-                    "persona": persona.model_dump(),
-                    "stimulus": stimulus.model_dump(),
-                })},
-            ],
-            response_format={"type": "json_object"},
-            temperature=self.temperature,
-        )
-        return NPCAction.model_validate_json(
-            response.choices[0].message.content
-        )
+    async def decide(self, persona: NPCPersona, stimulus: Stimulus) -> NPCAction: ...
+    async def run_loop(self, persona: NPCPersona, containers: ContainerSet) -> None: ...
 
 
 class RuleBasedNPCBehavior:
-    """Heuristic NPC decisions. No LLM calls."""
+    """Heuristic NPC decisions based on susceptibility scores. No LLM calls."""
 
     async def decide(self, persona: NPCPersona, stimulus: Stimulus) -> NPCAction:
-        score = stimulus.plausibility * persona.susceptibility[stimulus.type]
-        if score > 0.6:
-            return NPCAction(action="click_link")
+        susceptibility = persona.susceptibility.get(
+            f"{stimulus.type}", persona.susceptibility.get("phishing_email", 0.5)
+        )
+        score = stimulus.plausibility * susceptibility
+        if persona.security_awareness > 0.7 and score < 0.8:
+            return NPCAction(action="report_to_IT", ...)
+        elif score > 0.6:
+            return NPCAction(action="click_link", ...)
         elif score > 0.3:
             return NPCAction(action="ignore")
         else:
-            return NPCAction(action="report_to_IT")
+            return NPCAction(action="report_to_IT", ...)
 
 
 class NullNPCBehavior:
@@ -264,39 +264,45 @@ class NullNPCBehavior:
 
 ### Validator Checks
 
-Each check is already a separate class. The validator pipeline is a **list of checks** — add, remove, or reorder via config.
+Each check is a separate class in `src/open_range/validator/`. The validator pipeline is a **list of checks** -- add, remove, or reorder via config.
 
 ```python
-# Built-in checks
-class BuildBootCheck:
+# Mechanical checks (no LLM)
+class BuildBootCheck:          # validator/build_boot.py — docker compose up + healthchecks
     async def check(self, snapshot, containers) -> CheckResult: ...
 
-class ExploitabilityCheck:
+class ExploitabilityCheck:     # validator/exploitability.py — golden path end-to-end
     async def check(self, snapshot, containers) -> CheckResult: ...
 
-class PatchabilityCheck:
+class PatchabilityCheck:       # validator/patchability.py — inverse mutation test
     async def check(self, snapshot, containers) -> CheckResult: ...
 
-class EvidenceSufficiencyCheck:
+class EvidenceCheck:           # validator/evidence.py — logs + alerts exist
     async def check(self, snapshot, containers) -> CheckResult: ...
 
-class RewardGroundingCheck:
+class RewardGroundingCheck:    # validator/reward_grounding.py — rubrics produce valid scores
     async def check(self, snapshot, containers) -> CheckResult: ...
 
-class IsolationLeakageCheck:
+class IsolationCheck:          # validator/isolation.py — zones enforced, no leaks
     async def check(self, snapshot, containers) -> CheckResult: ...
 
-class NPCConsistencyCheck:
-    """Requires NPC behavior implementation to test against."""
-    def __init__(self, npc_behavior_class: str | None = None, **kwargs):
-        self.npc_behavior = resolve_component(
-            npc_behavior_class or "open_range.npc.LLMNPCBehavior",
-            kwargs, NPCBehavior
+class TaskFeasibilityCheck:    # validator/task_feasibility.py — tasks reference real hosts
+    async def check(self, snapshot, containers) -> CheckResult: ...
+
+class DifficultyCheck:         # validator/difficulty.py — golden path steps within tier target
+    async def check(self, snapshot, containers) -> CheckResult: ...
+
+# LLM checks (advisory — failure triggers retry, never blocks)
+class NPCConsistencyCheck:     # validator/npc_consistency.py
+    """Tests NPC personas with calibrated phishing stimuli via LLM."""
+    def __init__(self, model: str | None = None):
+        self.model = model or os.environ.get(
+            "OPENRANGE_NPC_MODEL", "anthropic/claude-haiku-4-5-20251001"
         )
 
     async def check(self, snapshot, containers) -> CheckResult: ...
 
-class RealismReviewCheck:
+class RealismReviewCheck:      # validator/realism_review.py
     """LLM-based realism review. Advisory only — can trigger retry,
     never overrides mechanical pass. Remove from check list to skip."""
     def __init__(self, model: str | None = None):
@@ -309,13 +315,13 @@ class RealismReviewCheck:
 
 ## Configuration
 
-All component selection happens in the manifest YAML (or a separate `openrange.yaml`). This keeps everything in one place and version-controllable.
+All component selection happens in the manifest YAML (or a separate `openrange.yaml`). This keeps everything in one place and version-controllable. Class paths are fully-qualified dotted Python paths.
 
 ```yaml
 # openrange.yaml — component configuration
 agents:
   builder:
-    class: open_range.builder.LLMSnapshotBuilder
+    class: open_range.builder.builder.LLMSnapshotBuilder
     kwargs:
       model: "anthropic/claude-sonnet-4-20250514"
       prompt_template: "prompts/builder_v2.txt"
@@ -323,23 +329,24 @@ agents:
       max_retries: 3
 
   npc_behavior:
-    class: open_range.npc.LLMNPCBehavior
+    class: open_range.builder.npc.npc_agent.LLMNPCAgent
     kwargs:
       model: "anthropic/claude-haiku-4-5-20251001"
       temperature: 0.3
 
   validator_checks:
-    - class: open_range.validator.BuildBootCheck
-    - class: open_range.validator.ExploitabilityCheck
-    - class: open_range.validator.PatchabilityCheck
-    - class: open_range.validator.EvidenceSufficiencyCheck
-    - class: open_range.validator.RewardGroundingCheck
-    - class: open_range.validator.IsolationLeakageCheck
-    - class: open_range.validator.NPCConsistencyCheck
+    - class: open_range.validator.build_boot.BuildBootCheck
+    - class: open_range.validator.exploitability.ExploitabilityCheck
+    - class: open_range.validator.patchability.PatchabilityCheck
+    - class: open_range.validator.evidence.EvidenceCheck
+    - class: open_range.validator.reward_grounding.RewardGroundingCheck
+    - class: open_range.validator.isolation.IsolationCheck
+    - class: open_range.validator.task_feasibility.TaskFeasibilityCheck
+    - class: open_range.validator.difficulty.DifficultyCheck
+    - class: open_range.validator.npc_consistency.NPCConsistencyCheck  # LLM advisory
       kwargs:
-        npc_behavior_class: open_range.npc.LLMNPCBehavior
         model: "anthropic/claude-haiku-4-5-20251001"
-    - class: open_range.validator.RealismReviewCheck  # LLM advisory, remove to skip
+    - class: open_range.validator.realism_review.RealismReviewCheck  # LLM advisory, remove to skip
       kwargs:
         model: "anthropic/claude-haiku-4-5-20251001"
 ```
@@ -362,13 +369,13 @@ Env vars take precedence over YAML config. This lets you define the architecture
 # openrange-test.yaml — no LLM calls, deterministic
 agents:
   builder:
-    class: open_range.builder.TemplateOnlyBuilder
+    class: open_range.builder.builder.TemplateOnlyBuilder
     kwargs:
       vuln_pool: "vulns/test_pool.json"
   npc_behavior:
-    class: open_range.npc.NullNPCBehavior
+    class: open_range.builder.npc.npc_agent.NullNPCBehavior
   validator_checks:
-    - class: open_range.validator.BuildBootCheck
+    - class: open_range.validator.build_boot.BuildBootCheck
     # Skip slow checks in tests
 ```
 
@@ -378,17 +385,17 @@ agents:
 # openrange-demo.yaml — pre-built snapshots, fast resets
 agents:
   builder:
-    class: open_range.builder.FileBuilder
+    class: open_range.builder.builder.FileBuilder
     kwargs:
       snapshot_dir: "snapshots/demo/"
   npc_behavior:
-    class: open_range.npc.RuleBasedNPCBehavior
+    class: open_range.builder.npc.npc_agent.RuleBasedNPCBehavior
   validator_checks: []  # Pre-validated snapshots, skip validation
 ```
 
 ## Resolution
 
-Dynamic import with Protocol check at startup. Same pattern as open-ctf-env's evaluator.
+Dynamic import with Protocol check at startup. Defined in `src/open_range/resolve.py`.
 
 ```python
 import importlib
@@ -398,52 +405,64 @@ def resolve_component(class_path: str, kwargs: dict, protocol: Type) -> Any:
     """Import class by dotted path, instantiate, verify protocol compliance.
 
     Args:
-        class_path: Dotted Python class path (e.g., "open_range.builder.LLMSnapshotBuilder")
+        class_path: e.g. "open_range.builder.builder.LLMSnapshotBuilder"
         kwargs: Constructor keyword arguments
         protocol: Protocol class to check against
 
     Returns:
-        Instantiated component that satisfies the protocol.
+        Instantiated component satisfying the protocol.
 
     Raises:
-        TypeError: If the instantiated class doesn't satisfy the protocol.
+        TypeError: If the class doesn't satisfy the protocol.
+        ImportError: If the module can't be imported.
+        AttributeError: If the class doesn't exist in the module.
     """
     module_name, _, class_name = class_path.rpartition(".")
     module = importlib.import_module(module_name)
     cls = getattr(module, class_name)
     instance = cls(**kwargs)
     if not isinstance(instance, protocol):
+        missing = _missing_methods(instance, protocol)
         raise TypeError(
             f"{class_path} does not satisfy {protocol.__name__} protocol. "
-            f"Missing methods: {_missing_methods(instance, protocol)}"
+            f"Missing methods: {missing}"
         )
     return instance
 
 
 def load_agent_config(config_path: str) -> dict:
-    """Load agent configuration from YAML."""
-    with open(config_path) as f:
-        config = yaml.safe_load(f)
+    """Load agent configuration from YAML. Returns the 'agents' block."""
+    path = Path(config_path)
+    if not path.exists():
+        return {}
+    with open(path) as f:
+        config = yaml.safe_load(f) or {}
     return config.get("agents", {})
 
 
 def build_components(config: dict) -> tuple[SnapshotBuilder, NPCBehavior, list[ValidatorCheck]]:
-    """Resolve all infrastructure components from config."""
+    """Resolve all infrastructure components from config dict.
+
+    Defaults when no config provided:
+      builder  -> open_range.builder.builder.LLMSnapshotBuilder
+      npc      -> open_range.builder.npc.npc_agent.NullNPCBehavior
+      checks   -> DEFAULT_CHECKS (6 mechanical checks)
+    """
     builder_cfg = config.get("builder", {})
     builder = resolve_component(
-        builder_cfg.get("class", "open_range.builder.LLMSnapshotBuilder"),
+        builder_cfg.get("class", "open_range.builder.builder.LLMSnapshotBuilder"),
         builder_cfg.get("kwargs", {}),
         SnapshotBuilder,
     )
 
     npc_cfg = config.get("npc_behavior", {})
     npc = resolve_component(
-        npc_cfg.get("class", "open_range.npc.NullNPCBehavior"),
+        npc_cfg.get("class", "open_range.builder.npc.npc_agent.NullNPCBehavior"),
         npc_cfg.get("kwargs", {}),
         NPCBehavior,
     )
 
-    checks = []
+    checks: list[ValidatorCheck] = []
     for check_cfg in config.get("validator_checks", DEFAULT_CHECKS):
         checks.append(resolve_component(
             check_cfg["class"],
@@ -453,6 +472,8 @@ def build_components(config: dict) -> tuple[SnapshotBuilder, NPCBehavior, list[V
 
     return builder, npc, checks
 ```
+
+The `DEFAULT_CHECKS` list (used when no `validator_checks` key is present in config) includes the 6 mechanical checks: `BuildBootCheck`, `ExploitabilityCheck`, `PatchabilityCheck`, `EvidenceCheck`, `RewardGroundingCheck`, `IsolationCheck`. The LLM advisory checks (`NPCConsistencyCheck`, `RealismReviewCheck`) and additional mechanical checks (`TaskFeasibilityCheck`, `DifficultyCheck`) must be explicitly added via config.
 
 ## How Components Wire Together
 
@@ -473,8 +494,10 @@ flowchart TB
 
     subgraph episode [Episode Loop]
         STORE -->|reset selects frozen snapshot| ENV[RangeEnvironment]
+        AGENT[RangeAgent<br/>LLM / Scripted / Human] -->|act| ENV
         ENV -->|step| DOCKER[Docker containers]
         DOCKER --> OBS[Observation + Reward]
+        OBS -->|observation| AGENT
     end
 
     subgraph npc_loop [Async NPC Loop]
@@ -489,6 +512,29 @@ flowchart TB
     style episode fill:#6bcb7711,stroke:#6bcb77
     style npc_loop fill:#7c73e611,stroke:#7c73e6
 ```
+
+## Extending: Bring Your Own Agent
+
+Write a class with `def reset(self, briefing, role) -> None` and `def act(self, observation) -> str`. That's it.
+
+```python
+# my_agent.py
+class MyFineTunedAgent:
+    """Uses a locally fine-tuned model as a Red/Blue agent."""
+
+    def __init__(self, model_path: str, device: str = "cuda"):
+        self.model = load_model(model_path, device)
+
+    def reset(self, briefing: str, role: Literal["red", "blue"]) -> None:
+        self.history = [briefing]
+        self.role = role
+
+    def act(self, observation: str) -> str:
+        self.history.append(observation)
+        return self.model.generate("\n".join(self.history))
+```
+
+No registration, no base class, no plugin system. Just match the Protocol signature.
 
 ## Extending: Bring Your Own Builder
 
@@ -561,8 +607,8 @@ class CustomSecurityAudit:
 ```yaml
 agents:
   validator_checks:
-    - class: open_range.validator.BuildBootCheck
-    - class: open_range.validator.ExploitabilityCheck
+    - class: open_range.validator.build_boot.BuildBootCheck
+    - class: open_range.validator.exploitability.ExploitabilityCheck
     - class: my_checks.CustomSecurityAudit
       kwargs:
         scanner: "nuclei"
@@ -575,5 +621,5 @@ agents:
 2. **YAML over code registration**: Configuration is data, not code. Version it, diff it, override it per environment.
 3. **Env vars override YAML**: Deploy-time model swaps without touching config files.
 4. **LiteLLM is the default, not the requirement**: Default implementations use LiteLLM. Custom implementations can use anything — local models, fine-tuned checkpoints, even non-LLM approaches.
-5. **Async throughout**: All protocols use `async def`. Infrastructure LLM calls are never in the `step()` hot path.
+5. **Async for infrastructure, sync for agents**: Infrastructure protocols (`SnapshotBuilder`, `NPCBehavior`, `ValidatorCheck`) use `async def` -- they are never in the `step()` hot path. `RangeAgent` uses synchronous `def` for simpler training integration.
 6. **Validator checks are a list**: Add, remove, reorder checks via config. No hardcoded pipeline.

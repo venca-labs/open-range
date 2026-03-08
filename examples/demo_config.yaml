@@ -1,0 +1,25 @@
+# OpenRange end-to-end demo configuration
+#
+# Uses scripted agents (no LLM required) to demonstrate the full
+# episode lifecycle: reset -> Red attacks -> Blue defends -> rewards.
+
+manifest: tier1_basic
+
+agents:
+  red:
+    type: scripted
+    script:
+      - "nmap -sV 10.0.1.0/24"
+      - "curl http://web/"
+      - "curl 'http://web/search?q=test'"
+      - "curl 'http://web/search?q=test%27+UNION+SELECT+flag+FROM+flags--'"
+      - "submit_flag FLAG{test_sqli_123}"
+  blue:
+    type: scripted
+    script:
+      - "tail -n 50 /var/log/siem/web_access.log"
+      - "grep -i 'union\\|select\\|injection' /var/log/siem/web_access.log"
+      - "submit_finding SQLi attack detected from attacker targeting /search endpoint"
+      - "patch web /var/www/html/search.php"
+
+max_steps: 20

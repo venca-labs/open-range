@@ -1,0 +1,743 @@
+# Tier 1 — Basic Enterprise Range
+# 8 hosts across 4 zones.  The Builder plants 1-3 vulnerabilities from the
+# listed bug_families each episode; the Validator enforces the difficulty
+# envelope (max 12 golden-path steps).
+
+name: tier1_basic_enterprise
+tier: 1
+
+# ---------------------------------------------------------------------------
+# Company narrative
+# ---------------------------------------------------------------------------
+
+company:
+  name: Meridian Health Partners
+  domain: meridianhealth.local
+  industry: healthcare
+  description: >-
+    Meridian Health Partners is a 40-person healthcare consulting firm that
+    manages patient referrals between primary-care clinics and specialists
+    across the greater metro area.  They handle Protected Health Information
+    (PHI) subject to HIPAA and maintain a web-based referral portal, internal
+    file shares for contracts and insurance documents, and an LDAP directory
+    for single sign-on.  Their IT footprint is small -- one sysadmin, one
+    part-time security contractor -- and they recently failed a HIPAA audit
+    for inadequate access logging.
+
+departments:
+  - name: Clinical Operations
+    description: >-
+      Coordinates referrals between clinics and specialists.  Staff use the
+      referral portal daily and have read/write access to patient records.
+    hosts_accessed: [web, db, mail]
+
+  - name: Administration
+    description: >-
+      Front-office staff handling scheduling, billing, and insurance
+      verification.  Heavy email users with access to shared file drives.
+    hosts_accessed: [web, mail, files]
+
+  - name: IT
+    description: >-
+      One full-time sysadmin and one part-time security contractor.  Manages
+      all infrastructure, LDAP accounts, firewall rules, and the SIEM.
+    hosts_accessed: [web, mail, db, files, ldap, siem, firewall]
+
+  - name: Executive
+    description: >-
+      CEO, CFO, and Compliance Officer.  Access confidential financials and
+      compliance reports.  The Compliance Officer reviews HIPAA audit logs.
+    hosts_accessed: [web, mail, files]
+
+# ---------------------------------------------------------------------------
+# Users
+# ---------------------------------------------------------------------------
+
+users:
+  - username: dthompson
+    full_name: Derek Thompson
+    department: IT
+    role: Systems Administrator
+    email: dthompson@meridianhealth.local
+    hosts: [web, mail, db, files, ldap, siem, firewall]
+
+  - username: rchen
+    full_name: Rachel Chen
+    department: IT
+    role: Security Contractor (Part-Time)
+    email: rchen@meridianhealth.local
+    hosts: [siem, ldap, firewall]
+
+  - username: mgarcia
+    full_name: Maria Garcia
+    department: Clinical Operations
+    role: Referral Coordinator
+    email: mgarcia@meridianhealth.local
+    hosts: [web, db, mail]
+
+  - username: jnelson
+    full_name: James Nelson
+    department: Clinical Operations
+    role: Clinical Analyst
+    email: jnelson@meridianhealth.local
+    hosts: [web, db, mail]
+
+  - username: apatel
+    full_name: Anita Patel
+    department: Administration
+    role: Office Manager
+    email: apatel@meridianhealth.local
+    hosts: [web, mail, files]
+
+  - username: kwilliams
+    full_name: Karen Williams
+    department: Administration
+    role: Billing Specialist
+    email: kwilliams@meridianhealth.local
+    hosts: [web, mail, files]
+
+  - username: bmorris
+    full_name: Brian Morris
+    department: Executive
+    role: CEO
+    email: bmorris@meridianhealth.local
+    hosts: [web, mail, files]
+
+  - username: ldunn
+    full_name: Linda Dunn
+    department: Executive
+    role: Compliance Officer
+    email: ldunn@meridianhealth.local
+    hosts: [web, mail, files, siem]
+
+# ---------------------------------------------------------------------------
+# NPC personas — security_awareness reflects role and training level
+# ---------------------------------------------------------------------------
+
+npc_personas:
+  - username: dthompson
+    security_awareness: 0.85
+    daily_activities:
+      - SSH into servers to check service health and apply patches
+      - Review rsyslog dashboards on SIEM for anomalies
+      - Manage LDAP user accounts (add/disable/reset passwords)
+      - Update firewall rules and review denied-connection logs
+      - Respond to help-desk tickets from staff
+    susceptibility:
+      phishing_email: 0.1
+      pretexting_call: 0.15
+      usb_drop: 0.05
+
+  - username: rchen
+    security_awareness: 0.90
+    daily_activities:
+      - Review SIEM alerts and correlate events across hosts
+      - Run vulnerability scans against DMZ hosts
+      - Update IDS signatures and firewall ACLs
+      - Write weekly security summary for the Compliance Officer
+    susceptibility:
+      phishing_email: 0.05
+      pretexting_call: 0.10
+      usb_drop: 0.05
+
+  - username: mgarcia
+    security_awareness: 0.35
+    daily_activities:
+      - Log into the referral portal to submit and track patient referrals
+      - Query the database for referral status and specialist availability
+      - Send and receive referral-related emails with clinic partners
+      - Download referral PDFs and attach insurance verification documents
+    susceptibility:
+      phishing_email: 0.65
+      pretexting_call: 0.55
+      usb_drop: 0.40
+
+  - username: jnelson
+    security_awareness: 0.40
+    daily_activities:
+      - Run referral volume reports from the database
+      - Upload clinical summaries through the portal
+      - Email specialists with follow-up scheduling details
+    susceptibility:
+      phishing_email: 0.55
+      pretexting_call: 0.50
+      usb_drop: 0.35
+
+  - username: apatel
+    security_awareness: 0.30
+    daily_activities:
+      - Check email for appointment confirmations and insurance approvals
+      - Browse the referral portal to verify patient scheduling
+      - Access shared file drives for billing templates and HR forms
+      - Print and scan documents throughout the day
+    susceptibility:
+      phishing_email: 0.70
+      pretexting_call: 0.65
+      usb_drop: 0.50
+
+  - username: kwilliams
+    security_awareness: 0.25
+    daily_activities:
+      - Submit insurance claims via the portal
+      - Email EOB documents to patients and clinics
+      - Access shared billing spreadsheets on the file server
+      - Look up patient account balances in the database
+    susceptibility:
+      phishing_email: 0.75
+      pretexting_call: 0.60
+      usb_drop: 0.55
+
+  - username: bmorris
+    security_awareness: 0.45
+    daily_activities:
+      - Read email on phone and laptop throughout the day
+      - Review financial reports shared via email attachments
+      - Access the portal dashboard for referral volume metrics
+      - Forward documents between personal and work email
+    susceptibility:
+      phishing_email: 0.55
+      pretexting_call: 0.40
+      usb_drop: 0.30
+
+  - username: ldunn
+    security_awareness: 0.70
+    daily_activities:
+      - Review HIPAA audit logs on the SIEM
+      - Access shared compliance documents on the file server
+      - Email regulatory updates to department heads
+      - Run access-control reports from LDAP via the portal
+    susceptibility:
+      phishing_email: 0.25
+      pretexting_call: 0.30
+      usb_drop: 0.15
+
+# ---------------------------------------------------------------------------
+# Data inventory — what the Builder needs to protect (and the Red agent to find)
+# ---------------------------------------------------------------------------
+
+data_inventory:
+  - name: Patient referral records
+    classification: restricted
+    host: db
+    location: "mysql:referral_db.patient_referrals"
+    description: >-
+      PHI including patient names, DOBs, diagnoses, referring physician,
+      specialist assignments, and insurance policy numbers.  Subject to
+      HIPAA Privacy Rule.
+
+  - name: Patient contact information
+    classification: restricted
+    host: db
+    location: "mysql:referral_db.patients"
+    description: >-
+      Addresses, phone numbers, email addresses, and emergency contacts
+      for all patients in the referral system.
+
+  - name: User credentials and directory
+    classification: confidential
+    host: ldap
+    location: "ou=People,dc=meridianhealth,dc=local"
+    description: >-
+      LDAP directory containing all employee accounts, password hashes,
+      group memberships, and access-control attributes.
+
+  - name: Insurance contracts and fee schedules
+    classification: confidential
+    host: files
+    location: "/srv/shares/contracts"
+    description: >-
+      Negotiated rate agreements with insurance carriers, fee schedules,
+      and payer contracts.  Business-sensitive -- disclosure would weaken
+      negotiating position.
+
+  - name: HR and personnel files
+    classification: confidential
+    host: files
+    location: "/srv/shares/hr"
+    description: >-
+      Employee records including SSNs, salary information, performance
+      reviews, and background-check results.
+
+  - name: HIPAA compliance reports
+    classification: confidential
+    host: files
+    location: "/srv/shares/compliance"
+    description: >-
+      Annual HIPAA risk assessments, audit findings, remediation plans,
+      and breach-notification procedures.
+
+  - name: Billing and claims data
+    classification: confidential
+    host: db
+    location: "mysql:referral_db.billing"
+    description: >-
+      Insurance claim submissions, EOB records, payment history, and
+      outstanding balances.  Contains patient names and policy numbers.
+
+  - name: Application source code
+    classification: internal
+    host: web
+    location: "/var/www/portal"
+    description: >-
+      PHP source for the referral portal.  Not public but not highly
+      sensitive -- mainly a risk if it reveals SQL query patterns or
+      hardcoded credentials.
+
+  - name: Audit and security logs
+    classification: internal
+    host: siem
+    location: "/var/log/siem/consolidated"
+    description: >-
+      Aggregated syslog, web-access, database-query, and authentication
+      logs from all hosts.  The Compliance Officer reviews these weekly.
+
+  - name: Email archives
+    classification: confidential
+    host: mail
+    location: "/var/mail/vhosts/meridianhealth.local"
+    description: >-
+      Employee mailboxes containing referral discussions, insurance
+      correspondence, and internal communications.  May contain PHI
+      in attachments.
+
+# ---------------------------------------------------------------------------
+# Business processes — how data flows across the range
+# ---------------------------------------------------------------------------
+
+business_processes:
+  - name: Patient referral submission
+    description: >-
+      A clinic submits a referral through the web portal.  The portal
+      validates the form, writes the referral record to MySQL, sends an
+      email notification to the assigned specialist's coordinator, and
+      logs the transaction to the SIEM.
+    data_flow:
+      - "web:nginx"
+      - "web:php-fpm"
+      - "ldap:openldap"
+      - "db:mysql"
+      - "mail:postfix"
+      - "siem:rsyslog"
+
+  - name: Referral status lookup
+    description: >-
+      Staff query the portal to check the status of an existing referral.
+      The portal authenticates via LDAP, retrieves the record from MySQL,
+      and returns the result.  Failed authentication attempts are logged.
+    data_flow:
+      - "web:nginx"
+      - "ldap:openldap"
+      - "db:mysql"
+      - "siem:rsyslog"
+
+  - name: Insurance verification
+    description: >-
+      Billing staff look up a patient's insurance details in the database,
+      cross-reference with contract documents on the file share, and email
+      the verification result to the referring clinic.
+    data_flow:
+      - "web:nginx"
+      - "ldap:openldap"
+      - "db:mysql"
+      - "files:samba"
+      - "mail:postfix"
+      - "siem:rsyslog"
+
+  - name: Compliance audit review
+    description: >-
+      The Compliance Officer logs into the SIEM to review access logs,
+      pulls compliance reports from the file share, and emails a summary
+      to the CEO.
+    data_flow:
+      - "siem:elasticsearch"
+      - "files:samba"
+      - "mail:postfix"
+
+  - name: Employee onboarding
+    description: >-
+      IT creates a new LDAP account, provisions mailbox on the mail
+      server, sets file-share permissions, and grants portal access.
+      All provisioning actions are logged.
+    data_flow:
+      - "ldap:openldap"
+      - "mail:postfix"
+      - "files:samba"
+      - "web:php-fpm"
+      - "siem:rsyslog"
+
+  - name: Password reset
+    description: >-
+      A user requests a password reset through the portal.  The portal
+      sends a reset link via email, and the user sets a new password
+      which is updated in LDAP.
+    data_flow:
+      - "web:nginx"
+      - "web:php-fpm"
+      - "mail:postfix"
+      - "ldap:openldap"
+      - "siem:rsyslog"
+
+# ---------------------------------------------------------------------------
+# Technology stack and known debt
+# ---------------------------------------------------------------------------
+
+tech_stack:
+  web:
+    runtime: "PHP 7.4 (EOL — no security patches since Nov 2022)"
+    webserver: nginx
+    session_handler: "Custom PHP session handler backed by OpenLDAP 2.4"
+    frontend: "jQuery 2.x (known XSS vectors in older jQuery)"
+    known_debt:
+      - "Legacy patient lookup script (/var/www/portal/legacy/lookup.php) still runs in PHP 5.6 compatibility mode"
+      - "Admin panel accessible on port 8080 without authentication"
+  db:
+    engine: "MySQL 5.7"
+    known_debt:
+      - "Nightly backup script (/opt/scripts/db_backup.sh) contains hardcoded credentials for root@localhost"
+  ldap:
+    engine: "OpenLDAP 2.4"
+  mail:
+    mta: "Postfix 3.5"
+    mda: "Dovecot (IMAP)"
+    email_auth: "No DKIM, no DMARC, no SPF — relay relies on IP-based restrictions only"
+  monitoring:
+    log_shipper: "rsyslog to SIEM"
+    gaps:
+      - "No endpoint detection and response (EDR) on any host"
+      - "No file integrity monitoring (e.g., AIDE, OSSEC)"
+
+# ---------------------------------------------------------------------------
+# Credential policy — stated vs actual
+# ---------------------------------------------------------------------------
+
+credential_policy:
+  stated_policy:
+    min_length: 8
+    complexity: true
+    rotation_days: 90
+    mfa: "Required on VPN only"
+  enforcement_gaps:
+    - "Local accounts on web and db servers are exempt from LDAP password policy"
+    - "Service accounts are exempt from 90-day rotation"
+    - "New hire accounts start with predictable 'Welcome<YEAR>' pattern (e.g., Welcome2025)"
+    - "MFA not enforced on SSH, web admin panel, or database connections"
+  shared_accounts:
+    - account: admin
+      host: web
+      description: "Shared by IT team (dthompson, rkim) for emergency access to the web server"
+  service_accounts:
+    - account: svc_backup
+      host: db
+      description: "Runs nightly MySQL backups — password unchanged since 2022"
+    - account: svc_ldap
+      host: ldap
+      description: "Used by web and mail servers to bind to LDAP — same password as the LDAP admin (cn=admin) account"
+
+# ---------------------------------------------------------------------------
+# Monitoring coverage and blind spots
+# ---------------------------------------------------------------------------
+
+monitoring_coverage:
+  logged:
+    - source: web
+      streams: ["nginx access log", "nginx error log"]
+    - source: db
+      streams: ["MySQL slow query log (queries >2s only)"]
+    - source: ldap
+      streams: ["LDAP bind (authentication) events"]
+    - source: mail
+      streams: ["Postfix mail.log"]
+    - source: all_hosts
+      streams: ["SSH auth.log"]
+    - source: siem
+      streams: ["Aggregated syslog from all hosts"]
+  blind_spots:
+    - "LDAP search queries are not logged — only bind (authentication) events are captured"
+    - "SMB file access on the file server is not audited"
+    - "Database SELECT queries are not logged (only slow queries exceeding 2s threshold)"
+    - "No DNS query logging on any host"
+    - "No process-level monitoring (no auditd, no sysmon equivalent)"
+  alert_rules:
+    - trigger: "Failed SSH logins >5 per minute from a single source"
+      action: siem_alert
+    - trigger: "HTTP 500 error rate spike (>10 in 60s)"
+      action: siem_alert
+    - trigger: "Mail relay attempt from external (non-DMZ) source"
+      action: siem_alert
+    - trigger: "LDAP bind failure burst (>10 in 60s)"
+      action: siem_alert
+  retention_days: 90
+
+# ---------------------------------------------------------------------------
+# Trust relationships — interpersonal dynamics the Builder can exploit
+# ---------------------------------------------------------------------------
+
+trust_relationships:
+  - from: dthompson
+    to: kwilliams
+    type: delegates_access
+    description: >-
+      Derek set up Karen's workstation and knows her login credentials.
+      He occasionally logs in as Karen to troubleshoot billing portal issues.
+
+  - from: schen
+    to: lpark
+    type: reports_to
+    description: >-
+      Lisa (office manager) handles Sarah's (medical director) calendar and
+      email when Sarah is in clinic.  Lisa has delegated access to Sarah's
+      mailbox.
+
+  - from: jrodriguez
+    to: dthompson
+    type: trusts_email
+    description: >-
+      Julia (compliance) always asks Derek for access changes via email and
+      never verifies requests by phone.  A spoofed email from Julia would
+      likely be actioned without question.
+
+  - from: rkim
+    to: dthompson
+    type: shares_credentials
+    description: >-
+      Ryan (security contractor) and Derek share the 'admin' account on the
+      web server.  Neither can distinguish the other's sessions in logs.
+
+# ---------------------------------------------------------------------------
+# Operational context — compliance, incidents, and real-world pressures
+# ---------------------------------------------------------------------------
+
+operational_context:
+  compliance:
+    - HIPAA
+    - HITECH
+  recent_incidents:
+    - date: "3 weeks ago"
+      description: >-
+        Phishing email hit 2 administrative staff.  Link was clicked but no
+        credential compromise was confirmed.  Incident was logged but no
+        formal investigation was conducted.
+    - date: "1 month ago"
+      description: >-
+        Ransomware attack on a partner clinic prompted emergency password
+        resets across Meridian as a precaution.  Resets were done manually
+        and some service accounts were missed.
+  audit_findings:
+    - "Shared 'admin' account on web server noted as a finding in last HIPAA audit"
+    - "Backup encryption not verified — backups may be stored in plaintext"
+    - "No documented incident response plan exists"
+  maintenance_windows:
+    schedule: "Sunday 02:00-06:00 EST"
+  vendor_access:
+    - vendor: "EHR vendor"
+      method: "VPN access to web server for support"
+      review_cycle: "Annually"
+  recent_changes:
+    - "Migrated from on-prem Exchange to Postfix 6 months ago — some mail forwarding rules still reference the old Exchange server"
+
+# ---------------------------------------------------------------------------
+# Network topology
+# ---------------------------------------------------------------------------
+
+topology:
+  networks:
+    - name: external
+    - name: dmz
+      cidr: "10.0.1.0/24"
+    - name: internal
+      cidr: "10.0.2.0/24"
+    - name: management
+      cidr: "10.0.3.0/24"
+
+  hosts:
+    - name: attacker
+      zone: external
+      hostname: kali.external
+      purpose: >-
+        Red team operator workstation.  External to the Meridian network
+        with no prior access or credentials.
+      os: kali:latest
+      services: [nmap, curl, hydra, nikto, ssh-client]
+      connects_to: [firewall]
+
+    - name: firewall
+      zone: external
+      hostname: fw.meridianhealth.local
+      purpose: >-
+        Perimeter firewall and NAT gateway.  Enforces zone segmentation
+        between external, DMZ, internal, and management networks.  All
+        traffic between zones passes through iptables rules here.
+      os: ubuntu:22.04
+      services: [iptables, sshd]
+      connects_to: [web, mail]
+
+    - name: web
+      zone: dmz
+      hostname: portal.meridianhealth.local
+      purpose: >-
+        Patient referral portal.  Runs the PHP web application behind
+        nginx where clinics submit referrals, staff look up statuses, and
+        billing verifies insurance.  The most exposed host -- directly
+        reachable from the internet on ports 80 and 443.
+      os: ubuntu:22.04
+      services: [nginx, php-fpm, sshd]
+      connects_to: [db, ldap]
+
+    - name: mail
+      zone: dmz
+      hostname: mail.meridianhealth.local
+      purpose: >-
+        Corporate email server handling all inbound and outbound mail for
+        meridianhealth.local.  Postfix for SMTP relay, Dovecot for IMAP
+        mailbox access.  Staff use it for referral notifications,
+        insurance correspondence, and internal communications.
+      os: ubuntu:22.04
+      services: [postfix, dovecot, sshd]
+      connects_to: [ldap]
+
+    - name: db
+      zone: internal
+      hostname: db.meridianhealth.local
+      purpose: >-
+        MySQL database server holding the referral_db database -- patient
+        referrals, contact information, billing records, and user session
+        data.  Contains the most sensitive PHI in the organization.  Only
+        reachable from the DMZ on port 3306; no direct external access.
+      os: ubuntu:22.04
+      services: [mysql, sshd]
+      connects_to: [ldap]
+
+    - name: files
+      zone: internal
+      hostname: files.meridianhealth.local
+      purpose: >-
+        Samba file server hosting departmental shares: /srv/shares/contracts
+        (insurance agreements), /srv/shares/hr (personnel files),
+        /srv/shares/compliance (HIPAA audit reports), and /srv/shares/general
+        (templates and forms).  Access controlled by LDAP group membership.
+      os: ubuntu:22.04
+      services: [samba, sshd]
+      connects_to: [ldap]
+
+    - name: ldap
+      zone: management
+      hostname: ldap.meridianhealth.local
+      purpose: >-
+        Central identity provider for the organization.  OpenLDAP directory
+        stores all user accounts, password hashes, and group memberships.
+        Every authentication event across the range (portal login, SSH,
+        Samba, Dovecot) validates against this server.
+      os: ubuntu:22.04
+      services: [openldap, sshd]
+      connects_to: []
+
+    - name: siem
+      zone: management
+      hostname: siem.meridianhealth.local
+      purpose: >-
+        Security monitoring and log aggregation.  Receives syslog from
+        every host, indexes events in Elasticsearch, and provides the
+        dashboard the Compliance Officer reviews for HIPAA audit evidence.
+        Blue team's primary observation point.
+      os: ubuntu:22.04
+      services: [rsyslog, elasticsearch, sshd]
+      connects_to: [web, mail, db, files, ldap]
+
+  firewall_rules:
+    # External -> DMZ: standard web + mail ports
+    - action: allow
+      from_zone: external
+      to_zone: dmz
+      ports: [80, 443, 25]
+
+    # DMZ -> Internal: database + file share access
+    - action: allow
+      from_zone: dmz
+      to_zone: internal
+      ports: [3306, 445]
+
+    # DMZ -> Management: directory services (LDAP + LDAPS)
+    - action: allow
+      from_zone: dmz
+      to_zone: management
+      ports: [389, 636]
+
+    # Internal -> Management: directory services
+    - action: allow
+      from_zone: internal
+      to_zone: management
+      ports: [389]
+
+    # Management -> all zones: SIEM log collection (syslog)
+    - action: allow
+      from_zone: management
+      to_zone: dmz
+      ports: [514]
+
+    - action: allow
+      from_zone: management
+      to_zone: internal
+      ports: [514]
+
+    # Block internal -> external (no egress from server zones)
+    - action: deny
+      from_zone: internal
+      to_zone: external
+      ports: []
+
+    # Block management -> external
+    - action: deny
+      from_zone: management
+      to_zone: external
+      ports: []
+
+# ---------------------------------------------------------------------------
+# Vulnerability and task envelope
+# ---------------------------------------------------------------------------
+
+bug_families:
+  # --- OWASP A01: Broken Access Control ---
+  - idor                  # Insecure direct object reference (web API)
+  - path_traversal        # Directory traversal (web file read)
+  - lfi                   # Local file inclusion (web → server filesystem)
+  - missing_authz         # Missing function-level access control
+  # --- OWASP A03: Injection ---
+  - sqli                  # SQL injection (web → db)
+  - xss                   # Cross-site scripting (stored/reflected)
+  - command_injection     # OS command injection (web → shell)
+  - ldap_injection        # LDAP injection (web → ldap)
+  - ssti                  # Server-side template injection (web → RCE)
+  - xxe                   # XML external entity (web → file read / SSRF)
+  - log_injection         # Log forging / log evasion
+  # --- OWASP A04-A06: Design, Misconfig, Components ---
+  - file_upload           # Unrestricted upload → webshell (A04 Insecure Design)
+  - service_misconfig     # Debug endpoints, default configs (A05 Misconfig)
+  - ssrf                  # Server-side request forgery (A10 SSRF)
+  # --- OWASP A07: Auth Failures ---
+  - weak_creds            # Default/guessable passwords (SSH, DB, LDAP, SMB)
+  - broken_auth           # JWT flaws, session fixation, auth bypass
+  - credential_reuse      # Same password across services → lateral movement
+  # --- OWASP A08: Software/Data Integrity ---
+  - rce                   # Remote code execution (eval, pickle, code injection)
+  - deserialization       # Insecure deserialization (PHP, Python, Java)
+  # --- Infrastructure / network layer ---
+  - smb_misconfig         # Open shares, guest access, null sessions (files)
+  - mail_misconfig        # Open relay, missing SPF/DKIM, header injection (mail)
+  - firewall_bypass       # Zone traversal, rule gaps, port forwarding abuse
+  - config_drift          # Stale configs diverged from intended (e.g., PHP compat mode)
+  # --- Operational / hygiene ---
+  - orphaned_access       # Accounts left from departed staff
+  - overpermission        # Service accounts with excessive privileges
+  - data_exposure         # Sensitive data in backups, logs, world-readable locations
+  - insecure_backup       # Unencrypted backups, hardcoded creds in backup scripts
+
+task_families:
+  - exploit
+  - investigate
+  - patch
+  - report
+
+difficulty:
+  max_steps: 12
+  min_vulns: 1
+  max_vulns: 3

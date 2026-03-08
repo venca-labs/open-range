@@ -268,22 +268,31 @@ git clone https://github.com/open-cybernauts/open-range.git
 cd open-range
 uv sync --all-extras
 
-# Run the OpenEnv server locally
-uv run uvicorn server.app:app --host 0.0.0.0 --port 8000
+# Run the end-to-end demo (no Docker, no LLM required)
+uv run python examples/demo.py
 
-# Connect a client
-python -c "
-from client import OpenRangeEnv
-from server.models import RangeAction
+# Run the FastAPI server
+python -m open_range.server                     # default: 127.0.0.1:8000
+python -m open_range.server --port 9000         # custom port
+python -m open_range.server --host 0.0.0.0      # bind all interfaces
 
-with OpenRangeEnv('http://localhost:8000').sync() as env:
-    result = env.reset()
-    print(result.observation.stdout)
-
-    result = env.step(RangeAction(command='nmap -sV 10.0.1.0/24', mode='red'))
-    print(result.observation.stdout)
-"
+# Or via uvicorn directly
+uv run uvicorn open_range.server.app:app --host 0.0.0.0 --port 8000 --reload
 ```
+
+### Server Endpoints
+
+| Method | Path | Description |
+|--------|------|-------------|
+| GET | `/health` | Liveness check |
+| GET | `/metadata` | Environment name, version, description |
+| GET | `/schema` | JSON schemas for action, observation, state |
+| POST | `/reset` | Reset environment, returns initial observation |
+| POST | `/step` | Execute an action, returns observation + reward + done |
+| GET | `/state` | Current episode state |
+| WS | `/ws` | Persistent WebSocket session (per-connection environment) |
+
+If `openenv` is installed, the server delegates to `openenv.core.env_server.create_app`. Otherwise it falls back to an equivalent standalone FastAPI app.
 
 ## Reward Signals
 
@@ -451,20 +460,126 @@ sequenceDiagram
     Note over Red,Blue: Red stealth LOW - Blue caught the attack<br/>Blue detection HIGH - found real intrusion
 ```
 
+## Agents
+
+OpenRange uses a **structural protocol** for agents -- any object with `reset(briefing, role)` and `act(observation) -> command` methods works. No base class required.
+
+| Agent | Module | Description |
+|-------|--------|-------------|
+| `RangeAgent` | `agents/protocol.py` | Protocol definition (structural subtyping) |
+| `LLMRangeAgent` | `agents/llm_agent.py` | LLM-powered agent via LiteLLM (any provider: Anthropic, OpenAI, Ollama, vLLM, etc.) |
+| `ScriptedAgent` | `agents/scripted_agent.py` | Replays a fixed command list (for testing and demos) |
+| `HumanAgent` | `agents/human_agent.py` | Interactive stdin/stdout agent for manual play |
+
+**Bring your own agent**: implement `reset()` and `act()` and pass it to `run_episode()` or `evaluate()`.
+
+```python
+from open_range.agents.episode import run_episode
+from open_range.agents.llm_agent import LLMRangeAgent
+from open_range.server.environment import RangeEnvironment
+
+env = RangeEnvironment()
+red = LLMRangeAgent(model="anthropic/claude-sonnet-4-20250514")
+blue = LLMRangeAgent(model="openai/gpt-4o")
+result = run_episode(env, red, blue, max_steps=50)
+print(result.outcome, result.metrics)
+```
+
+The `evaluate()` function in `agents/eval.py` runs N episodes and returns aggregate metrics (solve rate, detection rate, stealth, availability, false positive rate).
+
 ## Project Structure
 
 ```
 open-range/
-├── manifests/          YAML enterprise range definitions
-├── vulns/              Vulnerability catalog (plantable vuln templates)
-├── builder/            Manifest compiler, mutator, templates, optional artifact generation
-├── validator/          Mechanical admission checks + optional realism review
-├── server/             OpenEnv server (Environment, models, rewards, snapshot runtime)
-├── client/             Typed OpenEnv client
-├── docs/               Architecture docs and guides
-├── examples/           Demo scripts
-└── tests/              Test suite
+├── src/open_range/
+│   ├── protocols.py        Pydantic models: SnapshotSpec, TruthGraph, Vulnerability, FlagSpec, etc.
+│   ├── resolve.py          Dynamic component resolution (importlib + Protocol check)
+│   ├── server/             FastAPI server (Environment, models, rewards)
+│   │   ├── app.py          FastAPI app factory (OpenEnv-compatible or standalone)
+│   │   ├── __main__.py     Entry point: python -m open_range.server
+│   │   ├── environment.py  RangeEnvironment with reset/step/state
+│   │   ├── models.py       RangeAction, RangeObservation, RangeState
+│   │   └── rewards.py      Reward components (flag, stealth, detection, patch, etc.)
+│   ├── builder/            Snapshot builder + renderer
+│   │   ├── builder.py      LLMSnapshotBuilder, TemplateOnlyBuilder, FileBuilder
+│   │   ├── renderer.py     SnapshotRenderer: Jinja2 templates -> Docker artifacts
+│   │   ├── mutator.py      Vuln mutation logic (swap vulns between resets)
+│   │   ├── snapshot_store.py  Snapshot storage and retrieval
+│   │   ├── templates/      Jinja2 templates (docker-compose, Dockerfiles, nginx, iptables, etc.)
+│   │   └── npc/            NPC traffic system
+│   │       ├── npc_manager.py   NPCManager: orchestrates shell scripts + LLM agents
+│   │       ├── npc_agent.py     LLMNPCAgent (Level 1), RuleBasedNPCBehavior, NullNPCBehavior
+│   │       ├── persona.py       NPC persona model
+│   │       └── *.sh             Level 0 traffic scripts (http, db, ssh)
+│   ├── validator/          10-check admission pipeline
+│   │   ├── validator.py    Pipeline orchestrator
+│   │   ├── build_boot.py   Check 1: docker compose up + healthchecks
+│   │   ├── exploitability.py  Check 2: golden path end-to-end
+│   │   ├── patchability.py Check 3: inverse mutation test
+│   │   ├── evidence.py     Check 4: logs + alerts exist
+│   │   ├── reward_grounding.py  Check 5: rubrics produce valid scores
+│   │   ├── isolation.py    Check 6: zones enforced, no leaks
+│   │   ├── task_feasibility.py  Check 7: tasks reference real hosts/services
+│   │   ├── difficulty.py   Check 8: golden path steps within tier target
+│   │   ├── npc_consistency.py   Check 9: NPC persona consistency (LLM, via litellm)
+│   │   └── realism_review.py    Check 10: scenario plausibility (LLM, advisory)
+│   ├── agents/             Agent framework
+│   │   ├── protocol.py     RangeAgent protocol + EpisodeResult + EpisodeMetrics
+│   │   ├── llm_agent.py    LLMRangeAgent (litellm, any provider)
+│   │   ├── scripted_agent.py  ScriptedAgent + pre-built demo scripts
+│   │   ├── human_agent.py  Interactive human agent (stdin/stdout)
+│   │   ├── prompts.py      Red and Blue system prompts
+│   │   ├── parsing.py      Command extraction from LLM output
+│   │   ├── episode.py      run_episode() orchestration loop
+│   │   └── eval.py         evaluate() harness (N episodes, aggregate metrics)
+│   ├── client/             Typed OpenEnv client (OpenRangeEnv)
+│   └── training/           Training utilities (deferred -- env-first)
+│       ├── trajectory.py   TrajectoryLogger with JSONL export for SFT
+│       ├── rollout.py      Rollout function for GRPOTrainer
+│       └── curriculum.py   Curriculum escalation logic
+├── manifests/              YAML range definitions (tier1, tier2, tier3) + schema
+├── vulns/                  Vulnerability catalog (sqli, xss, idor, ssrf, etc.)
+├── examples/               Demo scripts
+│   ├── demo.py             End-to-end scripted demo (no Docker, no LLM)
+│   └── demo_config.yaml    Demo configuration
+├── tests/                  Test suite (13 test files)
+├── docs/                   Architecture docs and guides
+└── pyproject.toml
 ```
+
+## Trajectory Logging
+
+The `TrajectoryLogger` records Red and Blue turns during episodes and exports them as JSONL in OpenAI chat format for supervised fine-tuning.
+
+```python
+from open_range.training.trajectory import TrajectoryLogger
+
+logger = TrajectoryLogger()
+logger.start_episode("ep-001", snapshot_id="snap-001", tier=1)
+logger.log_turn(role="red", observation="Range ready...", action="nmap -sV web", reward=0.1)
+logger.end_episode(outcome="flag_captured")
+logger.export_jsonl("trajectories.jsonl", reward_threshold=0.5)
+```
+
+Red and Blue trajectories are written as separate JSONL lines (independent training examples). Episodes can be filtered by reward threshold.
+
+## Running Tests
+
+```bash
+# Install dev dependencies
+uv sync --all-extras
+
+# Run all tests
+uv run pytest tests/ -v --tb=short
+
+# Run specific test files
+uv run pytest tests/test_agents.py -v
+uv run pytest tests/test_app.py -v
+uv run pytest tests/test_validator.py -v
+uv run pytest tests/test_demo.py -v
+```
+
+Test files cover: agents, app/server endpoints, builder, demo, environment, manifests, models, protocols, renderer, rewards, trajectory logging, and the validator pipeline.
 
 ## Built On
 

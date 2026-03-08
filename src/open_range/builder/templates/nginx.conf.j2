@@ -1,0 +1,48 @@
+server {
+    listen 80 default_server;
+    server_name {{ server_name | default('web.corp.local') }};
+
+    root /var/www/html;
+    index index.php index.html;
+
+    # Access logging -- feeds into Blue's observation
+    access_log /var/log/nginx/access.log combined;
+    error_log /var/log/nginx/error.log;
+
+    # Main site
+    location / {
+        try_files $uri $uri/ /index.php?$query_string;
+    }
+
+    # PHP processing
+    location ~ \.php$ {
+        include snippets/fastcgi-php.conf;
+        fastcgi_pass unix:/run/php/php-fpm.sock;
+        fastcgi_param SCRIPT_FILENAME $document_root$fastcgi_script_name;
+        include fastcgi_params;
+    }
+
+    # API endpoints
+    location /api/ {
+        try_files $uri $uri/ /api/index.php?$query_string;
+    }
+
+{% if search_endpoint is defined %}
+    # Search endpoint (potential injection point)
+    location /search {
+        try_files $uri /search.php?$query_string;
+    }
+{% endif %}
+
+{% if download_endpoint is defined %}
+    # File download endpoint (potential traversal point)
+    location /download {
+        try_files $uri /download.php?$query_string;
+    }
+{% endif %}
+
+    # Deny access to hidden files
+    location ~ /\. {
+        deny all;
+    }
+}

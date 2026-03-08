@@ -1,0 +1,1057 @@
+# Tier 3 — Enterprise Range
+# NovaStar Technologies: a 500-employee software company building a SaaS platform
+# for supply chain management.  16 hosts across 8 zones.  Handles customer PII,
+# proprietary source code, API keys, and partner integration secrets.  Vuln chains
+# that span multiple hosts and zones are expected at this tier.  ~25 golden-path steps.
+
+name: tier3_enterprise
+tier: 3
+
+# ---------------------------------------------------------------------------
+# Company narrative
+# ---------------------------------------------------------------------------
+
+company:
+  name: NovaStar Technologies
+  domain: novastar.local
+  industry: software / SaaS
+  description: >-
+    NovaStar Technologies builds a SaaS platform for supply chain management
+    used by mid-market manufacturers and logistics companies.  The platform
+    includes a customer-facing portal, internal development tools, CI/CD
+    pipelines, and a partner B2B API.  The company handles customer PII,
+    proprietary source code, API keys, and partner integration secrets across
+    roughly 500 employees.
+
+# ---------------------------------------------------------------------------
+# Departments
+# ---------------------------------------------------------------------------
+
+departments:
+  - name: Engineering
+    description: >-
+      Full-stack and backend developers who build and maintain the SaaS
+      platform.  Own the codebase, CI/CD pipelines, and staging environments.
+    hosts_accessed: [web, db, ci_cd, devtools, cache, jumpbox]
+
+  - name: Site Reliability
+    description: >-
+      SRE team responsible for production uptime, monitoring, backups, and
+      incident response.  Has broad infrastructure access.
+    hosts_accessed: [web, db, files, cache, backup, ci_cd, monitoring, siem, jumpbox, firewall]
+
+  - name: Quality Assurance
+    description: >-
+      QA engineers who run integration and regression tests against staging
+      environments.  Read access to source repos and test databases.
+    hosts_accessed: [web, db, devtools, ci_cd]
+
+  - name: Product Management
+    description: >-
+      Product managers who review feature specs, customer feedback dashboards,
+      and release notes.  Limited technical access.
+    hosts_accessed: [web, mail, devtools]
+
+  - name: Sales Engineering
+    description: >-
+      Pre-sales engineers who demo the platform to prospects and configure
+      partner integrations.  Access the partner portal and customer data for
+      proof-of-concept work.
+    hosts_accessed: [web, partner_portal, mail, files]
+
+  - name: Information Security
+    description: >-
+      Security team led by the CISO.  Monitors SIEM alerts, runs vulnerability
+      scans, manages firewall rules, and handles incident response.
+    hosts_accessed: [siem, monitoring, firewall, ldap, jumpbox, web, mail]
+
+  - name: IT / Helpdesk
+    description: >-
+      Helpdesk staff who manage user accounts, reset passwords, provision
+      laptops, and handle LDAP administration.
+    hosts_accessed: [ldap, mail, files, jumpbox]
+
+# ---------------------------------------------------------------------------
+# Users
+# ---------------------------------------------------------------------------
+
+users:
+  - username: mchen
+    full_name: Maya Chen
+    department: Engineering
+    role: Senior Backend Developer
+    email: mchen@novastar.local
+    hosts: [web, db, ci_cd, devtools, jumpbox]
+
+  - username: jpark
+    full_name: James Park
+    department: Engineering
+    role: Junior Full-Stack Developer
+    email: jpark@novastar.local
+    hosts: [web, devtools, ci_cd, jumpbox]
+
+  - username: tnguyen
+    full_name: Tara Nguyen
+    department: Site Reliability
+    role: SRE Lead
+    email: tnguyen@novastar.local
+    hosts: [web, db, files, cache, backup, ci_cd, monitoring, siem, jumpbox, firewall]
+
+  - username: rmorales
+    full_name: Ricardo Morales
+    department: Site Reliability
+    role: SRE
+    email: rmorales@novastar.local
+    hosts: [web, db, monitoring, ci_cd, jumpbox, backup]
+
+  - username: asingh
+    full_name: Anita Singh
+    department: Quality Assurance
+    role: QA Lead
+    email: asingh@novastar.local
+    hosts: [web, db, devtools, ci_cd]
+
+  - username: dwilson
+    full_name: Derek Wilson
+    department: Product Management
+    role: Senior Product Manager
+    email: dwilson@novastar.local
+    hosts: [web, mail, devtools]
+
+  - username: klee
+    full_name: Kevin Lee
+    department: Sales Engineering
+    role: Sales Engineer
+    email: klee@novastar.local
+    hosts: [web, partner_portal, mail, files]
+
+  - username: lgarcia
+    full_name: Laura Garcia
+    department: Information Security
+    role: CISO
+    email: lgarcia@novastar.local
+    hosts: [siem, monitoring, firewall, ldap, jumpbox, web, mail]
+
+  - username: bthompson
+    full_name: Brian Thompson
+    department: IT / Helpdesk
+    role: IT Support Specialist
+    email: bthompson@novastar.local
+    hosts: [ldap, mail, files, jumpbox]
+
+  - username: ezhang
+    full_name: Emily Zhang
+    department: Engineering
+    role: DevOps Engineer
+    email: ezhang@novastar.local
+    hosts: [ci_cd, devtools, web, db, jumpbox, monitoring]
+
+# ---------------------------------------------------------------------------
+# NPC personas (generate realistic traffic + social engineering surface)
+# ---------------------------------------------------------------------------
+
+npc_personas:
+  - username: jpark
+    security_awareness: 0.3
+    daily_activities:
+      - Pushes code to Gitea feature branches multiple times per day
+      - Triggers CI builds on Jenkins after each push
+      - Browses the customer portal to test frontend changes
+      - Checks email for code review notifications
+      - Copies deploy tokens into local config files for testing
+    susceptibility:
+      phishing_email: 0.7
+      pretexting_call: 0.5
+      credential_request: 0.6
+
+  - username: tnguyen
+    security_awareness: 0.85
+    daily_activities:
+      - Reviews Grafana dashboards and Prometheus alert channels
+      - Runs database backup verification scripts
+      - SSH-es through jumpbox to rotate service credentials
+      - Investigates SIEM alerts flagged by automated rules
+      - Applies security patches to production containers
+    susceptibility:
+      phishing_email: 0.1
+      pretexting_call: 0.15
+      credential_request: 0.05
+
+  - username: klee
+    security_awareness: 0.2
+    daily_activities:
+      - Demos the SaaS platform to prospective customers via screen share
+      - Configures partner API test integrations with sample data
+      - Sends partnership proposals and data sheets via email
+      - Downloads customer CSV exports to build slide decks
+      - Shares files via Samba with the sales team
+    susceptibility:
+      phishing_email: 0.8
+      pretexting_call: 0.7
+      credential_request: 0.75
+
+  - username: asingh
+    security_awareness: 0.5
+    daily_activities:
+      - Runs automated test suites against staging web server
+      - Queries test database for regression data validation
+      - Files bug reports referencing Gitea commits
+      - Reviews CI pipeline output for flaky tests
+      - Emails test results to product managers
+    susceptibility:
+      phishing_email: 0.4
+      pretexting_call: 0.35
+      credential_request: 0.3
+
+  - username: lgarcia
+    security_awareness: 0.95
+    daily_activities:
+      - Reviews daily SIEM summary reports in Kibana
+      - Audits firewall rule change requests
+      - Checks LDAP group membership for privilege drift
+      - Runs periodic vulnerability scans from the monitoring host
+      - Sends security awareness reminders company-wide via email
+    susceptibility:
+      phishing_email: 0.03
+      pretexting_call: 0.05
+      credential_request: 0.02
+
+  - username: bthompson
+    security_awareness: 0.4
+    daily_activities:
+      - Resets passwords and unlocks accounts in LDAP
+      - Provisions new-hire accounts and email mailboxes
+      - Troubleshoots VPN connectivity issues
+      - Transfers onboarding documents via Samba file shares
+      - Responds to helpdesk tickets via email
+    susceptibility:
+      phishing_email: 0.55
+      pretexting_call: 0.6
+      credential_request: 0.5
+
+  - username: ezhang
+    security_awareness: 0.65
+    daily_activities:
+      - Maintains Jenkins pipeline configurations
+      - Reviews Docker build logs and container health
+      - Updates deployment scripts in Gitea
+      - Monitors CI/CD resource usage in Grafana
+      - Manages deploy tokens and service account credentials
+    susceptibility:
+      phishing_email: 0.25
+      pretexting_call: 0.2
+      credential_request: 0.15
+
+# ---------------------------------------------------------------------------
+# Data inventory — what the Builder must protect (and Red must steal)
+# ---------------------------------------------------------------------------
+
+data_inventory:
+  - name: Customer PII database
+    classification: restricted
+    host: db
+    location: "mysql:novastar_app.customers"
+    description: >-
+      Customer records including names, emails, phone numbers, shipping
+      addresses, and hashed passwords.  Regulated under SOC 2 and GDPR.
+
+  - name: Source code repositories
+    classification: confidential
+    host: devtools
+    location: /srv/gitea/repositories
+    description: >-
+      Proprietary SaaS platform source code, including backend API, frontend
+      React app, microservice configs, and infrastructure-as-code templates.
+
+  - name: API keys and service secrets
+    classification: restricted
+    host: files
+    location: /srv/shares/engineering/secrets
+    description: >-
+      Stripe payment API keys, AWS access keys for S3 uploads, SendGrid
+      email API tokens, and third-party integration credentials stored in
+      dotenv files and YAML configs.
+
+  - name: CI/CD deploy tokens
+    classification: confidential
+    host: ci_cd
+    location: /var/lib/jenkins/credentials.xml
+    description: >-
+      Jenkins credential store containing deploy tokens for production
+      servers, Docker registry credentials, and Gitea webhook secrets.
+
+  - name: Partner TLS certificates
+    classification: confidential
+    host: partner_portal
+    location: /etc/nginx/partner-certs
+    description: >-
+      Mutual TLS client certificates and private keys used by B2B partners
+      to authenticate against the partner API.
+
+  - name: Supply chain order data
+    classification: confidential
+    host: db
+    location: "mysql:novastar_app.orders"
+    description: >-
+      Customer purchase orders, supplier shipment records, inventory levels,
+      and pricing data.  Contains commercially sensitive partner terms.
+
+  - name: Database backups
+    classification: restricted
+    host: backup
+    location: /srv/backups/mysql
+    description: >-
+      Nightly mysqldump archives of the full novastar_app database.  Contains
+      all customer PII and order data in cleartext SQL.
+
+  - name: SIEM event logs
+    classification: internal
+    host: siem
+    location: "elasticsearch:novastar-logs-*"
+    description: >-
+      Aggregated logs from all hosts including web access logs, auth events,
+      database queries, and firewall drops.  Used for incident investigation.
+
+  - name: LDAP directory
+    classification: confidential
+    host: ldap
+    location: "ldap:dc=novastar,dc=local"
+    description: >-
+      Corporate directory with all employee accounts, group memberships,
+      email addresses, and organizational hierarchy.
+
+  - name: Partner API session cache
+    classification: internal
+    host: cache
+    location: "redis:partner_sessions"
+    description: >-
+      Ephemeral Redis cache holding partner API session tokens, rate limit
+      counters, and cached query results for the B2B API.
+
+# ---------------------------------------------------------------------------
+# Business processes — cross-service data flows the Builder keeps realistic
+# ---------------------------------------------------------------------------
+
+business_processes:
+  - name: Code commit to production deploy
+    description: >-
+      A developer pushes code to Gitea, which triggers a Jenkins pipeline.
+      Jenkins builds, runs tests, and deploys the artifact to the web server.
+      Deploy tokens authenticate Jenkins to the web host.
+    data_flow:
+      - "devtools:gitea"
+      - "ci_cd:jenkins"
+      - "ci_cd:docker"
+      - "web:nginx"
+
+  - name: Customer signup and onboarding
+    description: >-
+      A new customer registers through the web portal.  The app writes their
+      PII to the MySQL database, creates a session in Redis, and sends a
+      welcome email via the mail server.
+    data_flow:
+      - "web:nginx"
+      - "web:php-fpm"
+      - "db:mysql"
+      - "cache:redis"
+      - "mail:postfix"
+
+  - name: Partner B2B API request
+    description: >-
+      A partner authenticates to the partner portal using mutual TLS.  The
+      portal checks the session cache, queries the order database, and
+      returns supply chain data.
+    data_flow:
+      - "partner_portal:nginx"
+      - "partner_portal:python3"
+      - "cache:redis"
+      - "db:mysql"
+
+  - name: Incident detection and alerting
+    description: >-
+      Hosts forward logs to the SIEM via rsyslog.  Elasticsearch indexes
+      the events, Kibana dashboards surface anomalies, and Alertmanager on
+      the monitoring host fires notifications to the security team.
+    data_flow:
+      - "web:rsyslog"
+      - "mail:rsyslog"
+      - "db:rsyslog"
+      - "siem:elasticsearch"
+      - "siem:kibana"
+      - "monitoring:alertmanager"
+
+  - name: Nightly database backup
+    description: >-
+      A cron job on the backup host connects to the database via SSH tunnel,
+      runs mysqldump, compresses the archive, and stores it on local disk.
+      Rsync mirrors the backup to the file server for redundancy.
+    data_flow:
+      - "backup:cron"
+      - "db:mysql"
+      - "backup:rsync"
+      - "files:nfs"
+
+  - name: Employee authentication
+    description: >-
+      All user logins (web portal, SSH, mail, VPN) authenticate against the
+      central LDAP directory.  Kerberos provides single-sign-on for internal
+      services.  Failed auth events are forwarded to the SIEM.
+    data_flow:
+      - "ldap:openldap"
+      - "ldap:kerberos"
+      - "siem:rsyslog"
+
+# ---------------------------------------------------------------------------
+# Technology stack — what software runs on this range and where the debt lives
+# ---------------------------------------------------------------------------
+
+tech_stack:
+  backend:
+    - name: Django
+      version: "3.2"
+      note: >-
+        Main customer portal.  LTS ended Dec 2023 — no longer receiving
+        security patches.  Django admin panel exposed at /admin with the
+        default URL (no path change).
+      hosts: [web]
+    - name: Python
+      version: "3.9"
+      hosts: [web, partner_portal, ci_cd]
+    - name: Node.js
+      version: "18"
+      note: Partner API v1 gateway.  No rate limiting on v1 endpoints.
+      hosts: [partner_portal, web]
+
+  frontend:
+    - name: React
+      version: "17"
+      hosts: [web]
+
+  databases:
+    - name: PostgreSQL
+      version: "15"
+      hosts: [db]
+    - name: Redis
+      version: "7"
+      note: >-
+        Used for session cache and partner API sessions.  No authentication
+        configured — relies on trusted-network assumption.
+      hosts: [cache, db]
+    - name: Memcached
+      note: No authentication.  Used for query result caching.
+      hosts: [cache]
+
+  ci_cd:
+    - name: Jenkins
+      version: "2.401"
+      note: >-
+        Several plugin CVEs unpatched.  Deploy keys have write access to
+        ALL repos (should be scoped per-repo).  Pipeline has deploy keys
+        with write access to all repos.
+      hosts: [ci_cd]
+    - name: Gitea
+      version: "1.19"
+      note: >-
+        Self-hosted (migrated from GitHub 4 months ago — some CI/CD
+        configs still reference github.com).  Webhooks use a shared
+        secret across all repos.
+      hosts: [devtools]
+
+  identity:
+    - name: OpenLDAP
+      version: "2.5"
+      hosts: [ldap]
+    - name: Kerberos
+      hosts: [ldap]
+
+  email:
+    - name: Postfix
+      version: "3.8"
+      note: DKIM + DMARC enforced.
+      hosts: [mail]
+    - name: Dovecot
+      note: DKIM + DMARC enforced.
+      hosts: [mail]
+
+  monitoring:
+    - name: Prometheus
+      hosts: [monitoring]
+    - name: Grafana
+      note: >-
+        Dashboard accessible without authentication on the internal
+        network.
+      hosts: [monitoring]
+    - name: Alertmanager
+      hosts: [monitoring]
+    - name: rsyslog
+      hosts: [web, mail, db, files, jumpbox, ci_cd, devtools, ldap, siem]
+    - name: Elasticsearch
+      version: "8"
+      hosts: [siem]
+
+  known_debt:
+    - Django admin panel exposed on /admin with default URL
+    - CI/CD pipeline has deploy keys with write access to all repos
+    - Partner API v1 has no rate limiting
+    - Internal microservice communication uses HTTP not HTTPS
+    - Gitea webhooks use shared secret across all repos
+    - Database migration scripts contain seed data with real-looking test credentials
+    - Grafana dashboard accessible without auth on internal network
+
+# ---------------------------------------------------------------------------
+# Credential policy — rules on paper vs enforcement in practice
+# ---------------------------------------------------------------------------
+
+credential_policy:
+  policy:
+    min_length: 14
+    complexity: true
+    no_dictionary_words: true
+    rotation_days: 90
+    mfa_required: true
+    security_training: mandatory to retain access
+
+  enforcement_gaps:
+    - CI/CD service accounts bypass rotation (too risky to change mid-sprint)
+    - Deploy tokens never expire
+    - Developers use personal GitHub tokens stored in .env files
+    - Partner API keys issued once and never rotated
+    - Redis has no authentication (trusted network assumption)
+    - Memcached has no authentication
+
+  mfa_coverage:
+    enabled:
+      - all employee accounts via LDAP + TOTP
+    not_enabled:
+      - service accounts
+      - API keys
+      - deploy tokens
+      - database connections
+
+  shared_accounts:
+    - account: deploy
+      system: ci_cd
+      shared_by: all SREs
+      note: >-
+        Single "deploy" user on CI/CD used by all SREs.
+    - account: partner_admin
+      system: partner_portal
+      shared_by: [sales engineering, partner support]
+      note: >-
+        Shared between sales engineering and partner support teams.
+
+  service_accounts:
+    - name: svc_deploy
+      access: can write to production servers
+    - name: svc_monitor
+      access: read access to all databases for health checks
+    - name: svc_backup
+      access: root-equivalent on backup server
+    - name: svc_partner
+      access: API account with access to all partner data
+
+# ---------------------------------------------------------------------------
+# Monitoring coverage — what is watched, what is blind
+# ---------------------------------------------------------------------------
+
+monitoring_coverage:
+  logged:
+    - nginx access and error logs
+    - Django request log (with user and endpoint)
+    - PostgreSQL query log (slow queries >500ms)
+    - SSH auth on all hosts
+    - Jenkins build and deploy audit log
+    - Gitea repo access log
+    - LDAP authentication events
+    - Prometheus metrics
+    - Alertmanager notifications
+    - Partner API access log with client ID
+
+  blind_spots:
+    - Redis and Memcached operations completely invisible
+    - Internal HTTP traffic between microservices not logged
+    - DNS queries not captured
+    - Container-to-container network traffic not inspected
+    - Gitea webhook payloads not logged (only delivery status)
+    - Backup server access not monitored (no syslog forwarding)
+    - Developer workstation activity not visible
+
+  alert_rules:
+    - "Failed SSH >3/min"
+    - "Deployment to production outside business hours"
+    - "New SSH key added to any server"
+    - "Database schema change detected"
+    - "Partner API error rate >5%"
+    - "Grafana/Jenkins login from new IP"
+    - "Disk usage >90% on any host"
+    - "Certificate expiry within 30 days"
+
+  retention:
+    standard_days: 180
+    partner_api_days: 365
+    partner_api_note: contractual requirement
+
+# ---------------------------------------------------------------------------
+# Trust relationships — interpersonal dynamics the Builder can exploit
+# ---------------------------------------------------------------------------
+
+trust_relationships:
+  - from: jpark
+    to: mchen
+    type: reports_to
+    detail: >-
+      Jake asks Michael to review all his PRs and Michael often just
+      approves without deep review.
+
+  - from: tnguyen
+    to: ezhang
+    type: delegates_access
+    detail: >-
+      Tina gave Eddie her deploy key for the partner-api repo because
+      he was on-call and needed it at 3am.
+
+  - from: klee
+    to: dwilson
+    type: trusts_email
+    detail: >-
+      Kevin trusts any email from Diana about partner demo environments
+      and will spin up access immediately.
+
+  - from: lgarcia
+    to: bthompson
+    type: reports_to
+    detail: >-
+      Ben handles first-tier access requests that Linda approves, but
+      Linda often pre-approves Ben's judgment calls.
+
+  - from: asingh
+    to: jpark
+    type: shares_credentials
+    detail: >-
+      Anika and Jake share a staging database password because the QA
+      and dev environments use the same DB.
+
+  - from: ezhang
+    to: tnguyen
+    type: shares_credentials
+    detail: >-
+      Eddie and Tina both know the Jenkins admin password.
+
+# ---------------------------------------------------------------------------
+# Operational context — compliance, incidents, vendor access, recent changes
+# ---------------------------------------------------------------------------
+
+operational_context:
+  compliance:
+    - SOC 2 Type II
+    - GDPR (EU customers)
+    - Contractual SLAs with partner companies (99.9% uptime)
+
+  recent_incidents:
+    - description: >-
+        Dependency confusion attack hit CI/CD pipeline 2 months ago
+        (caught by SRE, npm package name squatting).
+    - description: >-
+        Former contractor's Gitea account still had commit access — found
+        during quarterly review.
+    - description: >-
+        Customer reported seeing another customer's data in a report
+        (race condition, patched but root cause unclear).
+
+  audit_findings:
+    - Deploy keys have write access to all repos (should be scoped per-repo)
+    - Partner API rate limiting not implemented
+    - No data loss prevention controls
+    - >-
+      Incident response plan exists but last tabletop exercise was
+      18 months ago
+    - Several developers have production database access for "debugging"
+
+  maintenance_windows:
+    standard: "Tuesday 02:00-05:00 UTC (low-traffic window)"
+    emergency: "Anytime with SRE approval"
+
+  vendor_access:
+    - vendor: cloud hosting provider
+      access: infrastructure access
+    - vendor: penetration testing firm
+      access: partner API credentials for annual assessment
+    - vendor: monitoring SaaS vendor
+      access: receives metrics data
+
+  recent_changes:
+    - description: >-
+        Migrated from GitHub to self-hosted Gitea 4 months ago.  Some
+        CI/CD configs still reference github.com.
+    - description: >-
+        Added partner_portal service 3 months ago.  Rushed to meet
+        partnership deadline — minimal security review.
+    - description: >-
+        Upgraded PostgreSQL from 13 to 15 last month.  Some connection
+        pooler configs still reference old version.
+
+# ---------------------------------------------------------------------------
+# Topology
+# ---------------------------------------------------------------------------
+
+topology:
+  networks:
+    - name: external
+    - name: dmz
+      cidr: "10.0.1.0/24"
+    - name: internal
+      cidr: "10.0.2.0/24"
+    - name: management
+      cidr: "10.0.3.0/24"
+    - name: guest
+      cidr: "10.0.4.0/24"
+    - name: vpn
+      cidr: "10.0.5.0/24"
+    - name: dev
+      cidr: "10.0.6.0/24"
+    - name: partner
+      cidr: "10.0.7.0/24"
+
+  hosts:
+    # --- Perimeter ---
+    - name: attacker
+      zone: external
+      purpose: Red team operator workstation (external threat actor)
+      hostname: attacker.external
+      os: kali:latest
+      services: [nmap, curl, hydra, nikto, ssh-client, sqlmap]
+      connects_to: [firewall, vpn_gw]
+
+    - name: firewall
+      zone: external
+      purpose: >-
+        Perimeter firewall and IDS.  Enforces zone segmentation, runs Snort
+        signatures, and logs all allowed/denied flows to the SIEM.
+      hostname: fw01.novastar.local
+      os: ubuntu:22.04
+      services: [iptables, snort, sshd]
+      connects_to: [web, mail, jumpbox, partner_portal]
+
+    - name: vpn_gw
+      zone: external
+      purpose: >-
+        OpenVPN gateway for remote employees.  Developers and SREs connect
+        through VPN to reach the jumpbox and dev zone.
+      hostname: vpn.novastar.local
+      os: ubuntu:22.04
+      services: [openvpn, sshd]
+      connects_to: [jumpbox]
+
+    # --- DMZ ---
+    - name: web
+      zone: dmz
+      purpose: >-
+        Customer-facing SaaS portal.  Serves the supply chain management
+        application (PHP backend + nginx reverse proxy).  Queries MySQL for
+        customer data, LDAP for auth, and Redis for session cache.
+      hostname: portal.novastar.local
+      os: ubuntu:22.04
+      services: [nginx, php-fpm, nodejs, python3, sshd]
+      connects_to: [db, ldap, cache]
+
+    - name: mail
+      zone: dmz
+      purpose: >-
+        Corporate mail server.  Handles all inbound/outbound email for
+        novastar.local including customer notifications, partner
+        correspondence, and internal communications.
+      hostname: mail.novastar.local
+      os: ubuntu:22.04
+      services: [postfix, dovecot, spamassassin, sshd]
+      connects_to: [ldap]
+
+    - name: jumpbox
+      zone: dmz
+      purpose: >-
+        SSH bastion host.  All administrative access to internal, dev, and
+        management zones must transit through this host.  Session logging
+        enabled for audit trail.
+      hostname: jump.novastar.local
+      os: ubuntu:22.04
+      services: [sshd]
+      connects_to: [db, files, ldap, siem, ci_cd, monitoring]
+
+    - name: partner_portal
+      zone: dmz
+      purpose: >-
+        B2B partner API gateway.  Partners authenticate via mutual TLS and
+        query supply chain data (orders, shipments, inventory) through a
+        RESTful Python API.
+      hostname: partners.novastar.local
+      os: ubuntu:22.04
+      services: [nginx, python3, sshd]
+      connects_to: [db, cache]
+
+    # --- Internal ---
+    - name: db
+      zone: internal
+      purpose: >-
+        Primary database server.  Hosts MySQL (novastar_app database with
+        customers, orders, and flags tables) and PostgreSQL (analytics
+        warehouse).  Redis used for replication coordination.
+      hostname: db01.novastar.local
+      os: ubuntu:22.04
+      services: [mysql, postgresql, redis, sshd]
+      connects_to: [ldap, backup]
+
+    - name: files
+      zone: internal
+      purpose: >-
+        Shared file server.  Samba shares for engineering secrets, sales
+        collateral, and HR documents.  NFS exports for CI/CD artifact
+        storage and backup mirror targets.
+      hostname: files.novastar.local
+      os: ubuntu:22.04
+      services: [samba, nfs, sshd]
+      connects_to: [ldap, backup]
+
+    - name: cache
+      zone: internal
+      purpose: >-
+        Caching layer.  Redis stores partner API session tokens and web
+        portal sessions.  Memcached handles query result caching for the
+        SaaS application.
+      hostname: cache.novastar.local
+      os: ubuntu:22.04
+      services: [redis, memcached, sshd]
+      connects_to: []
+
+    - name: backup
+      zone: internal
+      purpose: >-
+        Backup server.  Runs nightly cron jobs to mysqldump the production
+        database, compress archives, and rsync copies to the file server.
+        Stores 30 days of rolling backups.
+      hostname: backup.novastar.local
+      os: ubuntu:22.04
+      services: [rsync, sshd, cron]
+      connects_to: [files]
+
+    # --- Development ---
+    - name: ci_cd
+      zone: dev
+      purpose: >-
+        CI/CD server running Jenkins.  Builds Docker images from Gitea
+        webhooks, runs test suites, and deploys artifacts to the web
+        server.  Stores deploy tokens and Docker registry credentials.
+      hostname: ci.novastar.local
+      os: ubuntu:22.04
+      services: [jenkins, docker, git, sshd]
+      connects_to: [db, files, web]
+
+    - name: devtools
+      zone: dev
+      purpose: >-
+        Developer tooling server.  Hosts Gitea (source code repositories)
+        and SonarQube (static analysis).  All proprietary platform code
+        lives here.
+      hostname: devtools.novastar.local
+      os: ubuntu:22.04
+      services: [gitea, sonarqube, sshd]
+      connects_to: [ci_cd, db]
+
+    # --- Management ---
+    - name: ldap
+      zone: management
+      purpose: >-
+        Central identity provider.  OpenLDAP stores all employee accounts,
+        group memberships, and access policies.  Kerberos provides SSO
+        tokens for internal services.
+      hostname: ldap.novastar.local
+      os: ubuntu:22.04
+      services: [openldap, kerberos, sshd]
+      connects_to: []
+
+    - name: siem
+      zone: management
+      purpose: >-
+        Security information and event management.  Receives syslog from
+        all hosts, indexes events in Elasticsearch, and surfaces anomalies
+        in Kibana dashboards for the security team.
+      hostname: siem.novastar.local
+      os: ubuntu:22.04
+      services: [rsyslog, elasticsearch, kibana, sshd]
+      connects_to: [web, mail, jumpbox, db, files, ldap, ci_cd, monitoring]
+
+    - name: monitoring
+      zone: management
+      purpose: >-
+        Infrastructure monitoring.  Prometheus scrapes metrics from all
+        hosts, Grafana renders dashboards, and Alertmanager pages the SRE
+        team when thresholds are breached.
+      hostname: mon.novastar.local
+      os: ubuntu:22.04
+      services: [prometheus, grafana, alertmanager, sshd]
+      connects_to: [web, db, ci_cd, cache]
+
+  # -------------------------------------------------------------------------
+  # Firewall rules
+  # -------------------------------------------------------------------------
+  firewall_rules:
+    # External -> DMZ: web, mail, SSH through firewall
+    - action: allow
+      from_zone: external
+      to_zone: dmz
+      ports: [80, 443, 25, 22]
+
+    # VPN -> DMZ: remote users reach jumpbox via SSH
+    - action: allow
+      from_zone: vpn
+      to_zone: dmz
+      ports: [22]
+
+    # VPN -> Dev: remote developers reach Gitea, Jenkins, SonarQube via jumpbox
+    - action: allow
+      from_zone: vpn
+      to_zone: dev
+      ports: [8080, 3000, 9000, 22]
+
+    # DMZ -> Internal: web/partner apps query database, cache, file shares
+    - action: allow
+      from_zone: dmz
+      to_zone: internal
+      ports: [3306, 5432, 6379, 11211, 445, 2049]
+
+    # DMZ -> Management: authentication against LDAP/Kerberos
+    - action: allow
+      from_zone: dmz
+      to_zone: management
+      ports: [389, 636, 88]
+
+    # Internal -> Management: database and file server LDAP lookups
+    - action: allow
+      from_zone: internal
+      to_zone: management
+      ports: [389, 636, 88]
+
+    # Dev -> Internal: CI/CD deploys to database and file server
+    - action: allow
+      from_zone: dev
+      to_zone: internal
+      ports: [3306, 5432, 445, 22]
+
+    # Dev -> DMZ: CI/CD deploys built artifacts to the web server
+    - action: allow
+      from_zone: dev
+      to_zone: dmz
+      ports: [80, 443, 22]
+
+    # Dev -> Management: dev tools authenticate against LDAP
+    - action: allow
+      from_zone: dev
+      to_zone: management
+      ports: [389]
+
+    # Partner -> DMZ: partner zone can ONLY reach the partner portal (HTTPS)
+    - action: allow
+      from_zone: partner
+      to_zone: dmz
+      ports: [443]
+
+    # Guest -> DMZ: guest wifi can browse the public portal only
+    - action: allow
+      from_zone: guest
+      to_zone: dmz
+      ports: [80, 443]
+
+    # --- Deny rules: prevent lateral movement out of restricted zones ---
+    - action: deny
+      from_zone: internal
+      to_zone: external
+      ports: []
+
+    - action: deny
+      from_zone: management
+      to_zone: external
+      ports: []
+
+    - action: deny
+      from_zone: dev
+      to_zone: external
+      ports: []
+
+    - action: deny
+      from_zone: guest
+      to_zone: internal
+      ports: []
+
+    - action: deny
+      from_zone: guest
+      to_zone: management
+      ports: []
+
+    - action: deny
+      from_zone: partner
+      to_zone: internal
+      ports: []
+
+    - action: deny
+      from_zone: partner
+      to_zone: management
+      ports: []
+
+# ---------------------------------------------------------------------------
+# Vulnerability and task envelope
+# ---------------------------------------------------------------------------
+
+bug_families:
+  # --- OWASP A01: Broken Access Control ---
+  - idor
+  - path_traversal
+  - lfi
+  - rfi
+  - missing_authz
+  # --- OWASP A03: Injection ---
+  - sqli
+  - xss
+  - command_injection
+  - ldap_injection
+  - ssti
+  - xxe
+  - log_injection
+  # --- OWASP A04-A06: Design, Misconfig, Components ---
+  - file_upload
+  - service_misconfig
+  - ssrf
+  # --- OWASP A07: Auth Failures ---
+  - weak_creds
+  - broken_auth
+  - credential_reuse
+  - kerberoasting          # Tier 3+: Kerberos ticket attacks
+  # --- OWASP A08: Software/Data Integrity ---
+  - rce
+  - deserialization
+  # --- Infrastructure / network ---
+  - smb_misconfig
+  - mail_misconfig
+  - firewall_bypass
+  - ssh_key_exposure
+  - vpn_misconfig
+  - config_drift
+  - missing_patches        # Unpatched CVEs in known-debt software
+  - insecure_protocol      # Cleartext protocols where encrypted expected
+  # --- Operational / hygiene ---
+  - orphaned_access
+  - overpermission
+  - data_exposure
+  - insecure_backup
+  # --- Tier 3+: Supply chain & CI/CD ---
+  - ci_cd_poisoning        # Pipeline injection, malicious build steps
+  - supply_chain           # Dependency confusion, compromised packages
+  - webhook_abuse          # Shared secrets, unsigned payloads
+
+task_families:
+  - exploit
+  - investigate
+  - patch
+  - report
+
+difficulty:
+  max_steps: 30
+  min_vulns: 2
+  max_vulns: 5

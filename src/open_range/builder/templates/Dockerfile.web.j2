@@ -1,0 +1,51 @@
+FROM ubuntu:22.04
+
+ENV DEBIAN_FRONTEND=noninteractive
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    nginx \
+    php-fpm \
+    php-mysql \
+    php-json \
+    openssh-server \
+    curl \
+    && rm -rf /var/lib/apt/lists/*
+
+# Configure SSH
+RUN mkdir /var/run/sshd && \
+    echo 'PermitRootLogin no' >> /etc/ssh/sshd_config && \
+    echo 'PasswordAuthentication yes' >> /etc/ssh/sshd_config
+
+# Create app users
+{% for user in users %}
+RUN useradd -m -s /bin/bash {{ user.username }} && \
+    echo '{{ user.username }}:{{ user.password }}' | chpasswd
+{% endfor %}
+
+# Copy nginx config
+COPY nginx.conf /etc/nginx/sites-available/default
+
+# Copy web application
+RUN mkdir -p /var/www/html/api/users
+{% for file_path, content in app_files.items() %}
+COPY {{ file_path }} /var/www/html/{{ file_path }}
+{% endfor %}
+
+# Create flag files (if any are on this host)
+{% for flag in flags %}
+{% if flag.host == 'web' and '/' in flag.path %}
+RUN mkdir -p $(dirname {{ flag.path }}) && \
+    echo '{{ flag.value }}' > {{ flag.path }}
+{% endif %}
+{% endfor %}
+
+# Logging
+RUN mkdir -p /var/log/app && \
+    ln -sf /var/log/app/access.log /var/log/nginx/access.log && \
+    ln -sf /var/log/app/error.log /var/log/nginx/error.log
+
+EXPOSE 80 22
+
+CMD service ssh start && \
+    service php*-fpm start && \
+    nginx -g 'daemon off;'

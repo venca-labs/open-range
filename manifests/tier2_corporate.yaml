@@ -1,0 +1,816 @@
+# Tier 2 — Corporate Range: Pinnacle Financial Group
+# 10 hosts across 6 zones.  Adds a jumpbox in the DMZ and a VPN gateway at
+# the perimeter, plus guest and VPN network segments.  ~15 golden-path steps.
+#
+# Pinnacle Financial Group is a mid-size financial advisory firm (150 employees)
+# managing investment portfolios, retirement planning, and wealth management.
+# SOX and PCI-DSS compliance requirements.  Handles PII, financial records,
+# and SEC-regulated communications.
+
+name: tier2_corporate
+tier: 2
+
+# ---------------------------------------------------------------------------
+# Company context
+# ---------------------------------------------------------------------------
+
+company:
+  name: Pinnacle Financial Group
+  domain: pinnaclefg.local
+  industry: financial_services
+  description: >-
+    Mid-size financial advisory firm with 150 employees across three offices.
+    Manages $2.4B in client assets across investment portfolios, retirement
+    planning, and wealth management.  Subject to SOX and PCI-DSS compliance,
+    with SEC-regulated communications retention requirements.  Underwent a
+    CRM platform migration 18 months ago; the legacy portal is still running
+    "temporarily" alongside the new system.
+
+departments:
+  - name: Wealth Management
+    description: >-
+      Portfolio managers and financial advisors who manage client relationships
+      and investment strategies.  Primary users of the client portal and
+      trading platform.
+    hosts_accessed: [web, db, mail, files]
+
+  - name: Compliance & Risk
+    description: >-
+      Ensures adherence to SOX, PCI-DSS, and SEC regulations.  Reviews trade
+      confirmations, audits access logs, and files quarterly SEC reports.
+    hosts_accessed: [web, db, files, siem, mail]
+
+  - name: Trading Operations
+    description: >-
+      Executes trades, manages order flow, and reconciles settlement records.
+      High-frequency access to the client database and email confirmations.
+    hosts_accessed: [web, db, mail]
+
+  - name: Marketing & Client Relations
+    description: >-
+      Manages client communications, event planning, newsletters, and the
+      public-facing website.  Limited access to client PII.
+    hosts_accessed: [web, mail, files]
+
+  - name: Information Technology
+    description: >-
+      Manages all infrastructure, user provisioning, firewall rules, VPN
+      access, and SIEM monitoring.  Two-person team stretched thin after
+      a recent departure.
+    hosts_accessed: [web, mail, jumpbox, db, files, ldap, siem, firewall, vpn_gw]
+
+  - name: Human Resources
+    description: >-
+      Handles employee records, onboarding, benefits administration, and
+      payroll coordination with the external payroll provider.
+    hosts_accessed: [mail, files, ldap]
+
+# ---------------------------------------------------------------------------
+# Users
+# ---------------------------------------------------------------------------
+
+users:
+  - username: cmorris
+    full_name: Catherine Morris
+    department: Compliance & Risk
+    role: Chief Compliance Officer
+    email: cmorris@pinnaclefg.local
+    hosts: [web, db, files, siem, mail]
+
+  - username: jpark
+    full_name: James Park
+    department: Trading Operations
+    role: Trading Desk Assistant
+    email: jpark@pinnaclefg.local
+    hosts: [web, db, mail]
+
+  - username: lreeves
+    full_name: Laura Reeves
+    department: Marketing & Client Relations
+    role: Marketing Coordinator
+    email: lreeves@pinnaclefg.local
+    hosts: [web, mail, files]
+
+  - username: dkhan
+    full_name: David Khan
+    department: Information Technology
+    role: IT Systems Administrator
+    email: dkhan@pinnaclefg.local
+    hosts: [web, mail, jumpbox, db, files, ldap, siem, firewall, vpn_gw]
+
+  - username: rvasquez
+    full_name: Rachel Vasquez
+    department: Wealth Management
+    role: Senior Portfolio Manager
+    email: rvasquez@pinnaclefg.local
+    hosts: [web, db, mail, files]
+
+  - username: tnguyen
+    full_name: Thomas Nguyen
+    department: Wealth Management
+    role: Financial Advisor
+    email: tnguyen@pinnaclefg.local
+    hosts: [web, db, mail]
+
+  - username: acoleman
+    full_name: Angela Coleman
+    department: Human Resources
+    role: HR Director
+    email: acoleman@pinnaclefg.local
+    hosts: [mail, files, ldap]
+
+  - username: mwilson
+    full_name: Marcus Wilson
+    department: Compliance & Risk
+    role: Compliance Analyst
+    email: mwilson@pinnaclefg.local
+    hosts: [web, db, files, siem, mail]
+
+# ---------------------------------------------------------------------------
+# NPC personas (subset of users who generate background traffic)
+# ---------------------------------------------------------------------------
+
+npc_personas:
+  - username: cmorris
+    security_awareness: 0.9
+    daily_activities:
+      - Review trade confirmation reports via the client portal
+      - Download SEC filing drafts from the file share
+      - Send encrypted compliance reports to external auditors
+      - Query audit logs in the SIEM for suspicious trading patterns
+      - Verify access control lists on the client database quarterly
+    susceptibility:
+      phishing_email: 0.05
+      pretexting_call: 0.1
+      usb_drop: 0.02
+      credential_reuse: 0.05
+
+  - username: jpark
+    security_awareness: 0.5
+    daily_activities:
+      - Execute trade orders through the web portal
+      - Send trade confirmation emails to clients
+      - Pull daily portfolio performance from the database
+      - Upload settlement reconciliation spreadsheets to the file share
+      - Check email frequently for order amendments
+    susceptibility:
+      phishing_email: 0.45
+      pretexting_call: 0.35
+      usb_drop: 0.2
+      credential_reuse: 0.4
+
+  - username: lreeves
+    security_awareness: 0.25
+    daily_activities:
+      - Update marketing content on the client-facing portal
+      - Send bulk newsletter emails to the client mailing list
+      - Download brand assets and templates from the file share
+      - Browse external websites for competitor research
+      - Share event planning documents via email attachments
+    susceptibility:
+      phishing_email: 0.7
+      pretexting_call: 0.6
+      usb_drop: 0.5
+      credential_reuse: 0.65
+
+  - username: dkhan
+    security_awareness: 0.85
+    daily_activities:
+      - Monitor SIEM dashboards for infrastructure alerts
+      - Provision and deprovision user accounts in LDAP
+      - Apply security patches to DMZ-facing services
+      - Review firewall logs and adjust rules
+      - Manage VPN access requests and certificate renewals
+      - SSH into jumpbox for internal host maintenance
+    susceptibility:
+      phishing_email: 0.08
+      pretexting_call: 0.12
+      usb_drop: 0.03
+      credential_reuse: 0.1
+
+# ---------------------------------------------------------------------------
+# Data inventory
+# ---------------------------------------------------------------------------
+
+data_inventory:
+  - name: Client investment portfolios
+    classification: restricted
+    host: db
+    location: "mysql:pinnacle_db.client_portfolios"
+    description: >-
+      PII-bearing records containing client names, SSNs, account balances,
+      investment allocations, and risk tolerance profiles.  Subject to
+      PCI-DSS and SOX controls.
+
+  - name: SEC quarterly filings
+    classification: confidential
+    host: files
+    location: "/srv/shares/compliance/sec_filings"
+    description: >-
+      Draft and final 10-Q, 10-K, and ADV filings.  Must be retained for
+      7 years per SEC Rule 17a-4.  Pre-publication drafts are material
+      non-public information.
+
+  - name: Trade confirmation records
+    classification: confidential
+    host: mail
+    location: "dovecot:trade-confirmations"
+    description: >-
+      Email confirmations sent to clients after each executed trade.
+      Contains account numbers, trade amounts, and settlement dates.
+      SEC-regulated communication subject to retention requirements.
+
+  - name: SIEM audit logs
+    classification: internal
+    host: siem
+    location: "elasticsearch:pinnacle-audit-*"
+    description: >-
+      Aggregated logs from all hosts -- authentication events, firewall
+      drops, web access logs, database queries, and mail relay activity.
+      SOX audit trail; 90-day retention policy.
+
+  - name: Employee HR records
+    classification: restricted
+    host: files
+    location: "/srv/shares/hr/employee_records"
+    description: >-
+      Personnel files including compensation, benefits elections, SSNs,
+      and performance reviews.  Access restricted to HR department and
+      executive leadership.
+
+  - name: Client onboarding documents
+    classification: confidential
+    host: files
+    location: "/srv/shares/wealth_mgmt/onboarding"
+    description: >-
+      Signed advisory agreements, KYC documentation, identity verification
+      records, and risk assessment questionnaires for new clients.
+
+  - name: LDAP directory
+    classification: internal
+    host: ldap
+    location: "openldap:dc=pinnaclefg,dc=local"
+    description: >-
+      Centralized user directory with organizational structure, group
+      memberships, and authentication credentials.  Service accounts
+      for inter-host communication are also stored here.
+
+  - name: Marketing content and templates
+    classification: public
+    host: files
+    location: "/srv/shares/marketing/content"
+    description: >-
+      Newsletter templates, brand guidelines, event materials, and
+      client-facing presentation decks.  No PII or sensitive data.
+
+# ---------------------------------------------------------------------------
+# Business processes
+# ---------------------------------------------------------------------------
+
+business_processes:
+  - name: Client onboarding
+    description: >-
+      New client intake process: advisor submits KYC documents via the
+      portal, compliance reviews and approves, account is created in the
+      database, welcome packet is emailed, and onboarding docs are
+      archived to the file share.
+    data_flow:
+      - "web:nginx"
+      - "ldap:openldap"
+      - "db:mysql"
+      - "mail:postfix"
+      - "files:samba"
+      - "siem:rsyslog"
+
+  - name: Trade execution
+    description: >-
+      Advisor places order through the portal, system validates against
+      client risk profile in the database, trade is executed, confirmation
+      email is sent to the client, and the transaction is logged for
+      compliance review.
+    data_flow:
+      - "web:nginx"
+      - "db:mysql"
+      - "mail:postfix"
+      - "siem:rsyslog"
+
+  - name: Compliance reporting
+    description: >-
+      Quarterly process where compliance pulls trade data from the
+      database, cross-references with SEC filing requirements, drafts
+      reports on the file share, reviews audit logs in the SIEM, and
+      submits final filings through encrypted email to regulators.
+    data_flow:
+      - "db:mysql"
+      - "files:samba"
+      - "siem:elasticsearch"
+      - "mail:postfix"
+
+  - name: VPN remote access
+    description: >-
+      Remote employees connect through the VPN gateway, authenticate
+      against LDAP, land on the jumpbox, and access internal resources
+      from there.  All VPN sessions are logged to the SIEM.
+    data_flow:
+      - "vpn_gw:openvpn"
+      - "ldap:openldap"
+      - "jumpbox:sshd"
+      - "siem:rsyslog"
+
+  - name: Daily portfolio reconciliation
+    description: >-
+      End-of-day automated process where the web portal pulls updated
+      market data, reconciles client portfolio values in the database,
+      generates variance reports to the file share, and emails summary
+      alerts to portfolio managers.
+    data_flow:
+      - "web:nodejs"
+      - "db:mysql"
+      - "files:samba"
+      - "mail:postfix"
+
+# ---------------------------------------------------------------------------
+# Technology stack
+# ---------------------------------------------------------------------------
+
+tech_stack:
+  portal:
+    runtime: "Node.js 16"
+    framework: Express
+    notes: >-
+      Node.js 16 is approaching end-of-life.  The client-facing investment
+      portal uses Express with server-side rendered EJS templates.  A legacy
+      client reporting tool still relies on jQuery DataTables with a known
+      stored-XSS vulnerability in the column-filter plugin.  API v1 endpoints
+      remain active alongside v2 with no published deprecation date; v1 lacks
+      rate limiting and input validation improvements added in v2.
+  database:
+    engine: "PostgreSQL 14"
+    notes: >-
+      Migrated from MySQL 6 months ago.  Some application connection strings
+      and cron-job scripts still reference the old MySQL host in config files.
+      Query logging enabled for all statements (SOX requirement).
+  directory:
+    engine: "OpenLDAP 2.5"
+    integration: Kerberos
+    notes: >-
+      Kerberos integration provides SSO for internal web apps and file shares.
+      LDAP bind credentials are stored in application config files on the web
+      and mail hosts.
+  mail:
+    mta: "Postfix 3.7"
+    mda: Dovecot
+    notes: >-
+      DKIM signing is enabled for outbound mail, but DMARC policy is set to
+      p=none (monitor only, not enforced).  SPF record exists but uses a
+      broad ~all soft-fail.  Trade confirmation emails are auto-archived per
+      SEC Rule 17a-4.
+  siem:
+    stack: "ELK (Elasticsearch 7.17 + Kibana)"
+    notes: >-
+      Elasticsearch 7.17 is the last 7.x release; no further security patches.
+      Kibana dashboards are accessible from the management zone without
+      additional authentication beyond LDAP.
+  vpn:
+    engine: "OpenVPN 2.5"
+    notes: >-
+      Certificate-based authentication with LDAP backend.  Split-tunnel
+      configuration allows VPN users to access both internal resources and
+      the public internet simultaneously.
+  known_debt:
+    - "Legacy client reporting tool uses jQuery DataTables with known XSS (CVE pending)"
+    - "API v1 endpoints still active alongside v2 — no deprecation date set"
+    - "Internal wiki running on unpatched MediaWiki instance (last updated 14 months ago)"
+    - "Scheduled tasks use cron with plaintext credentials embedded in crontab entries"
+
+# ---------------------------------------------------------------------------
+# Credential policy
+# ---------------------------------------------------------------------------
+
+credential_policy:
+  password_policy:
+    min_length: 12
+    complexity_required: true
+    rotation_days: 60
+    notes: >-
+      SOX requirement mandates 60-day password rotation for all accounts with
+      access to financial data.  Complexity rule: at least one uppercase, one
+      lowercase, one digit, one special character.
+  enforcement_gaps:
+    - >-
+      VPN users are exempt from the 60-day rotation — their passwords rotate
+      on a 90-day cycle due to a legacy GPO that was never updated after the
+      VPN migration.
+    - >-
+      Jumpbox local accounts authenticate via SSH keys, but the keys have
+      never been rotated since initial provisioning (18 months ago).
+    - >-
+      The PostgreSQL application password is shared in .env files across the
+      development team's laptops.  At least three former contractors may still
+      have copies.
+  mfa:
+    enabled_for:
+      - VPN gateway login
+      - Corporate email (webmail and IMAP)
+      - Jumpbox SSH (TOTP second factor)
+    not_enabled_for:
+      - Internal web applications (client portal admin panel)
+      - Database connections (PostgreSQL, direct psql)
+      - File share access (SMB/NFS mounts)
+  shared_accounts:
+    - username: trader_ops
+      used_by: "All 5 trading desk staff"
+      purpose: >-
+        After-hours emergency trading platform access.  The account exists
+        because the trading platform does not support per-user auth outside
+        business hours (vendor limitation).  No individual attribution of
+        trades placed via this account.
+  service_accounts:
+    - username: svc_report
+      purpose: >-
+        Generates nightly portfolio valuation reports.  Has SELECT access to
+        client_portfolios, trade_history, and market_data tables.  Password
+        has not been rotated since initial setup (2+ years).
+    - username: svc_etl
+      purpose: >-
+        ETL pipeline account that extracts data for the compliance reporting
+        warehouse.  Has read access to ALL client-facing tables including
+        PII fields.  Runs on a cron schedule every 4 hours.
+
+# ---------------------------------------------------------------------------
+# Monitoring coverage
+# ---------------------------------------------------------------------------
+
+monitoring_coverage:
+  logged:
+    - source: nginx
+      scope: "Access log and error log on web host"
+    - source: postgresql
+      scope: "Full query log — all statements (SOX requirement)"
+    - source: sshd
+      scope: "Authentication events on all hosts (success and failure)"
+    - source: openvpn
+      scope: "VPN connection log — connect, disconnect, IP assignment"
+    - source: postfix
+      scope: "Mail relay log — sender, recipient, status, message-id"
+    - source: kibana
+      scope: "Kibana audit log — dashboard access, saved searches, exports"
+    - source: openldap
+      scope: "LDAP authentication — bind attempts, password changes, account lockouts"
+  blind_spots:
+    - "Kerberos ticket operations (TGT/TGS requests, renewals, delegation) not fully logged"
+    - "SMB and NFS file access not audited — no record of which files are read, copied, or modified"
+    - "Redis and Memcached operations are invisible — no auth, no access log"
+    - "Internal DNS queries not captured — lateral movement via DNS is undetectable"
+    - "Jumpbox command history not forwarded to SIEM — only SSH auth events are logged, not commands executed after login"
+  alert_rules:
+    - trigger: "Failed VPN authentication > 3 attempts within 5 minutes"
+      severity: high
+    - trigger: "Unusual database query volume (> 2 standard deviations from baseline)"
+      severity: medium
+    - trigger: "After-hours jumpbox access (outside 07:00-19:00 EST on business days)"
+      severity: medium
+    - trigger: "Large file download from file share (> 100 MB single transfer)"
+      severity: medium
+    - trigger: "New SSH key added to any authorized_keys file"
+      severity: high
+    - trigger: "Outbound mail sent to more than 50 recipients in a single message"
+      severity: medium
+  retention:
+    days: 365
+    notes: >-
+      SOX requires retention of all audit-relevant logs for the duration of
+      the retention schedule.  Pinnacle retains 365 days online in
+      Elasticsearch, with cold storage archives beyond that.
+
+# ---------------------------------------------------------------------------
+# Trust relationships
+# ---------------------------------------------------------------------------
+
+trust_relationships:
+  - from_user: rvasquez
+    to_user: jpark
+    type: delegates_access
+    description: >-
+      Rachel gives James access to her trading terminal when she is traveling
+      to client meetings.  James logs in as Rachel to execute trades on her
+      behalf during these periods.
+
+  - from_user: cmorris
+    to_user: mwilson
+    type: reports_to
+    description: >-
+      Marcus handles Catherine's inbox for SEC correspondence when she is in
+      hearings or regulatory meetings.  He has a shared-mailbox delegate
+      permission on her account.
+
+  - from_user: dkhan
+    to_user: acoleman
+    type: trusts_email
+    description: >-
+      Angela sends password reset requests to David by email.  David processes
+      them without calling back to verify because Angela is HR Director and
+      they sit in adjacent offices.
+
+  - from_user: tnguyen
+    to_user: lreeves
+    type: shares_credentials
+    description: >-
+      Thomas shares client portal demo credentials with Laura so she can take
+      marketing screenshots of the portal interface for newsletters and
+      presentations.
+
+# ---------------------------------------------------------------------------
+# Operational context
+# ---------------------------------------------------------------------------
+
+operational_context:
+  compliance_frameworks:
+    - SOX
+    - PCI-DSS
+    - "SEC Rule 17a-4 (electronic record retention)"
+  recent_incidents:
+    - >-
+      An ex-employee's VPN access was discovered still active 2 months after
+      termination.  The offboarding checklist did not include VPN certificate
+      revocation — only LDAP account disable.
+    - >-
+      SEC audit flagged insufficient logging of trade modifications.  The
+      trading platform logged new trades but not amendments or cancellations,
+      creating a gap in the audit trail.
+  audit_findings:
+    - >-
+      Trading platform lacks per-user audit trail because the shared
+      trader_ops account is used for after-hours trades.  Finding is open
+      with a 90-day remediation deadline.
+    - >-
+      Client PII is accessible to the marketing team via unrestricted
+      database views.  A view named v_client_contacts exposes SSNs and
+      account balances alongside names and emails.
+    - >-
+      Backup restoration has never been tested.  Nightly PostgreSQL dumps are
+      written to the file share but no restore drill has been performed.
+  maintenance_windows:
+    schedule: "Saturday 22:00 — Sunday 06:00 EST"
+    additional: "Market holidays (NYSE calendar)"
+  vendor_access:
+    - vendor: Bloomberg
+      scope: >-
+        Bloomberg terminal support has persistent network access to the
+        trading zone for troubleshooting connectivity issues.  Access is via
+        a dedicated VPN profile that is not subject to the same logging as
+        employee VPN connections.
+    - vendor: External pen test firm
+      scope: >-
+        Quarterly penetration testing firm has VPN credentials.  Credentials
+        are rotated after each engagement but the VPN profile remains active
+        between tests.
+  recent_changes:
+    - >-
+      Migrated primary database from MySQL to PostgreSQL 6 months ago.  Some
+      connection strings in legacy cron scripts, .env files, and the internal
+      wiki still reference the old MySQL host (db01-mysql.pinnaclefg.local),
+      which is powered off but has not been decommissioned from DNS.
+
+# ---------------------------------------------------------------------------
+# Topology
+# ---------------------------------------------------------------------------
+
+topology:
+  networks:
+    - name: external
+    - name: dmz
+      cidr: "10.0.1.0/24"
+    - name: internal
+      cidr: "10.0.2.0/24"
+    - name: management
+      cidr: "10.0.3.0/24"
+    - name: guest
+      cidr: "10.0.4.0/24"
+    - name: vpn
+      cidr: "10.0.5.0/24"
+
+  hosts:
+    - name: attacker
+      zone: external
+      purpose: External threat actor workstation
+      hostname: kali.external
+      os: kali:latest
+      services: [nmap, curl, hydra, nikto, ssh-client]
+      connects_to: [firewall, vpn_gw]
+
+    - name: firewall
+      zone: external
+      purpose: >-
+        Perimeter firewall enforcing zone segmentation between external
+        traffic, DMZ services, and internal networks
+      hostname: fw01.pinnaclefg.local
+      os: ubuntu:22.04
+      services: [iptables, sshd]
+      connects_to: [web, mail, jumpbox]
+
+    - name: vpn_gw
+      zone: external
+      purpose: >-
+        SSL VPN concentrator for remote employees -- advisors working from
+        home or traveling to client meetings authenticate here before
+        reaching internal resources via the jumpbox
+      hostname: vpn.pinnaclefg.local
+      os: ubuntu:22.04
+      services: [openvpn, sshd]
+      connects_to: [jumpbox]
+
+    - name: web
+      zone: dmz
+      purpose: >-
+        Client-facing investment portal where advisors manage portfolios,
+        execute trades, and clients view account statements.  Also hosts
+        the legacy CRM that was supposed to be decommissioned last quarter
+      hostname: portal.pinnaclefg.local
+      os: ubuntu:22.04
+      services: [nginx, php-fpm, nodejs, sshd]
+      connects_to: [db, ldap]
+
+    - name: mail
+      zone: dmz
+      purpose: >-
+        Corporate mail server handling trade confirmations, compliance
+        correspondence, and client communications.  SEC Rule 17a-4
+        requires all broker-dealer email to be archived for 3 years
+      hostname: mail.pinnaclefg.local
+      os: ubuntu:22.04
+      services: [postfix, dovecot, sshd]
+      connects_to: [ldap]
+
+    - name: jumpbox
+      zone: dmz
+      purpose: >-
+        SSH bastion host for administrative access to internal systems.
+        VPN users and IT staff must hop through here to reach database,
+        file, and management hosts
+      hostname: jump.pinnaclefg.local
+      os: ubuntu:22.04
+      services: [sshd]
+      connects_to: [db, files, ldap, siem]
+
+    - name: db
+      zone: internal
+      purpose: >-
+        Primary database server holding client portfolios, account data,
+        trade history, and user credentials.  PCI-DSS scoped due to
+        financial transaction storage
+      hostname: db01.pinnaclefg.local
+      os: ubuntu:22.04
+      services: [mysql, postgresql, sshd]
+      connects_to: [ldap]
+
+    - name: files
+      zone: internal
+      purpose: >-
+        Central file share for compliance documents, SEC filings, HR
+        records, onboarding paperwork, and marketing materials.  Different
+        share directories have different ACLs by department
+      hostname: fs01.pinnaclefg.local
+      os: ubuntu:22.04
+      services: [samba, nfs, sshd]
+      connects_to: [ldap]
+
+    - name: ldap
+      zone: management
+      purpose: >-
+        Centralized directory service for authentication and authorization
+        across all Pinnacle systems.  Stores user accounts, group
+        memberships, and service account credentials
+      hostname: dc01.pinnaclefg.local
+      os: ubuntu:22.04
+      services: [openldap, sshd]
+      connects_to: []
+
+    - name: siem
+      zone: management
+      purpose: >-
+        Security information and event management platform collecting logs
+        from every host.  SOX requires tamper-evident audit trails of all
+        access to financial data
+      hostname: siem.pinnaclefg.local
+      os: ubuntu:22.04
+      services: [rsyslog, elasticsearch, kibana, sshd]
+      connects_to: [web, mail, jumpbox, db, files, ldap]
+
+  firewall_rules:
+    # External -> DMZ: public-facing services
+    - action: allow
+      from_zone: external
+      to_zone: dmz
+      ports: [80, 443, 25, 22]
+
+    # VPN -> DMZ: remote employees land on jumpbox via SSH
+    - action: allow
+      from_zone: vpn
+      to_zone: dmz
+      ports: [22]
+
+    # DMZ -> Internal: web portal queries DB; jumpbox reaches files
+    - action: allow
+      from_zone: dmz
+      to_zone: internal
+      ports: [3306, 5432, 445, 2049]
+
+    # DMZ -> Management: LDAP auth for web, mail, and jumpbox
+    - action: allow
+      from_zone: dmz
+      to_zone: management
+      ports: [389, 636]
+
+    # Internal -> Management: DB and files authenticate against LDAP
+    - action: allow
+      from_zone: internal
+      to_zone: management
+      ports: [389]
+
+    # Guest wifi -> DMZ: visitors can browse the public portal only
+    - action: allow
+      from_zone: guest
+      to_zone: dmz
+      ports: [80, 443]
+
+    # Deny internal -> external: no egress from server zone
+    - action: deny
+      from_zone: internal
+      to_zone: external
+      ports: []
+
+    # Deny management -> external: LDAP/SIEM never reach out
+    - action: deny
+      from_zone: management
+      to_zone: external
+      ports: []
+
+    # Deny guest -> internal: visitor wifi cannot reach financial data
+    - action: deny
+      from_zone: guest
+      to_zone: internal
+      ports: []
+
+    # Deny guest -> management: visitor wifi cannot reach directory/SIEM
+    - action: deny
+      from_zone: guest
+      to_zone: management
+      ports: []
+
+# ---------------------------------------------------------------------------
+# Vulnerability and task envelope
+# ---------------------------------------------------------------------------
+
+bug_families:
+  # --- OWASP A01: Broken Access Control ---
+  - idor
+  - path_traversal
+  - lfi
+  - rfi                   # Remote file inclusion (Tier 2+: more complex services)
+  - missing_authz
+  # --- OWASP A03: Injection ---
+  - sqli
+  - xss
+  - command_injection
+  - ldap_injection
+  - ssti
+  - xxe
+  - log_injection
+  # --- OWASP A04-A06: Design, Misconfig, Components ---
+  - file_upload
+  - service_misconfig
+  - ssrf
+  # --- OWASP A07: Auth Failures ---
+  - weak_creds
+  - broken_auth
+  - credential_reuse
+  # --- OWASP A08: Software/Data Integrity ---
+  - rce
+  - deserialization
+  # --- Infrastructure / network ---
+  - smb_misconfig
+  - mail_misconfig
+  - firewall_bypass
+  - config_drift
+  # --- Tier 2+ additions ---
+  - ssh_key_exposure      # Private keys in readable locations
+  - vpn_misconfig         # VPN split tunnel, weak certs
+  - orphaned_access
+  - overpermission
+  - data_exposure
+  - insecure_backup
+  - misconfig              # General misconfiguration (app, service, or OS level)
+  - missing_patches        # Unpatched software with known CVEs
+  - insecure_protocol      # Cleartext protocols, weak TLS, deprecated ciphers
+
+task_families:
+  - exploit
+  - investigate
+  - patch
+  - report
+
+difficulty:
+  max_steps: 18
+  min_vulns: 2
+  max_vulns: 4
