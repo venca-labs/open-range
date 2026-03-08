@@ -1053,6 +1053,57 @@ class ManagedSnapshotRuntime:
         rendered.compose = yaml.safe_load(compose_path.read_text(encoding="utf-8")) or {}
         return rendered
 
+    def activate_snapshot_project(
+        self,
+        *,
+        snapshot_id: str,
+        snapshot: SnapshotSpec,
+        episode_id: str | None = None,
+    ) -> BootedSnapshotProject:
+        """Boot a fresh per-episode project for an admitted snapshot.
+
+        This is the runtime-facing execution path used by RangeEnvironment.
+        It keeps episode state isolated by booting a new compose project from
+        the admitted artifact bundle rather than layering files onto a
+        long-lived shared stack.
+        """
+        self.start()
+
+        materialized = snapshot
+        artifacts_dir = self._artifacts_dir(snapshot_id)
+        if not artifacts_dir.exists():
+            materialized = self._materialize_snapshot(snapshot, snapshot_id)
+
+        project_name_seed = snapshot_id
+        if episode_id:
+            project_name_seed = f"{snapshot_id}-{episode_id}"
+        project_name = self.compose_runner.project_name_for(project_name_seed)
+
+        project: BootedSnapshotProject | None = None
+        try:
+            project = self.compose_runner.boot(
+                snapshot_id=snapshot_id,
+                artifacts_dir=artifacts_dir,
+                compose=materialized.compose,
+                project_name=project_name,
+            )
+            self._apply_rendered_payloads(snapshot_id, project.containers, materialized)
+            return project
+        except Exception:
+            if project is not None:
+                try:
+                    self.compose_runner.teardown(project)
+                except Exception:  # noqa: BLE001
+                    logger.warning(
+                        "Failed to tear down project %s after activation failure",
+                        project.project_name,
+                    )
+            raise
+
+    def teardown_snapshot_project(self, project: BootedSnapshotProject) -> None:
+        """Tear down a previously activated episode project."""
+        self.compose_runner.teardown(project)
+
     def _run_live_admission(self, snapshot: SnapshotSpec, snapshot_id: str) -> None:
         project: BootedSnapshotProject | None = None
         try:

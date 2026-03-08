@@ -2,9 +2,11 @@
 
 from __future__ import annotations
 
+from pathlib import Path
+
 import pytest
 
-from open_range.protocols import CheckResult
+from open_range.protocols import CheckResult, ContainerSet, SnapshotSpec
 from open_range.server.compose_runner import BootedSnapshotProject
 from open_range.server.environment import RangeEnvironment
 from open_range.server.runtime import ManagedSnapshotRuntime
@@ -243,6 +245,73 @@ class TestManagedSnapshotRuntime:
         finally:
             runtime.stop()
 
+    def test_activate_snapshot_project_uses_unique_episode_project_name(
+        self,
+        tier1_manifest,
+        tmp_path,
+    ):
+        class FakeContainers:
+            def __init__(self) -> None:
+                self.exec_calls: list[tuple[str, str]] = []
+                self.cp_calls: list[tuple[str, str, str]] = []
+
+            async def exec(self, container: str, cmd: str, **kwargs) -> str:
+                self.exec_calls.append((container, cmd))
+                return "ok"
+
+            async def cp(self, container: str, src: str, dest: str) -> None:
+                self.cp_calls.append((container, src, dest))
+
+            async def is_healthy(self, container: str) -> bool:
+                return True
+
+        class FakeComposeRunner:
+            def __init__(self) -> None:
+                self.boot_calls: list[tuple[str, str, str | None]] = []
+                self.teardown_calls: list[str] = []
+                self.containers = FakeContainers()
+
+            def project_name_for(self, snapshot_id: str) -> str:
+                return f"openrange-{snapshot_id}"[:63]
+
+            def boot(self, *, snapshot_id, artifacts_dir, compose, project_name=None):
+                self.boot_calls.append((snapshot_id, str(artifacts_dir), project_name))
+                return BootedSnapshotProject(
+                    project_name=project_name or f"openrange-{snapshot_id}",
+                    compose_file=artifacts_dir / "docker-compose.yml",
+                    artifacts_dir=artifacts_dir,
+                    containers=self.containers,  # type: ignore[arg-type]
+                )
+
+            def teardown(self, project):
+                self.teardown_calls.append(project.project_name)
+
+        compose_runner = FakeComposeRunner()
+        runtime = ManagedSnapshotRuntime(
+            manifest=tier1_manifest,
+            store_dir=tmp_path / "snapshots",
+            pool_size=1,
+            refill_enabled=False,
+            compose_runner=compose_runner,  # type: ignore[arg-type]
+        )
+
+        runtime.start()
+        try:
+            admitted = runtime.acquire_snapshot()
+            project = runtime.activate_snapshot_project(
+                snapshot_id=admitted.snapshot_id,
+                snapshot=admitted.snapshot,
+                episode_id="episode-123",
+            )
+            assert compose_runner.boot_calls
+            _, artifacts_dir, project_name = compose_runner.boot_calls[0]
+            assert artifacts_dir.endswith(f"{admitted.snapshot_id}/artifacts")
+            assert project_name == f"openrange-{admitted.snapshot_id}-episode-123"
+            runtime.teardown_snapshot_project(project)
+            assert compose_runner.teardown_calls == [project.project_name]
+        finally:
+            runtime.stop()
+
 
 class TestEnvironmentRuntimeIntegration:
     def test_reset_uses_managed_runtime_snapshot(self, tier1_manifest, tmp_path):
@@ -299,3 +368,75 @@ class TestEnvironmentRuntimeIntegration:
         finally:
             env.close()
             runtime.stop()
+
+    def test_reset_activates_clean_runtime_project_and_tears_down_previous(self):
+        class FakeRuntime:
+            def __init__(self, snapshot: SnapshotSpec) -> None:
+                self.snapshot = snapshot
+                self.activate_calls: list[tuple[str, str | None]] = []
+                self.teardown_calls: list[str] = []
+                self.recorded: list[bool] = []
+
+            def acquire_snapshot(self):
+                return type(
+                    "Admitted",
+                    (),
+                    {"snapshot_id": "snap-001", "snapshot": self.snapshot},
+                )()
+
+            def get_snapshot(self, snapshot_id: str):
+                assert snapshot_id == "snap-001"
+                return self.acquire_snapshot()
+
+            def activate_snapshot_project(self, *, snapshot_id, snapshot, episode_id=None):
+                self.activate_calls.append((snapshot_id, episode_id))
+                return BootedSnapshotProject(
+                    project_name=f"project-{episode_id}",
+                    compose_file=Path("/tmp/docker-compose.yml"),
+                    artifacts_dir=Path("/tmp"),
+                    containers=ContainerSet(
+                        project_name=f"project-{episode_id}",
+                        container_ids={"web": "cid-web", "attacker": "cid-attacker", "siem": "cid-siem"},
+                    ),
+                )
+
+            def teardown_snapshot_project(self, project):
+                self.teardown_calls.append(project.project_name)
+
+            def record_episode_result(self, **kwargs):
+                self.recorded.append(bool(kwargs.get("completed", False)))
+
+        snapshot = SnapshotSpec(
+            topology={"hosts": ["attacker", "siem", "web"]},
+            compose={"services": {"attacker": {}, "siem": {}, "web": {}}},
+            task={"red_briefing": "Go.", "blue_briefing": "Watch."},
+        )
+        runtime = FakeRuntime(snapshot)
+        env = RangeEnvironment(
+            runtime=runtime,  # type: ignore[arg-type]
+            docker_available=True,
+            execution_mode="docker",
+        )
+
+        env._get_docker = lambda: object()  # type: ignore[method-assign]
+        apply_calls: list[str] = []
+        env._apply_snapshot = lambda snapshot: apply_calls.append("overlay")  # type: ignore[method-assign]
+        env._start_npcs = lambda snapshot: None  # type: ignore[method-assign]
+
+        try:
+            env.reset(episode_id="ep-1")
+            assert runtime.activate_calls == [("snap-001", "ep-1")]
+            assert apply_calls == []
+            assert env.snapshot is not None
+            assert env.snapshot.compose["x-project-name"] == "project-ep-1"
+            assert env._container_name("web") == "cid-web"
+
+            env.reset(episode_id="ep-2")
+            assert runtime.activate_calls == [("snap-001", "ep-1"), ("snap-001", "ep-2")]
+            assert runtime.teardown_calls == ["project-ep-1"]
+            assert env.snapshot is not None
+            assert env.snapshot.compose["x-project-name"] == "project-ep-2"
+        finally:
+            env.close()
+
+        assert runtime.teardown_calls == ["project-ep-1", "project-ep-2"]

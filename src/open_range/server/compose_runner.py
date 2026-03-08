@@ -47,9 +47,10 @@ class ComposeProjectRunner:
         snapshot_id: str,
         artifacts_dir: Path,
         compose: dict[str, Any],
+        project_name: str | None = None,
     ) -> BootedSnapshotProject:
         compose_file = artifacts_dir / "docker-compose.yml"
-        project_name = self.project_name_for(snapshot_id)
+        project_name = project_name or self.project_name_for(snapshot_id)
 
         self._run(
             [

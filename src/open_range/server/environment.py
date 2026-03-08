@@ -28,6 +28,7 @@ from open_range.protocols import SnapshotSpec, TaskSpec
 from open_range.server.models import RangeAction, RangeObservation, RangeState
 
 if TYPE_CHECKING:
+    from open_range.server.compose_runner import BootedSnapshotProject
     from open_range.server.runtime import ManagedSnapshotRuntime
 
 logger = logging.getLogger(__name__)
@@ -123,6 +124,7 @@ class RangeEnvironment(_BASE):  # type: ignore[misc]
         self._docker_available = docker_available
         self._runtime = runtime
         self._episode_recorded = False
+        self._active_project: "BootedSnapshotProject | None" = None
 
         # Execution mode: "auto", "docker", or "subprocess"
         self._execution_mode = execution_mode
@@ -173,6 +175,11 @@ class RangeEnvironment(_BASE):  # type: ignore[misc]
         the bare hostname is returned as a fallback for test compatibility.
         """
         if self._snapshot and self._snapshot.compose:
+            if (
+                self._active_project is not None
+                and host in self._active_project.containers.container_ids
+            ):
+                return self._active_project.containers.container_ids[host]
             services = self._snapshot.compose.get("services", {})
             if host in services:
                 project = self._snapshot.compose.get(
@@ -504,6 +511,52 @@ class RangeEnvironment(_BASE):  # type: ignore[misc]
             except Exception as exc:
                 logger.debug("NPC stop error (ignored): %s", exc)
             self._npc_manager = None
+
+    def _teardown_active_project(self) -> None:
+        """Tear down the currently active runtime-backed episode project."""
+        if self._active_project is None:
+            return
+        project = self._active_project
+        self._active_project = None
+        if self._runtime is None:
+            return
+        try:
+            self._runtime.teardown_snapshot_project(project)
+        except Exception as exc:
+            logger.warning(
+                "Failed to tear down active snapshot project %s: %s",
+                project.project_name,
+                exc,
+            )
+
+    def _activate_runtime_snapshot(
+        self,
+        snapshot: SnapshotSpec,
+        *,
+        episode_id: str,
+    ) -> bool:
+        """Boot a clean project for a runtime-backed admitted snapshot.
+
+        Returns True when the snapshot was activated through the managed
+        runtime and no overlay deployment is needed in-process.
+        """
+        if self._runtime is None or not self._snapshot_id:
+            return False
+        if self._execution_mode != "docker":
+            return False
+        if self._get_docker() is None:
+            return False
+
+        project = self._runtime.activate_snapshot_project(
+            snapshot_id=self._snapshot_id,
+            snapshot=snapshot,
+            episode_id=episode_id,
+        )
+        self._active_project = project
+        compose = dict(snapshot.compose)
+        compose["x-project-name"] = project.project_name
+        snapshot.compose = compose
+        return True
 
     def _refresh_npc_traffic_log(self) -> None:
         """Pull latest NPC activity from the manager into the traffic log."""
@@ -851,6 +904,8 @@ class RangeEnvironment(_BASE):  # type: ignore[misc]
             Initial RangeObservation with the challenge briefing.
         """
         self._report_episode_result(completed=False)
+        self._stop_npcs()
+        self._teardown_active_project()
 
         # Select snapshot
         self._snapshot = self._select_snapshot(**kwargs)
@@ -880,8 +935,11 @@ class RangeEnvironment(_BASE):  # type: ignore[misc]
         except Exception:
             pass
 
-        # Deploy snapshot artifacts to running containers
-        self._apply_snapshot(self._snapshot)
+        # Runtime-backed episodes boot a fresh project per reset. Manual/mock
+        # snapshots still use direct artifact application.
+        activated = self._activate_runtime_snapshot(self._snapshot, episode_id=eid)
+        if not activated:
+            self._apply_snapshot(self._snapshot)
 
         # Start NPC traffic for this episode
         self._start_npcs(self._snapshot)
@@ -978,6 +1036,7 @@ class RangeEnvironment(_BASE):  # type: ignore[misc]
             self._check_termination(obs)
             self._report_if_done(obs)
             return obs
+
 
         # Route to container
         target = self._resolve_target(action)
@@ -1201,6 +1260,7 @@ class RangeEnvironment(_BASE):  # type: ignore[misc]
         """Release resources (Docker client, NPC manager, episode state)."""
         self._report_episode_result(completed=False)
         self._stop_npcs()
+        self._teardown_active_project()
         if self._docker_client is not None:
             try:
                 self._docker_client.close()
