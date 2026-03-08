@@ -69,6 +69,7 @@ class SnapshotStore:
             "golden_path_steps": len(snapshot.golden_path),
             "flag_count": len(snapshot.flags),
             "npc_count": len(snapshot.npc_personas),
+            "has_compose": bool(snapshot.compose),
             "stored_at": time.time(),
         }
         meta_path = snap_dir / "metadata.json"
