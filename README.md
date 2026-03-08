@@ -60,9 +60,9 @@ flowchart LR
     D -->|pass| E[Frozen validated snapshot<br/>Acme v_k]
 
     subgraph R[OpenEnv runtime]
-        F[reset()<br/>select frozen snapshot + sample task + init episode]
+        F["reset()<br/>select frozen snapshot + sample task + init episode"]
         G[Red / Blue agents]
-        H[step(action)<br/>run command or tool on current frozen snapshot]
+        H["step(action)<br/>run command or tool on current frozen snapshot"]
         I[Observation + reward]
         J[Rollout results<br/>solve rate, evidence quality, patch validity]
     end
@@ -225,7 +225,7 @@ sequenceDiagram
 flowchart LR
     subgraph ep1 [Episode A]
         direction TB
-        A1[reset() selects Acme v12] --> B1[Red and Blue act inside frozen snapshot]
+        A1["reset() selects Acme v12"] --> B1[Red and Blue act inside frozen snapshot]
     end
 
     subgraph bg [Between Episodes]
@@ -237,7 +237,7 @@ flowchart LR
 
     subgraph ep2 [Episode B]
         direction TB
-        A2[future reset() selects Acme v13] --> B2[New task on next frozen snapshot]
+        A2["future reset() selects Acme v13"] --> B2[New task on next frozen snapshot]
     end
 
     ep1 -->|episode ends| bg
