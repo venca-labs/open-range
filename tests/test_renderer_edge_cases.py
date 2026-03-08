@@ -319,7 +319,7 @@ class TestPayloadFiles:
         web_paths = {p["mountPath"] for p in values["services"]["web"].get("payloads", [])}
         db_paths = {p["mountPath"] for p in values["services"]["db"].get("payloads", [])}
         assert "/var/www/html/index.php" in web_paths
-        assert "/docker-entrypoint-initdb.d/99-openrange-init.sql" in db_paths
+        assert "/docker-entrypoint-initdb.d/99-openrange-init.sh" in db_paths
 
     def test_no_files_produces_only_base_schema(self, renderer):
         spec = SnapshotSpec(topology=_minimal_topology(), files={})

@@ -276,9 +276,12 @@ class KindRenderer:
             if container != name:
                 continue
 
-            # db:sql → MySQL entrypoint init script
+            # db:sql → shell wrapper that runs LLM SQL with --force
+            # so MySQL continues past individual statement errors
+            # (LLM may generate slightly wrong column names).
             if name == "db" and path == "sql":
-                mount_path = "/docker-entrypoint-initdb.d/99-openrange-init.sql"
+                mount_path = "/docker-entrypoint-initdb.d/99-openrange-init.sh"
+                content = _wrap_sql_in_shell(content)
             else:
                 mount_path = path if path.startswith("/") else f"/{path}"
 
@@ -449,3 +452,24 @@ CREATE TABLE IF NOT EXISTS secrets (
 
 USE referral_db;
 """
+
+
+def _wrap_sql_in_shell(sql: str) -> str:
+    """Wrap LLM-generated SQL in a shell script that tolerates errors.
+
+    MySQL's docker-entrypoint runs ``.sql`` files via ``mysql < file``
+    which aborts on the first error.  By using a ``.sh`` wrapper with
+    ``mysql --force``, individual bad statements (wrong column names,
+    duplicate keys, etc.) are logged but don't crash the pod.
+
+    NOTE: MySQL entrypoint ``source``s ``.sh`` files (same process),
+    so we must NOT use ``exit`` — that would kill the entrypoint.
+    We just let the script return naturally.
+    """
+    return (
+        'echo "[openrange] Running LLM-generated seed SQL (--force) ..."\n'
+        "mysql --force -u root -p\"$MYSQL_ROOT_PASSWORD\" <<'OPENRANGE_SQL_EOF'\n"
+        f"{sql}\n"
+        "OPENRANGE_SQL_EOF\n"
+        'echo "[openrange] Seed SQL complete (errors above are non-fatal)"\n'
+    )

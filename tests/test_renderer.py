@@ -313,7 +313,7 @@ def test_db_sql_mapped_to_entrypoint(renderer, sqli_spec):
         values = yaml.safe_load((out / "openrange" / "values.yaml").read_text())
         db_payloads = values["services"]["db"]["payloads"]
         mount_paths = {p["mountPath"] for p in db_payloads}
-        assert "/docker-entrypoint-initdb.d/99-openrange-init.sql" in mount_paths
+        assert "/docker-entrypoint-initdb.d/99-openrange-init.sh" in mount_paths
 
 
 def test_flag_file_in_web_payloads(renderer, sqli_spec):
