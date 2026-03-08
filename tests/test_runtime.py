@@ -25,6 +25,25 @@ class TestManagedSnapshotRuntime:
         finally:
             runtime.stop()
 
+    def test_start_materializes_rendered_artifacts(self, tier1_manifest, tmp_path):
+        runtime = ManagedSnapshotRuntime(
+            manifest=tier1_manifest,
+            store_dir=tmp_path / "snapshots",
+            pool_size=1,
+            refill_enabled=False,
+        )
+
+        runtime.start()
+        try:
+            admitted = runtime.acquire_snapshot()
+            artifacts_dir = tmp_path / "snapshots" / admitted.snapshot_id / "artifacts"
+            assert (artifacts_dir / "docker-compose.yml").exists()
+            assert (artifacts_dir / "Dockerfile.web").exists()
+            assert admitted.snapshot.compose
+            assert "services" in admitted.snapshot.compose
+        finally:
+            runtime.stop()
+
     def test_acquire_snapshot_returns_admitted_snapshot(self, tier1_manifest, tmp_path):
         runtime = ManagedSnapshotRuntime(
             manifest=tier1_manifest,
@@ -57,6 +76,7 @@ class TestManagedSnapshotRuntime:
             loaded = runtime.get_snapshot(first.snapshot_id)
             assert loaded.snapshot_id == first.snapshot_id
             assert loaded.snapshot.flags[0].value == first.snapshot.flags[0].value
+            assert loaded.snapshot.compose == first.snapshot.compose
         finally:
             runtime.stop()
 
