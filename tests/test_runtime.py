@@ -4,8 +4,11 @@ from __future__ import annotations
 
 import pytest
 
+from open_range.protocols import CheckResult
+from open_range.server.compose_runner import BootedSnapshotProject
 from open_range.server.environment import RangeEnvironment
 from open_range.server.runtime import ManagedSnapshotRuntime
+from open_range.validator.validator import ValidationResult
 
 
 class TestManagedSnapshotRuntime:
@@ -141,6 +144,78 @@ class TestManagedSnapshotRuntime:
             admitted = runtime.acquire_snapshot()
             assert admitted.snapshot.lineage.snapshot_id == admitted.snapshot_id
             assert admitted.snapshot.lineage.root_snapshot_id
+        finally:
+            runtime.stop()
+
+    def test_live_admission_boots_bundle_and_marks_snapshot(
+        self,
+        tier1_manifest,
+        tmp_path,
+    ):
+        class FakeContainers:
+            def __init__(self) -> None:
+                self.exec_calls: list[tuple[str, str]] = []
+                self.cp_calls: list[tuple[str, str, str]] = []
+
+            async def exec(self, container: str, cmd: str, **kwargs) -> str:
+                self.exec_calls.append((container, cmd))
+                if "mysql -u root" in cmd:
+                    return "ok"
+                return "ok"
+
+            async def cp(self, container: str, src: str, dest: str) -> None:
+                self.cp_calls.append((container, src, dest))
+
+            async def is_healthy(self, container: str) -> bool:
+                return True
+
+        class FakeComposeRunner:
+            def __init__(self) -> None:
+                self.boot_calls: list[tuple[str, str]] = []
+                self.teardown_calls: list[str] = []
+                self.containers = FakeContainers()
+
+            def boot(self, *, snapshot_id, artifacts_dir, compose):
+                self.boot_calls.append((snapshot_id, str(artifacts_dir)))
+                return BootedSnapshotProject(
+                    project_name=f"openrange-{snapshot_id}",
+                    compose_file=artifacts_dir / "docker-compose.yml",
+                    artifacts_dir=artifacts_dir,
+                    containers=self.containers,  # type: ignore[arg-type]
+                )
+
+            def teardown(self, project):
+                self.teardown_calls.append(project.project_name)
+
+        class FakeLiveValidator:
+            async def validate(self, snapshot, containers):
+                return ValidationResult(
+                    passed=True,
+                    checks=[CheckResult(name="live_checks", passed=True)],
+                    total_time_s=0.0,
+                )
+
+        compose_runner = FakeComposeRunner()
+        runtime = ManagedSnapshotRuntime(
+            manifest=tier1_manifest,
+            store_dir=tmp_path / "snapshots",
+            pool_size=1,
+            refill_enabled=False,
+            live_admission_enabled=True,
+            compose_runner=compose_runner,  # type: ignore[arg-type]
+            live_validator=FakeLiveValidator(),  # type: ignore[arg-type]
+        )
+
+        runtime.start()
+        try:
+            admitted = runtime.acquire_snapshot()
+            assert compose_runner.boot_calls
+            assert compose_runner.teardown_calls == [f"openrange-{admitted.snapshot_id}"]
+            assert admitted.snapshot.topology["live_validated"] is True
+            assert admitted.snapshot.compose["x-project-name"] == f"openrange-{admitted.snapshot_id}"
+            assert any(dest.endswith("/var/www/portal/index.php") for _, _, dest in compose_runner.containers.cp_calls)
+            listing = runtime.list_snapshots()
+            assert listing[0]["live_validated"] is True
         finally:
             runtime.stop()
 

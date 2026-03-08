@@ -2,13 +2,15 @@
 
 Takes a validated SnapshotSpec and produces the concrete files needed
 to boot a range: docker-compose.yml, Dockerfiles, nginx.conf, init.sql,
-and iptables.rules.
+iptables.rules, and any generated service/app payload files.
 """
 
 from __future__ import annotations
 
+import json
 import logging
 from pathlib import Path
+from pathlib import PurePosixPath
 from typing import Any
 
 import jinja2
@@ -29,6 +31,9 @@ _TEMPLATE_MAP: dict[str, str] = {
     "init.sql.j2": "init.sql",
     "iptables.rules.j2": "iptables.rules",
 }
+
+PAYLOAD_ROOT_DIR = "rendered_files"
+PAYLOAD_MANIFEST_NAME = "file-payloads.json"
 
 
 class SnapshotRenderer:
@@ -66,11 +71,52 @@ class SnapshotRenderer:
             template = self.env.get_template(template_name)
             rendered = template.render(**context)
             dest = output_dir / output_name
-            dest.write_text(rendered)
+            dest.write_text(rendered, encoding="utf-8")
             logger.info("Rendered %s -> %s", template_name, dest)
 
-        logger.info("SnapshotRenderer: rendering complete (%d files)", len(_TEMPLATE_MAP))
+        payload_manifest = self._render_payloads(spec, output_dir)
+        manifest_path = output_dir / PAYLOAD_MANIFEST_NAME
+        manifest_path.write_text(
+            json.dumps(payload_manifest, indent=2, sort_keys=True),
+            encoding="utf-8",
+        )
+        logger.info("Rendered %d payload artifact(s) -> %s", len(payload_manifest), manifest_path)
+        logger.info(
+            "SnapshotRenderer: rendering complete (%d templates, %d payloads)",
+            len(_TEMPLATE_MAP),
+            len(payload_manifest),
+        )
         return output_dir
+
+    def _render_payloads(self, spec: SnapshotSpec, output_dir: Path) -> dict[str, str]:
+        payload_manifest: dict[str, str] = {}
+        for key, content in spec.files.items():
+            rel_path = payload_relpath(key)
+            dest = output_dir / rel_path
+            dest.parent.mkdir(parents=True, exist_ok=True)
+            dest.write_text(content, encoding="utf-8")
+            payload_manifest[key] = str(rel_path)
+            logger.info("Rendered payload %s -> %s", key, dest)
+        return payload_manifest
+
+
+def payload_relpath(file_key: str) -> Path:
+    """Return the artifact-bundle relative path for a SnapshotSpec.files entry."""
+    if file_key == "db:sql":
+        return Path(PAYLOAD_ROOT_DIR) / "db" / "sql" / "generated.sql"
+
+    if ":" not in file_key:
+        raise ValueError(f"Invalid file payload key: {file_key}")
+
+    container, raw_path = file_key.split(":", 1)
+    safe_parts = [
+        part
+        for part in PurePosixPath(raw_path).parts
+        if part not in {"", "/", ".", ".."}
+    ]
+    if not safe_parts:
+        raise ValueError(f"Invalid file payload path: {file_key}")
+    return Path(PAYLOAD_ROOT_DIR) / container / Path(*safe_parts)
 
 
 def _build_context(spec: SnapshotSpec) -> dict[str, Any]:
@@ -139,7 +185,7 @@ def _build_context(spec: SnapshotSpec) -> dict[str, Any]:
         "db_host": "db",
         "db_user": _find_db_user(users),
         "db_pass": _find_db_pass(users),
-        "mysql_root_password": _find_mysql_root_pass(users),
+        "mysql_root_password": topology.get("mysql_root_password", _find_mysql_root_pass(users)),
         "domain": topology.get("domain", "acmecorp.local"),
         "org_name": topology.get("org_name", "AcmeCorp"),
         "ldap_admin_pass": "LdapAdm1n!",

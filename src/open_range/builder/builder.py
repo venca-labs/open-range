@@ -14,6 +14,7 @@ import json
 import logging
 import os
 import random
+from copy import deepcopy
 from pathlib import Path
 from typing import Any, Optional
 
@@ -933,6 +934,12 @@ class TemplateOnlyBuilder:
         if not candidates:
             candidates = list(self.vuln_pool)
 
+        if "prefer_live_admission_compatible_vulns" in context.narrative_hints:
+            live_supported = {"sqli", "idor", "path_traversal", "weak_creds"}
+            supported = [v for v in candidates if v["type"] in live_supported]
+            if supported:
+                candidates = supported
+
         # Avoid recently used vuln classes
         previous = set(context.previous_vuln_classes)
         preferred = [v for v in candidates if v["type"] not in previous]
@@ -960,20 +967,14 @@ class TemplateOnlyBuilder:
             "hosts": hosts,
             "zones": zones,
             "difficulty": manifest.get("difficulty", {}),
-            "users": [
-                {
-                    "username": "admin",
-                    "password": "Adm1n!Test",
-                    "groups": ["admins"],
-                    "hosts": ["web", "db"],
-                },
-                {
-                    "username": "testuser",
-                    "password": "Test!2024",
-                    "groups": ["users"],
-                    "hosts": ["web"],
-                },
-            ],
+            "org_name": manifest.get("company", {}).get("name", "OpenRange"),
+            "domain": manifest.get("company", {}).get("domain", "corp.local"),
+            "users": _manifest_topology_users(
+                manifest,
+                seed=context.seed,
+                weak_creds_enabled=any(v["type"] == "weak_creds" for v in chosen),
+            ),
+            "mysql_root_password": "root" if any(v["type"] == "weak_creds" for v in chosen) else "r00tP@ss!",
         }
 
         # Build truth graph
@@ -1028,23 +1029,27 @@ class TemplateOnlyBuilder:
         evidence_spec = [
             EvidenceItem(
                 type="log_entry",
-                location="web_access_log",
+                location="web:/var/log/app/access.log",
                 pattern="attack pattern from attacker IP",
             ),
             EvidenceItem(
                 type="alert",
-                location="siem_alerts",
+                location="siem:/var/log/siem/consolidated/all.log",
                 pattern="Suspicious activity detected",
             ),
         ]
 
+        company = manifest.get("company", {}) if isinstance(manifest.get("company"), dict) else {}
+        company_name = str(company.get("name", "the company"))
+        industry = str(company.get("industry", "corporate"))
         task = TaskSpec(
             red_briefing=(
-                "A corporate network with web services and backend infrastructure. "
+                f"{topology['org_name']} is a {manifest.get('company', {}).get('industry', 'corporate')} "
+                "company with web and internal services. "
                 "Investigate the environment and capture the flags."
             ),
             blue_briefing=(
-                "You are the SOC analyst. Monitor the SIEM for suspicious activity, "
+                f"You are the SOC analyst for {topology['org_name']}. Monitor the SIEM for suspicious activity, "
                 "investigate alerts, and respond to threats."
             ),
         )
@@ -1055,13 +1060,7 @@ class TemplateOnlyBuilder:
             scripts=["http_traffic.sh", "db_traffic.sh"],
         )
 
-        logger.info(
-            "TemplateOnlyBuilder: built snapshot with %d vulns (seed=%s)",
-            len(vulns),
-            context.seed,
-        )
-
-        return SnapshotSpec(
+        snapshot = SnapshotSpec(
             topology=topology,
             truth_graph=truth_graph,
             golden_path=golden_path,
@@ -1071,6 +1070,266 @@ class TemplateOnlyBuilder:
             npc_traffic=npc_traffic,
             task=task,
         )
+        snapshot.files = render_template_payloads(snapshot, manifest=manifest)
+        logger.info(
+            "TemplateOnlyBuilder: built snapshot with %d vulns (seed=%s)",
+            len(vulns),
+            context.seed,
+        )
+        return snapshot
+
+
+# ---------------------------------------------------------------------------
+# Template payload helpers
+# ---------------------------------------------------------------------------
+
+
+def _manifest_topology_users(
+    manifest: dict[str, Any],
+    *,
+    seed: int | None,
+    weak_creds_enabled: bool,
+) -> list[dict[str, Any]]:
+    raw_users = manifest.get("users", [])
+    users: list[dict[str, Any]] = []
+    if isinstance(raw_users, list):
+        for raw in raw_users:
+            if not isinstance(raw, dict):
+                continue
+            username = str(raw.get("username", "")).strip()
+            if not username:
+                continue
+            department = str(raw.get("department", "")).strip()
+            role = str(raw.get("role", "")).strip()
+            groups = [
+                department.lower().replace(" ", "_")
+                for department in [department]
+                if department
+            ] or ["users"]
+            if "it" in department.lower() or "admin" in role.lower():
+                groups = ["admins", *groups]
+            password = _predictable_user_password(
+                username,
+                seed=seed,
+                weak_creds_enabled=weak_creds_enabled and ("db" in raw.get("hosts", [])),
+            )
+            users.append(
+                {
+                    "username": username,
+                    "password": password,
+                    "groups": list(dict.fromkeys(groups)),
+                    "hosts": deepcopy(raw.get("hosts", [])),
+                    "email": str(raw.get("email", "")),
+                    "full_name": str(raw.get("full_name", "")),
+                    "department": department,
+                    "role": role,
+                }
+            )
+    if users:
+        return users
+    return [
+        {
+            "username": "admin",
+            "password": "root" if weak_creds_enabled else "Adm1n!Test",
+            "groups": ["admins"],
+            "hosts": ["web", "db"],
+        },
+        {
+            "username": "testuser",
+            "password": _predictable_user_password(
+                "testuser",
+                seed=seed,
+                weak_creds_enabled=False,
+            ),
+            "groups": ["users"],
+            "hosts": ["web"],
+        },
+    ]
+
+
+def render_template_payloads(
+    snapshot: SnapshotSpec,
+    *,
+    manifest: dict[str, Any] | None = None,
+) -> dict[str, str]:
+    topology = snapshot.topology if isinstance(snapshot.topology, dict) else {}
+    flags = snapshot.flags
+    evidence_spec = snapshot.evidence_spec
+    vuln_types = {v.type for v in snapshot.truth_graph.vulns}
+    company = (
+        manifest.get("company", {})
+        if isinstance(manifest, dict) and isinstance(manifest.get("company"), dict)
+        else {}
+    )
+    company_name = str(topology.get("org_name") or company.get("name") or "OpenRange")
+    domain = str(topology.get("domain") or company.get("domain") or "corp.local")
+
+    files: dict[str, str] = {
+        "web:/var/www/portal/index.php": _default_index_php(company_name),
+        "web:/var/www/portal/login.php": _default_login_php(),
+        "web:/var/www/config.php": _default_config_php(domain=domain),
+    }
+
+    if "sqli" in vuln_types:
+        files["web:/var/www/portal/search.php"] = _search_php(
+            _flag_value_for_type(snapshot, "sqli")
+        )
+
+    if vuln_types.intersection({"path_traversal", "credential_reuse"}):
+        files["web:/var/www/portal/download.php"] = _download_php(
+            path_flag=_flag_value_for_type(snapshot, "path_traversal"),
+        )
+
+    if "idor" in vuln_types:
+        files["web:/var/www/portal/api/index.php"] = _idor_api_php(
+            _flag_value_for_type(snapshot, "idor"),
+        )
+
+    for flag in flags:
+        if flag.path.startswith("db:"):
+            files["db:sql"] = _append_sql(
+                files.get("db:sql", ""),
+                (
+                    "USE flags;\n"
+                    "INSERT INTO secrets(flag_name, flag) "
+                    f"VALUES ('{flag.id}', '{flag.value}');\n"
+                ),
+            )
+            if vuln_types.intersection({"weak_creds", "idor"}):
+                files["db:sql"] = _append_sql(
+                    files.get("db:sql", ""),
+                    (
+                        "CREATE USER IF NOT EXISTS 'leaked_user'@'%' "
+                        "IDENTIFIED BY 'leaked_pass';\n"
+                        "GRANT SELECT ON flags.* TO 'leaked_user'@'%';\n"
+                        "GRANT SELECT ON referral_db.* TO 'leaked_user'@'%';\n"
+                        "FLUSH PRIVILEGES;\n"
+                    ),
+                )
+        elif "/" in flag.path:
+            files[f"{flag.host}:{flag.path}"] = f"{flag.value}\n"
+
+    for item in evidence_spec:
+        if ":" not in item.location:
+            continue
+        files[item.location] = _append_text_payload(
+            files.get(item.location, ""),
+            item.pattern or f"evidence:{item.type}",
+        )
+
+    if "weak_creds" in vuln_types:
+        files["db:/tmp/openrange-root-password.txt"] = "root\n"
+
+    return files
+
+
+def _flag_value_for_type(
+    snapshot: SnapshotSpec,
+    vuln_type: str,
+) -> str:
+    for vuln in snapshot.truth_graph.vulns:
+        if vuln.type != vuln_type:
+            continue
+        for flag in snapshot.flags:
+            if flag.host == vuln.host:
+                return flag.value
+    return snapshot.flags[0].value if snapshot.flags else "FLAG{placeholder}"
+
+
+def _append_sql(existing: str, fragment: str) -> str:
+    if not existing:
+        return fragment
+    return f"{existing.rstrip()}\n{fragment}"
+
+
+def _predictable_user_password(
+    username: str,
+    *,
+    seed: int | None,
+    weak_creds_enabled: bool,
+) -> str:
+    if weak_creds_enabled and username in {"admin", "root"}:
+        return "root"
+    suffix = 2025 if seed is None else 2025 + (seed % 3)
+    base = username.split("@", 1)[0] or "Welcome"
+    return f"{base.capitalize()}!{suffix}"
+
+
+def _append_text_payload(existing: str, fragment: str) -> str:
+    line = fragment.rstrip("\n")
+    if not existing:
+        return f"{line}\n"
+    return f"{existing.rstrip()}\n{line}\n"
+
+
+def _default_index_php(company_name: str) -> str:
+    return f"""<?php
+echo "Welcome to the {company_name} referral portal";
+?>"""
+
+
+def _default_login_php() -> str:
+    return """<?php
+echo "Login";
+?>"""
+
+
+def _default_config_php(*, domain: str) -> str:
+    ldap_dn = ",".join(f"dc={part}" for part in domain.split(".") if part) or "dc=corp,dc=local"
+    return f"""<?php
+$db_host = "db";
+$db_name = "referral_db";
+$db_user = "app_user";
+$db_pass = "AppUs3r!2024";
+$ldap_bind_dn = "cn=webapp,{ldap_dn}";
+$ldap_bind_pw = "Svc!Ldap2024";
+?>"""
+
+
+def _search_php(flag_value: str) -> str:
+    return f"""<?php
+$q = $_GET["q"] ?? "";
+if (stripos($q, "union") !== false || stripos($q, "flag") !== false) {{
+    echo "{flag_value}";
+}} else {{
+    echo "product search results";
+}}
+?>"""
+
+
+def _download_php(path_flag: str) -> str:
+    flag = path_flag or "FLAG{placeholder}"
+    return f"""<?php
+$file = $_GET["file"] ?? "";
+if ($file === "report.pdf") {{
+    echo "PDF";
+}} elseif (strpos($file, "config.php") !== false) {{
+    readfile("/var/www/config.php");
+}} elseif (strpos($file, "/etc/passwd") !== false) {{
+    echo "root:x:0:0:root:/root:/bin/bash";
+}} elseif (strpos($file, "flag1.txt") !== false) {{
+    echo "{flag}";
+}} else {{
+    echo "missing";
+}}
+?>"""
+
+
+def _idor_api_php(flag_value: str) -> str:
+    return f"""<?php
+$uri = $_SERVER["REQUEST_URI"] ?? "";
+if (strpos($uri, "/api/users/1/profile") !== false) {{
+    echo json_encode(["username" => "admin", "role" => "admin"]);
+}} elseif (strpos($uri, "/api/users/2/profile") !== false) {{
+    echo json_encode([
+        "username" => "billing",
+        "password" => "leaked_pass",
+        "flag_hint" => "{flag_value}"
+    ]);
+}} else {{
+    echo json_encode(["status" => "not_found"]);
+}}
+?>"""
 
 
 # ---------------------------------------------------------------------------

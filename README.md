@@ -20,7 +20,7 @@ A multi-agent cybersecurity gymnasium on [OpenEnv](https://github.com/meta-pytor
 
 ## How It Works
 
-A **manifest** declares a family of legal enterprise worlds — topology, services, identities, trust relationships, vulnerability classes, and mutation bounds. A shared **ManagedSnapshotRuntime** inside the shipped OpenEnv server process owns the admitted snapshot population. It compiles a root snapshot from the manifest, then derives child snapshots by applying explicit typed mutations to admitted parents. Each candidate child is validated before render/materialization and then stored under `snapshots/<id>/`. `reset()` selects one frozen admitted snapshot. `step()` runs commands inside it.
+A **manifest** declares a family of legal enterprise worlds — topology, services, identities, trust relationships, vulnerability classes, and mutation bounds. A shared **ManagedSnapshotRuntime** inside the shipped OpenEnv server process owns the admitted snapshot population. It compiles a root snapshot from the manifest, then derives child snapshots by applying explicit typed mutations to admitted parents. Each candidate child is structurally validated, rendered into a concrete artifact bundle under `snapshots/<id>/`, and, in managed-generation mode, can also be booted and live-validated before admission. `reset()` selects one frozen admitted snapshot. `step()` runs commands inside it.
 
 ```mermaid
 flowchart LR
@@ -78,11 +78,11 @@ uv run pytest tests/ -v --tb=short
 
 **ManagedSnapshotRuntime** — Shared singleton created at server startup. Owns the `SnapshotStore`, base builder, parent-snapshot mutator, validator gate, `SnapshotRenderer`, snapshot preload, optional background refill, and episode-result feedback. This is the hidden orchestrator behind the env; callers still only see `reset()`, `step()`, and `state()`.
 
-**Builder / Mutator** — The base builder compiles an initial `SnapshotSpec` from a manifest. The mutator then derives child `SnapshotSpec`s from admitted parents using typed mutation plans plus curriculum context. Each snapshot carries lineage metadata (`snapshot_id`, `parent_snapshot_id`, `root_snapshot_id`, generation depth, mutation summary). Three base builders ship: `LLMSnapshotBuilder` (production, via litellm), `TemplateOnlyBuilder` (deterministic shipped default), `FileBuilder` (load from disk).
+**Builder / Mutator** — The base builder compiles an initial `SnapshotSpec` from a manifest. The mutator then derives child `SnapshotSpec`s from admitted parents using typed mutation plans plus curriculum context. Each snapshot carries lineage metadata (`snapshot_id`, `parent_snapshot_id`, `root_snapshot_id`, generation depth, mutation summary) and can emit constrained service/app payloads through `SnapshotSpec.files`. Three base builders ship: `LLMSnapshotBuilder` (production, via litellm), `TemplateOnlyBuilder` (deterministic shipped default), `FileBuilder` (load from disk).
 
 The deployed package exposes the standard OpenEnv `reset()`, `step()`, and `state()` contract through `server.app:app`, which is the entrypoint referenced by `openenv.yaml`.
 
-**Validator** — Admission gate for candidate snapshots. The shipped runtime now enforces manifest compliance and graph consistency before structural/task checks. These mechanical checks operate on the compiled `SnapshotSpec` without requiring live model calls; richer container-backed checks remain available for private/local generation workflows.
+**Validator** — Admission gate for candidate snapshots. The shipped runtime enforces manifest compliance and graph consistency before structural/task checks. When `OPENRANGE_ENABLE_LIVE_ADMISSION=1`, the runtime also boots the rendered child bundle, applies rendered payload files, constructs a real `ContainerSet`, and runs live build/exploit/evidence/reward checks before admission. Public/HF mode can still rely on a prebuilt admitted pool with live admission disabled.
 
 **Environment** — `RangeEnvironment(Environment)` following the OpenEnv contract. `reset()` asks the shared runtime for a frozen admitted snapshot. `step(action)` routes commands to the appropriate container — Red runs on the attacker box, Blue runs on the SIEM. No artificial command allowlists; the container's installed tools are the constraint.
 
