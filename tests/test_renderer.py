@@ -1,6 +1,7 @@
 """Tests for SnapshotRenderer -- template rendering pipeline."""
 
 import tempfile
+import json
 from pathlib import Path
 
 import pytest
@@ -207,6 +208,28 @@ def test_render_idempotent(renderer, sqli_spec):
         renderer.render(sqli_spec, out)
         content2 = (out / "docker-compose.yml").read_text()
         assert content1 == content2
+
+
+def test_render_writes_payload_manifest_and_files(renderer, sqli_spec):
+    with tempfile.TemporaryDirectory() as tmpdir:
+        out = Path(tmpdir) / "snapshot_out"
+        spec = sqli_spec.model_copy(deep=True)
+        spec.files = {
+            "web:/var/www/portal/search.php": "<?php echo 'ok'; ?>\n",
+            "siem:/var/log/siem/consolidated/all.log": "Suspicious activity detected\n",
+            "db:sql": "USE flags;\nSELECT 1;\n",
+        }
+
+        renderer.render(spec, out)
+
+        manifest = json.loads((out / "file-payloads.json").read_text())
+        assert "web:/var/www/portal/search.php" in manifest
+        assert "siem:/var/log/siem/consolidated/all.log" in manifest
+        assert "db:sql" in manifest
+
+        assert (out / manifest["web:/var/www/portal/search.php"]).read_text() == "<?php echo 'ok'; ?>\n"
+        assert (out / manifest["siem:/var/log/siem/consolidated/all.log"]).read_text() == "Suspicious activity detected\n"
+        assert (out / manifest["db:sql"]).read_text() == "USE flags;\nSELECT 1;\n"
 
 
 # ---------------------------------------------------------------------------

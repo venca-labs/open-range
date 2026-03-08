@@ -13,6 +13,7 @@ import random
 from copy import deepcopy
 from typing import Any
 
+from open_range.builder.builder import render_template_payloads
 from open_range.protocols import (
     BuildContext,
     EvidenceItem,
@@ -201,6 +202,7 @@ class Mutator:
             rng=rng,
         )
         self._apply_plan(child, plan, manifest, context)
+        child.files = render_template_payloads(child, manifest=manifest)
 
         lineage = parent_snapshot.lineage.model_copy(deep=True)
         child.lineage = LineageMetadata(

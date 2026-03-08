@@ -158,6 +158,23 @@ async def test_exploitability_fails_on_empty_golden_path(mock_containers):
     assert "empty" in result.error
 
 
+@pytest.mark.asyncio
+async def test_exploitability_skips_meta_commands(mock_containers):
+    from open_range.validator.exploitability import ExploitabilityCheck
+
+    spec = SnapshotSpec(
+        golden_path=[
+            GoldenPathStep(step=1, command="curl http://web/", expect_in_stdout="Welcome"),
+            GoldenPathStep(step=2, command="submit_flag FLAG{abc}", expect_in_stdout="correct"),
+        ],
+    )
+    mock_containers.exec_results[("attacker", "curl http://web/")] = "Welcome"
+
+    result = await ExploitabilityCheck().check(spec, mock_containers)
+    assert result.passed is True
+    assert result.details["skipped_steps"] == [2]
+
+
 # ---------------------------------------------------------------------------
 # Check 3: Patchability
 # ---------------------------------------------------------------------------
@@ -1026,9 +1043,11 @@ async def test_realism_review_advisory_flag(mock_containers):
     from open_range.validator.realism_review import RealismReviewCheck
 
     spec = SnapshotSpec(topology={"hosts": ["web"], "tier": 1})
-    result = await RealismReviewCheck().check(spec, mock_containers)
-    # Should pass (advisory) even if LLM unavailable
+    with patch("litellm.acompletion", AsyncMock(side_effect=Exception("no provider configured"))):
+        result = await RealismReviewCheck().check(spec, mock_containers)
+    # Should pass (advisory) when the LLM path is unavailable or misconfigured.
     assert result.advisory is True
+    assert result.passed is True
 
 
 @pytest.mark.asyncio
