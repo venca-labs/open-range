@@ -243,7 +243,7 @@ flowchart LR
     end
 
     ep1 -->|episode ends| bg
-    bg -->|next reset()| ep2
+    bg -->|"next reset()"| ep2
 
     style ep1 fill:#ff6b6b22,stroke:#ff6b6b
     style bg fill:#ffd93d22,stroke:#ffd93d
