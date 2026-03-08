@@ -1111,22 +1111,35 @@ class RangeEnvironment(Environment[RangeAction, RangeObservation, RangeState]):
         """Determine which container to route the command to.
 
         Reads from the snapshot topology to find the appropriate host:
-        - Red: host with role=attacker or zone=external.
-        - Blue: host with role=siem or zone=management.
+        - Red: host with role=attacker or zone=external
+        - Blue: host with role=siem or zone=management
 
-        The snapshot topology must define hosts with roles or zones.
-        For string-only host lists, matches by name then falls back to
-        positional convention (first host for Red, last for Blue).
+        Resolution priority:
+        1. host_catalog metadata (compiled from manifest)
+        2. dict entries in topology["hosts"] with role/zone
+        3. literal host-name match ("attacker"/"siem")
+        4. zone membership fallback via topology["zones"]
+        5. positional fallback (first host for Red, last for Blue)
         """
         if not self._snapshot or not isinstance(self._snapshot.topology, dict):
             raise RuntimeError("Cannot resolve target — no snapshot topology loaded")
 
-        hosts = self._snapshot.topology.get("hosts", [])
+        topology = self._snapshot.topology
+        hosts = topology.get("hosts", [])
         if not hosts:
             raise RuntimeError("Cannot resolve target — snapshot topology has no hosts")
 
         target_role = "attacker" if action.mode == "red" else "siem"
         target_zone = "external" if action.mode == "red" else "management"
+
+        host_catalog = topology.get("host_catalog", {})
+        if isinstance(host_catalog, dict):
+            for host_name, meta in host_catalog.items():
+                if not isinstance(meta, dict):
+                    continue
+                if meta.get("role") == target_role or meta.get("zone") == target_zone:
+                    if host_name:
+                        return self._container_name(str(host_name))
 
         # Look for a host with matching role or zone
         for h in hosts:
@@ -1141,6 +1154,15 @@ class RangeEnvironment(Environment[RangeAction, RangeObservation, RangeState]):
             name = h if isinstance(h, str) else h.get("name", "")
             if name == target_role:
                 return self._container_name(name)
+
+        zones = topology.get("zones", {})
+        if isinstance(zones, dict):
+            candidates = zones.get(target_zone, [])
+            if isinstance(candidates, list):
+                for candidate in candidates:
+                    host_name = str(candidate).strip()
+                    if host_name:
+                        return self._container_name(host_name)
 
         # Use positional convention: first host for Red, last for Blue
         fallback = hosts[0] if action.mode == "red" else hosts[-1]

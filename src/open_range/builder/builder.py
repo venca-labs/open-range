@@ -40,6 +40,7 @@ from open_range.protocols import (
 )
 
 from open_range.builder.prompts import BUILDER_SYSTEM_PROMPT
+from open_range.builder.manifest_graph import compile_manifest_topology
 
 logger = logging.getLogger(__name__)
 
@@ -928,14 +929,26 @@ class TemplateOnlyBuilder:
         manifest: dict,
         context: BuildContext,
     ) -> SnapshotSpec:
-        """Build a snapshot deterministically from the vuln pool."""
+        """Build a canonicalized snapshot deterministically from templates."""
         rng = random.Random(context.seed if context.seed is not None else 42)
 
         # Filter pool to allowed bug_families
-        allowed = set(manifest.get("bug_families", []))
-        candidates = [v for v in self.vuln_pool if v["type"] in allowed]
-        if not candidates:
+        allowed = {
+            str(v).strip()
+            for v in manifest.get("bug_families", [])
+            if str(v).strip()
+        }
+        if allowed:
+            candidates = [v for v in self.vuln_pool if v["type"] in allowed]
+        else:
             candidates = list(self.vuln_pool)
+        if allowed and not candidates:
+            available = sorted({str(v.get("type", "")).strip() for v in self.vuln_pool if v.get("type")})
+            requested = sorted(allowed)
+            raise ValueError(
+                "No template vulnerabilities match manifest bug_families. "
+                f"requested={requested}, available={available}"
+            )
 
         if "prefer_live_admission_compatible_vulns" in context.narrative_hints:
             live_supported = {"sqli", "idor", "path_traversal", "weak_creds"}
@@ -1097,6 +1110,7 @@ class TemplateOnlyBuilder:
             npc_traffic=npc_traffic,
             task=task,
         )
+        snapshot.topology = compile_manifest_topology(manifest, snapshot.topology)
         snapshot.files = render_template_payloads(snapshot, manifest=manifest)
         logger.info(
             "TemplateOnlyBuilder: built snapshot with %d vulns (seed=%s)",
@@ -1202,10 +1216,15 @@ def render_template_payloads(
             _flag_value_for_type(snapshot, "sqli")
         )
 
-    if vuln_types.intersection({"path_traversal", "credential_reuse"}):
+    if "path_traversal" in vuln_types:
         files["web:/var/www/portal/download.php"] = _download_php(
             path_flag=_flag_value_for_type(snapshot, "path_traversal"),
             flag_names=_flag_names_for_type(snapshot, "path_traversal"),
+        )
+    elif "credential_reuse" in vuln_types:
+        files["web:/var/www/portal/download.php"] = _download_php(
+            path_flag="",
+            flag_names=[],
         )
 
     if "idor" in vuln_types:
@@ -1362,7 +1381,7 @@ if (stripos($q, "union") !== false || stripos($q, "flag") !== false) {{
 
 def _download_php(path_flag: str, flag_names: list[str] | None = None) -> str:
     flag = path_flag or "FLAG{placeholder}"
-    raw_names = flag_names or ["flag1.txt"]
+    raw_names = ["flag1.txt"] if flag_names is None else flag_names
     cases = "\n".join(
         f"""elseif (strpos($file, "{name}") !== false) {{
     echo "{flag}";

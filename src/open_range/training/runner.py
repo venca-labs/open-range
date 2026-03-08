@@ -13,6 +13,7 @@ Usage::
 
 from __future__ import annotations
 
+import asyncio
 import argparse
 import json
 import logging
@@ -21,6 +22,8 @@ import time
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Protocol, runtime_checkable
+
+import yaml
 
 logger = logging.getLogger(__name__)
 
@@ -159,6 +162,8 @@ class CurriculumRunner:
         self.blue = blue
         self.config = config
         self._results: list[EpisodeRecord] = []
+        self._manifest_cache: dict[str, dict[str, Any]] = {}
+        self._snapshot_builder: Any = None
 
     @property
     def results(self) -> list[EpisodeRecord]:
@@ -204,8 +209,13 @@ class CurriculumRunner:
 
         start = time.time()
 
+        reset_kwargs: dict[str, Any] = {"seed": seed, "manifest_path": manifest_path}
+        snapshot = self._build_snapshot_for_manifest(manifest_path, seed)
+        if snapshot is not None:
+            reset_kwargs["snapshot"] = snapshot
+
         try:
-            obs = self.env.reset(seed=seed)
+            obs = self.env.reset(**reset_kwargs)
         except Exception as exc:
             logger.error("Reset failed: %s", exc)
             return EpisodeRecord(
@@ -213,7 +223,7 @@ class CurriculumRunner:
                 seed=seed,
                 episode=episode_num,
                 outcome="error",
-                metadata={"error": str(exc)},
+                metadata={"error": str(exc), "reset_kwargs": sorted(reset_kwargs.keys())},
             )
 
         briefing = getattr(obs, "stdout", str(obs))
@@ -276,6 +286,50 @@ class CurriculumRunner:
             reward=total_reward,
             duration_s=duration,
         )
+
+    def _build_snapshot_for_manifest(self, manifest_path: str, seed: int) -> Any | None:
+        """Build a deterministic snapshot from the manifest for this episode.
+
+        This grounds the manifest axis in real environment input rather than
+        using manifest names only for reporting metadata.
+        """
+        from open_range.builder.builder import TemplateOnlyBuilder
+        from open_range.protocols import BuildContext
+
+        manifest = self._manifest_cache.get(manifest_path)
+        if manifest is None:
+            manifest_file = Path(manifest_path)
+            if not manifest_file.exists():
+                logger.debug(
+                    "Manifest path %s not found; skipping snapshot build and relying on env.reset kwargs only",
+                    manifest_path,
+                )
+                return None
+            with open(manifest_file) as f:
+                manifest = yaml.safe_load(f)
+            if not isinstance(manifest, dict):
+                raise ValueError(f"Manifest {manifest_path!r} did not parse to a mapping")
+            self._manifest_cache[manifest_path] = manifest
+
+        if self._snapshot_builder is None:
+            self._snapshot_builder = TemplateOnlyBuilder()
+
+        tier = int(manifest.get("tier", 1) or 1)
+        context = BuildContext(seed=seed, tier=tier)
+        return self._run_coro_sync(self._snapshot_builder.build(manifest, context))
+
+    @staticmethod
+    def _run_coro_sync(coro: Any) -> Any:
+        """Run an async coroutine in sync code, including notebook event loops."""
+        try:
+            asyncio.get_running_loop()
+        except RuntimeError:
+            return asyncio.run(coro)
+
+        from concurrent.futures import ThreadPoolExecutor
+
+        with ThreadPoolExecutor(max_workers=1) as pool:
+            return pool.submit(lambda: asyncio.run(coro)).result()
 
     def save_results(self, path: str | Path) -> int:
         """Save results to a JSONL file.

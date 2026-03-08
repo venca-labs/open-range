@@ -235,14 +235,14 @@ def generate_service_specs(
         services dict (or the topology hosts list as fallback).
     """
     specs: list[ServiceSpec] = []
-    seen_daemons: set[str] = set()
+    seen_identities: set[tuple[str, str]] = set()
 
     services = compose.get("services", {}) if compose else {}
 
     if services:
-        specs = _from_compose(services, seen_daemons)
+        specs = _from_compose(services, seen_identities)
     else:
-        specs = _from_topology(topology, seen_daemons)
+        specs = _from_topology(topology, seen_identities)
 
     return specs
 
@@ -322,7 +322,7 @@ def _build_service_spec(
 
 def _from_compose(
     services: dict[str, Any],
-    seen_daemons: set[str],
+    seen_identities: set[tuple[str, str]],
 ) -> list[ServiceSpec]:
     """Generate specs from the compose services section."""
     specs: list[ServiceSpec] = []
@@ -348,9 +348,10 @@ def _from_compose(
             continue
 
         daemon = hint[0]
-        if daemon in seen_daemons:
+        identity = (svc_name, daemon)
+        if identity in seen_identities:
             continue
-        seen_daemons.add(daemon)
+        seen_identities.add(identity)
 
         env_vars = _env_from_compose_service(svc_def)
         spec = _build_service_spec(
@@ -365,7 +366,7 @@ def _from_compose(
 
 def _from_topology(
     topology: dict[str, Any],
-    seen_daemons: set[str],
+    seen_identities: set[tuple[str, str]],
 ) -> list[ServiceSpec]:
     """Generate specs from the topology hosts list (fallback path)."""
     specs: list[ServiceSpec] = []
@@ -385,9 +386,10 @@ def _from_topology(
             continue
 
         daemon = hint[0]
-        if daemon in seen_daemons:
+        identity = (host_name, daemon)
+        if identity in seen_identities:
             continue
-        seen_daemons.add(daemon)
+        seen_identities.add(identity)
 
         spec = _build_service_spec(host=host_name, hint=hint)
         specs.append(spec)

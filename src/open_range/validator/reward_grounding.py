@@ -2,7 +2,12 @@
 
 from __future__ import annotations
 
+import re
+import shlex
+
 from open_range.protocols import CheckResult, ContainerSet, SnapshotSpec
+
+_IDENTIFIER_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
 
 
 def _parse_db_path(path: str) -> tuple[str, str, str] | None:
@@ -20,7 +25,19 @@ def _parse_db_path(path: str) -> tuple[str, str, str] | None:
     parts = rest.split(".")
     if len(parts) != 3:
         return None
+    if not all(_IDENTIFIER_RE.fullmatch(part) for part in parts):
+        return None
     return parts[0], parts[1], parts[2]
+
+
+def _mysql_root_password(snapshot: SnapshotSpec) -> str:
+    """Return the MySQL root password to use for validator DB checks."""
+    topology = snapshot.topology
+    if isinstance(topology, dict):
+        value = topology.get("mysql_root_password")
+        if isinstance(value, str) and value:
+            return value
+    return "root"
 
 
 class RewardGroundingCheck:
@@ -48,13 +65,21 @@ class RewardGroundingCheck:
                 # Deployment artifacts like "db:sql" are not flag locations.
                 db_ref = _parse_db_path(path)
                 if db_ref is None:
-                    # Unparseable DB path (e.g. "db:sql") — skip silently.
+                    if path in {"db:sql", "mysql:sql"}:
+                        continue
+                    bad.append({
+                        "flag": flag.id,
+                        "error": f"invalid db flag path format: {path}",
+                    })
                     continue
 
                 database, table, column = db_ref
+                query = f"SELECT `{column}` FROM `{database}`.`{table}` LIMIT 1"
+                mysql_pwd = _mysql_root_password(snapshot)
                 mysql_cmd = (
-                    f'mysql -u root -p$MYSQL_ROOT_PASSWORD -N '
-                    f'-e "SELECT {column} FROM {database}.{table} LIMIT 1"'
+                    f"MYSQL_PWD={shlex.quote(mysql_pwd)} "
+                    "mysql -u root -N "
+                    f"-e {shlex.quote(query)}"
                 )
                 try:
                     output = await containers.exec(host, mysql_cmd)
@@ -81,7 +106,7 @@ class RewardGroundingCheck:
                 continue
 
             try:
-                output = await containers.exec(host, f"cat {path}")
+                output = await containers.exec(host, f"cat -- {shlex.quote(path)}")
                 output = output.strip()
             except Exception as exc:  # noqa: BLE001
                 bad.append({"flag": flag.id, "error": str(exc)})

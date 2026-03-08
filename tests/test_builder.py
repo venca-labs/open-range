@@ -83,6 +83,33 @@ async def test_template_builder_clamps_min_vulns_to_candidate_pool(tier1_manifes
 
 
 @pytest.mark.asyncio
+async def test_template_builder_fails_when_bug_family_has_no_template_match(tier1_manifest):
+    from open_range.builder.builder import TemplateOnlyBuilder
+
+    builder = TemplateOnlyBuilder()
+    manifest = {
+        **tier1_manifest,
+        "bug_families": ["totally_fake_bug_family"],
+    }
+    with pytest.raises(ValueError, match="No template vulnerabilities match manifest bug_families"):
+        await builder.build(manifest, BuildContext(seed=7, tier=1))
+
+
+@pytest.mark.asyncio
+async def test_template_builder_empty_bug_families_uses_default_pool(tier1_manifest):
+    from open_range.builder.builder import TemplateOnlyBuilder
+
+    builder = TemplateOnlyBuilder()
+    manifest = {
+        **tier1_manifest,
+        "bug_families": [],
+        "difficulty": {**tier1_manifest.get("difficulty", {}), "min_vulns": 1, "max_vulns": 1},
+    }
+    spec = await builder.build(manifest, BuildContext(seed=7, tier=1))
+    assert len(spec.truth_graph.vulns) == 1
+
+
+@pytest.mark.asyncio
 async def test_template_builder_handles_non_schema_difficulty_bounds(tier1_manifest):
     from open_range.builder.builder import TemplateOnlyBuilder
 
@@ -182,6 +209,55 @@ async def test_template_builder_uses_manifest_company_context(tier1_manifest):
     assert company["name"] in spec.task.blue_briefing
     assert ldap_dn in spec.files["web:/var/www/config.php"]
     assert company["name"] in spec.files["web:/var/www/portal/index.php"]
+
+
+@pytest.mark.asyncio
+async def test_template_builder_output_is_manifest_canonicalized(tier1_manifest):
+    from open_range.builder.builder import TemplateOnlyBuilder
+
+    builder = TemplateOnlyBuilder()
+    spec = await builder.build(tier1_manifest, BuildContext(seed=1, tier=1))
+    assert "host_catalog" in spec.topology
+    assert "host_details" in spec.topology
+    assert "dependency_edges" in spec.topology
+    assert "principal_catalog" in spec.topology
+
+
+def test_render_payloads_credential_reuse_not_coupled_to_path_traversal_flag():
+    from open_range.builder.builder import render_template_payloads
+    from open_range.protocols import TruthGraph, Vulnerability
+
+    snapshot = SnapshotSpec(
+        topology={"tier": 1, "hosts": ["web"], "org_name": "OpenRange", "domain": "corp.local"},
+        truth_graph=TruthGraph(
+            vulns=[Vulnerability(id="v1", type="credential_reuse", host="ldap")]
+        ),
+        flags=[FlagSpec(id="f1", value="FLAG{cred_only}", path="/var/flags/flag1.txt", host="db")],
+        golden_path=[],
+    )
+    files = render_template_payloads(snapshot)
+    download = files["web:/var/www/portal/download.php"]
+    assert "config.php" in download
+    assert "FLAG{cred_only}" not in download
+    assert "flag1.txt" not in download
+
+
+def test_render_payloads_path_traversal_keeps_flag_wiring():
+    from open_range.builder.builder import render_template_payloads
+    from open_range.protocols import TruthGraph, Vulnerability
+
+    snapshot = SnapshotSpec(
+        topology={"tier": 1, "hosts": ["web"], "org_name": "OpenRange", "domain": "corp.local"},
+        truth_graph=TruthGraph(
+            vulns=[Vulnerability(id="v1", type="path_traversal", host="web")]
+        ),
+        flags=[FlagSpec(id="f1", value="FLAG{path}", path="/var/flags/path_flag.txt", host="web")],
+        golden_path=[],
+    )
+    files = render_template_payloads(snapshot)
+    download = files["web:/var/www/portal/download.php"]
+    assert "FLAG{path}" in download
+    assert "path_flag.txt" in download
 
 
 @pytest.mark.asyncio

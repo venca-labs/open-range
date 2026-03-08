@@ -67,6 +67,46 @@ class TestReset:
         assert env.snapshot is not None
 
 
+class TestTargetResolution:
+    """Target selection should honor manifest-compiled metadata."""
+
+    def test_resolve_target_uses_host_catalog_roles(self):
+        env = RangeEnvironment(docker_available=False)
+        env.reset(
+            snapshot=SnapshotSpec(
+                topology={
+                    "hosts": ["web", "kali1", "socbox"],
+                    "host_catalog": {
+                        "web": {"role": "web", "zone": "dmz"},
+                        "kali1": {"role": "attacker", "zone": "external"},
+                        "socbox": {"role": "siem", "zone": "management"},
+                    },
+                },
+                task=TaskSpec(red_briefing="Go.", blue_briefing="Watch."),
+            )
+        )
+        assert env._resolve_target(RangeAction(command="id", mode="red")) == "kali1"
+        assert env._resolve_target(RangeAction(command="id", mode="blue")) == "socbox"
+
+    def test_resolve_target_uses_zone_mapping_for_string_hosts(self):
+        env = RangeEnvironment(docker_available=False)
+        env.reset(
+            snapshot=SnapshotSpec(
+                topology={
+                    "hosts": ["web", "kali1", "socbox"],
+                    "zones": {
+                        "dmz": ["web"],
+                        "external": ["kali1"],
+                        "management": ["socbox"],
+                    },
+                },
+                task=TaskSpec(red_briefing="Go.", blue_briefing="Watch."),
+            )
+        )
+        assert env._resolve_target(RangeAction(command="id", mode="red")) == "kali1"
+        assert env._resolve_target(RangeAction(command="id", mode="blue")) == "socbox"
+
+
 class TestRedStep:
     """Red agent actions."""
 

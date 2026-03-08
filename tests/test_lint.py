@@ -2,7 +2,12 @@
 
 from __future__ import annotations
 
+import os
 from pathlib import Path
+import shutil
+import subprocess
+import sys
+import tomllib
 
 import pytest
 import yaml
@@ -283,3 +288,37 @@ class TestLintFile:
         result = lint_file(good_file)
         assert result["valid"] is True
         assert result["schema_error"] is None
+
+
+class TestPackagingAndInvocation:
+    def test_pyproject_includes_manifests_package(self):
+        pyproject = tomllib.loads((ROOT / "pyproject.toml").read_text())
+        packages = pyproject["tool"]["setuptools"]["packages"]
+        assert "manifests" in packages
+
+    def test_lint_module_runs_outside_repo_with_packaged_layout(self, tmp_path):
+        site_root = tmp_path / "site"
+        shutil.copytree(ROOT / "src" / "open_range", site_root / "open_range")
+        shutil.copytree(ROOT / "src" / "manifests", site_root / "manifests")
+
+        outside = tmp_path / "outside"
+        outside.mkdir()
+
+        env = os.environ.copy()
+        env["PYTHONPATH"] = str(site_root)
+        proc = subprocess.run(
+            [
+                sys.executable,
+                "-m",
+                "open_range.lint",
+                str(ROOT / "manifests" / "tier1_basic.yaml"),
+            ],
+            cwd=outside,
+            env=env,
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+
+        assert proc.returncode == 0, proc.stderr or proc.stdout
+        assert "All checks passed." in proc.stdout

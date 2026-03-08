@@ -33,6 +33,7 @@ server = "open_range.server.app:main"
 [tool.setuptools]
 include-package-data = true
 packages = [
+    "manifests",
     "open_range",
     "open_range.agents",
     "open_range.builder",

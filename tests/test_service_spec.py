@@ -281,8 +281,8 @@ class TestGenerateFromCompose:
         assert specs[0].env_vars["MYSQL_ROOT_PASSWORD"] == "secret"
         assert specs[0].env_vars["MYSQL_DATABASE"] == "app"
 
-    def test_no_duplicate_daemons(self):
-        """If two compose services map to the same daemon, only one spec is produced."""
+    def test_repeated_daemons_on_different_hosts_are_preserved(self):
+        """Two hosts may intentionally run the same daemon family."""
         compose = {
             "services": {
                 "siem": {"image": "rsyslog:latest"},
@@ -290,8 +290,21 @@ class TestGenerateFromCompose:
             }
         }
         specs = generate_service_specs(compose, {"hosts": []})
-        assert len(specs) == 1
-        assert specs[0].daemon == "rsyslogd"
+        assert len(specs) == 2
+        assert {spec.host for spec in specs} == {"siem", "firewall"}
+        assert all(spec.daemon == "rsyslogd" for spec in specs)
+
+    def test_same_daemon_across_multiple_web_hosts(self):
+        compose = {
+            "services": {
+                "web1": {"image": "nginx:1.25"},
+                "web2": {"image": "nginx:1.25"},
+            }
+        }
+        specs = generate_service_specs(compose, {"hosts": ["web1", "web2"]})
+        assert len(specs) == 2
+        assert {spec.host for spec in specs} == {"web1", "web2"}
+        assert all(spec.daemon == "nginx" for spec in specs)
 
 
 # ---------------------------------------------------------------------------
