@@ -40,6 +40,8 @@ def client():
     with patch(
         "open_range.server.environment.RangeEnvironment._select_snapshot",
         return_value=_TEST_SNAPSHOT,
+    ), patch(
+        "open_range.server.environment.RangeEnvironment._ensure_clean_reset_path",
     ):
         from open_range.server.app import create_app
 
