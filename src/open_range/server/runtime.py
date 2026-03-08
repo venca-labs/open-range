@@ -896,16 +896,36 @@ class ManagedSnapshotRuntime:
             topology["snapshot_id"] = snapshot_id
             rendered.topology = topology
             self.renderer.render(rendered, snapshot_dir)
+            compose_path = snapshot_dir / "docker-compose.yml"
+            rendered.compose = yaml.safe_load(compose_path.read_text(encoding="utf-8")) or {}
 
-            compose_file = snapshot_dir / "docker-compose.yml"
-            up_result = self._compose_up(snapshot_dir, compose_file, project_name)
-            if up_result is not None:
-                return up_result
+            project: BootedSnapshotProject | None = None
+            try:
+                project = self.compose_runner.boot(
+                    snapshot_id=snapshot_id,
+                    artifacts_dir=snapshot_dir,
+                    compose=rendered.compose,
+                    project_name=project_name,
+                )
+            except Exception as exc:  # noqa: BLE001
+                self._best_effort_teardown_validation_project(
+                    snapshot_dir=snapshot_dir,
+                    project_name=project_name,
+                )
+                return ValidationResult(
+                    passed=False,
+                    checks=[
+                        CheckResult(
+                            name="build_boot",
+                            passed=False,
+                            error=str(exc),
+                        )
+                    ],
+                )
 
             try:
-                containers = self._discover_containers(project_name)
-                self._deploy_snapshot_artifacts(rendered, containers, snapshot_dir)
-                return _run_coro_sync(self.validator.validate(rendered, containers))
+                self._deploy_snapshot_artifacts(rendered, project.containers, snapshot_dir)
+                return _run_coro_sync(self.validator.validate(rendered, project.containers))
             except Exception as exc:  # noqa: BLE001
                 return ValidationResult(
                     passed=False,
@@ -918,7 +938,37 @@ class ManagedSnapshotRuntime:
                     ],
                 )
             finally:
-                self._compose_down(snapshot_dir, compose_file, project_name)
+                if project is not None:
+                    try:
+                        self.compose_runner.teardown(project)
+                    except Exception:  # noqa: BLE001
+                        logger.warning(
+                            "Failed to tear down validation project %s",
+                            project.project_name,
+                        )
+
+    def _best_effort_teardown_validation_project(
+        self,
+        *,
+        snapshot_dir: Path,
+        project_name: str,
+    ) -> None:
+        """Tear down a failed validation project when boot aborts mid-flight."""
+        compose_file = snapshot_dir / "docker-compose.yml"
+        try:
+            self.compose_runner.teardown(
+                BootedSnapshotProject(
+                    project_name=project_name,
+                    compose_file=compose_file,
+                    artifacts_dir=snapshot_dir,
+                    containers=ContainerSet(project_name=project_name),
+                )
+            )
+        except Exception:  # noqa: BLE001
+            logger.warning(
+                "Failed to tear down validation project %s after boot failure",
+                project_name,
+            )
 
     def _project_name(self, snapshot_id: str) -> str:
         safe = "".join(ch if ch.isalnum() else "-" for ch in snapshot_id.lower()).strip("-")

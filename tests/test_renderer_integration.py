@@ -203,6 +203,14 @@ class TestDockerCompose:
         compose = (rendered_dir / "docker-compose.yml").read_text()
         assert "healthcheck:" in compose
 
+    def test_web_healthcheck_does_not_require_pre_overlay_2xx(self, rendered_dir):
+        compose = (rendered_dir / "docker-compose.yml").read_text()
+        assert "CMD-SHELL" in compose
+        assert "http://localhost/ || true" in compose
+        assert "$$status" in compose
+        assert '2*|3*|4*) exit 0' in compose
+        assert 'curl", "-sf", "http://localhost/"' not in compose
+
     def test_attacker_has_net_admin(self, rendered_dir):
         compose = (rendered_dir / "docker-compose.yml").read_text()
         assert "NET_ADMIN" in compose

@@ -57,7 +57,7 @@ _GENERIC_SERVICES = {
     "nikto",
     "sqlmap",
 }
-_LIVE_MUTATION_SUPPORTED_VULNS = {"sqli", "idor", "path_traversal", "weak_creds"}
+_LIVE_MUTATION_SUPPORTED_VULNS = {"sqli", "path_traversal"}
 
 
 class Mutator:

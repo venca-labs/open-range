@@ -412,6 +412,89 @@ class TestManagedSnapshotRuntime:
         finally:
             runtime.stop()
 
+    def test_training_live_validation_uses_compose_runner_boot(
+        self,
+        tier1_manifest,
+        tmp_path,
+    ):
+        class FakeContainers:
+            def __init__(self) -> None:
+                self.exec_calls: list[tuple[str, str]] = []
+                self.cp_calls: list[tuple[str, str, str]] = []
+
+            async def exec(self, container: str, cmd: str, **kwargs) -> str:
+                self.exec_calls.append((container, cmd))
+                return "ok"
+
+            async def cp(self, container: str, src: str, dest: str) -> None:
+                self.cp_calls.append((container, src, dest))
+
+            async def is_healthy(self, container: str) -> bool:
+                return True
+
+        class FakeComposeRunner:
+            def __init__(self) -> None:
+                self.boot_calls: list[tuple[str, str, str | None]] = []
+                self.compose_payloads: list[dict[str, object]] = []
+                self.teardown_calls: list[str] = []
+                self.containers = FakeContainers()
+
+            def boot(self, *, snapshot_id, artifacts_dir, compose, project_name=None):
+                self.boot_calls.append((snapshot_id, str(artifacts_dir), project_name))
+                self.compose_payloads.append(compose)
+                return BootedSnapshotProject(
+                    project_name=project_name or f"openrange-{snapshot_id}",
+                    compose_file=artifacts_dir / "docker-compose.yml",
+                    artifacts_dir=artifacts_dir,
+                    containers=self.containers,  # type: ignore[arg-type]
+                )
+
+            def teardown(self, project):
+                self.teardown_calls.append(project.project_name)
+
+        class FakeTrainingValidator:
+            def __init__(self) -> None:
+                self.calls: list[tuple[SnapshotSpec, object]] = []
+
+            async def validate(self, snapshot, containers):
+                self.calls.append((snapshot, containers))
+                return ValidationResult(
+                    passed=True,
+                    checks=[CheckResult(name="build_boot", passed=True)],
+                    total_time_s=0.0,
+                )
+
+        compose_runner = FakeComposeRunner()
+        validator = FakeTrainingValidator()
+        runtime = ManagedSnapshotRuntime(
+            manifest=tier1_manifest,
+            store_dir=tmp_path / "snapshots",
+            validator_profile="training",
+            pool_size=1,
+            refill_enabled=False,
+            compose_runner=compose_runner,  # type: ignore[arg-type]
+            validator=validator,  # type: ignore[arg-type]
+        )
+
+        runtime.start()
+        try:
+            listing = runtime.list_snapshots()
+            assert listing
+            assert compose_runner.boot_calls
+            snapshot_id, artifacts_dir, project_name = compose_runner.boot_calls[0]
+            assert Path(artifacts_dir).name.startswith(f"openrange-validate-{snapshot_id}")
+            expected_project_name = runtime._project_name(snapshot_id)
+            assert project_name == expected_project_name
+            assert compose_runner.compose_payloads[0]["services"]
+            assert compose_runner.teardown_calls == [expected_project_name]
+            assert validator.calls
+            assert any(
+                dest.endswith("/var/www/portal/index.php")
+                for _, _, dest in compose_runner.containers.cp_calls
+            )
+        finally:
+            runtime.stop()
+
     def test_activate_snapshot_project_uses_unique_episode_project_name(
         self,
         tier1_manifest,

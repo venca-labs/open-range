@@ -39,7 +39,7 @@ services:
       - -c
       - |
         apt-get update -qq && apt-get install -y -qq \
-          nmap sqlmap hydra nikto smbclient curl wget netcat-openbsd \
+          libblas3 nmap sqlmap hydra nikto smbclient curl wget netcat-openbsd \
           ssh dnsutils tcpdump python3 python3-pip iproute2 sshpass \
           default-mysql-client ldap-utils \
           > /dev/null 2>&1
@@ -47,9 +47,24 @@ services:
         ip route add 10.0.2.0/24 via 10.0.0.2 2>/dev/null || true
         ip route add 10.0.3.0/24 via 10.0.0.2 2>/dev/null || true
         tail -f /dev/null
+    extra_hosts:
+      - "firewall:10.0.0.2"
+      - "web:10.0.1.10"
+      - "mail:10.0.1.11"
+      - "db:10.0.2.20"
+      - "files:10.0.2.21"
+      - "ldap:10.0.3.20"
+      - "siem:10.0.3.21"
     networks:
       external:
         ipv4_address: 10.0.0.10
+    healthcheck:
+      test:
+        - "CMD-SHELL"
+        - "nmap --version >/dev/null 2>&1 && ip route | grep -q '10.0.1.0/24 via 10.0.0.2' && getent hosts web db files ldap siem >/dev/null 2>&1"
+      interval: 10s
+      timeout: 5s
+      retries: 12
     restart: unless-stopped
 
   firewall:
@@ -62,9 +77,10 @@ services:
       - |
         apt-get update -qq && apt-get install -y -qq iptables iproute2 > /dev/null 2>&1
         echo 1 > /proc/sys/net/ipv4/ip_forward
-        iptables -t nat -A POSTROUTING -o eth1 -j MASQUERADE
-        iptables -t nat -A POSTROUTING -o eth2 -j MASQUERADE
-        iptables -t nat -A POSTROUTING -o eth3 -j MASQUERADE
+        iptables -t nat -A POSTROUTING -s 10.0.0.0/24 -d 10.0.1.0/24 -j MASQUERADE
+        iptables -t nat -A POSTROUTING -s 10.0.1.0/24 -d 10.0.2.0/24 -j MASQUERADE
+        iptables -t nat -A POSTROUTING -s 10.0.1.0/24 -d 10.0.3.0/24 -j MASQUERADE
+        iptables -t nat -A POSTROUTING -s 10.0.2.0/24 -d 10.0.3.0/24 -j MASQUERADE
         iptables -A FORWARD -m state --state RELATED,ESTABLISHED -j ACCEPT
         iptables -A FORWARD -s 10.0.0.0/24 -d 10.0.1.0/24 -j ACCEPT
         iptables -A FORWARD -s 10.0.1.0/24 -d 10.0.2.0/24 -j ACCEPT
@@ -81,6 +97,13 @@ services:
         ipv4_address: 10.0.2.2
       management:
         ipv4_address: 10.0.3.2
+    healthcheck:
+      test:
+        - "CMD-SHELL"
+        - "grep -qx '1' /proc/sys/net/ipv4/ip_forward && iptables -C FORWARD -s 10.0.0.0/24 -d 10.0.1.0/24 -j ACCEPT >/dev/null 2>&1 && iptables -t nat -C POSTROUTING -s 10.0.0.0/24 -d 10.0.1.0/24 -j MASQUERADE >/dev/null 2>&1"
+      interval: 10s
+      timeout: 5s
+      retries: 12
     restart: unless-stopped
 
   web:
@@ -101,7 +124,9 @@ services:
       management:
         ipv4_address: 10.0.3.10
     healthcheck:
-      test: ["CMD", "curl", "-sf", "http://localhost/"]
+      test:
+        - "CMD-SHELL"
+        - "status=$(curl -s -o /dev/null -w '%{http_code}' http://localhost/ || true); case \"$$status\" in 2*|3*|4*) exit 0;; *) exit 1;; esac"
       interval: 10s
       timeout: 5s
       retries: 3

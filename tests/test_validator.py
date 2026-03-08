@@ -290,6 +290,27 @@ async def test_exploitability_passes_when_golden_path_succeeds(mock_containers):
 
 
 @pytest.mark.asyncio
+async def test_exploitability_normalizes_whitespace_for_tool_output(mock_containers):
+    from open_range.validator.exploitability import ExploitabilityCheck
+
+    spec = SnapshotSpec(
+        golden_path=[
+            GoldenPathStep(
+                step=1,
+                command="nmap -sV 10.0.1.0/24",
+                expect_in_stdout="80/tcp open http",
+            ),
+        ],
+    )
+    mock_containers.exec_results[("attacker", "nmap -sV 10.0.1.0/24")] = (
+        "80/tcp   open  http   nginx"
+    )
+
+    result = await ExploitabilityCheck().check(spec, mock_containers)
+    assert result.passed is True
+
+
+@pytest.mark.asyncio
 async def test_exploitability_fails_when_step_output_missing(
     sample_snapshot_spec, mock_containers
 ):

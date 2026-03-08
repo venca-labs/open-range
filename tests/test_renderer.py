@@ -270,6 +270,32 @@ def test_compose_web_depends_on_db(renderer, sqli_spec):
         assert "depends_on:" in compose
 
 
+def test_compose_web_healthcheck_accepts_pre_overlay_http_statuses(renderer, sqli_spec):
+    with tempfile.TemporaryDirectory() as tmpdir:
+        out = Path(tmpdir) / "out"
+        renderer.render(sqli_spec, out)
+        compose = (out / "docker-compose.yml").read_text()
+        assert "CMD-SHELL" in compose
+        assert "http://localhost/ || true" in compose
+        assert '$$status' in compose
+        assert '2*|3*|4*) exit 0' in compose
+        assert 'curl", "-sf", "http://localhost/"' not in compose
+
+
+def test_compose_attacker_has_routed_host_aliases_and_nmap_runtime_lib(renderer, sqli_spec):
+    with tempfile.TemporaryDirectory() as tmpdir:
+        out = Path(tmpdir) / "out"
+        renderer.render(sqli_spec, out)
+        compose = (out / "docker-compose.yml").read_text()
+        assert "libblas3 nmap" in compose
+        assert 'extra_hosts:' in compose
+        assert '"web:10.0.1.10"' in compose
+        assert '"db:10.0.2.20"' in compose
+        assert '"files:10.0.2.21"' in compose
+        assert "nmap --version" in compose
+        assert "iptables -C FORWARD" in compose
+
+
 # ---------------------------------------------------------------------------
 # Dockerfile.web content checks
 # ---------------------------------------------------------------------------
@@ -333,6 +359,16 @@ def test_nginx_no_download_for_sqli(renderer, sqli_spec):
         nginx = (out / "nginx.conf").read_text()
         # The download location block should not be rendered
         assert "download.php" not in nginx
+
+
+def test_compose_firewall_nat_is_subnet_based(renderer, sqli_spec):
+    with tempfile.TemporaryDirectory() as tmpdir:
+        out = Path(tmpdir) / "out"
+        renderer.render(sqli_spec, out)
+        compose = (out / "docker-compose.yml").read_text()
+        assert "-s 10.0.0.0/24 -d 10.0.1.0/24 -j MASQUERADE" in compose
+        assert "-s 10.0.1.0/24 -d 10.0.2.0/24 -j MASQUERADE" in compose
+        assert "-o eth1 -j MASQUERADE" not in compose
 
 
 # ---------------------------------------------------------------------------

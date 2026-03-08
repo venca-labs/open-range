@@ -618,10 +618,10 @@ _DEFAULT_VULN_POOL: list[dict[str, Any]] = [
         ),
         "root_cause": "Unsanitized user input in SQL query",
         "blast_radius": "Full database read access",
-        "remediation": "Use parameterized queries",
-        "flag_id": "flag1",
+        "remediation": "mv /var/www/portal/search.php /var/www/portal/search.php.disabled",
+        "flag_id": "flag_sqli",
         "flag_value": "FLAG{sql1_t3st_f1ag}",
-        "flag_path": "/var/flags/flag1.txt",
+        "flag_path": "/var/flags/sqli_flag.txt",
         "golden_path_steps": [
             {
                 "step": 1,
@@ -723,10 +723,10 @@ _DEFAULT_VULN_POOL: list[dict[str, Any]] = [
         ),
         "root_cause": "No path sanitization on file parameter",
         "blast_radius": "Arbitrary file read on web server",
-        "remediation": "Validate and sanitize file path, use basename()",
-        "flag_id": "flag1",
+        "remediation": "mv /var/www/portal/download.php /var/www/portal/download.php.disabled",
+        "flag_id": "flag_path_traversal",
         "flag_value": "FLAG{p4th_tr4v3rs4l_fl4g}",
-        "flag_path": "/var/flags/flag1.txt",
+        "flag_path": "/var/flags/path_traversal_flag.txt",
         "golden_path_steps": [
             {
                 "step": 1,
@@ -754,7 +754,7 @@ _DEFAULT_VULN_POOL: list[dict[str, Any]] = [
             },
             {
                 "step": 5,
-                "cmd": "curl 'http://web/download?file=../../../var/flags/flag1.txt'",
+                "cmd": "curl 'http://web/download?file=../../../var/flags/path_traversal_flag.txt'",
                 "expect_stdout": "FLAG{p4th_tr4v3rs4l_fl4g}",
                 "host": "attacker",
             },
@@ -956,7 +956,9 @@ class TemplateOnlyBuilder:
             )
 
         if "prefer_live_admission_compatible_vulns" in context.narrative_hints:
-            live_supported = {"sqli", "idor", "path_traversal", "weak_creds"}
+            # Keep strict live admission on task paths the current zone policy
+            # can actually reach from the attacker host.
+            live_supported = {"sqli", "path_traversal"}
             supported = [v for v in candidates if v["type"] in live_supported]
             if supported:
                 candidates = supported

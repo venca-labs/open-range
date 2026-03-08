@@ -125,6 +125,49 @@ async def test_template_builder_avoids_previous_vulns(tier1_manifest):
 
 
 @pytest.mark.asyncio
+async def test_template_builder_live_admission_hints_skip_unreachable_weak_creds(tier1_manifest):
+    from open_range.builder.builder import TemplateOnlyBuilder
+
+    builder = TemplateOnlyBuilder()
+    manifest = {
+        **tier1_manifest,
+        "bug_families": ["weak_creds", "sqli"],
+        "difficulty": {**tier1_manifest.get("difficulty", {}), "min_vulns": 1, "max_vulns": 1},
+    }
+    ctx = BuildContext(
+        seed=3,
+        tier=1,
+        narrative_hints=["prefer_live_admission_compatible_vulns"],
+    )
+    spec = await builder.build(manifest, ctx)
+    assert [v.type for v in spec.truth_graph.vulns] == ["sqli"]
+
+
+@pytest.mark.asyncio
+async def test_template_builder_live_admission_vulns_have_executable_remediations(tier1_manifest):
+    from open_range.builder.builder import TemplateOnlyBuilder
+    from open_range.validator.patchability import _looks_executable
+
+    builder = TemplateOnlyBuilder()
+    manifest = {
+        **tier1_manifest,
+        "bug_families": ["path_traversal", "sqli"],
+        "difficulty": {**tier1_manifest.get("difficulty", {}), "min_vulns": 2, "max_vulns": 2},
+    }
+    spec = await builder.build(
+        manifest,
+        BuildContext(
+            seed=4,
+            tier=1,
+            narrative_hints=["prefer_live_admission_compatible_vulns"],
+        ),
+    )
+    assert {v.type for v in spec.truth_graph.vulns} == {"path_traversal", "sqli"}
+    assert all(_looks_executable(v.remediation) for v in spec.truth_graph.vulns)
+    assert len({flag.path for flag in spec.flags}) == len(spec.flags)
+
+
+@pytest.mark.asyncio
 async def test_template_builder_deterministic_with_seed(tier1_manifest):
     from open_range.builder.builder import TemplateOnlyBuilder
 
@@ -520,6 +563,30 @@ async def test_mutator_fails_fast_on_illegal_add_service_target(tier1_manifest):
             parent_snapshot=parent,
             parent_snapshot_id="root_snap",
         )
+
+
+@pytest.mark.asyncio
+async def test_mutator_live_only_templates_exclude_weak_creds(tier1_manifest):
+    from open_range.builder.builder import TemplateOnlyBuilder
+    from open_range.builder.mutator import Mutator
+
+    mutator = Mutator(TemplateOnlyBuilder())
+    root = await mutator.mutate(
+        tier1_manifest,
+        context=BuildContext(seed=1, tier=1),
+    )
+    templates = mutator._compatible_vuln_templates(  # type: ignore[attr-defined]
+        root,
+        BuildContext(
+            seed=2,
+            tier=1,
+            narrative_hints=["prefer_live_admission_compatible_vulns"],
+        ),
+    )
+    assert templates
+    assert {template["type"] for template in templates}.issubset(
+        {"sqli", "path_traversal"}
+    )
 
 
 # ---------------------------------------------------------------------------
