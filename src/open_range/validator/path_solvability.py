@@ -33,7 +33,7 @@ class PathSolvabilityCheck:
                 error="snapshot has no vuln or flag hosts to solve toward",
             )
 
-        adjacency = _adjacency(compiled)
+        adjacency = build_host_adjacency(snapshot, compiled)
         unreachable = [
             host
             for host in target_hosts
@@ -78,11 +78,62 @@ def _start_hosts(compiled: CompiledGraphs) -> set[str]:
     return set()
 
 
-def _adjacency(compiled: CompiledGraphs) -> dict[str, set[str]]:
+def build_host_adjacency(
+    snapshot: SnapshotSpec,
+    compiled: CompiledGraphs,
+) -> dict[str, set[str]]:
     adjacency: dict[str, set[str]] = defaultdict(set)
     for source, target in compiled.dependency_edges:
         adjacency[source].add(target)
+
+    principal_hosts = _principal_hosts(snapshot)
+    for source_principal, target_principal, _edge_type in compiled.trust_edges:
+        source_hosts = principal_hosts.get(source_principal, set())
+        target_hosts = principal_hosts.get(target_principal, set())
+        for source_host in source_hosts:
+            for target_host in target_hosts:
+                if source_host and target_host:
+                    adjacency[source_host].add(target_host)
     return adjacency
+
+
+def has_host_path(
+    start: str,
+    target: str,
+    adjacency: dict[str, set[str]],
+) -> bool:
+    return _has_path(start, target, adjacency)
+
+
+def _principal_hosts(snapshot: SnapshotSpec) -> dict[str, set[str]]:
+    topology = snapshot.topology or {}
+    mapping: dict[str, set[str]] = defaultdict(set)
+
+    raw_users = topology.get("users", [])
+    if isinstance(raw_users, list):
+        for raw in raw_users:
+            if not isinstance(raw, dict):
+                continue
+            username = str(raw.get("username", "")).strip()
+            if not username:
+                continue
+            for raw_host in raw.get("hosts", []):
+                host = str(raw_host).strip()
+                if host:
+                    mapping[username].add(host)
+
+    raw_catalog = topology.get("principal_catalog", {})
+    if isinstance(raw_catalog, dict):
+        for raw_name, raw_principal in raw_catalog.items():
+            name = str(raw_name).strip()
+            if not name or not isinstance(raw_principal, dict):
+                continue
+            for raw_host in raw_principal.get("hosts", []):
+                host = str(raw_host).strip()
+                if host:
+                    mapping[name].add(host)
+
+    return mapping
 
 
 def _reachable_from_any(

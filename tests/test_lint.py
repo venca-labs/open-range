@@ -106,9 +106,10 @@ class TestValidManifest:
             assert errors == [], f"Check '{check_name}' failed: {errors}"
 
     def test_tier1_manifest_loads(self):
-        """Tier 1 manifest should at least load without schema error."""
+        """Tier 1 manifest should load and pass lint checks."""
         result = lint_file(ROOT / "manifests" / "tier1_basic.yaml")
         assert result["schema_error"] is None, result["schema_error"]
+        assert result["valid"] is True, result["checks"]
 
 
 # ---------------------------------------------------------------------------
@@ -177,35 +178,35 @@ class TestInvalidUserRefs:
         assert len(errors) == 1
         assert "ghost_user" in errors[0]
 
-    def test_trust_relationship_invalid_source(self):
+    def test_trust_relationship_invalid_source_identifier(self):
         data = _minimal_manifest()
         data["trust_relationships"] = [
             {
                 "type": "delegates_access",
-                "from": "nobody",
+                "from": "bad actor!",
                 "to": "admin",
             },
         ]
         manifest = Manifest(**data)
         results = lint_manifest(manifest)
-        errors = results["trust relationship usernames"]
+        errors = results["trust relationship principals"]
         assert len(errors) == 1
-        assert "nobody" in errors[0]
+        assert "bad actor!" in errors[0]
 
-    def test_trust_relationship_invalid_target(self):
+    def test_trust_relationship_invalid_target_identifier(self):
         data = _minimal_manifest()
         data["trust_relationships"] = [
             {
                 "type": "delegates_access",
                 "from": "admin",
-                "to": "phantom",
+                "to": "phantom user",
             },
         ]
         manifest = Manifest(**data)
         results = lint_manifest(manifest)
-        errors = results["trust relationship usernames"]
+        errors = results["trust relationship principals"]
         assert len(errors) == 1
-        assert "phantom" in errors[0]
+        assert "phantom user" in errors[0]
 
 
 # ---------------------------------------------------------------------------

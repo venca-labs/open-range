@@ -165,6 +165,42 @@ async def test_graph_reward_grounding_fails_when_flag_host_unreachable(mock_cont
     assert "not reachable from any vuln host" in result.error
 
 
+@pytest.mark.asyncio
+async def test_graph_checks_allow_trust_based_host_pivots(mock_containers):
+    from open_range.validator.graph_reward_grounding import GraphRewardGroundingCheck
+    from open_range.validator.path_solvability import PathSolvabilityCheck
+
+    spec = SnapshotSpec(
+        topology={
+            "hosts": ["attacker", "web", "db"],
+            "zones": {"external": ["attacker"], "dmz": ["web"], "internal": ["db"]},
+            "dependency_edges": [{"source": "attacker", "target": "web"}],
+            "trust_edges": [{"source": "websvc", "target": "dbsvc", "type": "credential_reuse"}],
+            "host_details": {
+                "attacker": {"services": ["nmap"]},
+                "web": {"services": ["nginx"]},
+                "db": {"services": ["mysql"]},
+            },
+            "principal_catalog": {
+                "websvc": {"username": "websvc", "hosts": ["web"], "is_login_account": False},
+                "dbsvc": {"username": "dbsvc", "hosts": ["db"], "is_login_account": False},
+            },
+        },
+        truth_graph=TruthGraph(
+            vulns=[Vulnerability(id="v1", type="credential_reuse", host="web", service="nginx")],
+        ),
+        flags=[FlagSpec(id="f1", value="FLAG{db}", path="/var/flags/flag1.txt", host="db")],
+        evidence_spec=[EvidenceItem(type="log_entry", location="db:/var/log/mysql.log")],
+        golden_path=[GoldenPathStep(step=1, command="scan", expect_in_stdout="ok")],
+        task=TaskSpec(red_briefing="go", blue_briefing="watch"),
+    )
+
+    path_result = await PathSolvabilityCheck().check(spec, mock_containers)
+    reward_result = await GraphRewardGroundingCheck().check(spec, mock_containers)
+    assert path_result.passed is True
+    assert reward_result.passed is True
+
+
 # ---------------------------------------------------------------------------
 # Check 1: BuildBoot
 # ---------------------------------------------------------------------------

@@ -2,10 +2,9 @@
 
 from __future__ import annotations
 
-from collections import defaultdict, deque
-
 from open_range.protocols import CheckResult, ContainerSet, SnapshotSpec
 from open_range.validator.graphs import compile_snapshot_graphs
+from open_range.validator.path_solvability import build_host_adjacency, has_host_path
 
 
 class GraphRewardGroundingCheck:
@@ -22,7 +21,7 @@ class GraphRewardGroundingCheck:
                 error="snapshot has no flags to ground",
             )
 
-        adjacency = _adjacency(compiled)
+        adjacency = build_host_adjacency(snapshot, compiled)
         vuln_hosts = {v.host for v in snapshot.truth_graph.vulns if v.host}
         for flag in snapshot.flags:
             if flag.host not in compiled.hosts:
@@ -32,7 +31,9 @@ class GraphRewardGroundingCheck:
             if flag.host in vuln_hosts:
                 continue
 
-            if vuln_hosts and not any(_has_path(source, flag.host, adjacency) for source in vuln_hosts):
+            if vuln_hosts and not any(
+                has_host_path(source, flag.host, adjacency) for source in vuln_hosts
+            ):
                 issues.append(
                     f"flag '{flag.id}' on '{flag.host}' is not reachable from any vuln host"
                 )
@@ -44,27 +45,3 @@ class GraphRewardGroundingCheck:
             details={"issues": issues},
             error="" if passed else "; ".join(issues),
         )
-
-
-def _adjacency(compiled) -> dict[str, set[str]]:
-    adjacency: dict[str, set[str]] = defaultdict(set)
-    for source, target in compiled.dependency_edges:
-        adjacency[source].add(target)
-    return adjacency
-
-
-def _has_path(start: str, target: str, adjacency: dict[str, set[str]]) -> bool:
-    if start == target:
-        return True
-    queue: deque[str] = deque([start])
-    seen = {start}
-    while queue:
-        current = queue.popleft()
-        for neighbor in adjacency.get(current, set()):
-            if neighbor == target:
-                return True
-            if neighbor in seen:
-                continue
-            seen.add(neighbor)
-            queue.append(neighbor)
-    return False

@@ -12,6 +12,7 @@ Usage::
 from __future__ import annotations
 
 import argparse
+import re
 import sys
 from pathlib import Path
 from typing import Any
@@ -134,22 +135,28 @@ def _check_business_process_flows(manifest: Manifest) -> list[str]:
     return errors
 
 
+_PRINCIPAL_RE = re.compile(r"^[A-Za-z0-9._@-]+$")
+
+
 def _check_trust_relationships(manifest: Manifest) -> list[str]:
-    """All trust relationships must reference valid usernames."""
-    user_names = {u.username for u in manifest.users}
+    """Trust principals must be well-formed identifiers.
+
+    Trust edges may reference people who are not login accounts. Those are
+    normalized into the canonical principal catalog at build time, so lint
+    should validate identifier quality rather than requiring every principal to
+    appear in ``users``.
+    """
     errors: list[str] = []
     for rel in manifest.trust_relationships:
-        if rel.source and rel.source not in user_names:
+        if rel.source and not _PRINCIPAL_RE.match(rel.source):
             errors.append(
-                f"Trust relationship source '{rel.source}' "
-                f"is not in the users list. "
-                f"Valid usernames: {sorted(user_names)}"
+                f"Trust relationship source '{rel.source}' is not a valid "
+                "principal identifier"
             )
-        if rel.target and rel.target not in user_names:
+        if rel.target and not _PRINCIPAL_RE.match(rel.target):
             errors.append(
-                f"Trust relationship target '{rel.target}' "
-                f"is not in the users list. "
-                f"Valid usernames: {sorted(user_names)}"
+                f"Trust relationship target '{rel.target}' is not a valid "
+                "principal identifier"
             )
     return errors
 
@@ -165,7 +172,7 @@ ALL_CHECKS = [
     ("NPC persona usernames", _check_npc_usernames),
     ("data inventory hosts", _check_data_inventory_hosts),
     ("business process data flows", _check_business_process_flows),
-    ("trust relationship usernames", _check_trust_relationships),
+    ("trust relationship principals", _check_trust_relationships),
 ]
 
 
