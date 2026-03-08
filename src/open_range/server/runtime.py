@@ -59,6 +59,7 @@ from open_range.validator.validator import ValidationResult, ValidatorGate
 logger = logging.getLogger(__name__)
 
 _DEFAULT_MANIFEST = ("manifests", "tier1_basic.yaml")
+_DEFAULT_VALIDATOR_PROFILE = "training"
 _VALIDATOR_PROFILE_ALIASES = {
     "light": "offline",
     "static": "offline",
@@ -66,6 +67,7 @@ _VALIDATOR_PROFILE_ALIASES = {
     "strict": "training",
 }
 _LIVE_VALIDATOR_PROFILES = {"training"}
+_ALLOW_OFFLINE_ADMISSION_ENV = "OPENRANGE_ALLOW_OFFLINE_ADMISSION"
 
 
 def _env_flag(name: str, default: bool = False) -> bool:
@@ -308,7 +310,7 @@ def _default_builder() -> SnapshotBuilder:
 
 
 def _normalize_validator_profile(profile: str | None) -> str:
-    normalized = (profile or "offline").strip().lower()
+    normalized = (profile or _DEFAULT_VALIDATOR_PROFILE).strip().lower()
     normalized = _VALIDATOR_PROFILE_ALIASES.get(normalized, normalized)
     if normalized not in {"offline", "training"}:
         raise ValueError(
@@ -381,6 +383,7 @@ class ManagedSnapshotRuntime:
         builder: SnapshotBuilder | None = None,
         validator: ValidatorGate | None = None,
         validator_profile: str | None = None,
+        allow_insecure_offline_profile: bool | None = None,
         pool_size: int = 3,
         selection_strategy: str = "random",
         parent_selection_strategy: str = "policy",
@@ -405,9 +408,16 @@ class ManagedSnapshotRuntime:
         self.builder = builder or _default_builder()
         self.mutation_policy = mutation_policy or PopulationMutationPolicy()
         self.mutator = Mutator(self.builder, policy=self.mutation_policy)
-        self.validator_profile = _normalize_validator_profile(
-            validator_profile or os.getenv("OPENRANGE_RUNTIME_VALIDATOR_PROFILE", "offline")
+        self.allow_insecure_offline_profile = (
+            _env_flag(_ALLOW_OFFLINE_ADMISSION_ENV, default=False)
+            if allow_insecure_offline_profile is None
+            else bool(allow_insecure_offline_profile)
         )
+        self.validator_profile = _normalize_validator_profile(
+            validator_profile
+            or os.getenv("OPENRANGE_RUNTIME_VALIDATOR_PROFILE", _DEFAULT_VALIDATOR_PROFILE)
+        )
+        self._enforce_validator_profile_policy()
         self.validator = validator or _build_validator(self.validator_profile, self.manifest)
         self.renderer = SnapshotRenderer()
         self.curriculum = CurriculumTracker()
@@ -439,7 +449,14 @@ class ManagedSnapshotRuntime:
         return cls(
             manifest_path=os.getenv("OPENRANGE_RUNTIME_MANIFEST"),
             store_dir=os.getenv("OPENRANGE_SNAPSHOT_DIR"),
-            validator_profile=os.getenv("OPENRANGE_RUNTIME_VALIDATOR_PROFILE", "offline"),
+            validator_profile=os.getenv(
+                "OPENRANGE_RUNTIME_VALIDATOR_PROFILE",
+                _DEFAULT_VALIDATOR_PROFILE,
+            ),
+            allow_insecure_offline_profile=_env_flag(
+                _ALLOW_OFFLINE_ADMISSION_ENV,
+                default=False,
+            ),
             pool_size=_env_int("OPENRANGE_SNAPSHOT_POOL_SIZE", 3),
             selection_strategy=os.getenv("OPENRANGE_SNAPSHOT_SELECTION", "random"),
             parent_selection_strategy=os.getenv("OPENRANGE_PARENT_SELECTION", "policy"),
@@ -458,6 +475,28 @@ class ManagedSnapshotRuntime:
                 "OPENRANGE_ENABLE_PATCH_VALIDATION",
                 default=False,
             ),
+        )
+
+    def _enforce_validator_profile_policy(self) -> None:
+        if self.validator_profile in _LIVE_VALIDATOR_PROFILES:
+            return
+
+        warning = (
+            "ManagedSnapshotRuntime validator profile is set to "
+            f"{self.validator_profile!r}; container-backed admission checks are disabled "
+            "(build_boot, exploitability, patchability, evidence, reward_grounding, "
+            "isolation, difficulty, npc_consistency, realism_review)."
+        )
+        if not self.allow_insecure_offline_profile:
+            raise RuntimeError(
+                warning
+                + " Set OPENRANGE_RUNTIME_VALIDATOR_PROFILE=training for strict admission, "
+                + f"or set {_ALLOW_OFFLINE_ADMISSION_ENV}=1 to explicitly opt out."
+            )
+        logger.warning(
+            "%s Running with explicit opt-out (%s=1).",
+            warning,
+            _ALLOW_OFFLINE_ADMISSION_ENV,
         )
 
     @staticmethod
@@ -604,6 +643,7 @@ class ManagedSnapshotRuntime:
             "selection_strategy": self.selection_strategy,
             "parent_selection_strategy": self.parent_selection_strategy,
             "validator_profile": self.validator_profile,
+            "allow_insecure_offline_profile": self.allow_insecure_offline_profile,
             "refill_enabled": self.refill_enabled,
             "live_admission_enabled": self.live_admission_enabled,
             "snapshot_count": self.snapshot_count(),

@@ -19,6 +19,7 @@ class TestManagedSnapshotRuntime:
             manifest=tier1_manifest,
             store_dir=tmp_path / "snapshots",
             validator_profile="offline",
+            allow_insecure_offline_profile=True,
             refill_enabled=False,
         )
         names = [type(check).__name__ for check in runtime.validator.checks]
@@ -54,10 +55,59 @@ class TestManagedSnapshotRuntime:
         assert "RewardGroundingCheck" in names
         assert "DifficultyCheck" in names
 
+    def test_offline_validator_profile_requires_explicit_opt_out(
+        self,
+        tier1_manifest,
+        tmp_path,
+        monkeypatch,
+    ):
+        monkeypatch.delenv("OPENRANGE_ALLOW_OFFLINE_ADMISSION", raising=False)
+        with pytest.raises(RuntimeError, match="OPENRANGE_ALLOW_OFFLINE_ADMISSION=1"):
+            ManagedSnapshotRuntime(
+                manifest=tier1_manifest,
+                store_dir=tmp_path / "snapshots",
+                validator_profile="offline",
+                refill_enabled=False,
+            )
+
+    def test_offline_validator_profile_logs_warning_when_opted_out(
+        self,
+        tier1_manifest,
+        tmp_path,
+        caplog,
+    ):
+        caplog.set_level("WARNING")
+        ManagedSnapshotRuntime(
+            manifest=tier1_manifest,
+            store_dir=tmp_path / "snapshots",
+            validator_profile="offline",
+            allow_insecure_offline_profile=True,
+            refill_enabled=False,
+        )
+        assert any(
+            "container-backed admission checks are disabled" in record.message
+            for record in caplog.records
+        )
+
+    def test_from_env_defaults_to_training_validator_profile(self, tmp_path, monkeypatch):
+        repo_root = Path(__file__).resolve().parent.parent
+        monkeypatch.setenv(
+            "OPENRANGE_RUNTIME_MANIFEST",
+            str(repo_root / "manifests" / "tier1_basic.yaml"),
+        )
+        monkeypatch.setenv("OPENRANGE_SNAPSHOT_DIR", str(tmp_path / "snapshots"))
+        monkeypatch.delenv("OPENRANGE_RUNTIME_VALIDATOR_PROFILE", raising=False)
+        monkeypatch.delenv("OPENRANGE_ALLOW_OFFLINE_ADMISSION", raising=False)
+
+        runtime = ManagedSnapshotRuntime.from_env()
+        assert runtime.validator_profile == "training"
+
     def test_start_preloads_snapshot_pool(self, tier1_manifest, tmp_path):
         runtime = ManagedSnapshotRuntime(
             manifest=tier1_manifest,
             store_dir=tmp_path / "snapshots",
+            validator_profile="offline",
+            allow_insecure_offline_profile=True,
             pool_size=2,
             refill_enabled=False,
         )
@@ -74,6 +124,8 @@ class TestManagedSnapshotRuntime:
         runtime = ManagedSnapshotRuntime(
             manifest=tier1_manifest,
             store_dir=tmp_path / "snapshots",
+            validator_profile="offline",
+            allow_insecure_offline_profile=True,
             pool_size=1,
             refill_enabled=False,
         )
@@ -93,6 +145,8 @@ class TestManagedSnapshotRuntime:
         runtime = ManagedSnapshotRuntime(
             manifest=tier1_manifest,
             store_dir=tmp_path / "snapshots",
+            validator_profile="offline",
+            allow_insecure_offline_profile=True,
             pool_size=1,
             selection_strategy="latest",
             refill_enabled=False,
@@ -111,6 +165,8 @@ class TestManagedSnapshotRuntime:
         runtime = ManagedSnapshotRuntime(
             manifest=tier1_manifest,
             store_dir=tmp_path / "snapshots",
+            validator_profile="offline",
+            allow_insecure_offline_profile=True,
             pool_size=1,
             refill_enabled=False,
         )
@@ -129,6 +185,8 @@ class TestManagedSnapshotRuntime:
         runtime = ManagedSnapshotRuntime(
             manifest=tier1_manifest,
             store_dir=tmp_path / "snapshots",
+            validator_profile="offline",
+            allow_insecure_offline_profile=True,
             pool_size=2,
             selection_strategy="latest",
             parent_selection_strategy="policy",
@@ -150,6 +208,8 @@ class TestManagedSnapshotRuntime:
         runtime = ManagedSnapshotRuntime(
             manifest=tier1_manifest,
             store_dir=tmp_path / "snapshots",
+            validator_profile="offline",
+            allow_insecure_offline_profile=True,
             pool_size=1,
             parent_selection_strategy="policy",
             refill_enabled=False,
@@ -161,6 +221,8 @@ class TestManagedSnapshotRuntime:
         runtime = ManagedSnapshotRuntime(
             manifest=tier1_manifest,
             store_dir=tmp_path / "snapshots",
+            validator_profile="offline",
+            allow_insecure_offline_profile=True,
             pool_size=2,
             refill_enabled=False,
         )
@@ -225,6 +287,8 @@ class TestManagedSnapshotRuntime:
         runtime = ManagedSnapshotRuntime(
             manifest=tier1_manifest,
             store_dir=tmp_path / "snapshots",
+            validator_profile="offline",
+            allow_insecure_offline_profile=True,
             pool_size=1,
             refill_enabled=False,
             live_admission_enabled=True,
@@ -290,6 +354,8 @@ class TestManagedSnapshotRuntime:
         runtime = ManagedSnapshotRuntime(
             manifest=tier1_manifest,
             store_dir=tmp_path / "snapshots",
+            validator_profile="offline",
+            allow_insecure_offline_profile=True,
             pool_size=1,
             refill_enabled=False,
             compose_runner=compose_runner,  # type: ignore[arg-type]
@@ -318,6 +384,8 @@ class TestEnvironmentRuntimeIntegration:
         runtime = ManagedSnapshotRuntime(
             manifest=tier1_manifest,
             store_dir=tmp_path / "snapshots",
+            validator_profile="offline",
+            allow_insecure_offline_profile=True,
             pool_size=1,
             refill_enabled=False,
         )
@@ -337,6 +405,8 @@ class TestEnvironmentRuntimeIntegration:
         runtime = ManagedSnapshotRuntime(
             manifest=tier1_manifest,
             store_dir=tmp_path / "snapshots",
+            validator_profile="offline",
+            allow_insecure_offline_profile=True,
             pool_size=1,
             refill_enabled=False,
         )
@@ -356,6 +426,8 @@ class TestEnvironmentRuntimeIntegration:
         runtime = ManagedSnapshotRuntime(
             manifest=tier1_manifest,
             store_dir=tmp_path / "snapshots",
+            validator_profile="offline",
+            allow_insecure_offline_profile=True,
             pool_size=1,
             refill_enabled=False,
         )

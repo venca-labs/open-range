@@ -86,7 +86,10 @@ ENV PYTHONPATH="/app/env/src:/app/env"
 ENV OPENRANGE_EXECUTION_MODE=subprocess
 # Enable the managed runtime so reset() boots real services from the manifest
 ENV OPENRANGE_RUNTIME_MANIFEST=manifests/tier1_basic.yaml
+# This all-in-one image runs in subprocess mode (no nested Docker daemon), so
+# it opts out of strict live admission explicitly.
 ENV OPENRANGE_RUNTIME_VALIDATOR_PROFILE=offline
+ENV OPENRANGE_ALLOW_OFFLINE_ADMISSION=1
 ENV OPENRANGE_SNAPSHOT_POOL_SIZE=1
 # Enable the OpenEnv Gradio web interface at /web
 ENV ENABLE_WEB_INTERFACE=true

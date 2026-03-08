@@ -100,7 +100,14 @@ uv run pytest tests/ -v --tb=short
 
 The deployed package exposes the standard OpenEnv `reset()`, `step()`, and `state()` contract through `server.app:app`, which is the entrypoint referenced by `openenv.yaml`.
 
-**Validator** — Admission gate for candidate snapshots. The shipped runtime first enforces manifest compliance plus graph-native checks such as graph consistency, path solvability, evidence sufficiency, and reward grounding before structural/task checks. When `OPENRANGE_ENABLE_LIVE_ADMISSION=1`, the runtime also boots the rendered child bundle, applies rendered payload files, constructs a real `ContainerSet`, and runs live build/exploit/evidence/reward checks before admission. Public/HF mode can still rely on a prebuilt admitted pool with live admission disabled.
+**Validator** — Admission gate for candidate snapshots. Managed runtime defaults to strict live admission (`OPENRANGE_RUNTIME_VALIDATOR_PROFILE=training`), which runs graph checks plus container-backed build/exploit/patch/evidence/reward/isolation/difficulty/NPC/realism checks before storing a snapshot. Non-live admission (`offline`) is allowed only as an explicit opt-out via `OPENRANGE_ALLOW_OFFLINE_ADMISSION=1`, and the runtime logs a startup warning when this mode is used.
+
+| Validator Profile | Included Checks | Operational Guarantee | Intended Use |
+|-------------------|-----------------|-----------------------|--------------|
+| `training` (default) | Graph + structural + task + build/boot + exploitability + patchability + evidence + reward grounding + isolation + difficulty + NPC consistency + realism review | Strict live/container-backed admission | Managed/production runtime |
+| `offline` | Graph + structural + task feasibility only | No live exploit/patch/evidence/reward validation | Local fallback only (must set `OPENRANGE_ALLOW_OFFLINE_ADMISSION=1`) |
+
+`OPENRANGE_ENABLE_LIVE_ADMISSION=1` is an additional artifact-level boot validation pass after a candidate snapshot is admitted.
 
 **Environment** — `RangeEnvironment(Environment)` following the OpenEnv contract. `reset()` asks the shared runtime for a frozen admitted snapshot. `step(action)` routes commands to the appropriate container — Red runs on the attacker box, Blue runs on the SIEM. No artificial command allowlists; the container's installed tools are the constraint.
 
