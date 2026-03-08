@@ -1300,36 +1300,16 @@ class RangeEnvironment(Environment[RangeAction, RangeObservation, RangeState]):
             )
 
         # Handle meta-commands (processed by environment, not forwarded to containers)
-        if cmd_name == "submit_flag":
-            obs = self._handle_submit_flag(action)
-            obs = self._apply_rewards(action, obs)
-            self._check_termination(obs)
-            self._report_if_done(obs)
-            return obs
+        meta_handlers = {
+            "submit_flag": self._handle_submit_flag,
+            "submit_evidence": self._handle_submit_evidence,
+            "submit_finding": self._handle_submit_finding,
+            "auth": self._handle_auth,
+            "logout": self._handle_logout,
+        }
 
-        if cmd_name == "submit_evidence":
-            obs = self._handle_submit_evidence(action)
-            obs = self._apply_rewards(action, obs)
-            self._check_termination(obs)
-            self._report_if_done(obs)
-            return obs
-
-        if cmd_name == "submit_finding":
-            obs = self._handle_submit_finding(action)
-            obs = self._apply_rewards(action, obs)
-            self._check_termination(obs)
-            self._report_if_done(obs)
-            return obs
-
-        if cmd_name == "auth":
-            obs = self._handle_auth(action)
-            obs = self._apply_rewards(action, obs)
-            self._check_termination(obs)
-            self._report_if_done(obs)
-            return obs
-
-        if cmd_name == "logout":
-            obs = self._handle_logout(action)
+        if cmd_name in meta_handlers:
+            obs = meta_handlers[cmd_name](action)
             obs = self._apply_rewards(action, obs)
             self._check_termination(obs)
             self._report_if_done(obs)

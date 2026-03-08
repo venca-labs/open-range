@@ -966,7 +966,8 @@ class TemplateOnlyBuilder:
         max_vulns = manifest.get("difficulty", {}).get("max_vulns", 2)
         min_vulns = manifest.get("difficulty", {}).get("min_vulns", 1)
         effective_max = min(max_vulns, tier_max_vulns, len(candidates))
-        count = rng.randint(min_vulns, max(min_vulns, effective_max))
+        effective_min = min(min_vulns, effective_max)
+        count = rng.randint(effective_min, effective_max)
         chosen = rng.sample(candidates, count)
 
         # Build topology from manifest

@@ -552,7 +552,6 @@ class ManagedSnapshotRuntime:
             if meta:
                 vuln_types.update(meta.get("vuln_classes", []))
         return vuln_types
-
     def _is_diverse(self, snapshot: SnapshotSpec) -> bool:
         """Return True if *snapshot* has at least one vuln type not in recent history."""
         recent = self._recent_vuln_types()
