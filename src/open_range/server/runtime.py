@@ -11,6 +11,7 @@ import asyncio
 import json
 import logging
 import os
+import shutil
 import threading
 import time
 from dataclasses import dataclass, field
@@ -21,6 +22,7 @@ import yaml
 
 from open_range.builder.builder import LLMSnapshotBuilder, TemplateOnlyBuilder
 from open_range.builder.mutator import Mutator
+from open_range.builder.renderer import SnapshotRenderer
 from open_range.builder.snapshot_store import SnapshotStore
 from open_range.protocols import (
     BuildContext,
@@ -279,6 +281,7 @@ class ManagedSnapshotRuntime:
         self.builder = builder or _default_builder()
         self.mutator = Mutator(self.builder)
         self.validator = validator or _default_validator()
+        self.renderer = SnapshotRenderer()
         self.curriculum = CurriculumTracker()
         self.pool_size = max(1, pool_size)
         self.selection_strategy = selection_strategy
@@ -320,6 +323,7 @@ class ManagedSnapshotRuntime:
             existing = self.snapshot_count()
             if existing < self.pool_size:
                 self._top_up_pool(self.pool_size - existing)
+            self._ensure_existing_artifacts()
 
             available = self.snapshot_count()
             if available == 0:
@@ -432,6 +436,18 @@ class ManagedSnapshotRuntime:
         for _ in range(max(0, missing)):
             self._generate_and_store_snapshot()
 
+    def _ensure_existing_artifacts(self) -> None:
+        for meta in self.list_snapshots():
+            snapshot_id = str(meta.get("snapshot_id", ""))
+            if not snapshot_id:
+                continue
+            artifacts_dir = self._artifacts_dir(snapshot_id)
+            if artifacts_dir.exists():
+                continue
+            stored = _run_coro_sync(self.store.get_entry(snapshot_id))
+            materialized = self._materialize_snapshot(stored.snapshot, snapshot_id)
+            _run_coro_sync(self.store.store(materialized, snapshot_id=snapshot_id))
+
     def _generate_and_store_snapshot(self) -> str:
         last_error: str | None = None
         for attempt in range(1, self.generation_retries + 1):
@@ -445,7 +461,11 @@ class ManagedSnapshotRuntime:
             )
             validation = self._validate_snapshot(snapshot)
             if validation.passed:
-                snapshot_id = _run_coro_sync(self.store.store(snapshot))
+                snapshot_id = self._snapshot_id(snapshot)
+                materialized = self._materialize_snapshot(snapshot, snapshot_id)
+                snapshot_id = _run_coro_sync(
+                    self.store.store(materialized, snapshot_id=snapshot_id)
+                )
                 logger.info(
                     "ManagedSnapshotRuntime admitted snapshot %s on attempt %d",
                     snapshot_id,
@@ -490,3 +510,37 @@ class ManagedSnapshotRuntime:
             for check in failed
         ]
         return json.dumps(payload, sort_keys=True)
+
+    def _snapshot_id(self, snapshot: SnapshotSpec) -> str:
+        vuln_types = [v.type for v in snapshot.truth_graph.vulns]
+        prefix = "snap_" + "_".join(vuln_types[:3]) if vuln_types else "snap_generated"
+        return f"{prefix}_{int(time.time() * 1000)}"
+
+    def _snapshot_dir(self, snapshot_id: str) -> Path:
+        return self.store_dir / snapshot_id
+
+    def _artifacts_dir(self, snapshot_id: str) -> Path:
+        return self._snapshot_dir(snapshot_id) / "artifacts"
+
+    def _materialize_snapshot(
+        self,
+        snapshot: SnapshotSpec,
+        snapshot_id: str,
+    ) -> SnapshotSpec:
+        rendered = snapshot.model_copy(deep=True)
+
+        topology = dict(rendered.topology)
+        topology["snapshot_id"] = snapshot_id
+        rendered.topology = topology
+
+        snapshot_dir = self._snapshot_dir(snapshot_id)
+        artifacts_dir = self._artifacts_dir(snapshot_id)
+        if artifacts_dir.exists():
+            shutil.rmtree(artifacts_dir)
+        artifacts_dir.mkdir(parents=True, exist_ok=True)
+
+        self.renderer.render(rendered, artifacts_dir)
+
+        compose_path = artifacts_dir / "docker-compose.yml"
+        rendered.compose = yaml.safe_load(compose_path.read_text(encoding="utf-8")) or {}
+        return rendered
