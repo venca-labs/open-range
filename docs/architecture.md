@@ -179,12 +179,15 @@ sequenceDiagram
     Note over T,R: Episode ends: flag captured, max steps, or timeout
 ```
 
-### Curriculum (post-hackathon)
+### Curriculum Feedback
 
-1. Track Red solve rate and Blue detection rate per snapshot
-2. Feed failure stats back to builder for next mutation
-3. Builder LLM adjusts difficulty via `r_inject = 1 - (1+alpha)*s`
-4. When agents plateau: horizontal growth (add containers, zones, services)
+The Builder acts as a **simulated expert curriculum designer**. Episode results feed back to shape future snapshots:
+
+1. Track Red solve rate and Blue detection rate per snapshot (per vuln class, per tier)
+2. Feed failure stats to Builder as `runtime_context` on next build
+3. Builder LLM adjusts difficulty via `r_inject = 1 - (1+alpha)*s` (frontier calibration from SWE-RL)
+4. Target agent weaknesses: if Red masters SQLi, seed SSRF or chained vulns next
+5. When agents plateau: horizontal growth (add containers, zones, services)
 
 ## Snapshot Artifacts
 
@@ -212,6 +215,7 @@ CompositeRedReward (WeightedSum)
   ├── StealthReward           coupled to Blue detection history
   ├── EvidenceReward          quality of submit_evidence
   ├── SocialEngineeringReward NPC fell for phish/pretext (Level 1+)
+  ├── ComplexityBonus          tier_multiplier * base_reward (scales with snapshot complexity)
   └── HallucinationPenalty    -0.3 per fake flag
 
 CompositeBlueReward (WeightedSum)
@@ -219,10 +223,25 @@ CompositeBlueReward (WeightedSum)
   ├── PatchReward             binary, golden path re-execution
   ├── AvailabilityReward      healthcheck fraction
   ├── PhishingDetection       correctly identified social engineering in logs (Level 1+)
+  ├── ComplexityBonus          tier_multiplier * base_reward (scales with snapshot complexity)
   └── FalsePositiveReward     -0.2 per NPC traffic/email flagged
 ```
 
 Rewards are computed from **container state and action logs**, never from LLM judgment.
+
+### Tier-Scaled Reward Ceiling
+
+Reward ceilings scale with environment complexity so that harder snapshots produce proportionally larger training signals:
+
+| Tier | Hosts | Multiplier | Max Red Reward | Max Blue Reward |
+|------|-------|-----------|----------------|-----------------|
+| 1 | 6-8 | 1.0x | 1.0 | 1.0 |
+| 2 | 10-12 | 1.5x | 1.5 | 1.5 |
+| 3 | 14-18 | 2.0x | 2.0 | 2.0 |
+| 4 | 20-25 | 2.5x | 2.5 | 2.5 |
+| 5 | 30+ | 3.0x | 3.0 | 3.0 |
+
+This ensures agents are incentivized to attempt harder environments rather than grinding easy Tier 1 snapshots.
 
 ## NPC Evolution: Shell Scripts to LLM Agents
 

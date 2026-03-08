@@ -1,6 +1,6 @@
 # OpenRange
 
-**Multi-agent cyber range with validated company snapshots, coupled Red/Blue rewards, and evolving enterprise worlds.**
+**Multi-agent cyber range with zero-sum Red/Blue dynamics, validated company snapshots, and self-improving enterprise worlds.**
 
 The first cybersecurity environment in the [OpenEnv](https://github.com/meta-pytorch/OpenEnv) ecosystem.
 
@@ -36,7 +36,7 @@ The OpenEnv runtime stays standard:
 | **Red** | External attacker. Recon, exploit, pivot, escalate, exfiltrate. | Outside the firewall -- no creds, no access |
 | **Blue** | Internal defender. SIEM analysis, patching, firewall rules, incident response. | SOC workstation on management network |
 
-Red and Blue operate on the **same infrastructure simultaneously**. Red's stealth reward depends on whether Blue catches them. Blue's detection reward depends on Red's actual actions in the logs.
+Red and Blue operate on the **same infrastructure simultaneously** in a zero-sum adversarial dynamic. Red's stealth reward depends on whether Blue catches them. Blue's detection reward depends on Red's actual actions in the logs. This multi-agent coupling creates natural co-evolution: as Red learns stealth, Blue must learn deeper detection -- and vice versa.
 
 ## Architecture
 
@@ -146,7 +146,7 @@ flowchart TB
 
 Every service is real. The web app queries the database. Users authenticate against LDAP. Mail flows through Postfix. Logs stream to the SIEM. NPC traffic simulates employees browsing, sending email, and running cron jobs -- so Blue can't just flag everything as malicious.
 
-NPCs evolve from shell-script noise generators to **LLM-driven employees** with persona cards, susceptibility profiles, and realistic communication styles. Red can craft spearphishing emails, pretext calls, and watering-hole attacks against NPCs who decide whether to click, ignore, or report based on their security awareness. Blue must detect these social engineering campaigns in logs alongside normal traffic.
+NPCs evolve from shell-script noise generators to **LLM-driven simulated experts** -- employees with persona cards, susceptibility profiles, and realistic communication styles. These are domain-specialized LLM agents (marketing coordinator, CISO, IT admin) that generate authentic enterprise behavior: sending emails, filing tickets, browsing intranet, and responding to social engineering attempts based on their security awareness level. Red can craft spearphishing emails, pretext calls, and watering-hole attacks against NPCs who decide whether to click, ignore, or report. Blue must detect these social engineering campaigns in logs alongside normal NPC traffic.
 
 ## Episode Lifecycle
 
@@ -279,7 +279,9 @@ with OpenRangeEnv('http://localhost:8000').sync() as env:
 
 ## Reward Signals
 
-All rewards are **verifiable** -- grounded in real container state, not LLM judgment.
+Episodes are **long-horizon** (8-50+ steps depending on tier) with **sparse delayed rewards**. Flag capture is binary and only fires at the end of a successful exploit chain. Stealth and detection rewards are computed at episode end from the full action log. Intermediate steps yield only small efficiency signals -- agents must learn to plan multi-step strategies without dense per-action feedback.
+
+All rewards are **verifiable** -- grounded in real container state, not LLM judgment. Reward ceilings **scale with environment complexity**: higher-tier snapshots (more hosts, zones, and chained vulnerabilities) offer proportionally larger maximum rewards, ensuring the training signal grows with output quality.
 
 ```mermaid
 flowchart TB
@@ -374,6 +376,31 @@ flowchart TD
     style t3 fill:#ff6b6b22,stroke:#ff6b6b
 ```
 
+## Curriculum Feedback Loop
+
+OpenRange is **self-improving**. Per-snapshot solve rates and detection rates feed back to the Builder, which adjusts the next snapshot's difficulty and vulnerability mix to target the frontier of agent capability.
+
+```
+Episode results (solve rate, detection rate, time-to-flag)
+    |
+    v
+Curriculum tracker (per vuln class, per tier)
+    |
+    v
+Builder receives runtime_context:
+  { red_solve_rate: 0.6, blue_detect_rate: 0.4,
+    previous_vuln_classes: [sqli, weak_creds],
+    weak_areas: [ssrf, chained_vulns] }
+    |
+    v
+Next snapshot targets agent weaknesses:
+  - If Red solves SQLi easily → seed SSRF or chained vulns
+  - If Blue misses lateral movement → add more pivot points
+  - Difficulty adjusts via r_inject = 1 - (1+α)·s
+```
+
+The Builder LLM acts as a **simulated expert curriculum designer** -- it doesn't just randomize, it analyzes agent performance and generates challenges calibrated to the learning frontier. This is the same frontier-calibrating reward from Self-Play SWE-RL, adapted for cybersecurity.
+
 ## Tandem Red + Blue Training
 
 ```mermaid
@@ -434,7 +461,7 @@ open-range/
 ## Built On
 
 - [OpenEnv](https://github.com/meta-pytorch/OpenEnv) -- standardized agentic execution environments
-- Design ideas from PAIRED / UED (generate inside a legal family), POET (mutate plus admit), [R2E-Gym](https://arxiv.org/abs/2504.07164) (executable verification), and [Self-Play SWE-RL](https://arxiv.org/abs/2512.18552) (formal specs and inverse mutation testing)
+- Design ideas from PAIRED / UED (generate inside a legal family), POET (mutate plus admit), [R2E-Gym](https://arxiv.org/abs/2504.07164) (executable verification), [Self-Play SWE-RL](https://arxiv.org/abs/2512.18552) (formal specs and inverse mutation testing), and [Snorkel](https://www.snorkel.ai/) (simulated domain experts for data generation)
 
 ## License
 
