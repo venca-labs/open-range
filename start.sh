@@ -1,15 +1,20 @@
 #!/usr/bin/env bash
 # =============================================================================
-# OpenRange — All-in-One Service Startup Script
+# OpenRange — Snapshot-Driven Service Startup
 # =============================================================================
-# Follows the OpenEnv openapp_env pattern:
-#   1. Create required directories
-#   2. Start background services with readiness polling
-#   3. exec uvicorn as PID 1
+# Called by RangeEnvironment.reset() to start services defined in a snapshot.
+# NOT called at container boot — the Dockerfile starts only uvicorn.
+#
+# Usage:  start.sh <snapshot_dir>
+#   snapshot_dir must contain a spec.json with a topology.hosts list.
+#   Each host name maps to a known service (nginx, mysql, slapd, etc.).
+#
+# Services are started based on what the snapshot requires, not hardcoded.
 # =============================================================================
 
 set -uo pipefail
 
+SNAPSHOT_DIR="${1:?Usage: start.sh <snapshot_dir>}"
 LOGDIR="/var/log/siem"
 CONSOLIDATED="${LOGDIR}/consolidated"
 
@@ -26,193 +31,155 @@ cleanup() {
 }
 trap cleanup EXIT INT TERM
 
-# ── 1. Create required directories ──────────────────────────────────────────
+# ── Parse snapshot topology ───────────────────────────────────────────────────
 
-echo "[start.sh] Creating required directories..."
 mkdir -p "${CONSOLIDATED}"
-mkdir -p /run/php
-mkdir -p /var/run/mysqld && chown mysql:mysql /var/run/mysqld
-chown mysql:mysql "${LOGDIR}" /var/log/mysql 2>/dev/null || true
-mkdir -p /var/run/sshd
-mkdir -p /var/run/slapd
-mkdir -p /var/lib/samba/private
-mkdir -p /var/log/nginx
-mkdir -p /var/log/mysql
 
-# ── 2. MySQL / MariaDB ────────────────────────────────────────────────────
+if [ ! -f "${SNAPSHOT_DIR}/spec.json" ]; then
+    echo "[start.sh] ERROR: No spec.json found in ${SNAPSHOT_DIR}"
+    exit 1
+fi
 
-echo "[start.sh] Starting MySQL/MariaDB..."
-# Detect which daemon is available (MariaDB on Bookworm, MySQL on Jammy)
-MYSQLD=$(command -v mariadbd || command -v mysqld || echo "")
-if [ -n "$MYSQLD" ]; then
+# Extract host list from topology
+HOSTS=$(python3 -c "
+import json, sys
+with open('${SNAPSHOT_DIR}/spec.json') as f:
+    spec = json.load(f)
+hosts = spec.get('topology', {}).get('hosts', [])
+print(' '.join(hosts))
+" 2>/dev/null || echo "")
+
+echo "[start.sh] Snapshot hosts: ${HOSTS:-none}"
+
+# ── Service starters (called only if snapshot needs them) ─────────────────────
+
+start_mysql() {
+    local MYSQLD=$(command -v mariadbd || command -v mysqld || echo "")
+    if [ -z "$MYSQLD" ]; then echo "[start.sh]   mysql: not installed"; return; fi
+
+    mkdir -p /var/run/mysqld && chown mysql:mysql /var/run/mysqld 2>/dev/null || true
+    mkdir -p /var/log/mysql && chown mysql:mysql /var/log/mysql 2>/dev/null || true
+
     if [ ! -d /var/lib/mysql/mysql ]; then
-        echo "[start.sh]   Initializing database data directory..."
         if command -v mariadb-install-db >/dev/null 2>&1; then
             mariadb-install-db --user=mysql 2>&1 | tee "${LOGDIR}/mysql.log"
         else
-            mysqld --initialize-insecure --user=mysql 2>&1 | tee "${LOGDIR}/mysql.log"
+            $MYSQLD --initialize-insecure --user=mysql 2>&1 | tee "${LOGDIR}/mysql.log"
         fi
     fi
 
     $MYSQLD --user=mysql --log-error="${LOGDIR}/mysql.log" &
     PIDS+=($!)
 
-    echo -n "[start.sh]   Waiting for database readiness"
-    ADMIN_CMD=$(command -v mariadb-admin || command -v mysqladmin || echo "")
+    local ADMIN=$(command -v mariadb-admin || command -v mysqladmin || echo "")
     for i in $(seq 1 30); do
-        if [ -n "$ADMIN_CMD" ] && $ADMIN_CMD ping --silent 2>/dev/null; then
-            echo " ready (${i}s)"
-            break
+        if [ -n "$ADMIN" ] && $ADMIN ping --silent 2>/dev/null; then
+            echo "[start.sh]   mysql: ready (${i}s)"; return
         fi
-        echo -n "."
         sleep 1
-        if [ "$i" -eq 30 ]; then
-            echo " TIMEOUT"
-            echo "[start.sh]   WARNING: Database did not become ready in 30s"
-        fi
     done
-else
-    echo "[start.sh]   MySQL/MariaDB not installed, skipping"
-fi
+    echo "[start.sh]   mysql: timeout"
+}
 
-# ── 3. PHP-FPM ──────────────────────────────────────────────────────────────
-
-echo "[start.sh] Starting PHP-FPM..."
-# Find the correct php-fpm binary (varies by distro)
-PHP_FPM=$(command -v php-fpm8.2 || command -v php-fpm8.1 || command -v php-fpm || echo "")
-if [ -n "$PHP_FPM" ]; then
-    $PHP_FPM --nodaemonize --force-stderr \
-        > "${LOGDIR}/php-fpm.log" 2>&1 &
+start_nginx() {
+    if ! command -v nginx >/dev/null 2>&1; then echo "[start.sh]   nginx: not installed"; return; fi
+    mkdir -p /var/log/nginx
+    nginx -g "daemon off;" > "${LOGDIR}/nginx.log" 2>&1 &
     PIDS+=($!)
-
-    # Poll for PHP-FPM socket (path varies)
-    echo -n "[start.sh]   Waiting for PHP-FPM readiness"
-    for i in $(seq 1 15); do
-        if ls /run/php/php*-fpm.sock >/dev/null 2>&1; then
-            echo " ready (${i}s)"
-            break
+    for i in $(seq 1 10); do
+        if curl -sf http://localhost:80/ >/dev/null 2>&1; then
+            echo "[start.sh]   nginx: ready (${i}s)"; return
         fi
-        echo -n "."
         sleep 1
-        if [ "$i" -eq 15 ]; then
-            echo " TIMEOUT"
-            echo "[start.sh]   WARNING: PHP-FPM socket not found after 15s"
-        fi
     done
-else
-    echo "[start.sh]   PHP-FPM not installed, skipping"
-fi
+    echo "[start.sh]   nginx: timeout"
+}
 
-# ── 4. Nginx ────────────────────────────────────────────────────────────────
+start_slapd() {
+    if ! command -v slapd >/dev/null 2>&1; then echo "[start.sh]   slapd: not installed"; return; fi
+    mkdir -p /var/run/slapd
+    slapd -h "ldap:/// ldapi:///" -u openldap -g openldap > "${LOGDIR}/slapd.log" 2>&1 &
+    PIDS+=($!)
+    for i in $(seq 1 10); do
+        if ldapsearch -x -H ldap://localhost -b "" -s base namingContexts >/dev/null 2>&1; then
+            echo "[start.sh]   slapd: ready (${i}s)"; return
+        fi
+        sleep 1
+    done
+    echo "[start.sh]   slapd: timeout"
+}
 
-echo "[start.sh] Starting Nginx..."
-nginx -g "daemon off;" \
-    > "${LOGDIR}/nginx.log" 2>&1 &
-PIDS+=($!)
+start_rsyslog() {
+    if ! command -v rsyslogd >/dev/null 2>&1; then echo "[start.sh]   rsyslog: not installed"; return; fi
+    rsyslogd -n > "${LOGDIR}/rsyslog.log" 2>&1 &
+    PIDS+=($!)
+    echo "[start.sh]   rsyslog: started"
+}
 
-echo -n "[start.sh]   Waiting for Nginx readiness"
-for i in $(seq 1 10); do
-    if curl -sf http://localhost:80/ >/dev/null 2>&1 || \
-       curl -sf http://localhost:80/ 2>&1 | grep -q ""; then
-        echo " ready (${i}s)"
-        break
+start_samba() {
+    if ! command -v smbd >/dev/null 2>&1; then echo "[start.sh]   samba: not installed"; return; fi
+    mkdir -p /var/lib/samba/private
+    smbd --foreground --no-process-group > "${LOGDIR}/smbd.log" 2>&1 &
+    PIDS+=($!)
+    for i in $(seq 1 10); do
+        if smbclient -L localhost -N >/dev/null 2>&1; then
+            echo "[start.sh]   samba: ready (${i}s)"; return
+        fi
+        sleep 1
+    done
+    echo "[start.sh]   samba: timeout"
+}
+
+start_postfix() {
+    if ! command -v postfix >/dev/null 2>&1; then echo "[start.sh]   postfix: not installed"; return; fi
+    postfix start > "${LOGDIR}/postfix.log" 2>&1 || true
+    echo "[start.sh]   postfix: started"
+}
+
+start_sshd() {
+    if ! command -v sshd >/dev/null 2>&1; then echo "[start.sh]   sshd: not installed"; return; fi
+    mkdir -p /var/run/sshd
+    /usr/sbin/sshd -E "${LOGDIR}/sshd.log" &
+    PIDS+=($!)
+    echo "[start.sh]   sshd: started"
+}
+
+# ── Map host names to services ────────────────────────────────────────────────
+# The manifest topology uses logical host names. Map them to service starters.
+
+declare -A HOST_SERVICE_MAP=(
+    [web]=start_nginx
+    [db]=start_mysql
+    [ldap]=start_slapd
+    [siem]=start_rsyslog
+    [files]=start_samba
+    [mail]=start_postfix
+    [firewall]=start_rsyslog  # firewall host uses rsyslog for logging
+)
+
+# SSH is started if any host needs remote access
+SSH_NEEDED=false
+
+for host in $HOSTS; do
+    starter="${HOST_SERVICE_MAP[$host]:-}"
+    if [ -n "$starter" ]; then
+        echo "[start.sh] Starting service for host: $host"
+        $starter
+    else
+        echo "[start.sh] Host '$host' has no mapped service (may be agent-only)"
     fi
-    echo -n "."
-    sleep 1
-    if [ "$i" -eq 10 ]; then
-        echo " TIMEOUT"
-        echo "[start.sh]   WARNING: Nginx did not respond within 10s"
+    # Any host beyond attacker/siem might need SSH
+    if [ "$host" != "attacker" ] && [ "$host" != "siem" ]; then
+        SSH_NEEDED=true
     fi
 done
 
-# ── 5. rsyslog ──────────────────────────────────────────────────────────────
-
-echo "[start.sh] Starting rsyslog..."
-rsyslogd -n \
-    > "${LOGDIR}/rsyslog.log" 2>&1 &
-PIDS+=($!)
-echo "[start.sh]   rsyslog started (PID $!)"
-
-# ── 6. slapd (OpenLDAP) ────────────────────────────────────────────────────
-
-echo "[start.sh] Starting slapd..."
-if command -v slapd >/dev/null 2>&1; then
-    slapd -h "ldap:/// ldapi:///" -u openldap -g openldap \
-        > "${LOGDIR}/slapd.log" 2>&1 &
-    PIDS+=($!)
-
-    echo -n "[start.sh]   Waiting for slapd readiness"
-    for i in $(seq 1 10); do
-        if ldapsearch -x -H ldap://localhost -b "" -s base namingContexts >/dev/null 2>&1; then
-            echo " ready (${i}s)"
-            break
-        fi
-        echo -n "."
-        sleep 1
-        if [ "$i" -eq 10 ]; then
-            echo " TIMEOUT"
-            echo "[start.sh]   WARNING: slapd did not respond within 10s"
-        fi
-    done
-else
-    echo "[start.sh]   slapd not installed, skipping"
+if $SSH_NEEDED; then
+    echo "[start.sh] Starting SSH (needed for host access)"
+    start_sshd
 fi
-
-# ── 7. Samba (smbd) ─────────────────────────────────────────────────────────
-
-echo "[start.sh] Starting Samba..."
-if command -v smbd >/dev/null 2>&1; then
-    smbd --foreground --no-process-group \
-        > "${LOGDIR}/smbd.log" 2>&1 &
-    PIDS+=($!)
-
-    echo -n "[start.sh]   Waiting for smbd readiness"
-    for i in $(seq 1 10); do
-        if smbclient -L localhost -N >/dev/null 2>&1; then
-            echo " ready (${i}s)"
-            break
-        fi
-        echo -n "."
-        sleep 1
-        if [ "$i" -eq 10 ]; then
-            echo " TIMEOUT"
-            echo "[start.sh]   WARNING: smbd did not respond within 10s"
-        fi
-    done
-else
-    echo "[start.sh]   smbd not installed, skipping"
-fi
-
-# ── 8. Postfix ──────────────────────────────────────────────────────────────
-
-echo "[start.sh] Starting Postfix..."
-if command -v postfix >/dev/null 2>&1; then
-    postfix start > "${LOGDIR}/postfix.log" 2>&1 || true
-    echo "[start.sh]   Postfix started"
-else
-    echo "[start.sh]   postfix not installed, skipping"
-fi
-
-# ── 9. SSH ──────────────────────────────────────────────────────────────────
-
-echo "[start.sh] Starting SSH..."
-if command -v sshd >/dev/null 2>&1; then
-    /usr/sbin/sshd -E "${LOGDIR}/sshd.log" &
-    PIDS+=($!)
-    echo "[start.sh]   sshd started (PID $!)"
-else
-    echo "[start.sh]   sshd not installed, skipping"
-fi
-
-# ── Summary ─────────────────────────────────────────────────────────────────
 
 echo "============================================================"
-echo "[start.sh] All services started. PIDs: ${PIDS[*]}"
+echo "[start.sh] Services started for snapshot. PIDs: ${PIDS[*]:-none}"
 echo "[start.sh] Logs at: ${LOGDIR}/"
-echo "[start.sh] Starting uvicorn on port 8000..."
 echo "============================================================"
-
-# ── 10. exec uvicorn as PID 1 ──────────────────────────────────────────────
-
-cd /app/env
-exec python3 -m uvicorn open_range.server.app:app --host 0.0.0.0 --port 8000
