@@ -55,3 +55,4 @@ htmlcov/
 
 # Pre-validated range pool (generated at startup)
 pool/
+snapshots/

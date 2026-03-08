@@ -4,7 +4,7 @@
 
 **LLM generates, renderer materializes, rules validate.** The builder uses LiteLLM to generate candidate snapshot specs as structured JSON. The renderer turns specs into Docker artifacts via Jinja2 templates. The validator runs a 10-check admission pipeline (8 mechanical + 2 LLM advisory) before admitting a snapshot.
 
-Snapshot creation happens **asynchronously between episodes**. `reset()` picks a pre-validated frozen snapshot from the `SnapshotStore`. No LLM calls in the hot path.
+Snapshot creation happens **inside a shared `ManagedSnapshotRuntime` in the server process**. That runtime preloads admitted snapshots at startup and can optionally refill them between episodes. `reset()` picks a pre-validated frozen snapshot from the `SnapshotStore`. No LLM calls in the hot path.
 
 ```mermaid
 flowchart LR

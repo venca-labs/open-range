@@ -5,8 +5,4 @@ runtime: fastapi
 app: server.app:app
 port: 8000
 version: 0.1.0
-type: space
-runtime: fastapi
-app: open_range.server.app:app
-port: 8000
 description: "Multi-agent cybersecurity gymnasium built on OpenEnv"
