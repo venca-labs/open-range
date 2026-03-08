@@ -1276,6 +1276,62 @@ class RangeEnvironment(Environment[RangeAction, RangeObservation, RangeState]):
         )
         return self._container_name(name)
 
+    def _topology_host_names(self) -> list[str]:
+        """Return deduplicated host names from the active snapshot topology."""
+        if not self._snapshot or not isinstance(self._snapshot.topology, dict):
+            return []
+        hosts = self._snapshot.topology.get("hosts", [])
+        names: list[str] = []
+        for host in hosts:
+            if isinstance(host, str):
+                candidate = host
+            elif isinstance(host, dict):
+                candidate = host.get("name") or host.get("hostname") or ""
+            else:
+                candidate = ""
+            name = str(candidate).strip()
+            if name and name not in names:
+                names.append(name)
+        return names
+
+    def _refresh_services_status(self) -> None:
+        """Refresh ``state.services_status`` from runtime/container health.
+
+        Availability reward should never rely on an empty status map after reset.
+        When health cannot be verified, host status is marked ``"unknown"``.
+        """
+        host_names = self._topology_host_names()
+        if not host_names:
+            self._state.services_status = {}
+            return
+
+        status_map = {host: "unknown" for host in host_names}
+
+        if self._execution_mode == "docker" and self._docker_available is not False:
+            client = self._get_docker()
+            if client is not None:
+                for host in host_names:
+                    container_name = self._container_name(host)
+                    try:
+                        container = client.containers.get(container_name)
+                        status_map[host] = str(getattr(container, "status", "unknown") or "unknown")
+                    except Exception:
+                        status_map[host] = "down"
+                self._state.services_status = status_map
+                return
+
+        if self._execution_mode == "subprocess" and self._snapshot and self._snapshot.services:
+            checks_by_host: dict[str, list[bool]] = {}
+            for svc in self._snapshot.services:
+                host = str(getattr(svc, "host", "") or "").strip()
+                if not host:
+                    continue
+                checks_by_host.setdefault(host, []).append(self._probe_readiness(svc.readiness))
+            for host, checks in checks_by_host.items():
+                status_map[host] = "healthy" if checks and all(checks) else "degraded"
+
+        self._state.services_status = status_map
+
     # -----------------------------------------------------------------
     # Core API
     # -----------------------------------------------------------------
@@ -1353,6 +1409,9 @@ class RangeEnvironment(Environment[RangeAction, RangeObservation, RangeState]):
 
         # Start NPC traffic for this episode
         self._start_npcs(self._snapshot)
+
+        # Prime service health map for availability reward grounding.
+        self._refresh_services_status()
 
         # Build initial briefing
         task = self._snapshot.task
@@ -1439,6 +1498,7 @@ class RangeEnvironment(Environment[RangeAction, RangeObservation, RangeState]):
 
         if cmd_name in meta_handlers:
             obs = meta_handlers[cmd_name](action)
+            self._refresh_services_status()
             obs = self._apply_rewards(action, obs)
             self._check_termination(obs)
             self._report_if_done(obs)
@@ -1484,6 +1544,7 @@ class RangeEnvironment(Environment[RangeAction, RangeObservation, RangeState]):
 
         # Refresh NPC traffic log for reward computation
         self._refresh_npc_traffic_log()
+        self._refresh_services_status()
 
         # Build observation
         obs = RangeObservation(
@@ -1620,8 +1681,8 @@ class RangeEnvironment(Environment[RangeAction, RangeObservation, RangeState]):
 
         In production (docker or subprocess mode with real infrastructure),
         queries the SIEM container for actual log-based alerts. Falls back
-        to synthetic alerts derived from ALL Red actions when SIEM queries
-        return nothing or in unit-test mock mode.
+        to synthetic alerts derived from Red action history when SIEM queries
+        return nothing or in unit-test mock mode (capped to recent 20 lines).
         """
         # Try real SIEM query in non-mock modes
         if self._docker_available is not False or self._execution_mode == "subprocess":
@@ -1629,7 +1690,23 @@ class RangeEnvironment(Environment[RangeAction, RangeObservation, RangeState]):
             if siem_alerts:
                 return siem_alerts
 
-        return []
+        # Fallback: synthesize alerts from recent Red actions so Blue still
+        # receives actionable signal in mock/degraded SIEM paths.
+        synthetic: list[str] = []
+        for record in self._red_history:
+            if record.get("type") in ("hallucinated_flag", "evidence"):
+                continue
+            command = str(record.get("command", "")).strip()
+            if not command:
+                continue
+            step = record.get("step", "?")
+            cmd_name = str(record.get("cmd_name", "")).strip() or _extract_command_name(command)
+            target = str(record.get("target", "")).strip()
+            if target:
+                synthetic.append(f"[synthetic] step={step} cmd={cmd_name} target={target} :: {command}")
+            else:
+                synthetic.append(f"[synthetic] step={step} cmd={cmd_name} :: {command}")
+        return synthetic[-20:]
 
     # -----------------------------------------------------------------
     # Introspection (for reward computation and debugging)

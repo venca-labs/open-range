@@ -2,12 +2,31 @@
 
 from __future__ import annotations
 
+import inspect
 import logging
 import os
 
 from fastapi import FastAPI
 
 logger = logging.getLogger(__name__)
+
+
+def _extract_openenv_server(fastapp: FastAPI) -> object | None:
+    """Best-effort extraction of OpenEnv's HTTPEnvServer from route closure."""
+    for route in fastapp.router.routes:
+        if getattr(route, "path", None) != "/ws":
+            continue
+        endpoint = getattr(route, "endpoint", None)
+        if endpoint is None:
+            continue
+        try:
+            closure = inspect.getclosurevars(endpoint)
+        except Exception:
+            continue
+        server = closure.nonlocals.get("self")
+        if server is not None and hasattr(server, "active_sessions"):
+            return server
+    return None
 
 
 def create_app() -> FastAPI:
@@ -37,6 +56,9 @@ def create_app() -> FastAPI:
         RangeObservation,
         env_name="open_range",
     )
+    openenv_server = _extract_openenv_server(fastapp)
+    if openenv_server is not None:
+        fastapp.state.openenv_server = openenv_server
 
     # Mount custom Gradio dashboard at /web if gradio is available
     try:

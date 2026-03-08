@@ -2,6 +2,7 @@
 
 import json
 import tempfile
+from pathlib import Path
 
 import pytest
 
@@ -540,6 +541,52 @@ async def test_snapshot_store_list():
         ids = {m["snapshot_id"] for m in listing}
         assert "snap_a" in ids
         assert "snap_b" in ids
+
+
+@pytest.mark.asyncio
+async def test_snapshot_store_repairs_missing_metadata_from_spec():
+    from open_range.builder.snapshot_store import SnapshotStore
+
+    with tempfile.TemporaryDirectory() as tmpdir:
+        store = SnapshotStore(store_dir=tmpdir)
+        spec = SnapshotSpec(topology={"hosts": ["web"]})
+        await store.store(spec, snapshot_id="snap_a")
+
+        metadata_path = Path(tmpdir) / "snap_a" / "metadata.json"
+        metadata_path.unlink()
+
+        listing = await store.list_snapshots()
+        assert len(listing) == 1
+        assert listing[0]["snapshot_id"] == "snap_a"
+        assert metadata_path.exists()
+
+        selected = await store.select_entry(strategy="latest")
+        assert selected.snapshot_id == "snap_a"
+
+
+@pytest.mark.asyncio
+async def test_snapshot_store_ignores_orphan_metadata_without_spec():
+    from open_range.builder.snapshot_store import SnapshotStore
+
+    with tempfile.TemporaryDirectory() as tmpdir:
+        store = SnapshotStore(store_dir=tmpdir)
+        spec = SnapshotSpec(topology={"hosts": ["web"]})
+        await store.store(spec, snapshot_id="snap_real")
+
+        orphan_dir = Path(tmpdir) / "orphan_meta"
+        orphan_dir.mkdir(parents=True, exist_ok=True)
+        (orphan_dir / "metadata.json").write_text(
+            json.dumps({"snapshot_id": "orphan_meta", "stored_at": 9999999999}),
+            encoding="utf-8",
+        )
+
+        listing = await store.list_snapshots()
+        ids = {meta["snapshot_id"] for meta in listing}
+        assert ids == {"snap_real"}
+        assert await store.count_entries() == 1
+
+        selected = await store.select_entry(strategy="latest")
+        assert selected.snapshot_id == "snap_real"
 
 
 @pytest.mark.asyncio

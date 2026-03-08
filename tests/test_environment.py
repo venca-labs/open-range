@@ -66,6 +66,12 @@ class TestReset:
         assert isinstance(obs, RangeObservation)
         assert env.snapshot is not None
 
+    def test_reset_initializes_services_status_from_topology_hosts(self):
+        env = RangeEnvironment(docker_available=False)
+        env.reset(snapshot=_MINIMAL_SNAPSHOT)
+        # In mock mode service health is unknown, but hosts should be tracked.
+        assert set(env.state.services_status.keys()) == {"attacker", "siem"}
+
 
 class TestTargetResolution:
     """Target selection should honor manifest-compiled metadata."""
@@ -186,6 +192,14 @@ class TestBlueStep:
         env.reset(snapshot=_MINIMAL_SNAPSHOT)
         obs = env.step(RangeAction(command="", mode="blue"))
         assert obs.stderr != ""
+
+    def test_blue_alerts_fall_back_to_synthetic_red_history(self):
+        env = RangeEnvironment(docker_available=False)
+        env.reset(snapshot=_MINIMAL_SNAPSHOT)
+        env.step(RangeAction(command="nmap -sV web", mode="red"))
+        obs = env.step(RangeAction(command="tail -n 50 /var/log/siem/all.log", mode="blue"))
+        assert obs.alerts
+        assert any("synthetic" in alert.lower() for alert in obs.alerts)
 
     def test_step_passes_timeout_override_to_executor(self):
         env = RangeEnvironment(docker_available=False)

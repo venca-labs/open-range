@@ -68,6 +68,13 @@ _VALIDATOR_PROFILE_ALIASES = {
 }
 _LIVE_VALIDATOR_PROFILES = {"training"}
 _ALLOW_OFFLINE_ADMISSION_ENV = "OPENRANGE_ALLOW_OFFLINE_ADMISSION"
+_PERSISTED_SNAPSHOT_VALIDATION_ALIASES = {
+    "none": "trust",
+    "disabled": "trust",
+    "off": "trust",
+    "revalidate": "offline",
+    "strict": "offline",
+}
 
 
 def _env_flag(name: str, default: bool = False) -> bool:
@@ -320,6 +327,17 @@ def _normalize_validator_profile(profile: str | None) -> str:
     return normalized
 
 
+def _normalize_persisted_snapshot_validation(policy: str | None) -> str:
+    normalized = (policy or "offline").strip().lower()
+    normalized = _PERSISTED_SNAPSHOT_VALIDATION_ALIASES.get(normalized, normalized)
+    if normalized not in {"trust", "offline"}:
+        raise ValueError(
+            f"Unsupported persisted snapshot validation policy {policy!r}. "
+            "Expected 'trust' or 'offline'."
+        )
+    return normalized
+
+
 def _graph_checks(manifest: dict[str, Any]) -> list[Any]:
     return [
         ManifestComplianceCheck(manifest),
@@ -395,6 +413,7 @@ class ManagedSnapshotRuntime:
         compose_runner: ComposeProjectRunner | None = None,
         live_validator: ValidatorGate | None = None,
         enable_patch_validation: bool = False,
+        persisted_snapshot_validation: str | None = None,
         mutation_policy: PopulationMutationPolicy | None = None,
     ) -> None:
         self.manifest_path = (
@@ -418,7 +437,16 @@ class ManagedSnapshotRuntime:
             or os.getenv("OPENRANGE_RUNTIME_VALIDATOR_PROFILE", _DEFAULT_VALIDATOR_PROFILE)
         )
         self._enforce_validator_profile_policy()
+        self.persisted_snapshot_validation = _normalize_persisted_snapshot_validation(
+            persisted_snapshot_validation
+            or os.getenv("OPENRANGE_PERSISTED_SNAPSHOT_VALIDATION", "offline")
+        )
         self.validator = validator or _build_validator(self.validator_profile, self.manifest)
+        self.persisted_validator = (
+            _build_validator("offline", self.manifest)
+            if self.persisted_snapshot_validation == "offline"
+            else None
+        )
         self.renderer = SnapshotRenderer()
         self.curriculum = CurriculumTracker()
         self.pool_size = max(1, pool_size)
@@ -475,6 +503,10 @@ class ManagedSnapshotRuntime:
                 "OPENRANGE_ENABLE_PATCH_VALIDATION",
                 default=False,
             ),
+            persisted_snapshot_validation=os.getenv(
+                "OPENRANGE_PERSISTED_SNAPSHOT_VALIDATION",
+                "offline",
+            ),
         )
 
     def _enforce_validator_profile_policy(self) -> None:
@@ -516,6 +548,7 @@ class ManagedSnapshotRuntime:
             if existing < self.pool_size:
                 self._top_up_pool(self.pool_size - existing)
             self._ensure_existing_artifacts()
+            self._revalidate_persisted_snapshots()
 
             available = self.snapshot_count()
             if available == 0:
@@ -567,6 +600,7 @@ class ManagedSnapshotRuntime:
             if alternative is not None:
                 stored = alternative
 
+        self._assert_persisted_snapshot_valid(stored.snapshot_id, stored.snapshot)
         result = RuntimeSnapshot(snapshot_id=stored.snapshot_id, snapshot=stored.snapshot)
         self._track_acquisition(result.snapshot_id)
         return result
@@ -583,14 +617,15 @@ class ManagedSnapshotRuntime:
         if not recent_ids:
             return set()
 
-        all_meta = self.list_snapshots()
-        meta_by_id = {m.get("snapshot_id"): m for m in all_meta}
+        entries = _run_coro_sync(self.store.list_entries())
+        by_id = {entry.snapshot_id: entry for entry in entries}
         vuln_types: set[str] = set()
         for sid in recent_ids:
-            meta = meta_by_id.get(sid)
-            if meta:
-                vuln_types.update(meta.get("vuln_classes", []))
+            entry = by_id.get(sid)
+            if entry:
+                vuln_types.update(v.type for v in entry.snapshot.truth_graph.vulns)
         return vuln_types
+
     def _is_diverse(self, snapshot: SnapshotSpec) -> bool:
         """Return True if *snapshot* has at least one vuln type not in recent history."""
         recent = self._recent_vuln_types()
@@ -608,32 +643,29 @@ class ManagedSnapshotRuntime:
         """Try to find a snapshot in the store whose vulns don't fully overlap."""
         from open_range.builder.snapshot_store import StoredSnapshot
 
-        all_meta = self.list_snapshots()
+        entries = _run_coro_sync(self.store.list_entries())
         recent = self._recent_vuln_types()
 
-        for meta in all_meta:
-            sid = meta.get("snapshot_id", "")
+        for entry in entries:
+            sid = entry.snapshot_id
             if sid == exclude_id:
                 continue
-            candidate_vulns = set(meta.get("vuln_classes", []))
+            candidate_vulns = {v.type for v in entry.snapshot.truth_graph.vulns}
             if not candidate_vulns or not candidate_vulns.issubset(recent):
-                try:
-                    entry = _run_coro_sync(self.store.get_entry(sid))
-                    return entry
-                except Exception:  # noqa: BLE001
-                    continue
+                return entry
         return None
 
     def get_snapshot(self, snapshot_id: str) -> RuntimeSnapshot:
         self.start()
         stored = _run_coro_sync(self.store.get_entry(snapshot_id))
+        self._assert_persisted_snapshot_valid(stored.snapshot_id, stored.snapshot)
         return RuntimeSnapshot(snapshot_id=stored.snapshot_id, snapshot=stored.snapshot)
 
     def list_snapshots(self) -> list[dict[str, Any]]:
         return _run_coro_sync(self.store.list_snapshots())
 
     def snapshot_count(self) -> int:
-        return len(self.list_snapshots())
+        return int(_run_coro_sync(self.store.count_entries()))
 
     def status(self) -> dict[str, Any]:
         return {
@@ -644,6 +676,7 @@ class ManagedSnapshotRuntime:
             "parent_selection_strategy": self.parent_selection_strategy,
             "validator_profile": self.validator_profile,
             "allow_insecure_offline_profile": self.allow_insecure_offline_profile,
+            "persisted_snapshot_validation": self.persisted_snapshot_validation,
             "refill_enabled": self.refill_enabled,
             "live_admission_enabled": self.live_admission_enabled,
             "snapshot_count": self.snapshot_count(),
@@ -706,30 +739,33 @@ class ManagedSnapshotRuntime:
             self._generate_and_store_snapshot()
 
     def _ensure_existing_artifacts(self) -> None:
-        for meta in self.list_snapshots():
-            snapshot_id = str(meta.get("snapshot_id", ""))
-            if not snapshot_id:
-                continue
+        for stored in _run_coro_sync(self.store.list_entries()):
+            snapshot_id = stored.snapshot_id
             artifacts_dir = self._artifacts_dir(snapshot_id)
             if artifacts_dir.exists():
                 continue
-            stored = _run_coro_sync(self.store.get_entry(snapshot_id))
             materialized = self._materialize_snapshot(stored.snapshot, snapshot_id)
             _run_coro_sync(self.store.store(materialized, snapshot_id=snapshot_id))
 
+    def _revalidate_persisted_snapshots(self) -> None:
+        if self.persisted_snapshot_validation == "trust":
+            return
+        for entry in _run_coro_sync(self.store.list_entries()):
+            self._assert_persisted_snapshot_valid(entry.snapshot_id, entry.snapshot)
+
+    def _assert_persisted_snapshot_valid(self, snapshot_id: str, snapshot: SnapshotSpec) -> None:
+        if self.persisted_validator is None:
+            return
+        result = _run_coro_sync(self.persisted_validator.validate(snapshot, ContainerSet()))
+        if result.passed:
+            return
+        raise RuntimeError(
+            "persisted snapshot failed startup revalidation "
+            f"({snapshot_id}): {self._validation_error(result)}"
+        )
+
     def _generate_and_store_snapshot(self) -> str:
         last_error: str | None = None
-        parent_snapshot: SnapshotSpec | None = None
-        parent_snapshot_id: str | None = None
-        existing = self.list_snapshots()
-        if existing:
-            parent_snapshot_id = str(existing[0].get("snapshot_id", "") or "")
-            if parent_snapshot_id:
-                try:
-                    parent_snapshot = _run_coro_sync(self.store.get(parent_snapshot_id))
-                except FileNotFoundError:
-                    parent_snapshot = None
-                    parent_snapshot_id = None
 
         for attempt in range(1, self.generation_retries + 1):
             context = self._build_context()

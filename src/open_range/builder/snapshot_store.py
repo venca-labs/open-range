@@ -46,7 +46,6 @@ class SnapshotStore:
             The snapshot ID string.
         """
         if snapshot_id is None:
-            hosts = snapshot.topology.get("hosts", [])
             vuln_types = [v.type for v in snapshot.truth_graph.vulns]
             snapshot_id = (
                 f"snap_{'_'.join(vuln_types[:3])}"
@@ -63,21 +62,7 @@ class SnapshotStore:
         )
 
         # Write metadata sidecar for fast listing
-        meta = {
-            "snapshot_id": snapshot_id,
-            "vuln_classes": [v.type for v in snapshot.truth_graph.vulns],
-            "golden_path_steps": len(snapshot.golden_path),
-            "flag_count": len(snapshot.flags),
-            "npc_count": len(snapshot.npc_personas),
-            "has_compose": bool(snapshot.compose),
-            "has_payload_files": bool(snapshot.files),
-            "live_validated": bool(snapshot.topology.get("live_validated", False)),
-            "parent_snapshot_id": snapshot.lineage.parent_snapshot_id,
-            "root_snapshot_id": snapshot.lineage.root_snapshot_id,
-            "generation_depth": snapshot.lineage.generation_depth,
-            "mutation_summary": list(snapshot.lineage.mutation_summary),
-            "stored_at": time.time(),
-        }
+        meta = self._metadata_from_snapshot(snapshot_id, snapshot)
         meta_path = snap_dir / "metadata.json"
         meta_path.write_text(json.dumps(meta, indent=2), encoding="utf-8")
 
@@ -113,24 +98,26 @@ class SnapshotStore:
         else:  # latest -- sort by parent dir mtime
             chosen = max(spec_files, key=lambda p: p.stat().st_mtime)
 
-        raw = json.loads(chosen.read_text(encoding="utf-8"))
         return StoredSnapshot(
             snapshot_id=chosen.parent.name,
-            snapshot=SnapshotSpec.model_validate(raw),
+            snapshot=self._load_spec(chosen),
         )
 
     async def list_entries(self) -> list[StoredSnapshot]:
         """Return every stored snapshot plus its persisted ID."""
         entries: list[StoredSnapshot] = []
         for spec_path in sorted(self.store_dir.glob("*/spec.json")):
-            raw = json.loads(spec_path.read_text(encoding="utf-8"))
             entries.append(
                 StoredSnapshot(
                     snapshot_id=spec_path.parent.name,
-                    snapshot=SnapshotSpec.model_validate(raw),
+                    snapshot=self._load_spec(spec_path),
                 )
             )
         return entries
+
+    async def count_entries(self) -> int:
+        """Return canonical snapshot count based on persisted specs."""
+        return len(await self.list_entries())
 
     async def list_snapshots(self) -> list[dict[str, Any]]:
         """List all snapshots with their metadata.
@@ -138,13 +125,42 @@ class SnapshotStore:
         Returns:
             List of metadata dicts, sorted by stored_at descending.
         """
+        entries = await self.list_entries()
+        spec_ids = {entry.snapshot_id for entry in entries}
         results: list[dict[str, Any]] = []
-        for meta_path in self.store_dir.glob("*/metadata.json"):
+        for entry in entries:
+            meta_path = self.store_dir / entry.snapshot_id / "metadata.json"
+            existing_meta: dict[str, Any] | None = None
             try:
-                meta = json.loads(meta_path.read_text(encoding="utf-8"))
-                results.append(meta)
+                if meta_path.exists():
+                    loaded = json.loads(meta_path.read_text(encoding="utf-8"))
+                    if isinstance(loaded, dict):
+                        existing_meta = loaded
+                    else:
+                        logger.warning(
+                            "Repairing metadata sidecar with non-object payload: %s",
+                            meta_path,
+                        )
             except (json.JSONDecodeError, OSError) as exc:
-                logger.warning("Skipping corrupt metadata: %s (%s)", meta_path, exc)
+                logger.warning("Repairing corrupt metadata: %s (%s)", meta_path, exc)
+
+            stored_at = existing_meta.get("stored_at") if existing_meta else None
+            canonical = self._metadata_from_snapshot(
+                entry.snapshot_id,
+                entry.snapshot,
+                stored_at=stored_at if isinstance(stored_at, (int, float)) else None,
+            )
+            results.append(canonical)
+
+            if existing_meta != canonical:
+                try:
+                    meta_path.write_text(json.dumps(canonical, indent=2), encoding="utf-8")
+                except OSError as exc:
+                    logger.warning("Failed to repair metadata sidecar %s (%s)", meta_path, exc)
+
+        for meta_path in self.store_dir.glob("*/metadata.json"):
+            if meta_path.parent.name not in spec_ids:
+                logger.warning("Ignoring orphan metadata without spec.json: %s", meta_path)
 
         results.sort(key=lambda m: m.get("stored_at", 0), reverse=True)
         return results
@@ -158,8 +174,7 @@ class SnapshotStore:
         spec_path = self.store_dir / snapshot_id / "spec.json"
         if not spec_path.exists():
             raise FileNotFoundError(f"Snapshot not found: {snapshot_id}")
-        raw = json.loads(spec_path.read_text(encoding="utf-8"))
-        return SnapshotSpec.model_validate(raw)
+        return self._load_spec(spec_path)
 
     async def get_entry(self, snapshot_id: str) -> StoredSnapshot:
         """Load a specific snapshot plus its ID."""
@@ -167,3 +182,34 @@ class SnapshotStore:
             snapshot_id=snapshot_id,
             snapshot=await self.get(snapshot_id),
         )
+
+    @staticmethod
+    def _metadata_from_snapshot(
+        snapshot_id: str,
+        snapshot: SnapshotSpec,
+        *,
+        stored_at: float | None = None,
+    ) -> dict[str, Any]:
+        return {
+            "snapshot_id": snapshot_id,
+            "vuln_classes": [v.type for v in snapshot.truth_graph.vulns],
+            "golden_path_steps": len(snapshot.golden_path),
+            "flag_count": len(snapshot.flags),
+            "npc_count": len(snapshot.npc_personas),
+            "has_compose": bool(snapshot.compose),
+            "has_payload_files": bool(snapshot.files),
+            "live_validated": bool(snapshot.topology.get("live_validated", False)),
+            "parent_snapshot_id": snapshot.lineage.parent_snapshot_id,
+            "root_snapshot_id": snapshot.lineage.root_snapshot_id,
+            "generation_depth": snapshot.lineage.generation_depth,
+            "mutation_summary": list(snapshot.lineage.mutation_summary),
+            "stored_at": float(time.time() if stored_at is None else stored_at),
+        }
+
+    @staticmethod
+    def _load_spec(spec_path: Path) -> SnapshotSpec:
+        try:
+            raw = json.loads(spec_path.read_text(encoding="utf-8"))
+            return SnapshotSpec.model_validate(raw)
+        except Exception as exc:  # noqa: BLE001
+            raise ValueError(f"invalid snapshot spec at {spec_path}: {exc}") from exc

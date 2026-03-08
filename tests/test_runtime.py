@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 from pathlib import Path
 
 import pytest
@@ -119,6 +120,50 @@ class TestManagedSnapshotRuntime:
             assert all(item["snapshot_id"] for item in listing)
         finally:
             runtime.stop()
+
+    def test_start_revalidates_persisted_snapshots_by_default(self, tier1_manifest, tmp_path):
+        store_dir = tmp_path / "snapshots"
+
+        runtime = ManagedSnapshotRuntime(
+            manifest=tier1_manifest,
+            store_dir=store_dir,
+            validator_profile="offline",
+            allow_insecure_offline_profile=True,
+            pool_size=1,
+            refill_enabled=False,
+        )
+        runtime.start()
+        runtime.stop()
+
+        spec_path = next(store_dir.glob("*/spec.json"))
+        raw = json.loads(spec_path.read_text(encoding="utf-8"))
+        raw["truth_graph"]["vulns"] = []
+        raw["golden_path"] = []
+        raw["flags"] = []
+        spec_path.write_text(json.dumps(raw, indent=2), encoding="utf-8")
+
+        runtime = ManagedSnapshotRuntime(
+            manifest=tier1_manifest,
+            store_dir=store_dir,
+            validator_profile="offline",
+            allow_insecure_offline_profile=True,
+            pool_size=1,
+            refill_enabled=False,
+        )
+        with pytest.raises(RuntimeError, match="persisted snapshot failed startup revalidation"):
+            runtime.start()
+
+        trust_runtime = ManagedSnapshotRuntime(
+            manifest=tier1_manifest,
+            store_dir=store_dir,
+            validator_profile="offline",
+            allow_insecure_offline_profile=True,
+            pool_size=1,
+            refill_enabled=False,
+            persisted_snapshot_validation="trust",
+        )
+        trust_runtime.start()
+        trust_runtime.stop()
 
     def test_start_materializes_rendered_artifacts(self, tier1_manifest, tmp_path):
         runtime = ManagedSnapshotRuntime(

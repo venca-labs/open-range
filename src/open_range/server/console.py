@@ -47,10 +47,20 @@ def get_history(limit: int = 20) -> list[dict[str, Any]]:
 @console_router.get("/api/snapshot")
 async def api_snapshot(request: Request) -> JSONResponse:
     """Return current snapshot metadata (no truth graph or flags)."""
-    env = _get_env(request)
+    ctx = _get_env_context(request)
+    env = ctx["env"]
     snapshot = env.snapshot
     if snapshot is None:
-        return JSONResponse({"id": None, "tier": None, "hosts": [], "zones": {}, "vuln_count": 0})
+        return JSONResponse({
+            "id": None,
+            "tier": None,
+            "hosts": [],
+            "zones": {},
+            "vuln_count": 0,
+            "state_scope": ctx["state_scope"],
+            "session_id": ctx["session_id"],
+            "warning": ctx["warning"],
+        })
 
     topo = snapshot.topology if isinstance(snapshot.topology, dict) else {}
     hosts = topo.get("hosts", [])
@@ -64,19 +74,26 @@ async def api_snapshot(request: Request) -> JSONResponse:
         "hosts": hosts,
         "zones": zones,
         "vuln_count": vuln_count,
+        "state_scope": ctx["state_scope"],
+        "session_id": ctx["session_id"],
+        "warning": ctx["warning"],
     })
 
 
 @console_router.get("/api/episode")
 async def api_episode(request: Request) -> JSONResponse:
     """Return current episode state."""
-    env = _get_env(request)
+    ctx = _get_env_context(request)
+    env = ctx["env"]
     state = env.state
     return JSONResponse({
         "step_count": state.step_count,
         "flags_found": len(state.flags_found),
         "mode": state.mode,
         "services_status": state.services_status,
+        "state_scope": ctx["state_scope"],
+        "session_id": ctx["session_id"],
+        "warning": ctx["warning"],
     })
 
 
@@ -98,20 +115,70 @@ async def console_page() -> HTMLResponse:
 # ---------------------------------------------------------------------------
 
 
-def _get_env(request: Request) -> Any:
-    """Retrieve the RangeEnvironment from the app's state.
+def _get_env_context(request: Request) -> dict[str, Any]:
+    """Resolve the environment context used by the console endpoints.
 
-    The app.py startup stores the environment instance as ``app.state.env``.
-    If that attribute is missing we fall back to importing a fresh one.
+    Priority:
+    1. Active OpenEnv WebSocket session environment (session-scoped truth)
+    2. ``app.state.env`` fallback environment (global app scope)
+    3. Lazily created fallback environment (tests/dev)
     """
     app = request.app
+
+    server = getattr(app.state, "openenv_server", None)
+    sessions = getattr(server, "_sessions", None)
+    if isinstance(sessions, dict) and sessions:
+        if len(sessions) == 1:
+            session_id, env = next(iter(sessions.items()))
+            return {
+                "env": env,
+                "state_scope": "websocket_session",
+                "session_id": session_id,
+                "warning": None,
+            }
+
+        session_info = getattr(server, "_session_info", {})
+        selected_id = max(
+            sessions.keys(),
+            key=lambda sid: float(getattr(session_info.get(sid), "last_activity_at", 0.0) or 0.0),
+        )
+        return {
+            "env": sessions[selected_id],
+            "state_scope": "websocket_session",
+            "session_id": selected_id,
+            "warning": (
+                f"{len(sessions)} active sessions detected; "
+                f"showing the most recently active session ({selected_id})."
+            ),
+        }
+
     if hasattr(app.state, "env"):
-        return app.state.env
-    # Fallback: create an ephemeral environment (tests, etc.)
+        return {
+            "env": app.state.env,
+            "state_scope": "app_state_env",
+            "session_id": None,
+            "warning": (
+                "No active WebSocket session found; console is showing shared "
+                "app-state environment data."
+            ),
+        }
+
+    # Fallback: create an ephemeral environment (tests/dev)
     from open_range.server.environment import RangeEnvironment
+
     if not hasattr(app.state, "_fallback_env"):
         app.state._fallback_env = RangeEnvironment(docker_available=False)
-    return app.state._fallback_env
+    return {
+        "env": app.state._fallback_env,
+        "state_scope": "fallback_env",
+        "session_id": None,
+        "warning": "Console is using a fallback environment (no server session available).",
+    }
+
+
+def _get_env(request: Request) -> Any:
+    """Compatibility helper for callers that only need the env object."""
+    return _get_env_context(request)["env"]
 
 
 # ---------------------------------------------------------------------------
