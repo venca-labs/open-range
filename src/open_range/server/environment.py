@@ -573,24 +573,6 @@ class RangeEnvironment(Environment[RangeAction, RangeObservation, RangeState]):
         The snapshot's ``services`` list is normally populated by the renderer.
         Snapshots without explicit service specs skip subprocess provisioning.
         """
-        # Debug trace
-        import sys
-        svc_count = len(snapshot.services) if snapshot.services else 0
-        print(f"[OPENRANGE_DEBUG] _start_snapshot_services: "
-              f"mode={self._execution_mode} services={svc_count}",
-              file=sys.stderr, flush=True)
-        _dbg = "/tmp/openrange_svc_debug.log"
-        try:
-            with open(_dbg, "a") as f:
-                f.write(
-                    f"[{time.time():.3f}] _start_snapshot_services: "
-                    f"mode={self._execution_mode} "
-                    f"services={svc_count}\n"
-                )
-                f.flush()
-        except Exception:
-            pass
-
         if self._execution_mode != "subprocess":
             return
 
@@ -630,18 +612,6 @@ class RangeEnvironment(Environment[RangeAction, RangeObservation, RangeState]):
         """Run init commands, start daemon, wait for readiness."""
         logger.info("Starting service: %s (host=%s)", svc.daemon, svc.host)
 
-        # Debug file for diagnosing service startup issues
-        _dbg = "/tmp/openrange_svc_debug.log"
-
-        def _dbg_write(msg: str) -> None:
-            try:
-                with open(_dbg, "a") as f:
-                    f.write(f"[{time.time():.3f}] {msg}\n")
-            except Exception:
-                pass
-
-        _dbg_write(f"=== START {svc.daemon} (host={svc.host}) ===")
-
         # Set env vars
         env = os.environ.copy()
         env.update(svc.env_vars)
@@ -672,10 +642,6 @@ class RangeEnvironment(Environment[RangeAction, RangeObservation, RangeState]):
             else svc.start_command
         )
 
-        _dbg_write(f"  log_dir={log_dir}")
-        _dbg_write(f"  init_commands={init_commands}")
-        _dbg_write(f"  start_command={start_command}")
-
         # Run init commands synchronously (blocking, no session isolation needed)
         for cmd in init_commands:
             try:
@@ -687,15 +653,12 @@ class RangeEnvironment(Environment[RangeAction, RangeObservation, RangeState]):
                     env=env,
                     check=False,
                 )
-                _dbg_write(f"  init rc={result.returncode} cmd={cmd[:80]}")
                 if result.returncode != 0 and result.stderr:
-                    _dbg_write(f"  init stderr: {result.stderr[:200]}")
                     logger.debug(
                         "Init cmd stderr for %s: %s",
                         svc.daemon, result.stderr[:200],
                     )
             except Exception as exc:
-                _dbg_write(f"  init EXCEPTION: {exc}")
                 logger.warning("Init command failed for %s: %s", svc.daemon, exc)
 
         # Start the daemon using Popen with DEVNULL file descriptors.
@@ -707,8 +670,6 @@ class RangeEnvironment(Environment[RangeAction, RangeObservation, RangeState]):
         if not effective_cmd.rstrip().endswith("&"):
             effective_cmd = f"({effective_cmd}) &"
 
-        _dbg_write(f"  effective_cmd={effective_cmd}")
-
         try:
             proc = sp.Popen(
                 ["bash", "-c", effective_cmd],
@@ -718,38 +679,24 @@ class RangeEnvironment(Environment[RangeAction, RangeObservation, RangeState]):
                 env=env,
                 start_new_session=True,
             )
-            _dbg_write(f"  Popen pid={proc.pid}")
             # Wait for bash to exit (it backgrounds the daemon and exits
             # immediately).  The zombie reaper handles cleanup if we lose
             # the race.
             try:
-                rc = proc.wait(timeout=5)
-                _dbg_write(f"  bash exited rc={rc}")
+                proc.wait(timeout=5)
             except sp.TimeoutExpired:
-                _dbg_write("  bash wait TIMEOUT")
+                pass
             except ChildProcessError:
-                _dbg_write("  bash wait ChildProcessError (reaped by SIGCHLD)")
+                pass
         except Exception as exc:
-            _dbg_write(f"  Popen EXCEPTION: {exc}")
             logger.warning("Start command failed for %s: %s", svc.daemon, exc)
             return
 
         # Brief pause to let the daemon initialize before probing readiness
         time.sleep(0.5)
 
-        # Check if daemon is running after pause
-        try:
-            pgrep = sp.run(
-                ["pgrep", "-x", svc.daemon.split("/")[-1].split()[0]],
-                capture_output=True, timeout=3, text=True, check=False,
-            )
-            _dbg_write(f"  pgrep after start: rc={pgrep.returncode} pids={pgrep.stdout.strip()}")
-        except Exception:
-            _dbg_write("  pgrep failed")
-
         # Wait for readiness
         self._wait_for_readiness(svc)
-        _dbg_write(f"  readiness check done for {svc.daemon}")
 
     def _wait_for_readiness(self, svc: ServiceSpec) -> None:
         """Poll the readiness check until success or timeout."""
@@ -1428,18 +1375,6 @@ class RangeEnvironment(Environment[RangeAction, RangeObservation, RangeState]):
         Returns:
             Initial RangeObservation with the challenge briefing.
         """
-        # Debug trace for service startup investigation
-        import sys
-        print(f"[OPENRANGE_DEBUG] reset() called, mode={self._execution_mode}, "
-              f"runtime={self._runtime is not None}", file=sys.stderr, flush=True)
-        _dbg = "/tmp/openrange_svc_debug.log"
-        try:
-            with open(_dbg, "a") as f:
-                f.write(f"[{time.time():.3f}] reset() called, mode={self._execution_mode}\n")
-                f.flush()
-        except Exception as e:
-            print(f"[OPENRANGE_DEBUG] debug file write failed: {e}", file=sys.stderr, flush=True)
-
         self._report_episode_result(completed=False)
         self._stop_npcs()
         self._teardown_active_project()
@@ -1821,10 +1756,17 @@ class RangeEnvironment(Environment[RangeAction, RangeObservation, RangeState]):
         return list(self._npc_traffic_log)
 
     def close(self) -> None:
-        """Release resources (Docker client, NPC manager, episode state)."""
+        """Release resources (Docker client, NPC manager, episode state).
+
+        In subprocess mode, services are global system processes shared across
+        env instances.  They are managed by reset() (episode lifecycle), not by
+        close() — the stateless HTTP handler creates and closes an env per
+        request, and killing services here would undo the work done in reset().
+        """
         self._report_episode_result(completed=False)
         self._stop_npcs()
-        self._stop_services()
+        if self._execution_mode != "subprocess":
+            self._stop_services()
         self._teardown_active_project()
         if self._docker_client is not None:
             try:
