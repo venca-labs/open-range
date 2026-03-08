@@ -424,7 +424,7 @@ credential_policy:
   shared_accounts:
     - account: admin
       host: web
-      description: "Shared by IT team (dthompson, rkim) for emergency access to the web server"
+      description: "Shared by IT team (dthompson, rchen) for emergency access to the web server"
   service_accounts:
     - account: svc_backup
       host: db
@@ -480,27 +480,27 @@ trust_relationships:
       Derek set up Karen's workstation and knows her login credentials.
       He occasionally logs in as Karen to troubleshoot billing portal issues.
 
-  - from: schen
-    to: lpark
+  - from: apatel
+    to: bmorris
     type: reports_to
     description: >-
-      Lisa (office manager) handles Sarah's (medical director) calendar and
-      email when Sarah is in clinic.  Lisa has delegated access to Sarah's
+      Anita (office manager) handles Brian's (CEO) calendar and
+      email when Brian is traveling.  Anita has delegated access to Brian's
       mailbox.
 
-  - from: jrodriguez
+  - from: ldunn
     to: dthompson
     type: trusts_email
     description: >-
-      Julia (compliance) always asks Derek for access changes via email and
-      never verifies requests by phone.  A spoofed email from Julia would
+      Linda (compliance officer) always asks Derek for access changes via email
+      and never verifies requests by phone.  A spoofed email from Linda would
       likely be actioned without question.
 
-  - from: rkim
+  - from: rchen
     to: dthompson
     type: shares_credentials
     description: >-
-      Ryan (security contractor) and Derek share the 'admin' account on the
+      Rachel (security contractor) and Derek share the 'admin' account on the
       web server.  Neither can distinguish the other's sessions in logs.
 
 # ---------------------------------------------------------------------------

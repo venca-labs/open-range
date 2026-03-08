@@ -188,9 +188,10 @@ async def test_mutator_compiles_root_snapshot_from_manifest_graph(tier1_manifest
     assert topology["dependency_edges"]
     assert topology["trust_edges"]
     assert "principal_catalog" in topology
-    assert "schen" in topology["principal_catalog"]
-    assert "schen" not in {user["username"] for user in topology["users"]}
-    assert topology["manifest_normalization"]["trust_only_principals"]
+    # After fixing tier1_basic.yaml, all trust_relationships reference
+    # users that exist in the users section, so there should be no
+    # trust-only principals.
+    assert not topology["manifest_normalization"]["trust_only_principals"]
 
 
 @pytest.mark.asyncio

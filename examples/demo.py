@@ -30,8 +30,8 @@ from open_range.protocols import (
     TruthGraph,
     Vulnerability,
 )
+from open_range.models import RangeAction, RangeObservation
 from open_range.server.environment import RangeEnvironment
-from open_range.server.models import RangeAction, RangeObservation
 from open_range.training.trajectory import TrajectoryLogger
 
 

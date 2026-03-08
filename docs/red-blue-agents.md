@@ -113,7 +113,7 @@ The **orchestration layer** (not the agent) controls `reset()` and episode lifec
 
 ```python
 from open_range.agents.protocol import EpisodeMetrics, EpisodeResult
-from open_range.server.models import RangeAction
+from open_range.models import RangeAction
 
 def run_episode(
     env: object,

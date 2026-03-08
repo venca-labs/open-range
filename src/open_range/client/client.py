@@ -1,46 +1,51 @@
-"""Typed OpenEnv client for OpenRange.
-
-Falls back to lightweight stubs if openenv is not installed.
-"""
+"""Typed OpenEnv client for OpenRange."""
 
 from __future__ import annotations
 
-from typing import Any, Generic, TypeVar
+from typing import Any
 
-try:
-    from openenv.core.client_types import StepResult
-    from openenv.core.env_client import EnvClient
-except ImportError:
-    from dataclasses import dataclass, field
+from openenv.core.client_types import StepResult
+from openenv.core.env_client import EnvClient
 
-    _A = TypeVar("_A")
-    _O = TypeVar("_O")
-    _S = TypeVar("_S")
+from open_range.models import RangeAction, RangeObservation, RangeState
 
-    @dataclass
-    class StepResult(Generic[_O]):  # type: ignore[no-redef]
-        """Minimal stub matching openenv.core.client_types.StepResult."""
 
-        observation: Any = None
-        reward: float | int | None = None
-        done: bool = False
-        metadata: dict[str, Any] = field(default_factory=dict)
+class _SyncOpenRangeEnv:
+    """Synchronous wrapper matching the documented OpenEnv .sync() pattern."""
 
-    class EnvClient(Generic[_A, _O, _S]):  # type: ignore[no-redef]
-        """Minimal stub matching openenv.core.env_client.EnvClient."""
+    def __init__(self, client: "OpenRangeEnv") -> None:
+        self._client = client
 
-        def __init__(self, *args: Any, **kwargs: Any) -> None:
-            pass
+    def __enter__(self) -> "_SyncOpenRangeEnv":
+        return self
 
-from open_range.server.models import RangeAction, RangeObservation, RangeState
+    def __exit__(self, exc_type: Any, exc_val: Any, exc_tb: Any) -> None:
+        self.close()
+
+    def close(self) -> None:
+        close = getattr(self._client, "close", None)
+        if callable(close):
+            close()
+
+    def reset(self, **kwargs: Any) -> StepResult[RangeObservation]:
+        return self._client.reset(**kwargs)
+
+    def step(self, action: RangeAction, **kwargs: Any) -> StepResult[RangeObservation]:
+        return self._client.step(action, **kwargs)
+
+    def state(self) -> RangeState:
+        return self._client.state()
 
 
 class OpenRangeEnv(EnvClient[RangeAction, RangeObservation, RangeState]):
     """Typed OpenEnv client that speaks the standard reset/step/state contract."""
 
-    def sync(self) -> "OpenRangeEnv":
-        """Compatibility wrapper matching the documented OpenEnv sync pattern."""
-        return self
+    def sync(self) -> Any:
+        """Return the native sync wrapper when available, else a thin proxy."""
+        base_sync = getattr(super(), "sync", None)
+        if callable(base_sync):
+            return base_sync()
+        return _SyncOpenRangeEnv(self)
 
     def _step_payload(self, action: RangeAction) -> dict:
         return {"command": action.command, "mode": action.mode}

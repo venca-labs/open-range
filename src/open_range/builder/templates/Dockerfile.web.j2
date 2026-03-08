@@ -20,8 +20,8 @@ RUN mkdir /var/run/sshd && \
 
 # Create app users
 {% for user in users %}
-RUN useradd -m -s /bin/bash {{ user.username }} && \
-    echo '{{ user.username }}:{{ user.password }}' | chpasswd
+RUN useradd -m -s /bin/bash {{ user.username | shell_quote }} && \
+    echo {{ (user.username ~ ':' ~ user.password) | shell_quote }} | chpasswd
 {% endfor %}
 
 # Copy nginx config
@@ -33,8 +33,8 @@ RUN mkdir -p /var/www/portal/admin /var/www/portal/api /var/www/portal/reports
 # Create flag files (if any are on this host)
 {% for flag in flags %}
 {% if flag.host == 'web' and '/' in flag.path %}
-RUN mkdir -p $(dirname {{ flag.path }}) && \
-    echo '{{ flag.value }}' > {{ flag.path }}
+RUN mkdir -p $(dirname {{ flag.path | shell_quote }}) && \
+    echo {{ flag.value | shell_quote }} > {{ flag.path | shell_quote }}
 {% endif %}
 {% endfor %}
 

@@ -6,10 +6,10 @@
 # NOT called at container boot — the Dockerfile starts only uvicorn.
 #
 # Usage:  start.sh <snapshot_dir>
-#   snapshot_dir must contain a spec.json with a topology.hosts list.
-#   Each host name maps to a known service (nginx, mysql, slapd, etc.).
+#   snapshot_dir must contain a spec.json.
 #
-# Services are started based on what the snapshot requires, not hardcoded.
+# If spec.json contains a "services" list (ServiceSpec entries), those are
+# started generically.  Otherwise falls back to legacy host-name mapping.
 # =============================================================================
 
 set -uo pipefail
@@ -34,7 +34,7 @@ cleanup() {
 # service lifecycle via _stop_services() / _start_snapshot_services().
 trap cleanup INT TERM
 
-# ── Parse snapshot topology ───────────────────────────────────────────────────
+# ── Parse snapshot ────────────────────────────────────────────────────────────
 
 mkdir -p "${CONSOLIDATED}"
 
@@ -42,6 +42,107 @@ if [ ! -f "${SNAPSHOT_DIR}/spec.json" ]; then
     echo "[start.sh] ERROR: No spec.json found in ${SNAPSHOT_DIR}"
     exit 1
 fi
+
+# ── Check for declarative services list ───────────────────────────────────────
+# If spec.json contains "services" entries (ServiceSpec), start them generically
+# via Python. This is the modern path populated by the Renderer.
+
+HAS_SERVICES=$(python3 -c "
+import json
+with open('${SNAPSHOT_DIR}/spec.json') as f:
+    spec = json.load(f)
+svcs = spec.get('services', [])
+print(len(svcs))
+" 2>/dev/null || echo "0")
+
+if [ "$HAS_SERVICES" -gt 0 ] 2>/dev/null; then
+    echo "[start.sh] Found $HAS_SERVICES declared service(s) — using spec-driven startup"
+
+    python3 -c "
+import json, subprocess, sys, time, os, socket
+
+with open('${SNAPSHOT_DIR}/spec.json') as f:
+    spec = json.load(f)
+
+pids = []
+for svc in spec.get('services', []):
+    daemon = svc.get('daemon', '')
+    host = svc.get('host', '')
+    print(f'[start.sh] Starting service: {daemon} (host={host})')
+
+    env = os.environ.copy()
+    env.update(svc.get('env_vars', {}))
+
+    log_dir = svc.get('log_dir', '')
+    if log_dir:
+        os.makedirs(log_dir, exist_ok=True)
+
+    # Init commands
+    for cmd in svc.get('init_commands', []):
+        try:
+            subprocess.run(['bash', '-c', cmd], capture_output=True, timeout=30, env=env)
+        except Exception as e:
+            print(f'[start.sh]   init warning: {e}', file=sys.stderr)
+
+    # Start command
+    start_cmd = svc.get('start_command', '')
+    if start_cmd:
+        try:
+            subprocess.run(['bash', '-c', start_cmd], capture_output=True, timeout=30, env=env)
+        except Exception as e:
+            print(f'[start.sh]   start warning: {e}', file=sys.stderr)
+
+    # Readiness
+    readiness = svc.get('readiness', {})
+    rtype = readiness.get('type', 'tcp')
+    timeout_s = readiness.get('timeout_s', 30)
+    interval_s = readiness.get('interval_s', 1.0)
+    port = readiness.get('port', 0)
+    url = readiness.get('url', '')
+    command = readiness.get('command', '')
+
+    if (rtype == 'tcp' and port == 0 and not url and not command):
+        print(f'[start.sh]   {daemon}: started (no readiness check)')
+        continue
+
+    max_attempts = int(timeout_s / max(interval_s, 0.1))
+    ready = False
+    for attempt in range(max_attempts):
+        try:
+            if rtype == 'tcp' and port > 0:
+                s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+                s.settimeout(2)
+                s.connect(('127.0.0.1', port))
+                s.close()
+                ready = True
+            elif rtype == 'http' and url:
+                r = subprocess.run(['curl', '-sf', url], capture_output=True, timeout=3)
+                ready = (r.returncode == 0)
+            elif rtype == 'command' and command:
+                r = subprocess.run(['bash', '-c', command], capture_output=True, timeout=5)
+                ready = (r.returncode == 0)
+        except Exception:
+            pass
+        if ready:
+            print(f'[start.sh]   {daemon}: ready ({attempt + 1}s)')
+            break
+        time.sleep(interval_s)
+    else:
+        if not ready:
+            print(f'[start.sh]   {daemon}: readiness timeout after {timeout_s}s')
+"
+
+    echo "============================================================"
+    echo "[start.sh] Spec-driven services started."
+    echo "[start.sh] Logs at: ${LOGDIR}/"
+    echo "============================================================"
+    exit 0
+fi
+
+# ── Legacy fallback: host-name-based service mapping ──────────────────────────
+# Used when spec.json has no "services" list (old snapshots).
+
+echo "[start.sh] No declared services — falling back to legacy host mapping"
 
 # Extract host list from topology
 HOSTS=$(python3 -c "

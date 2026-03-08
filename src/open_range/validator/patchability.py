@@ -97,16 +97,20 @@ class PatchabilityCheck:
         tested_count = 0
 
         for vuln in vulns:
-            # --- Skip if no remediation defined ---
-            if not vuln.remediation:
-                results.append({"vuln": vuln.id, "skipped": "no remediation defined"})
+            # --- Fail if no remediation defined ---
+            if not vuln.remediation or not vuln.remediation.strip():
+                msg = "no remediation defined"
+                logger.warning("patchability: vuln %s has %s — counting as failure", vuln.id, msg)
+                results.append({"vuln": vuln.id, "passed": False, "reason": msg})
+                all_ok = False
                 continue
 
-            # --- Skip non-executable remediation (prose) ---
+            # --- Fail non-executable remediation (prose) ---
             if not _looks_executable(vuln.remediation):
                 msg = f"remediation is not executable: {vuln.remediation!r}"
-                logger.warning("patchability: skipping vuln %s — %s", vuln.id, msg)
-                results.append({"vuln": vuln.id, "skipped": msg})
+                logger.warning("patchability: vuln %s — %s — counting as failure", vuln.id, msg)
+                results.append({"vuln": vuln.id, "passed": False, "reason": msg})
+                all_ok = False
                 continue
 
             # Find the golden-path step(s) that exercise this vuln.

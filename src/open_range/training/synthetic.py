@@ -22,7 +22,7 @@ from open_range.agents.replay_agent import ScriptedBlueAgent, ScriptedRedAgent
 from open_range.builder.builder import LLMSnapshotBuilder, TemplateOnlyBuilder
 from open_range.protocols import BuildContext, SnapshotBuilder, SnapshotSpec, Vulnerability
 from open_range.server.environment import RangeEnvironment
-from open_range.server.models import RangeAction, RangeObservation
+from open_range.models import RangeAction, RangeObservation
 from open_range.training.trajectory import TrajectoryLogger
 
 logger = logging.getLogger(__name__)

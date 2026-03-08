@@ -102,7 +102,7 @@ def run_episode(
     Returns:
         ``EpisodeResult`` with trajectories, metrics, and outcome.
     """
-    from open_range.server.models import RangeAction
+    from open_range.models import RangeAction
 
     # Reset environment
     obs = env.reset()

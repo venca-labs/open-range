@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import shlex
+
 from open_range.protocols import CheckResult, ContainerSet, SnapshotSpec
 
 
@@ -30,16 +32,17 @@ class EvidenceCheck:
                 host, path = "siem", loc
 
             try:
+                safe_path = shlex.quote(path)
                 if item.type in ("log_entry", "alert"):
                     # grep for pattern in the file
-                    cmd = f"grep -c '{pattern}' {path}" if pattern else f"test -f {path} && echo ok"
+                    cmd = f"grep -c {shlex.quote(pattern)} {safe_path}" if pattern else f"test -f {safe_path} && echo ok"
                     output = await containers.exec(host, cmd)
                     # grep -c returns "0" if no matches — that means missing
                     if pattern and output.strip() in ("0", ""):
                         missing.append({"item": item.type, "location": loc, "pattern": pattern})
                 else:
                     # file existence check
-                    output = await containers.exec(host, f"test -f {path} && echo exists")
+                    output = await containers.exec(host, f"test -f {safe_path} && echo exists")
                     if "exists" not in output:
                         missing.append({"item": item.type, "location": loc})
             except Exception as exc:  # noqa: BLE001

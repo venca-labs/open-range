@@ -19,7 +19,7 @@ from typing import Any
 
 from open_range.protocols import SnapshotSpec
 
-from open_range.server.models import RangeAction, RangeObservation, RangeState
+from open_range.models import RangeAction, RangeObservation, RangeState
 
 logger = logging.getLogger(__name__)
 
@@ -186,8 +186,13 @@ class CompositeRedReward:
         npc_compromised: bool = False,
         hallucinated_count: int = 0,
         tier: int = 1,
+        valid_flags: set[str] | None = None,
+        snapshot: SnapshotSpec | None = None,
     ) -> float:
-        valid_flags: set[str] = set()  # caller should supply if known
+        if valid_flags is None and snapshot is not None:
+            valid_flags = {f.value for f in snapshot.flags}
+        if valid_flags is None:
+            valid_flags = set()
         total = 0.0
         if submitted_flag is not None:
             total += self.weights["flag"] * self.flag.score(submitted_flag, valid_flags)
@@ -237,10 +242,12 @@ class CompositeRedReward:
         # Evidence
         evidence_entries = [r for r in red_history if r.get("type") == "evidence"]
         evidence_content = evidence_entries[-1].get("content", "") if evidence_entries else ""
-        topo_hosts = {
-            h.get("name", "") if isinstance(h, dict) else ""
-            for h in snapshot.topology.get("hosts", [])
-        }
+        topo_hosts: set[str] = set()
+        if isinstance(snapshot.topology, dict):
+            topo_hosts = {
+                h.get("name", "") if isinstance(h, dict) else ""
+                for h in snapshot.topology.get("hosts", [])
+            }
         evidence_score = self.evidence.score(evidence_content, topo_hosts)
 
         # Social engineering -- reactive NPC actions from send_phish or

@@ -161,7 +161,7 @@ Difficulty grows horizontally — more hosts, zones, and chained attack surface.
 | GET | `/state` | Current episode state |
 | WS | `/ws` | WebSocket session |
 
-Compatible with `openenv` when installed; standalone FastAPI fallback otherwise.
+Built directly on the OpenEnv HTTP/WebSocket contract.
 
 ## Docs
 

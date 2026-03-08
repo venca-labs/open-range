@@ -24,9 +24,9 @@ DEFAULT_CHECKS: list[dict[str, Any]] = [
     {"class": "open_range.validator.build_boot.BuildBootCheck"},
     {"class": "open_range.validator.exploitability.ExploitabilityCheck"},
     {"class": "open_range.validator.patchability.PatchabilityCheck"},
-    {"class": "open_range.validator.evidence.EvidenceSufficiencyCheck"},
+    {"class": "open_range.validator.evidence.EvidenceCheck"},
     {"class": "open_range.validator.reward_grounding.RewardGroundingCheck"},
-    {"class": "open_range.validator.isolation.IsolationLeakageCheck"},
+    {"class": "open_range.validator.isolation.IsolationCheck"},
 ]
 
 

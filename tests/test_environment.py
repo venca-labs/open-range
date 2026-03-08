@@ -13,6 +13,14 @@ from open_range.protocols import (
 from open_range.server.environment import RangeEnvironment, _extract_command_name
 from open_range.server.models import RangeAction, RangeObservation, RangeState
 
+# Minimal snapshot for tests that just need reset() to work
+_MINIMAL_SNAPSHOT = SnapshotSpec(
+    topology={"hosts": ["attacker", "siem"]},
+    flags=[],
+    golden_path=[],
+    task=TaskSpec(red_briefing="Test mode.", blue_briefing="Test mode."),
+)
+
 
 class TestCommandExtraction:
     """Helper: extracting base command name from full command strings."""
@@ -35,21 +43,21 @@ class TestReset:
 
     def test_reset_returns_observation(self):
         env = RangeEnvironment(docker_available=False)
-        obs = env.reset()
+        obs = env.reset(snapshot=_MINIMAL_SNAPSHOT)
         assert isinstance(obs, RangeObservation)
         assert "Range ready" in obs.stdout
 
     def test_reset_sets_episode_id(self):
         env = RangeEnvironment(docker_available=False)
-        env.reset(episode_id="ep_42")
+        env.reset(snapshot=_MINIMAL_SNAPSHOT, episode_id="ep_42")
         assert env.state.episode_id == "ep_42"
 
     def test_reset_clears_step_count(self):
         env = RangeEnvironment(docker_available=False)
-        env.reset()
+        env.reset(snapshot=_MINIMAL_SNAPSHOT)
         env.step(RangeAction(command="nmap -sV web", mode="red"))
         assert env.state.step_count == 1
-        env.reset()
+        env.reset(snapshot=_MINIMAL_SNAPSHOT)
         assert env.state.step_count == 0
 
     def test_reset_with_snapshot(self, sample_snapshot_spec):
@@ -64,14 +72,14 @@ class TestRedStep:
 
     def test_red_step_returns_observation(self):
         env = RangeEnvironment(docker_available=False)
-        env.reset()
+        env.reset(snapshot=_MINIMAL_SNAPSHOT)
         action = RangeAction(command="nmap -sV web", mode="red")
         obs = env.step(action)
         assert isinstance(obs, RangeObservation)
 
     def test_red_step_increments_counter(self):
         env = RangeEnvironment(docker_available=False)
-        env.reset()
+        env.reset(snapshot=_MINIMAL_SNAPSHOT)
         env.step(RangeAction(command="nmap -sV web", mode="red"))
         assert env.state.step_count == 1
         env.step(RangeAction(command="curl http://web", mode="red"))
@@ -80,7 +88,7 @@ class TestRedStep:
     def test_red_any_command_forwarded(self):
         """No artificial allowlist — commands route to the attacker container."""
         env = RangeEnvironment(docker_available=False)
-        env.reset()
+        env.reset(snapshot=_MINIMAL_SNAPSHOT)
         obs = env.step(RangeAction(command="iptables -L", mode="red"))
         # In mock mode, this runs on attacker container (not rejected)
         assert obs.stderr == ""
@@ -88,7 +96,7 @@ class TestRedStep:
 
     def test_red_action_logged(self):
         env = RangeEnvironment(docker_available=False)
-        env.reset()
+        env.reset(snapshot=_MINIMAL_SNAPSHOT)
         env.step(RangeAction(command="nmap -sV web", mode="red"))
         assert len(env.red_history) >= 1
 
@@ -98,20 +106,20 @@ class TestBlueStep:
 
     def test_blue_step_returns_observation(self):
         env = RangeEnvironment(docker_available=False)
-        env.reset()
+        env.reset(snapshot=_MINIMAL_SNAPSHOT)
         obs = env.step(RangeAction(command="tail_log /var/log/syslog", mode="blue"))
         assert isinstance(obs, RangeObservation)
 
     def test_blue_submit_finding(self):
         env = RangeEnvironment(docker_available=False)
-        env.reset()
+        env.reset(snapshot=_MINIMAL_SNAPSHOT)
         obs = env.step(RangeAction(command="submit_finding SQL injection detected", mode="blue"))
         assert "recorded" in obs.stdout.lower() or "submitted" in obs.stdout.lower()
 
     def test_blue_any_command_forwarded(self):
         """No artificial allowlist — commands route to the siem container."""
         env = RangeEnvironment(docker_available=False)
-        env.reset()
+        env.reset(snapshot=_MINIMAL_SNAPSHOT)
         obs = env.step(RangeAction(command="nmap -sV web", mode="blue"))
         # In mock mode, this runs on siem container (not rejected)
         assert obs.stderr == ""
@@ -119,13 +127,13 @@ class TestBlueStep:
 
     def test_blue_empty_command_rejected(self):
         env = RangeEnvironment(docker_available=False)
-        env.reset()
+        env.reset(snapshot=_MINIMAL_SNAPSHOT)
         obs = env.step(RangeAction(command="", mode="blue"))
         assert obs.stderr != ""
 
     def test_step_passes_timeout_override_to_executor(self):
         env = RangeEnvironment(docker_available=False)
-        env.reset()
+        env.reset(snapshot=_MINIMAL_SNAPSHOT)
         seen = {}
 
         def fake_exec(container_name, command, timeout_s=None):
@@ -186,7 +194,7 @@ class TestTermination:
 
     def test_max_steps_terminates(self):
         env = RangeEnvironment(docker_available=False, max_steps=3)
-        env.reset()
+        env.reset(snapshot=_MINIMAL_SNAPSHOT)
         env.step(RangeAction(command="nmap -sV web", mode="red"))
         env.step(RangeAction(command="curl http://web", mode="red"))
         obs = env.step(RangeAction(command="curl http://web/login", mode="red"))
@@ -198,7 +206,7 @@ class TestStateProperty:
 
     def test_state_reflects_episode(self):
         env = RangeEnvironment(docker_available=False)
-        env.reset(episode_id="test_ep")
+        env.reset(snapshot=_MINIMAL_SNAPSHOT, episode_id="test_ep")
         assert env.state.episode_id == "test_ep"
         assert env.state.step_count == 0
         env.step(RangeAction(command="nmap -sV web", mode="red"))

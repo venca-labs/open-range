@@ -615,8 +615,8 @@ def episode(
         openrange episode -s snapshots/spec.json --golden-path
         openrange episode -s snapshots/spec.json --interactive --mode both
     """
+    from open_range.models import RangeAction
     from open_range.server.environment import RangeEnvironment
-    from open_range.server.models import RangeAction
 
     spec = _load_snapshot(snapshot)
 

@@ -200,7 +200,7 @@ class CurriculumRunner:
         self, manifest_path: str, seed: int, episode_num: int
     ) -> EpisodeRecord:
         """Run a single episode and return an EpisodeRecord."""
-        from open_range.server.models import RangeAction
+        from open_range.models import RangeAction
 
         start = time.time()
 

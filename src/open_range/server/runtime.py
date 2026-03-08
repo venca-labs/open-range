@@ -38,7 +38,7 @@ from open_range.protocols import (
     SnapshotSpec,
 )
 from open_range.server.compose_runner import BootedSnapshotProject, ComposeProjectRunner
-from open_range.server.models import RangeState
+from open_range.models import RangeState
 from open_range.validator.build_boot import BuildBootCheck
 from open_range.validator.difficulty import DifficultyCheck
 from open_range.validator.evidence import EvidenceCheck

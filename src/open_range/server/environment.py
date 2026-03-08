@@ -43,7 +43,6 @@ DEFAULT_MAX_STEPS = 100
 # Timeout for individual docker exec calls (seconds)
 EXEC_TIMEOUT = 30.0
 
-
 def _extract_command_name(command: str) -> str:
     """Extract the base command name from a full command string."""
     stripped = command.strip()
@@ -58,7 +57,6 @@ def _extract_command_name(command: str) -> str:
             # Strip path prefix (e.g. /usr/bin/nmap -> nmap)
             return part.rsplit("/", 1)[-1]
     return parts[0] if parts else ""
-
 
 class RangeEnvironment(Environment[RangeAction, RangeObservation, RangeState]):
     """OpenEnv Environment subclass for the cybersecurity range.
@@ -476,19 +474,10 @@ class RangeEnvironment(Environment[RangeAction, RangeObservation, RangeState]):
     # Service lifecycle (subprocess mode)
     # -----------------------------------------------------------------
 
-    # Daemon names to kill when stopping services (legacy + modern).
-    _LEGACY_STOP_DAEMONS = [
-        "nginx", "mysqld", "mariadbd", "slapd", "rsyslogd",
-        "smbd", "postfix", "sshd", "redis-server", "postgres",
-        "jenkins", "prometheus", "grafana-server", "openvpn",
-    ]
-
     def _stop_services(self) -> None:
         """Stop services started by a previous episode.
 
-        Uses the snapshot's ``services`` list when available to determine
-        which daemon names to kill.  Falls back to a legacy kill-list
-        when no snapshot is loaded or the snapshot has no ``services``.
+        Derives daemon names from the snapshot's ``services`` list.
         """
         if self._execution_mode != "subprocess":
             return
@@ -504,27 +493,24 @@ class RangeEnvironment(Environment[RangeAction, RangeObservation, RangeState]):
             except Exception as exc:
                 logger.debug("Failed to stop PID %d: %s", pid, exc)
 
-        # Determine daemon names to kill (from snapshot or legacy list)
         daemon_names: list[str] = []
         if self._snapshot and self._snapshot.services:
             for svc in self._snapshot.services:
                 name = svc.daemon.split("/")[-1].split()[0]
-                if name:
+                if name and name not in daemon_names:
                     daemon_names.append(name)
-        if not daemon_names:
-            daemon_names = list(self._LEGACY_STOP_DAEMONS)
 
-        # Also stop known service processes by name (catches orphans)
-        kill_expr = " ".join(
-            f"pkill -x {name} 2>/dev/null || true;" for name in daemon_names
-        )
-        try:
-            sp.run(
-                ["bash", "-c", kill_expr],
-                capture_output=True, timeout=5,
-            )
-        except Exception:
-            pass
+        for daemon_name in daemon_names:
+            try:
+                sp.run(
+                    ["pkill", "-x", daemon_name],
+                    capture_output=True,
+                    timeout=5,
+                    text=True,
+                    check=False,
+                )
+            except Exception as exc:
+                logger.debug("Failed to stop daemon %s: %s", daemon_name, exc)
 
         self._service_pids = []
         logger.info("Stopped previous episode services")
@@ -532,11 +518,8 @@ class RangeEnvironment(Environment[RangeAction, RangeObservation, RangeState]):
     def _start_snapshot_services(self, snapshot: SnapshotSpec) -> None:
         """Start services based on snapshot spec (subprocess mode only).
 
-        If the snapshot has a ``services`` list (populated by the Renderer
-        via :func:`generate_service_specs`), each :class:`ServiceSpec` is
-        started generically.  Otherwise falls back to
-        :meth:`_start_services_legacy` which generates ephemeral specs
-        from the topology host names.
+        The snapshot's ``services`` list is normally populated by the Renderer.
+        Older snapshots fall back to topology-derived service specs.
         """
         if self._execution_mode != "subprocess":
             return
@@ -544,7 +527,7 @@ class RangeEnvironment(Environment[RangeAction, RangeObservation, RangeState]):
         if snapshot.services:
             self._start_services_from_specs(snapshot.services)
         else:
-            self._start_services_legacy(snapshot)
+            logger.info("No service specs in snapshot -- skipping service provisioning")
 
     def _start_services_from_specs(self, services: list[ServiceSpec]) -> None:
         """Start a list of :class:`ServiceSpec` entries generically."""
@@ -581,16 +564,42 @@ class RangeEnvironment(Environment[RangeAction, RangeObservation, RangeState]):
         env = os.environ.copy()
         env.update(svc.env_vars)
 
-        # Create log directory
-        if svc.log_dir:
-            os.makedirs(svc.log_dir, exist_ok=True)
+        original_log_dir = svc.log_dir or "/var/log/siem"
+        log_dir = original_log_dir
+        try:
+            os.makedirs(log_dir, exist_ok=True)
+        except PermissionError:
+            if original_log_dir.startswith("/var/log/"):
+                log_dir = os.path.join(
+                    "/tmp/openrange",
+                    original_log_dir.removeprefix("/var/log/"),
+                )
+            else:
+                log_dir = os.path.join("/tmp/openrange", original_log_dir.strip("/"))
+            os.makedirs(log_dir, exist_ok=True)
+
+        init_commands = [
+            cmd.replace(original_log_dir, log_dir)
+            if original_log_dir and original_log_dir != log_dir
+            else cmd
+            for cmd in svc.init_commands
+        ]
+        start_command = (
+            svc.start_command.replace(original_log_dir, log_dir)
+            if original_log_dir and original_log_dir != log_dir
+            else svc.start_command
+        )
 
         # Run init commands
-        for cmd in svc.init_commands:
+        for cmd in init_commands:
             try:
                 result = sp.run(
                     ["bash", "-c", cmd],
-                    capture_output=True, timeout=30, text=True, env=env,
+                    capture_output=True,
+                    timeout=30,
+                    text=True,
+                    env=env,
+                    check=False,
                 )
                 if result.returncode != 0 and result.stderr:
                     logger.debug(
@@ -603,8 +612,12 @@ class RangeEnvironment(Environment[RangeAction, RangeObservation, RangeState]):
         # Start the daemon
         try:
             result = sp.run(
-                ["bash", "-c", svc.start_command],
-                capture_output=True, timeout=30, text=True, env=env,
+                ["bash", "-c", start_command],
+                capture_output=True,
+                timeout=30,
+                text=True,
+                env=env,
+                check=False,
             )
             if result.returncode != 0 and result.stderr:
                 logger.debug(
@@ -625,7 +638,7 @@ class RangeEnvironment(Environment[RangeAction, RangeObservation, RangeState]):
             logger.info("  %s: started (no readiness check)", svc.daemon)
             return
 
-        max_attempts = int(check.timeout_s / max(check.interval_s, 0.1))
+        max_attempts = max(int(check.timeout_s / max(check.interval_s, 0.1)), 1)
         for attempt in range(max_attempts):
             if self._probe_readiness(check):
                 logger.info("  %s: ready (%ds)", svc.daemon, attempt + 1)
@@ -660,53 +673,28 @@ class RangeEnvironment(Environment[RangeAction, RangeObservation, RangeState]):
             pass
         return False
 
-    def _start_services_legacy(self, snapshot: SnapshotSpec) -> None:
-        """Fallback: generate ephemeral ServiceSpecs from topology host names.
-
-        Used when ``snapshot.services`` is empty (old snapshots or manually
-        constructed specs).  Delegates to :func:`generate_service_specs`
-        from the service manifest module.
-        """
-        from open_range.builder.service_manifest import generate_service_specs
-
-        topology = snapshot.topology if isinstance(snapshot.topology, dict) else {}
-        hosts = topology.get("hosts", [])
-        if not hosts:
-            logger.info("No hosts in topology — skipping service provisioning")
-            return
-
-        compose = snapshot.compose if isinstance(snapshot.compose, dict) else {}
-        specs = generate_service_specs(compose=compose, topology=topology)
-
-        if specs:
-            logger.info(
-                "Generated %d ephemeral service specs from topology (legacy path)",
-                len(specs),
-            )
-            self._start_services_from_specs(specs)
-        else:
-            logger.info("No service specs generated from topology")
-
     def _capture_service_pids(self) -> None:
         """Capture PIDs of running service processes."""
-        try:
-            result = sp.run(
-                ["bash", "-c",
-                 "pgrep -x 'nginx|mysqld|mariadbd|slapd|rsyslogd|smbd|sshd"
-                 "|redis-server|postgres|jenkins|prometheus|grafana-server"
-                 "|openvpn' 2>/dev/null || true"],
-                capture_output=True, timeout=5, text=True,
-            )
-            for line in result.stdout.strip().split("\n"):
-                line = line.strip()
-                if line.isdigit():
-                    self._service_pids.append(int(line))
-        except Exception:
-            pass
+        self._service_pids = []
+        daemon_names: list[str] = []
+        if self._snapshot and self._snapshot.services:
+            for svc in self._snapshot.services:
+                name = svc.daemon.split("/")[-1].split()[0]
+                if name and name not in daemon_names:
+                    daemon_names.append(name)
 
-    # -----------------------------------------------------------------
-    # NPC lifecycle
-    # -----------------------------------------------------------------
+        for daemon_name in daemon_names:
+            try:
+                result = sp.run(
+                    ["pgrep", "-x", daemon_name],
+                    capture_output=True, timeout=5, text=True, check=False,
+                )
+            except Exception:
+                continue
+            for line in result.stdout.splitlines():
+                pid = line.strip()
+                if pid.isdigit():
+                    self._service_pids.append(int(pid))
 
     def _build_container_set(self) -> "ContainerSet | None":
         """Build a ContainerSet from running Docker containers.
@@ -869,8 +857,6 @@ class RangeEnvironment(Environment[RangeAction, RangeObservation, RangeState]):
             self._snapshot_id = admitted.snapshot_id
             snap = admitted.snapshot
         else:
-            # Backward-compatible minimal stub for tests, demos, and local
-            # mock-mode usage when a managed runtime is not configured.
             self._snapshot_id = None
             snap = SnapshotSpec(
                 topology={"hosts": ["attacker", "siem"]},
@@ -1120,47 +1106,45 @@ class RangeEnvironment(Environment[RangeAction, RangeObservation, RangeState]):
         """Determine which container to route the command to.
 
         Reads from the snapshot topology to find the appropriate host:
-        - Red: host with ``role: "attacker"`` or ``zone: "external"``.
-        - Blue: host with ``role: "siem"`` or ``zone: "management"``.
+        - Red: host with role=attacker or zone=external.
+        - Blue: host with role=siem or zone=management.
 
-        Falls back to ``"attacker"``/``"siem"`` if no snapshot is loaded
-        or no matching host is found in the topology.
+        The snapshot topology must define hosts with roles or zones.
+        For string-only host lists, matches by name then falls back to
+        positional convention (first host for Red, last for Blue).
         """
-        red_default = "attacker"
-        blue_default = "siem"
+        if not self._snapshot or not isinstance(self._snapshot.topology, dict):
+            raise RuntimeError("Cannot resolve target — no snapshot topology loaded")
 
-        if self._snapshot and isinstance(self._snapshot.topology, dict):
-            hosts = self._snapshot.topology.get("hosts", [])
+        hosts = self._snapshot.topology.get("hosts", [])
+        if not hosts:
+            raise RuntimeError("Cannot resolve target — snapshot topology has no hosts")
 
-            if action.mode == "red":
-                # Look for a host with role "attacker" or zone "external"
-                for h in hosts:
-                    if isinstance(h, dict):
-                        if h.get("role") == "attacker" or h.get("zone") == "external":
-                            host_name = h.get("name", h.get("hostname", red_default))
-                            return self._container_name(host_name)
-                # Fallback: check if "attacker" is in the hosts list (string entries)
-                for h in hosts:
-                    if isinstance(h, str) and h == "attacker":
-                        return self._container_name("attacker")
-                # Last resort
-                return self._container_name(red_default)
-            else:
-                # Look for a host with role "siem" or zone "management"
-                for h in hosts:
-                    if isinstance(h, dict):
-                        if h.get("role") == "siem" or h.get("zone") == "management":
-                            host_name = h.get("name", h.get("hostname", blue_default))
-                            return self._container_name(host_name)
-                # Fallback: check if "siem" is in the hosts list (string entries)
-                for h in hosts:
-                    if isinstance(h, str) and h == "siem":
-                        return self._container_name("siem")
-                # Last resort
-                return self._container_name(blue_default)
+        target_role = "attacker" if action.mode == "red" else "siem"
+        target_zone = "external" if action.mode == "red" else "management"
 
-        # No snapshot loaded — use hardcoded defaults as last resort
-        return self._container_name(red_default if action.mode == "red" else blue_default)
+        # Look for a host with matching role or zone
+        for h in hosts:
+            if isinstance(h, dict):
+                if h.get("role") == target_role or h.get("zone") == target_zone:
+                    host_name = h.get("name", h.get("hostname", ""))
+                    if host_name:
+                        return self._container_name(host_name)
+
+        # String host list: match by name
+        for h in hosts:
+            name = h if isinstance(h, str) else h.get("name", "")
+            if name == target_role:
+                return self._container_name(name)
+
+        # Use positional convention: first host for Red, last for Blue
+        fallback = hosts[0] if action.mode == "red" else hosts[-1]
+        name = fallback if isinstance(fallback, str) else fallback.get("name", fallback.get("hostname", ""))
+        logger.warning(
+            "No host with role=%s or zone=%s found; using positional fallback: %s",
+            target_role, target_zone, name,
+        )
+        return self._container_name(name)
 
     # -----------------------------------------------------------------
     # Core API
@@ -1285,6 +1269,20 @@ class RangeEnvironment(Environment[RangeAction, RangeObservation, RangeState]):
         Returns:
             RangeObservation with command output and reward.
         """
+        if self._snapshot is None:
+            self._snapshot = self._select_snapshot(**kwargs)
+            tier = self._snapshot.topology.get("tier", 1) if isinstance(
+                self._snapshot.topology, dict
+            ) else 1
+            self._state = RangeState(
+                episode_id=self._state.episode_id or str(uuid4()),
+                step_count=0,
+                mode=action.mode,
+                flags_found=list(self._state.flags_found),
+                services_status=dict(self._state.services_status),
+                tier=tier,
+            )
+
         self._state.step_count += 1
         self._state.mode = action.mode
 
@@ -1331,7 +1329,6 @@ class RangeEnvironment(Environment[RangeAction, RangeObservation, RangeState]):
             self._check_termination(obs)
             self._report_if_done(obs)
             return obs
-
 
         # Route to container
         target = self._resolve_target(action)
@@ -1516,16 +1513,7 @@ class RangeEnvironment(Environment[RangeAction, RangeObservation, RangeState]):
             if siem_alerts:
                 return siem_alerts
 
-        # Synthetic fallback: treat ALL Red actions as potential alerts
-        alerts: list[str] = []
-        for record in self._red_history:
-            cmd = record.get("cmd_name", "")
-            if cmd:
-                alerts.append(
-                    f"[IDS] Suspicious activity detected: {cmd} "
-                    f"at step {record['step']}"
-                )
-        return alerts
+        return []
 
     # -----------------------------------------------------------------
     # Introspection (for reward computation and debugging)

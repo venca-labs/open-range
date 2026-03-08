@@ -426,12 +426,11 @@ async def test_patchability_skips_prose_remediation(mock_containers):
 
     result = await PatchabilityCheck().check(spec, mock_containers)
     assert result.passed is False
-    assert "no vulns had testable remediation" in result.error
-    # Verify it was recorded as skipped
+    # Verify it was recorded as a failure (not silently skipped)
     vuln_results = result.details["vuln_results"]
     assert len(vuln_results) == 1
-    assert "skipped" in vuln_results[0]
-    assert "not executable" in vuln_results[0]["skipped"]
+    assert vuln_results[0]["passed"] is False
+    assert "not executable" in vuln_results[0]["reason"]
 
 
 @pytest.mark.asyncio

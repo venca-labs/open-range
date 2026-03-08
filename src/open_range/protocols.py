@@ -200,7 +200,7 @@ class NPCPersona(BaseModel):
     security_awareness: float = 0.5  # 0.0-1.0
     susceptibility: dict[str, float] = Field(default_factory=dict)
     routine: dict[str, Any] = Field(default_factory=dict)
-    accounts: dict[str, str] = Field(default_factory=dict)
+    accounts: dict[str, Any] = Field(default_factory=dict)
 
 
 class NPCTrafficSpec(BaseModel):

@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import json
 import logging
+import shlex
 from pathlib import Path
 from pathlib import PurePosixPath
 from typing import Any
@@ -52,6 +53,7 @@ class SnapshotRenderer:
             keep_trailing_newline=True,
             undefined=jinja2.Undefined,
         )
+        self.env.filters["shell_quote"] = shlex.quote
 
     def render(self, spec: SnapshotSpec, output_dir: Path) -> Path:
         """Render all templates and write artifacts to *output_dir*.
@@ -219,12 +221,16 @@ def _build_context(spec: SnapshotSpec) -> dict[str, Any]:
         "db_user": db_user,
         "db_pass": db_pass,
         "db_name": topology.get("db_name", "app_db"),
+        # db_password duplicates db_pass: Dockerfile.db.j2 uses db_pass,
+        # docker-compose.yml.j2 uses db_password.  Keep both for compat.
         "db_password": db_pass,
         "mysql_root_password": topology.get("mysql_root_password", _find_mysql_root_pass(users)),
         "domain": topology.get("domain", "corp.local"),
         "org_name": topology.get("org_name", "Corp"),
         "ldap_admin_pass": topology.get("ldap_admin_pass", "LdapAdm1n!"),
         "smb_shares": _find_smb_shares(spec),
+        "smb_user": _find_smb_user(users),
+        "smb_password": _find_smb_pass(users),
         # Dockerfile.web.j2
         "users": users,
         "app_files": app_files,
@@ -340,6 +346,24 @@ def _find_mysql_root_pass(users: list[dict[str, Any]]) -> str:
         if u.get("username") == "admin" and "db" in u.get("hosts", []):
             return u.get("password", "r00tP@ss!")
     return "r00tP@ss!"
+
+
+def _find_smb_user(users: list[dict[str, Any]]) -> str:
+    """Find the SMB/Samba user from topology users, default to smbuser."""
+    for u in users:
+        hosts = u.get("hosts", [])
+        if "files" in hosts and "admins" not in u.get("groups", []):
+            return u.get("username", "smbuser")
+    return "smbuser"
+
+
+def _find_smb_pass(users: list[dict[str, Any]]) -> str:
+    """Find the SMB/Samba user password."""
+    for u in users:
+        hosts = u.get("hosts", [])
+        if "files" in hosts and "admins" not in u.get("groups", []):
+            return u.get("password", "smbP@ss!")
+    return "smbP@ss!"
 
 
 def _find_smb_shares(spec: SnapshotSpec) -> list[str]:

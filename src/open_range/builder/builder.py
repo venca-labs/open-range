@@ -504,7 +504,10 @@ def _parse_llm_response(raw_json: str) -> SnapshotSpec:
     elif isinstance(evidence_raw, list):
         for item in evidence_raw:
             if isinstance(item, dict):
-                evidence_spec.append(EvidenceItem(**item))
+                try:
+                    evidence_spec.append(EvidenceItem(**item))
+                except Exception:  # noqa: BLE001
+                    logger.warning("Skipping malformed evidence item: %s", item)
 
     # Map NPC personas
     npc_personas = []
@@ -1192,7 +1195,7 @@ def render_template_payloads(
                 (
                     "USE flags;\n"
                     "INSERT INTO secrets(flag_name, flag) "
-                    f"VALUES ('{flag.id}', '{flag.value}');\n"
+                    f"VALUES ('{_sql_escape(flag.id)}', '{_sql_escape(flag.value)}');\n"
                 ),
             )
             if vuln_types.intersection({"weak_creds", "idor"}):
@@ -1240,6 +1243,15 @@ def _append_sql(existing: str, fragment: str) -> str:
     if not existing:
         return fragment
     return f"{existing.rstrip()}\n{fragment}"
+
+
+def _sql_escape(value: str) -> str:
+    """Escape a string for use in a SQL single-quoted literal.
+
+    Replaces single quotes with doubled single quotes and backslashes
+    with doubled backslashes to prevent SQL injection in static SQL files.
+    """
+    return value.replace("\\", "\\\\").replace("'", "''")
 
 
 def _predictable_user_password(

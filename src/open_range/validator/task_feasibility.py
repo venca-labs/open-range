@@ -25,10 +25,19 @@ class TaskFeasibilityCheck:
                 topo_hosts.add(str(h))
         topo_hosts.discard("")
 
+        # Fail early if topology has no hosts.
+        if not topo_hosts:
+            return CheckResult(
+                name="task_feasibility",
+                passed=False,
+                details={"issues": ["Topology has no hosts defined"]},
+                error="Topology has no hosts defined",
+            )
+
         # 1. Golden-path hosts exist in topology.
         for step in snapshot.golden_path:
             host = getattr(step, "host", None) or "attacker"
-            if host not in topo_hosts and topo_hosts:
+            if host not in topo_hosts:
                 issues.append(f"golden path step {step.step}: host '{host}' not in topology")
 
         # 2. Evidence targets reference existing containers.
@@ -38,7 +47,7 @@ class TaskFeasibilityCheck:
                 host = loc.split(":")[0]
             else:
                 host = "siem"
-            if host not in topo_hosts and topo_hosts:
+            if host not in topo_hosts:
                 issues.append(f"evidence item '{item.type}' references unknown host '{host}'")
 
         # 3. Exploit chain vuln IDs exist in truth_graph.
@@ -49,7 +58,7 @@ class TaskFeasibilityCheck:
 
         # 4. Flag hosts exist in topology.
         for flag in snapshot.flags:
-            if flag.host not in topo_hosts and topo_hosts:
+            if flag.host not in topo_hosts:
                 issues.append(f"flag '{flag.id}' references unknown host '{flag.host}'")
 
         passed = len(issues) == 0

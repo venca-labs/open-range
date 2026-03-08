@@ -69,18 +69,17 @@ flowchart TD
 
 1. **Don't redeclare `done` or `reward` on Observation.** The base class already has them. `RangeObservation` correctly inherits them.
 2. **Don't redeclare `episode_id` or `step_count` on State.** The base class already has them. `RangeState` correctly inherits them.
-3. **Pass the CLASS to `create_app()`, not an instance.** Each WebSocket session gets its own instance. The standalone fallback also creates per-session instances for WebSocket.
-4. **Action uses `extra="forbid"` (via openenv base).** Unknown fields cause validation errors. Keep actions minimal. Note: the fallback `Action` stub does not enforce `extra="forbid"`.
+3. **Pass the CLASS or factory to `create_app()`, not an instance.** Each WebSocket session gets its own instance.
+4. **Action uses `extra="forbid"` (via openenv base).** Unknown fields cause validation errors. Keep actions minimal.
 5. **State uses `extra="allow"`.** You can add any fields you want.
 6. **`reset()` returns ObsT (server-side), `StepResult[ObsT]` (client-side).** The server wraps it.
-7. **All openenv imports are guarded with try/except.** Models, environment, client, and app all fall back gracefully when openenv is not installed.
+7. **Shared models live outside `server/`.** Clients import `open_range.models`, not `open_range.server.*`.
 
 ## API Signatures (Exact)
 
 ```python
 # Server-side (src/open_range/server/environment.py)
 class RangeEnvironment(Environment[RangeAction, RangeObservation, RangeState]):
-    # Falls back to object base when openenv is not installed
     SUPPORTS_CONCURRENT_SESSIONS = False
 
     def __init__(self, max_steps: int = 100, exec_timeout: float = 30.0,
@@ -94,15 +93,12 @@ class RangeEnvironment(Environment[RangeAction, RangeObservation, RangeState]):
 
 # Client-side (src/open_range/client/client.py)
 class OpenRangeEnv(EnvClient[RangeAction, RangeObservation, RangeState]):
-    # Falls back to a stub class when openenv is not installed
     def _step_payload(self, action: RangeAction) -> dict: ...
     def _parse_result(self, payload: dict) -> StepResult[RangeObservation]: ...
     def _parse_state(self, payload: dict) -> RangeState: ...
 
 # App factory (src/open_range/server/app.py)
-# Tries openenv's create_app first:
 app = create_app(RangeEnvironment, RangeAction, RangeObservation, env_name="open_range")
-# Falls back to standalone FastAPI app with equivalent HTTP + WebSocket endpoints
 
 # Entry point (src/open_range/server/__main__.py)
 # python -m open_range.server [--host HOST] [--port PORT] [--reload] [--log-level LEVEL]
