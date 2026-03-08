@@ -115,7 +115,11 @@ class ComposeProjectRunner:
                 container_ids=container_ids,
             ),
         )
-        self._wait_until_healthy(project, services)
+        try:
+            self._wait_until_healthy(project, services)
+        except Exception:
+            self.teardown(project)
+            raise
         return project
 
     def teardown(self, project: BootedSnapshotProject) -> None:

@@ -31,23 +31,11 @@ _TEST_SNAPSHOT = SnapshotSpec(
 
 
 @pytest.fixture()
-def client():
-    """Create a TestClient against a fresh app instance.
-
-    Patches ``_select_snapshot`` so HTTP /reset works without a
-    ManagedSnapshotRuntime (which requires a manifest and snapshot
-    store on disk).
-    """
-    with patch(
-        "open_range.server.environment.RangeEnvironment._select_snapshot",
-        return_value=_TEST_SNAPSHOT,
-    ), patch(
-        "open_range.server.environment.RangeEnvironment._ensure_clean_reset_path",
-    ):
-        from open_range.server.app import create_app
-
-        app = create_app()
-        yield TestClient(app)
+def client(monkeypatch):
+    """Create a TestClient against a fresh app instance."""
+    monkeypatch.setenv("OPENRANGE_MOCK", "1")
+    app = create_app()
+    return TestClient(app)
 
 
 # ===================================================================
@@ -64,17 +52,20 @@ class TestHealth:
 
 class TestAppFactory:
     def test_managed_runtime_enabled_by_default(self, monkeypatch: pytest.MonkeyPatch):
+        monkeypatch.delenv("OPENRANGE_MOCK", raising=False)
         monkeypatch.delenv("OPENRANGE_ENABLE_MANAGED_RUNTIME", raising=False)
         monkeypatch.delenv("OPENRANGE_DISABLE_MANAGED_RUNTIME", raising=False)
         app = create_app()
         assert hasattr(app.state, "runtime")
 
     def test_managed_runtime_can_be_disabled(self, monkeypatch: pytest.MonkeyPatch):
+        monkeypatch.delenv("OPENRANGE_MOCK", raising=False)
         monkeypatch.setenv("OPENRANGE_DISABLE_MANAGED_RUNTIME", "1")
         app = create_app()
         assert not hasattr(app.state, "runtime")
 
     def test_web_interface_does_not_double_mount_web(self, monkeypatch: pytest.MonkeyPatch):
+        monkeypatch.delenv("OPENRANGE_MOCK", raising=False)
         monkeypatch.setenv("ENABLE_WEB_INTERFACE", "true")
         app = create_app()
         web_mounts = [

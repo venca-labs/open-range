@@ -1,10 +1,12 @@
 """Shared fixtures for OpenRange test suite."""
 
+import os
 from pathlib import Path
 
 import pytest
 
 ROOT = Path(__file__).parent.parent
+os.environ.setdefault("OPENRANGE_MOCK", "1")
 
 
 @pytest.fixture

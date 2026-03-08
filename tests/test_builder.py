@@ -228,7 +228,7 @@ async def test_mutator_rebuilds_child_files_from_mutated_snapshot(tier1_manifest
         parent_snapshot_id="root_snap",
     )
     assert "web:/tmp/stale.txt" not in child.files
-    assert "web:/var/www/portal/download.php" in child.files
+    assert "web:/var/www/html/download.php" in child.files
 
 @pytest.mark.asyncio
 async def test_mutator_seed_vuln_adds_flag_task_path_and_payloads(tier1_manifest):
@@ -497,6 +497,16 @@ async def test_mutator_fails_fast_on_illegal_add_service_target(tier1_manifest):
         return MutationPlan(
             parent_snapshot_id="root_snap",
             ops=[
+                MutationOp(
+                    mutation_id="seed_path_traversal",
+                    op_type="seed_vuln",
+                    target_selector={"host": "web"},
+                    params={
+                        "vuln_type": "path_traversal",
+                        "template_id": "vuln_path_traversal",
+                        "required_services": ["nginx", "php-fpm"],
+                    },
+                ),
                 MutationOp(
                     mutation_id="add_bad_service",
                     op_type="add_service",

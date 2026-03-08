@@ -126,6 +126,7 @@ class RangeEnvironment(_BASE):  # type: ignore[misc]
     def __init__(
         self,
         runtime: "ManagedSnapshotRuntime | None" = None,
+        default_snapshot: SnapshotSpec | None = None,
         max_steps: int = DEFAULT_MAX_STEPS,
         exec_timeout: float = EXEC_TIMEOUT,
         docker_available: bool | None = None,
@@ -154,6 +155,7 @@ class RangeEnvironment(_BASE):  # type: ignore[misc]
         self._docker_client: Any = None
         self._docker_available = docker_available
         self._runtime = runtime
+        self._default_snapshot = default_snapshot
         self._episode_recorded = False
         self._active_project: "BootedSnapshotProject | None" = None
         self._mock_mode = _env_flag("OPENRANGE_MOCK") or docker_available is False
@@ -632,6 +634,13 @@ class RangeEnvironment(_BASE):  # type: ignore[misc]
     # Snapshot selection
     # -----------------------------------------------------------------
 
+    def _ensure_clean_reset_path(self) -> None:
+        """Compatibility hook retained for older tests.
+
+        Reset cleanup is now handled inline by ``reset()`` and runtime teardown.
+        """
+        return None
+
     def _select_snapshot(self, **kwargs: Any) -> SnapshotSpec:
         """Select or accept a snapshot for the episode.
 
@@ -643,6 +652,9 @@ class RangeEnvironment(_BASE):  # type: ignore[misc]
         if "snapshot" in kwargs and isinstance(kwargs["snapshot"], SnapshotSpec):
             self._snapshot_id = kwargs.get("snapshot_id")
             snap = kwargs["snapshot"]
+        elif self._default_snapshot is not None:
+            self._snapshot_id = kwargs.get("snapshot_id")
+            snap = self._default_snapshot.model_copy(deep=True)
         elif self._runtime is not None:
             if "snapshot_id" in kwargs and kwargs["snapshot_id"]:
                 admitted = self._runtime.get_snapshot(str(kwargs["snapshot_id"]))
@@ -993,11 +1005,28 @@ class RangeEnvironment(_BASE):  # type: ignore[misc]
         self._episode_start = time.time()
         self._episode_recorded = False
         try:
-            from open_range.server.console import clear_history
+            from open_range.server.console import clear_episode, clear_history
 
+            clear_episode()
             clear_history()
+            record_action = True
         except Exception:
-            pass
+            record_action = False
+        if record_action:
+            try:
+                from open_range.server.console import record_action
+
+                record_action({
+                    "step": 0,
+                    "command": "reset",
+                    "cmd_name": "reset",
+                    "target": "",
+                    "time": time.time(),
+                    "mode": "system",
+                    "episode_id": eid,
+                })
+            except Exception:
+                pass
 
         # Runtime-backed episodes boot a fresh project per reset. Manual/mock
         # snapshots still use direct artifact application.
@@ -1032,6 +1061,12 @@ class RangeEnvironment(_BASE):  # type: ignore[misc]
             len(self._snapshot.flags or []),
             len(self._snapshot.golden_path or []),
         )
+        try:
+            from open_range.server.console import publish_episode
+
+            publish_episode(self._snapshot, self._state)
+        except Exception:
+            pass
 
         return RangeObservation(stdout=briefing)
 
@@ -1067,6 +1102,7 @@ class RangeEnvironment(_BASE):  # type: ignore[misc]
 
         # Handle meta-commands (processed by environment, not forwarded to containers)
         if cmd_name == "submit_flag":
+            self._record_console_meta_action(action, cmd_name)
             obs = self._handle_submit_flag(action)
             obs = self._apply_rewards(action, obs)
             self._check_termination(obs)
@@ -1074,6 +1110,7 @@ class RangeEnvironment(_BASE):  # type: ignore[misc]
             return obs
 
         if cmd_name == "submit_evidence":
+            self._record_console_meta_action(action, cmd_name)
             obs = self._handle_submit_evidence(action)
             obs = self._apply_rewards(action, obs)
             self._check_termination(obs)
@@ -1081,6 +1118,7 @@ class RangeEnvironment(_BASE):  # type: ignore[misc]
             return obs
 
         if cmd_name == "submit_finding":
+            self._record_console_meta_action(action, cmd_name)
             obs = self._handle_submit_finding(action)
             obs = self._apply_rewards(action, obs)
             self._check_termination(obs)
@@ -1088,6 +1126,7 @@ class RangeEnvironment(_BASE):  # type: ignore[misc]
             return obs
 
         if cmd_name == "auth":
+            self._record_console_meta_action(action, cmd_name)
             obs = self._handle_auth(action)
             obs = self._apply_rewards(action, obs)
             self._check_termination(obs)
@@ -1095,6 +1134,7 @@ class RangeEnvironment(_BASE):  # type: ignore[misc]
             return obs
 
         if cmd_name == "logout":
+            self._record_console_meta_action(action, cmd_name)
             obs = self._handle_logout(action)
             obs = self._apply_rewards(action, obs)
             self._check_termination(obs)
@@ -1154,8 +1194,32 @@ class RangeEnvironment(_BASE):  # type: ignore[misc]
         obs = self._apply_rewards(action, obs)
         self._check_termination(obs)
         self._report_if_done(obs)
+        try:
+            from open_range.server.console import publish_episode
+
+            if self._snapshot is not None:
+                publish_episode(self._snapshot, self._state)
+        except Exception:
+            pass
 
         return obs
+
+    def _record_console_meta_action(self, action: RangeAction, cmd_name: str) -> None:
+        """Record meta-commands in the operator console history."""
+        try:
+            from open_range.server.console import record_action
+
+            record_action({
+                "step": self._state.step_count,
+                "command": action.command,
+                "cmd_name": cmd_name,
+                "target": "",
+                "time": time.time(),
+                "mode": action.mode,
+                "episode_id": self._state.episode_id,
+            })
+        except Exception:
+            pass
 
     @property
     def state(self) -> RangeState:

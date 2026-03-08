@@ -440,28 +440,36 @@ def _extract_db_credentials(snapshot: SnapshotSpec) -> tuple[str, str]:
         if not isinstance(user, dict):
             continue
         hosts = user.get("hosts", [])
-        if "db" in hosts:
-            return user.get("username", "app_user"), user.get("password", "")
+        if isinstance(hosts, list) and "db" in hosts:
+            return (
+                str(user.get("username", "app_user")),
+                str(user.get("password") or "AppUs3r!2024"),
+            )
     return "app_user", "AppUs3r!2024"
 
 
 def _extract_ssh_credentials(snapshot: SnapshotSpec) -> tuple[str, str]:
     """Extract SSH admin credentials from topology users. Fallback to defaults."""
     users = snapshot.topology.get("users", [])
-    # First pass: look for explicit admin roles
     for user in users:
         if not isinstance(user, dict):
             continue
-        role = user.get("role", "")
-        if role in ("admin", "sysadmin", "root"):
-            return user.get("username", "admin"), user.get("password", "")
-    # Second pass: look for users on SSH-accessible hosts
+        groups = user.get("groups", [])
+        role = str(user.get("role", "")).strip().lower()
+        if role in {"admin", "sysadmin", "root"} or (isinstance(groups, list) and "admins" in groups):
+            return (
+                str(user.get("username", "admin")),
+                str(user.get("password") or "Adm1n!2024"),
+            )
     for user in users:
         if not isinstance(user, dict):
             continue
         hosts = user.get("hosts", [])
-        if any(h in hosts for h in ("web", "files", "ldap", "siem")):
-            return user.get("username", "admin"), user.get("password", "")
+        if isinstance(hosts, list) and any(h in hosts for h in ("web", "files", "ldap", "siem")):
+            return (
+                str(user.get("username", "admin")),
+                str(user.get("password") or "Adm1n!2024"),
+            )
     return "admin", "Adm1n!2024"
 
 
@@ -483,6 +491,28 @@ def _log(persona: NPCPersona, action: str, detail: str, source: str) -> dict[str
         "action": action,
         "detail": detail,
         "source": source,
+    }
+
+
+def _se_log(
+    persona: NPCPersona,
+    action: str,
+    detail: str,
+    source: str,
+    *,
+    result: str = "unknown",
+) -> dict[str, Any]:
+    """Build a social-engineering event entry used by reward coupling."""
+    return {
+        "timestamp": time.time(),
+        "type": "social_engineering",
+        "persona": persona.name,
+        "department": persona.department,
+        "action": action,
+        "detail": detail,
+        "source": source,
+        "label": "reactive",
+        "result": result,
     }
 
 

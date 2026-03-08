@@ -200,6 +200,62 @@ class TaskSpec(BaseModel):
     )  # [{type: "flag", value: "..."}, {type: "endpoint", url: "...", expect: "..."}]
 
 
+class ChallengeSpec(BaseModel):
+    """Structured challenge catalog entry."""
+
+    id: str = ""
+    name: str = ""
+    challenge_type: str = "exploit"
+    roles: list[str] = Field(default_factory=list)
+    role_briefings: dict[str, str] = Field(default_factory=dict)
+    entry_points: list[str] = Field(default_factory=list)
+    success_conditions: list[dict[str, Any]] = Field(default_factory=list)
+    linked_vulns: list[str] = Field(default_factory=list)
+    linked_flags: list[str] = Field(default_factory=list)
+    evidence_requirements: list[str] = Field(default_factory=list)
+    difficulty: int = 1
+    prerequisites: list[str] = Field(default_factory=list)
+    metadata: dict[str, Any] = Field(default_factory=dict)
+
+
+class ReadinessCheck(BaseModel):
+    """Health/readiness probe for a declared service."""
+
+    type: Literal["tcp", "http", "command"] = "tcp"
+    port: int = 0
+    url: str = ""
+    command: str = ""
+    timeout_s: float = 30
+    interval_s: float = 1.0
+
+
+class ServiceSpec(BaseModel):
+    """Concrete service lifecycle declaration for a host."""
+
+    host: str
+    daemon: str
+    packages: list[str] = Field(default_factory=list)
+    init_commands: list[str] = Field(default_factory=list)
+    start_command: str
+    readiness: ReadinessCheck = Field(default_factory=ReadinessCheck)
+    log_dir: str = ""
+    env_vars: dict[str, str] = Field(default_factory=dict)
+
+
+class ServiceInstance(BaseModel):
+    """Normalized service instance extracted from compose or topology."""
+
+    instance_id: str = ""
+    host: str
+    service_name: str = ""
+    archetype: str = ""
+    image: str = ""
+    ports: list[int] = Field(default_factory=list)
+    env_vars: dict[str, str] = Field(default_factory=dict)
+    startup_contract: dict[str, Any] = Field(default_factory=dict)
+    metadata: dict[str, Any] = Field(default_factory=dict)
+
+
 class SnapshotSpec(BaseModel):
     """Complete specification for a generated range snapshot."""
 
@@ -211,8 +267,11 @@ class SnapshotSpec(BaseModel):
     npc_personas: list[NPCPersona] = Field(default_factory=list)
     npc_traffic: NPCTrafficSpec = Field(default_factory=NPCTrafficSpec)
     task: TaskSpec = Field(default_factory=TaskSpec)
+    challenges: list[ChallengeSpec] = Field(default_factory=list)
     compose: dict[str, Any] = Field(default_factory=dict)  # rendered docker-compose
     files: dict[str, str] = Field(default_factory=dict)  # path -> content
+    services: list[ServiceSpec] = Field(default_factory=list)
+    service_instances: list[ServiceInstance] = Field(default_factory=list)
     lineage: LineageMetadata = Field(default_factory=LineageMetadata)
     mutation_plan: MutationPlan | None = None
 
@@ -317,6 +376,44 @@ class ContainerSet(BaseModel):
             await asyncio.wait_for(proc.communicate(), timeout=timeout)
         except asyncio.TimeoutError:
             proc.kill()
+
+
+def build_default_challenge_catalog(
+    task: TaskSpec,
+    truth_graph: TruthGraph,
+    flags: list[FlagSpec],
+    evidence_spec: list[EvidenceItem],
+) -> list[ChallengeSpec]:
+    """Synthesize a default challenge catalog when the builder omitted one."""
+    success_conditions = list(task.success_conditions)
+    if not success_conditions:
+        success_conditions = [{"type": "flag", "value": flag.value} for flag in flags]
+
+    entry_points = [
+        vuln.injection_point or vuln.host
+        for vuln in truth_graph.vulns
+        if vuln.injection_point or vuln.host
+    ] or ["attacker"]
+
+    return [
+        ChallengeSpec(
+            id="default_primary",
+            name="Primary challenge",
+            challenge_type=task.task_type or "exploit",
+            roles=["red", "blue"],
+            role_briefings={
+                "red": task.red_briefing,
+                "blue": task.blue_briefing,
+            },
+            entry_points=entry_points,
+            success_conditions=success_conditions,
+            linked_vulns=[vuln.id for vuln in truth_graph.vulns],
+            linked_flags=[flag.id for flag in flags],
+            evidence_requirements=[item.location for item in evidence_spec if item.location],
+            difficulty=max(1, len(truth_graph.vulns)),
+            metadata={},
+        )
+    ]
 
 
 # ---------------------------------------------------------------------------

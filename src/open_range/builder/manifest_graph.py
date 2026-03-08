@@ -10,6 +10,7 @@ accounts in rendered services.
 from __future__ import annotations
 
 from copy import deepcopy
+import re
 from typing import Any
 
 
@@ -151,6 +152,110 @@ def compile_manifest_topology(
     return compiled
 
 
+def runtime_contract_from_topology(
+    topology: dict[str, Any],
+    *,
+    manifest: dict[str, Any] | None = None,
+) -> dict[str, str]:
+    """Derive the template/runtime contract used by template mutations.
+
+    ``builder.py`` now expects a canonical runtime contract after manifest
+    normalization. Keep any existing explicit values, then fill the rest from
+    the normalized topology and manifest infrastructure hints.
+    """
+
+    contract = (
+        deepcopy(topology.get("runtime_contract"))
+        if isinstance(topology.get("runtime_contract"), dict)
+        else {}
+    )
+    manifest_obj = manifest if isinstance(manifest, dict) else {}
+    infra = (
+        manifest_obj.get("infrastructure", {})
+        if isinstance(manifest_obj.get("infrastructure"), dict)
+        else {}
+    )
+
+    domain = str(
+        topology.get("domain")
+        or manifest_obj.get("company", {}).get("domain")
+        or "corp.local"
+    ).strip() or "corp.local"
+    ldap_base_dn = ",".join(
+        f"dc={part}"
+        for part in domain.split(".")
+        if str(part).strip()
+    ) or "dc=corp,dc=local"
+
+    host_catalog = (
+        topology.get("host_catalog")
+        if isinstance(topology.get("host_catalog"), dict)
+        else {}
+    )
+    host_names = _merge_hosts(topology.get("hosts"), host_catalog)
+
+    db_host_from_conn, db_user_from_conn, db_password_from_conn, db_name_from_conn = (
+        _extract_mysql_contract(str(infra.get("db_connection", "")))
+    )
+    web_doc_root = str(
+        contract.get("web_doc_root")
+        or infra.get("web_docroot")
+        or topology.get("web_doc_root")
+        or "/var/www/html"
+    ).strip() or "/var/www/html"
+
+    contract.setdefault(
+        "web_host",
+        _pick_runtime_host(
+            contract.get("web_host"),
+            host_names=host_names,
+            host_catalog=host_catalog,
+            preferred_name="web",
+            service_hints={"nginx", "php-fpm", "apache", "http"},
+        ),
+    )
+    contract.setdefault(
+        "db_host",
+        _pick_runtime_host(
+            contract.get("db_host") or db_host_from_conn,
+            host_names=host_names,
+            host_catalog=host_catalog,
+            preferred_name="db",
+            service_hints={"mysql", "mariadb", "postgres", "postgresql"},
+        ),
+    )
+    contract.setdefault(
+        "ldap_host",
+        _pick_runtime_host(
+            contract.get("ldap_host"),
+            host_names=host_names,
+            host_catalog=host_catalog,
+            preferred_name="ldap",
+            service_hints={"ldap", "openldap", "kerberos"},
+        ),
+    )
+    contract.setdefault("web_doc_root", web_doc_root)
+    contract.setdefault(
+        "web_config_path",
+        _default_web_config_path(
+            str(contract.get("web_config_path") or topology.get("web_config_path") or "")
+            or web_doc_root
+        ),
+    )
+    contract.setdefault("db_name", db_name_from_conn or "referral_db")
+    contract.setdefault("db_user", db_user_from_conn or "app_user")
+    contract.setdefault("db_password", db_password_from_conn or "AppUs3r!2024")
+    contract.setdefault("ldap_search_base_dn", ldap_base_dn)
+    contract.setdefault("ldap_bind_dn", f"cn=admin,{ldap_base_dn}")
+    contract.setdefault("ldap_bind_pw", "LdapAdm1n!")
+
+    reuse_user = _first_service_account_name(manifest_obj) or str(contract.get("db_user") or "")
+    contract.setdefault("credential_reuse_user", reuse_user or "svc_backup")
+    contract.setdefault("credential_reuse_host", str(contract["db_host"]))
+    contract.setdefault("credential_reuse_password", str(contract["ldap_bind_pw"]))
+    return {str(key): str(value) for key, value in contract.items() if value is not None}
+
+
 def _merge_hosts(
     raw_hosts: object,
     host_catalog: dict[str, dict[str, Any]],
@@ -199,6 +304,85 @@ def _merge_zones(
         if host not in zone_hosts:
             zone_hosts.append(host)
     return zones
+
+
+def _service_names(raw_services: object) -> set[str]:
+    names: set[str] = set()
+    if not isinstance(raw_services, list):
+        return names
+    for raw in raw_services:
+        if isinstance(raw, dict):
+            name = str(raw.get("name", "")).strip().lower()
+            if name:
+                names.add(name)
+        else:
+            name = str(raw).strip().lower()
+            if name:
+                names.add(name)
+    return names
+
+
+def _pick_runtime_host(
+    explicit: object,
+    *,
+    host_names: list[str],
+    host_catalog: dict[str, dict[str, Any]],
+    preferred_name: str,
+    service_hints: set[str],
+) -> str:
+    candidate = str(explicit or "").strip()
+    if candidate:
+        return candidate
+    if preferred_name in host_names:
+        return preferred_name
+    for host_name in host_names:
+        raw_catalog = host_catalog.get(host_name, {})
+        if _service_names(raw_catalog.get("services")) & service_hints:
+            return host_name
+    return preferred_name
+
+
+def _extract_mysql_contract(db_connection: str) -> tuple[str, str, str, str]:
+    if not db_connection:
+        return "", "", "", ""
+    match = re.search(
+        r"new\s+mysqli\(\s*['\"]([^'\"]+)['\"]\s*,\s*['\"]([^'\"]+)['\"]\s*,\s*['\"]([^'\"]+)['\"]\s*,\s*['\"]([^'\"]+)['\"]\s*\)",
+        db_connection,
+    )
+    if not match:
+        return "", "", "", ""
+    return match.group(1), match.group(2), match.group(3), match.group(4)
+
+
+def _default_web_config_path(raw_path: str) -> str:
+    path = str(raw_path).strip() or "/var/www/portal"
+    if path.endswith(".php"):
+        return path
+    normalized = path.rstrip("/")
+    if not normalized:
+        return "/var/www/config.php"
+    parent = normalized.rsplit("/", 1)[0] if "/" in normalized else ""
+    if not parent:
+        return "/config.php"
+    return f"{parent}/config.php"
+
+
+def _first_service_account_name(manifest: dict[str, Any]) -> str:
+    policy = (
+        manifest.get("credential_policy", {})
+        if isinstance(manifest.get("credential_policy"), dict)
+        else {}
+    )
+    entries = policy.get("service_accounts", [])
+    if not isinstance(entries, list):
+        return ""
+    for raw in entries:
+        if not isinstance(raw, dict):
+            continue
+        username = str(raw.get("username") or raw.get("account") or raw.get("name") or "").strip()
+        if username:
+            return username
+    return ""
 
 
 def _merge_users(raw_users: object, manifest: dict[str, Any]) -> list[dict[str, Any]]:

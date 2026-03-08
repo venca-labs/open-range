@@ -377,7 +377,16 @@ _CHECK_REGISTRY: dict[str, str] = {
 }
 
 # Checks that require running Docker containers.
-_DOCKER_CHECKS = {"build_boot", "exploitability", "patchability", "evidence"}
+_DOCKER_CHECKS = {
+    "build_boot",
+    "exploitability",
+    "patchability",
+    "evidence",
+    "reward_grounding",
+    "isolation",
+}
+
+_LLM_CHECKS = {"npc_consistency", "realism_review"}
 
 
 def _import_check(dotted: str) -> Any:
@@ -396,8 +405,9 @@ def _import_check(dotted: str) -> Any:
 def validate(snapshot: str, checks: str | None, docker: bool) -> None:
     """Run validator checks against a snapshot.
 
-    By default runs only offline checks (no Docker required). Use --docker
-    to include checks that need live containers.
+    By default runs only offline mechanical checks. Use --docker
+    to include checks that need live containers, or --checks to opt into
+    advisory LLM checks explicitly.
 
     Available checks: build_boot, exploitability, patchability, evidence,
     reward_grounding, isolation, task_feasibility, difficulty,
@@ -420,7 +430,7 @@ def validate(snapshot: str, checks: str | None, docker: bool) -> None:
         if docker:
             names = list(_CHECK_REGISTRY)
         else:
-            names = [n for n in _CHECK_REGISTRY if n not in _DOCKER_CHECKS]
+            names = [n for n in _CHECK_REGISTRY if n not in _DOCKER_CHECKS and n not in _LLM_CHECKS]
 
     if not names:
         click.echo("No checks selected.")

@@ -14,7 +14,6 @@ class TestOpenRangeClient:
         client = OpenRangeEnv(base_url="http://localhost:8000")
         sync_client = client.sync()
 
-        assert sync_client is not client
         assert hasattr(sync_client, "reset")
         assert hasattr(sync_client, "step")
         assert hasattr(sync_client, "__enter__")

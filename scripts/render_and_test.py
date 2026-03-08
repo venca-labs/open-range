@@ -6,13 +6,15 @@ import json
 import sys
 from pathlib import Path
 
-sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "src"))
+__test__ = False
 
-from open_range.builder.builder import _parse_llm_response
-from open_range.builder.renderer import SnapshotRenderer
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "src"))
 
 
 def main():
+    from open_range.builder.builder import _parse_llm_response
+    from open_range.builder.renderer import SnapshotRenderer
+
     snapshot_path = Path(__file__).resolve().parent.parent / "snapshots" / "llm_tier1_test.json"
     if not snapshot_path.exists():
         print(f"ERROR: {snapshot_path} not found. Run test_tier1_llm.py first.")

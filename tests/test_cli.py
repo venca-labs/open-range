@@ -144,35 +144,14 @@ def test_validate_docker_uses_rendered_values_for_live_checks(
     assert check.saw_containers == {"web": "pod-web", "db": "pod-db"}
 
 
-def test_validate_can_deploy_to_hugging_face_after_success(
+def test_validate_rejects_removed_hugging_face_deploy_flag(
     tmp_path,
     sample_snapshot_spec,
-    monkeypatch,
 ):
     snapshot_path = tmp_path / "spec.json"
     snapshot_path.write_text(
         json.dumps(sample_snapshot_spec.model_dump(mode="python")),
         encoding="utf-8",
-    )
-
-    deployed = {}
-
-    def fake_deploy(snapshot, *, space_id, token, create_repo, private, commit_message):
-        deployed.update(
-            {
-                "snapshot": snapshot,
-                "space_id": space_id,
-                "token": token,
-                "create_repo": create_repo,
-                "private": private,
-                "commit_message": commit_message,
-            }
-        )
-        return SimpleNamespace(commit_url="https://huggingface.co/spaces/test/open-range/commit/abc123")
-
-    monkeypatch.setattr(
-        "open_range.hf_space.deploy_validated_snapshot_to_space",
-        fake_deploy,
     )
 
     runner = CliRunner()
@@ -192,12 +171,53 @@ def test_validate_can_deploy_to_hugging_face_after_success(
         ],
     )
 
+    assert result.exit_code == 2
+    assert "No such option: --deploy-hf" in result.output
+
+
+def test_validate_without_docker_excludes_live_only_checks(
+    tmp_path,
+    sample_snapshot_spec,
+    monkeypatch,
+):
+    snapshot_path = tmp_path / "spec.json"
+    snapshot_path.write_text(
+        json.dumps(sample_snapshot_spec.model_dump(mode="python")),
+        encoding="utf-8",
+    )
+
+    invoked: list[str] = []
+
+    class _OfflineCheck:
+        def __init__(self, name: str) -> None:
+            self.name = name
+
+        async def check(self, snapshot, containers: ContainerSet) -> CheckResult:
+            invoked.append(self.name)
+            return CheckResult(name=self.name, passed=True)
+
+    monkeypatch.setattr(
+        "open_range.cli._CHECK_REGISTRY",
+        {
+            "build_boot": "fake.BuildBootCheck",
+            "reward_grounding": "fake.RewardGroundingCheck",
+            "isolation": "fake.IsolationCheck",
+            "difficulty": "fake.DifficultyCheck",
+            "npc_consistency": "fake.NPCConsistencyCheck",
+            "realism_review": "fake.RealismReviewCheck",
+        },
+    )
+    monkeypatch.setattr(
+        "open_range.cli._import_check",
+        lambda dotted: lambda: _OfflineCheck(dotted.rsplit(".", 1)[-1]),
+    )
+
+    runner = CliRunner()
+    result = runner.invoke(cli, ["validate", "--snapshot", str(snapshot_path)])
+
     assert result.exit_code == 0, result.output
-    assert deployed["snapshot"] == str(snapshot_path)
-    assert deployed["space_id"] == "test/open-range"
-    assert deployed["token"] == "hf_test"
-    assert deployed["create_repo"] is True
-    assert "Hugging Face deployment complete." in result.output
+    assert invoked == ["DifficultyCheck"]
+    assert "Validation PASSED" in result.output
 
 
 def test_deploy_installs_rendered_chart_on_kind_cluster(

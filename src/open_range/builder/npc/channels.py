@@ -81,6 +81,8 @@ class ChatChannel:
                 "content": m.content,
                 "timestamp": m.timestamp,
                 "channel": m.channel,
+                "label": "benign",
+                "source": f"chat:{m.channel}",
             }
             for m in self._messages
         ]
@@ -190,6 +192,8 @@ class VoiceChannel:
                 "transcript": c.transcript,
                 "timestamp": c.timestamp,
                 "duration_s": c.duration_s,
+                "label": "benign",
+                "source": "voice:phone",
             }
             for c in self._calls
         ]
@@ -278,6 +282,8 @@ class DocumentChannel:
                 "timestamp": d.timestamp,
                 "accessed": d.accessed,
                 "access_decision": d.access_decision,
+                "label": "benign",
+                "source": f"document:{d.filename}",
             }
             for d in self._documents
         ]

@@ -6,6 +6,7 @@ import json
 import inspect
 import logging
 import os
+from types import SimpleNamespace
 from pathlib import Path
 
 from fastapi import FastAPI
@@ -73,8 +74,10 @@ def create_app() -> FastAPI:
                 snapshot_path,
             )
 
+    mock_mode = _env_flag("OPENRANGE_MOCK", default=False)
+
     runtime = None
-    if _managed_runtime_enabled():
+    if _managed_runtime_enabled() and not mock_mode:
         from open_range.server.runtime import ManagedSnapshotRuntime
 
         runtime = ManagedSnapshotRuntime.from_env()
@@ -86,6 +89,7 @@ def create_app() -> FastAPI:
         )
         return RangeEnvironment(
             runtime=runtime,
+            docker_available=False if mock_mode else None,
             default_snapshot=default_snapshot,
             execution_mode=execution_mode,
         )
@@ -110,6 +114,14 @@ def create_app() -> FastAPI:
     except Exception:
         pass
 
+    fastapp.state.env = env_factory()
+    if not hasattr(fastapp.state, "openenv_server"):
+        fastapp.state.openenv_server = SimpleNamespace(
+            _env_factory=env_factory,
+            _sessions={},
+            _session_info={},
+            active_sessions=0,
+        )
     if runtime is not None:
         fastapp.state.runtime = runtime
         # NOTE: Do NOT register runtime.start() as a startup event — it
