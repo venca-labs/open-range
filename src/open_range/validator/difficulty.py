@@ -34,7 +34,7 @@ class DifficultyCheck:
         tier: int = snapshot.topology.get("tier", 1)
         target = TIER_TARGETS.get(tier, TIER_TARGETS[1])
         lo = int(target * (1 - TOLERANCE))
-        hi = int(target * (1 + TOLERANCE))
+        hi = round(target * (1 + TOLERANCE))
 
         if n_steps < lo or n_steps > hi:
             issues.append(

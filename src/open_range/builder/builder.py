@@ -949,10 +949,24 @@ class TemplateOnlyBuilder:
         if preferred:
             candidates = preferred
 
-        # Pick 1-2 vulns
+        # Pick vulns, respecting tier step target.
+        # Each template vuln contributes ~5 golden path steps, so cap count
+        # to fit within the tier's ±20% step window.
+        from open_range.validator.difficulty import TIER_TARGETS, TOLERANCE
+
+        tier = int(manifest.get("tier", context.tier) or context.tier)
+        step_target = TIER_TARGETS.get(tier, 8)
+        max_steps_hi = int(step_target * (1 + TOLERANCE))
+        # Each vuln adds ~5 steps but the first nmap step is shared, so
+        # subsequent vulns add ~4 incremental steps.
+        avg_first = 5
+        avg_extra = 4
+        tier_max_vulns = max(1, 1 + (max_steps_hi - avg_first) // avg_extra)
+
         max_vulns = manifest.get("difficulty", {}).get("max_vulns", 2)
         min_vulns = manifest.get("difficulty", {}).get("min_vulns", 1)
-        count = rng.randint(min_vulns, min(max_vulns, len(candidates)))
+        effective_max = min(max_vulns, tier_max_vulns, len(candidates))
+        count = rng.randint(min_vulns, max(min_vulns, effective_max))
         chosen = rng.sample(candidates, count)
 
         # Build topology from manifest
@@ -1017,11 +1031,15 @@ class TemplateOnlyBuilder:
                 )
             )
             for gs in v.get("golden_path_steps", []):
+                cmd = gs["cmd"]
+                # Deduplicate shared recon steps (e.g. nmap) across vulns
+                if any(s.command == cmd for s in golden_path):
+                    continue
                 step_offset += 1
                 golden_path.append(
                     GoldenPathStep(
                         step=step_offset,
-                        command=gs["cmd"],
+                        command=cmd,
                         expect_in_stdout=gs["expect_stdout"],
                         description=gs.get("description", ""),
                     )

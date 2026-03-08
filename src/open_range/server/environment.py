@@ -119,11 +119,16 @@ class RangeEnvironment(Environment[RangeAction, RangeObservation, RangeState]):
 
         # Execution mode: "auto", "docker", or "subprocess"
         self._execution_mode = execution_mode
+
+        # OPENRANGE_MOCK=1 forces mock mode (docker_available=False)
+        if os.environ.get("OPENRANGE_MOCK") == "1" and docker_available is None:
+            self._docker_available = False
+
         if execution_mode == "auto":
             env_mode = os.environ.get("OPENRANGE_EXECUTION_MODE", "")
             if env_mode:
                 self._execution_mode = env_mode
-            elif docker_available is False:
+            elif docker_available is False or self._docker_available is False:
                 # Explicit docker_available=False (unit tests) → mock mode,
                 # NOT subprocess. Keep execution_mode as "auto" so
                 # _exec_in_container falls through to mock.

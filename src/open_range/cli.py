@@ -424,7 +424,7 @@ _CHECK_REGISTRY: dict[str, str] = {
 }
 
 # Checks that require running Docker containers.
-_DOCKER_CHECKS = {"build_boot", "exploitability", "patchability", "evidence"}
+_DOCKER_CHECKS = {"build_boot", "exploitability", "patchability", "evidence", "reward_grounding"}
 
 
 def _import_check(dotted: str) -> Any:
