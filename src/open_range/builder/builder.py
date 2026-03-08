@@ -976,9 +976,14 @@ class TemplateOnlyBuilder:
         avg_extra = 4
         tier_max_vulns = max(1, 1 + (max_steps_hi - avg_first) // avg_extra)
 
-        max_vulns = manifest.get("difficulty", {}).get("max_vulns", 2)
-        min_vulns = manifest.get("difficulty", {}).get("min_vulns", 1)
-        effective_max = min(max_vulns, tier_max_vulns, len(candidates))
+        max_v_raw = manifest.get("difficulty", {}).get("max_vulns", 2)
+        min_v_raw = manifest.get("difficulty", {}).get("min_vulns", 1)
+        max_vulns = max(1, int(max_v_raw))
+        min_vulns = max(1, int(min_v_raw))
+        if min_vulns > max_vulns:
+            min_vulns = max_vulns
+
+        effective_max = max(1, min(max_vulns, tier_max_vulns, len(candidates)))
         effective_min = min(min_vulns, effective_max)
         count = rng.randint(effective_min, effective_max)
         chosen = rng.sample(candidates, count)

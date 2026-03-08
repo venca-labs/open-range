@@ -58,7 +58,10 @@ def create_app() -> FastAPI:
     fastapp.state.env = env_factory()
     if runtime is not None:
         fastapp.state.runtime = runtime
-        fastapp.add_event_handler("startup", runtime.start)
+        # NOTE: Do NOT register runtime.start() as a startup event — it
+        # synchronously generates snapshots which blocks the health check on
+        # resource-constrained hardware (HF Spaces cpu-basic).  The runtime
+        # lazy-starts on the first acquire_snapshot() call (triggered by reset()).
         fastapp.add_event_handler("shutdown", runtime.stop)
 
     try:
