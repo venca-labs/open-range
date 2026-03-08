@@ -371,6 +371,7 @@ class ManagedSnapshotRuntime:
         self._stop_event = threading.Event()
         self._started = False
         self._generation_counter = 0
+        self._recent_acquisitions: list[str] = []
 
     @classmethod
     def from_env(cls) -> "ManagedSnapshotRuntime":
@@ -452,10 +453,76 @@ class ManagedSnapshotRuntime:
     def acquire_snapshot(self, *, snapshot_id: str | None = None) -> RuntimeSnapshot:
         self.start()
         if snapshot_id:
-            return self.get_snapshot(snapshot_id)
+            result = self.get_snapshot(snapshot_id)
+            self._track_acquisition(result.snapshot_id)
+            return result
 
         stored = _run_coro_sync(self.store.select_entry(strategy=self.selection_strategy))
-        return RuntimeSnapshot(snapshot_id=stored.snapshot_id, snapshot=stored.snapshot)
+
+        # Diversity check: if candidate's vuln types completely overlap with the
+        # last 3 acquired snapshots, try to find an alternative.
+        if self._recent_acquisitions and not self._is_diverse(stored.snapshot):
+            alternative = self._find_diverse_snapshot(stored.snapshot_id)
+            if alternative is not None:
+                stored = alternative
+
+        result = RuntimeSnapshot(snapshot_id=stored.snapshot_id, snapshot=stored.snapshot)
+        self._track_acquisition(result.snapshot_id)
+        return result
+
+    def _track_acquisition(self, snapshot_id: str) -> None:
+        """Record a snapshot acquisition, keeping at most 10 entries."""
+        self._recent_acquisitions.append(snapshot_id)
+        if len(self._recent_acquisitions) > 10:
+            del self._recent_acquisitions[: len(self._recent_acquisitions) - 10]
+
+    def _recent_vuln_types(self) -> set[str]:
+        """Collect vuln types from the last 3 acquired snapshots."""
+        recent_ids = self._recent_acquisitions[-3:]
+        if not recent_ids:
+            return set()
+
+        all_meta = self.list_snapshots()
+        meta_by_id = {m.get("snapshot_id"): m for m in all_meta}
+        vuln_types: set[str] = set()
+        for sid in recent_ids:
+            meta = meta_by_id.get(sid)
+            if meta:
+                vuln_types.update(meta.get("vuln_classes", []))
+        return vuln_types
+
+    def _is_diverse(self, snapshot: SnapshotSpec) -> bool:
+        """Return True if *snapshot* has at least one vuln type not in recent history."""
+        recent = self._recent_vuln_types()
+        if not recent:
+            return True
+        candidate_vulns = {v.type for v in snapshot.truth_graph.vulns}
+        if not candidate_vulns:
+            return True
+        # Diverse if at least one vuln type is NOT in the recent set
+        return not candidate_vulns.issubset(recent)
+
+    def _find_diverse_snapshot(
+        self, exclude_id: str
+    ) -> "StoredSnapshot | None":
+        """Try to find a snapshot in the store whose vulns don't fully overlap."""
+        from open_range.builder.snapshot_store import StoredSnapshot
+
+        all_meta = self.list_snapshots()
+        recent = self._recent_vuln_types()
+
+        for meta in all_meta:
+            sid = meta.get("snapshot_id", "")
+            if sid == exclude_id:
+                continue
+            candidate_vulns = set(meta.get("vuln_classes", []))
+            if not candidate_vulns or not candidate_vulns.issubset(recent):
+                try:
+                    entry = _run_coro_sync(self.store.get_entry(sid))
+                    return entry
+                except Exception:  # noqa: BLE001
+                    continue
+        return None
 
     def get_snapshot(self, snapshot_id: str) -> RuntimeSnapshot:
         self.start()
@@ -542,6 +609,18 @@ class ManagedSnapshotRuntime:
 
     def _generate_and_store_snapshot(self) -> str:
         last_error: str | None = None
+        parent_snapshot: SnapshotSpec | None = None
+        parent_snapshot_id: str | None = None
+        existing = self.list_snapshots()
+        if existing:
+            parent_snapshot_id = str(existing[0].get("snapshot_id", "") or "")
+            if parent_snapshot_id:
+                try:
+                    parent_snapshot = _run_coro_sync(self.store.get(parent_snapshot_id))
+                except FileNotFoundError:
+                    parent_snapshot = None
+                    parent_snapshot_id = None
+
         for attempt in range(1, self.generation_retries + 1):
             context = self._build_context()
             parent_entry = self._select_parent_entry()
@@ -588,7 +667,20 @@ class ManagedSnapshotRuntime:
     def _build_context(self) -> BuildContext:
         seed = self._generation_counter
         self._generation_counter += 1
-        tier = int(self.manifest.get("tier", 1) or 1)
+        base_tier = int(self.manifest.get("tier", 1) or 1)
+
+        # Curriculum progression: if the red agent has been solving at a high
+        # rate over the last 10 completed episodes, bump the effective tier.
+        tier = base_tier
+        completed = [o for o in self.curriculum.history if o.completed]
+        recent_completed = completed[-10:]
+        if len(recent_completed) >= 10:
+            recent_solve_rate = sum(
+                1 for o in recent_completed if o.red_solved
+            ) / len(recent_completed)
+            if recent_solve_rate > 0.8:
+                tier = min(base_tier + 1, 5)
+
         context = self.curriculum.build_context(seed=seed, tier=tier)
         context.episode_count = self.mutator.episode_count
         if self.live_admission_enabled:
@@ -741,6 +833,26 @@ class ManagedSnapshotRuntime:
             raise RuntimeError(f"no running containers found for project {project_name}")
         return ContainerSet(project_name=project_name, container_ids=container_ids)
 
+    @staticmethod
+    def _mysql_credentials(snapshot: SnapshotSpec) -> str:
+        """Build MySQL CLI credential flags from the snapshot topology.
+
+        Searches ``topology["users"]`` for a user whose ``hosts`` list
+        contains ``"db"``.  Returns ``-u <user> -p<password>`` for the
+        first match, or ``-u root`` (no password) as a safe fallback.
+        """
+        if isinstance(snapshot.topology, dict):
+            users = snapshot.topology.get("users", [])
+            for user in users:
+                hosts = user.get("hosts", [])
+                if "db" in hosts:
+                    uname = user.get("username", "root")
+                    pwd = user.get("password", "")
+                    if pwd:
+                        return f"-u {uname} -p{pwd}"
+                    return f"-u {uname}"
+        return "-u root"
+
     def _deploy_snapshot_artifacts(
         self,
         snapshot: SnapshotSpec,
@@ -764,7 +876,11 @@ class ManagedSnapshotRuntime:
                 sql_file.write_text(content, encoding="utf-8")
                 try:
                     await containers.cp("db", str(sql_file), "/tmp/_snapshot.sql")
-                    await containers.exec("db", "mysql -u root -pr00tP@ss! < /tmp/_snapshot.sql")
+                    mysql_creds = self._mysql_credentials(snapshot)
+                    await containers.exec(
+                        "db",
+                        f"mysql {mysql_creds} < /tmp/_snapshot.sql",
+                    )
                     await containers.exec("db", "rm -f /tmp/_snapshot.sql")
                 finally:
                     sql_file.unlink(missing_ok=True)
@@ -831,6 +947,10 @@ class ManagedSnapshotRuntime:
         snapshot_id: str,
     ) -> SnapshotSpec:
         rendered = snapshot.model_copy(deep=True)
+        rendered.lineage = rendered.lineage.model_copy(deep=True)
+        rendered.lineage.snapshot_id = snapshot_id
+        if not rendered.lineage.root_snapshot_id:
+            rendered.lineage.root_snapshot_id = snapshot_id
 
         topology = dict(rendered.topology)
         topology["snapshot_id"] = snapshot_id

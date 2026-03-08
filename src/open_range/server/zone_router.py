@@ -6,6 +6,9 @@ zones can reach which other zones on which ports.
 
 The agent experiences identical training signal to a
 multi-container setup with real iptables rules.
+
+All routing data comes from the snapshot/manifest topology.
+No hardcoded infrastructure constants.
 """
 
 from __future__ import annotations
@@ -15,66 +18,54 @@ from typing import Any
 
 logger = logging.getLogger(__name__)
 
-# Default Tier 1 zone routing table
-# Maps (from_zone, to_zone) -> set of allowed ports
-ZONE_ROUTES: dict[tuple[str, str], set[int]] = {
-    ("external", "dmz"): {80, 443, 25},
-    ("dmz", "internal"): {3306, 445},
-    ("dmz", "management"): {389, 636},
-    ("internal", "management"): {389},
-    ("management", "dmz"): {514},
-    ("management", "internal"): {514},
-}
-
-# Host -> zone mapping for Tier 1
-HOST_ZONES: dict[str, str] = {
-    "attacker": "external",
-    "firewall": "external",  # multi-homed but agent sees external
-    "web": "dmz",
-    "mail": "dmz",
-    "db": "internal",
-    "files": "internal",
-    "ldap": "management",
-    "siem": "management",
-}
-
-# Host -> localhost port mapping (all services on localhost in subprocess mode)
-HOST_PORTS: dict[str, dict[str, int]] = {
-    "web": {"http": 80, "https": 443},
-    "mail": {"smtp": 25},
-    "db": {"mysql": 3306},
-    "files": {"smb": 445},
-    "ldap": {"ldap": 389, "ldaps": 636},
-    "siem": {"syslog": 514},
-}
-
 
 @dataclass
 class ZoneRouter:
-    """Enforces network zone routing policy."""
+    """Enforces network zone routing policy.
 
-    routes: dict[tuple[str, str], set[int]] = field(default_factory=lambda: dict(ZONE_ROUTES))
-    host_zones: dict[str, str] = field(default_factory=lambda: dict(HOST_ZONES))
+    Must be constructed via ``from_snapshot()`` or ``from_manifest()``
+    to load topology-driven routes and host-zone mappings.  The bare
+    constructor creates an empty (deny-all) router.
+    """
+
+    routes: dict[tuple[str, str], set[int]] = field(default_factory=dict)
+    host_zones: dict[str, str] = field(default_factory=dict)
+
+    # ------------------------------------------------------------------ #
+    # Constructors
+    # ------------------------------------------------------------------ #
 
     @classmethod
     def from_snapshot(cls, topology: dict[str, Any]) -> "ZoneRouter":
-        """Build router from snapshot topology and firewall rules."""
+        """Build router from snapshot topology and firewall rules.
+
+        This is the primary constructor.  It reads ``hosts`` and
+        ``firewall_rules`` from the topology dict to populate
+        ``host_zones`` and ``routes``.
+
+        If ``firewall_rules`` is missing or empty, a permissive default
+        is generated: same-zone traffic is always allowed (handled by
+        ``can_reach``), and all cross-zone traffic is denied.
+
+        If a host entry lacks a ``zone`` field, its zone is inferred as
+        ``"unknown"``.
+        """
         router = cls()
 
-        # Override host_zones from topology
+        # Build host_zones from topology hosts list
         for host in topology.get("hosts", []):
             if isinstance(host, dict):
                 name = host.get("name", "")
-                zone = host.get("zone", "")
-                if name and zone:
+                zone = host.get("zone", "unknown")
+                if name:
                     router.host_zones[name] = zone
             elif isinstance(host, str):
-                pass  # keep defaults
+                # String-only entries get zone inferred as "unknown"
+                router.host_zones[host] = "unknown"
 
-        # Override routes from firewall_rules
+        # Build routes from firewall_rules
         rules = topology.get("firewall_rules", [])
         if rules:
-            router.routes = {}
             for rule in rules:
                 action = rule.get("action", "deny")
                 if action != "allow":
@@ -85,8 +76,24 @@ class ZoneRouter:
                 if from_z and to_z:
                     key = (from_z, to_z)
                     router.routes[key] = router.routes.get(key, set()) | ports
+        # else: no firewall_rules → routes stays empty → cross-zone denied,
+        #       same-zone allowed (handled by can_reach)
 
         return router
+
+    @classmethod
+    def from_manifest(cls, manifest: dict[str, Any]) -> "ZoneRouter":
+        """Build a ZoneRouter from a raw manifest dict.
+
+        Used during validation before a snapshot exists.  Extracts
+        topology from the manifest and delegates to ``from_snapshot``.
+        """
+        topology = manifest.get("topology", manifest)
+        return cls.from_snapshot(topology)
+
+    # ------------------------------------------------------------------ #
+    # Query methods
+    # ------------------------------------------------------------------ #
 
     def can_reach(self, from_zone: str, to_zone: str, port: int) -> bool:
         """Check if a connection from one zone to another on a port is allowed."""
@@ -103,12 +110,14 @@ class ZoneRouter:
         """Check if from_host can access target_host on port.
 
         Returns (allowed, reason).
+        Unknown zones are denied (fail-closed).
         """
         from_zone = self.get_zone(from_host)
         to_zone = self.get_zone(target_host)
 
         if from_zone == "unknown" or to_zone == "unknown":
-            return True, "unknown zone, allowing"  # permissive for unknown hosts
+            unknown = from_zone if from_zone == "unknown" else to_zone
+            return False, f"unknown zone: {unknown}"
 
         if self.can_reach(from_zone, to_zone, port):
             logger.debug("ALLOW %s(%s) -> %s(%s):%d", from_host, from_zone, target_host, to_zone, port)

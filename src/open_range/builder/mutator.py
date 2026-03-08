@@ -37,17 +37,6 @@ _SUPPORTED_MUTATION_OPS = {
     "add_benign_noise",
 }
 
-_INJECTION_POINTS = {
-    "sqli": "/legacy/search.php?q=",
-    "idor": "/api/users/{id}",
-    "path_traversal": "/download?file=",
-    "command_injection": "/admin/diagnostics?host=",
-    "ssrf": "/fetch?url=",
-    "weak_creds": "ssh svc_app@host",
-    "broken_auth": "/admin/login",
-    "xss": "/search?q=",
-}
-
 
 class Mutator:
     """Orchestrate vuln mutation across resets.
@@ -120,16 +109,45 @@ class Mutator:
             except (AttributeError, ValueError):
                 pass  # protocol version without error field
 
-        if parent_snapshot is None:
-            snapshot = await self.builder.build(manifest, context)
-            snapshot = self._hydrate_root_snapshot(snapshot, manifest)
-        else:
-            snapshot = self._mutate_parent_snapshot(
-                manifest=manifest,
-                parent_snapshot=parent_snapshot,
-                parent_snapshot_id=parent_snapshot_id,
-                context=context,
+        # Build with diversity enforcement -- retry up to 3 times if the
+        # snapshot repeats recent vuln classes or injection points.
+        max_diversity_retries = 3
+        snapshot: SnapshotSpec | None = None
+        last_reason = ""
+
+        for attempt in range(1, max_diversity_retries + 1):
+            if parent_snapshot is None:
+                candidate = await self.builder.build(manifest, context)
+                candidate = self._hydrate_root_snapshot(candidate, manifest)
+            else:
+                candidate = self._mutate_parent_snapshot(
+                    manifest=manifest,
+                    parent_snapshot=parent_snapshot,
+                    parent_snapshot_id=parent_snapshot_id,
+                    context=context,
+                )
+
+            passes, reason = self._check_diversity(candidate, manifest)
+            if passes:
+                snapshot = candidate
+                break
+
+            last_reason = reason
+            logger.info(
+                "Mutator: diversity check failed on attempt %d/%d: %s",
+                attempt,
+                max_diversity_retries,
+                reason,
             )
+
+        if snapshot is None:
+            # Exhausted retries -- accept last candidate with a warning
+            logger.warning(
+                "Mutator: accepting snapshot after %d diversity retries; last failure: %s",
+                max_diversity_retries,
+                last_reason,
+            )
+            snapshot = candidate  # type: ignore[possibly-undefined]
 
         # Update history
         new_classes = [v.type for v in snapshot.truth_graph.vulns]
@@ -156,6 +174,55 @@ class Mutator:
     def history(self) -> list[str]:
         """All vuln classes used so far, in order."""
         return list(self._history)
+
+    def _check_diversity(
+        self,
+        snapshot: SnapshotSpec,
+        manifest: dict[str, Any],
+    ) -> tuple[bool, str]:
+        """Check whether *snapshot* meets vuln diversity constraints.
+
+        Returns:
+            ``(passes, reason)`` -- *passes* is ``True`` when the snapshot
+            satisfies the diversity rules; *reason* explains why it failed.
+        """
+        new_classes = [v.type for v in snapshot.truth_graph.vulns]
+        new_surfaces = [v.injection_point for v in snapshot.truth_graph.vulns]
+
+        recent_classes = set(self._history[-3:]) if self._history else set()
+        recent_surfaces = set(self._attack_surfaces[-5:]) if self._attack_surfaces else set()
+
+        all_families = {str(v) for v in manifest.get("bug_families", []) if v}
+
+        # --- vuln class check ---
+        if new_classes and recent_classes:
+            new_class_set = set(new_classes)
+            if new_class_set and new_class_set.issubset(recent_classes):
+                # Only reject if there ARE alternative families we could use
+                alternatives = all_families - recent_classes
+                if alternatives:
+                    return (
+                        False,
+                        f"All vuln classes {sorted(new_class_set)} repeat recent history "
+                        f"{sorted(recent_classes)}; alternatives available: {sorted(alternatives)}",
+                    )
+
+        # --- injection point check ---
+        if new_surfaces and recent_surfaces:
+            new_surface_set = set(new_surfaces)
+            if new_surface_set and new_surface_set.issubset(recent_surfaces):
+                # Only reject if the manifest has enough families to allow
+                # different surfaces (any alternative family would produce a
+                # different dynamic injection point)
+                alternatives = all_families - set(new_classes)
+                if alternatives:
+                    return (
+                        False,
+                        f"All injection points {sorted(new_surface_set)} repeat recent surfaces "
+                        f"{sorted(recent_surfaces)}; alternatives available: {sorted(alternatives)}",
+                    )
+
+        return (True, "")
 
     def _hydrate_root_snapshot(
         self,
@@ -562,7 +629,7 @@ class Mutator:
                         type=vuln_type,
                         host=host,
                         service=service,
-                        injection_point=_INJECTION_POINTS.get(vuln_type, f"/debug/{vuln_type}"),
+                        injection_point=f"/{service or 'app'}/{vuln_type}",
                         vulnerable_code=f"// mutation-added {vuln_type} surface on {host}",
                         root_cause=f"Mutation introduced {vuln_type} on {host}",
                         blast_radius=f"Additional foothold on {host}",

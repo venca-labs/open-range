@@ -111,6 +111,9 @@ class RangeEnvironment(_BASE):  # type: ignore[misc]
         self._exec_timeout = exec_timeout
         self._episode_start: float = 0.0
 
+        # NPC manager -- started/stopped with episode lifecycle
+        self._npc_manager: Any = None
+
         # Reward instances -- imported lazily to avoid circular deps
         self._red_reward: Any = None
         self._blue_reward: Any = None
@@ -164,7 +167,10 @@ class RangeEnvironment(_BASE):  # type: ignore[misc]
         Tries multiple naming conventions:
         1. Snapshot compose config (if available)
         2. Docker Compose default: ``<project>-<service>-1``
-        3. Bare host name as fallback
+        3. Raises ``RuntimeError`` if the host cannot be resolved
+
+        In unit-test mock mode (docker_available=False, execution_mode="docker"),
+        the bare hostname is returned as a fallback for test compatibility.
         """
         if self._snapshot and self._snapshot.compose:
             services = self._snapshot.compose.get("services", {})
@@ -185,7 +191,20 @@ class RangeEnvironment(_BASE):  # type: ignore[misc]
             except Exception:
                 pass
 
-        return host
+        # In subprocess mode, commands run locally — the host name is only
+        # used for logging/routing, not for Docker container lookup.
+        if self._execution_mode == "subprocess":
+            return host
+
+        # In unit-test mock mode, return the bare hostname for compatibility
+        if self._docker_available is False and self._execution_mode == "docker":
+            return host
+
+        raise RuntimeError(
+            f"Cannot resolve container for host '{host}'. "
+            f"No compose config, no running container found, and no mock mode active. "
+            f"Ensure Docker is running or provide a snapshot with compose configuration."
+        )
 
     def _exec_via_subprocess(self, host: str, command: str, timeout: float = 30.0) -> tuple[str, str]:
         """Execute a command via local subprocess (all-in-one container mode).
@@ -228,12 +247,18 @@ class RangeEnvironment(_BASE):  # type: ignore[misc]
                 timeout_s if timeout_s is not None else self._exec_timeout,
             )
 
-        # Mock mode for unit tests (docker_available explicitly set to False)
+        # Unit-test backward compatibility: when docker_available was explicitly
+        # set to False AND execution_mode resolved to "docker" (the auto path
+        # for tests), return synthetic output so tests can assert on container
+        # routing without real Docker.
         if self._docker_available is False:
-            return (
-                f"[mock] executed on {container_name}: {command}",
-                "",
-            )
+            if self._execution_mode == "docker":
+                return (
+                    f"[mock] executed on {container_name}: {command}",
+                    "",
+                )
+            # Production path: docker unavailable and mode is not subprocess
+            return "", f"Docker unavailable (execution_mode={self._execution_mode})"
 
         # Docker execution mode
         client = self._get_docker()
@@ -263,6 +288,29 @@ class RangeEnvironment(_BASE):  # type: ignore[misc]
             return stdout, stderr
         except Exception as exc:
             return "", f"Error executing command: {exc}"
+
+    # -----------------------------------------------------------------
+    # Database credential helpers
+    # -----------------------------------------------------------------
+
+    def _db_credentials(self) -> str:
+        """Build MySQL CLI credential flags from the snapshot topology.
+
+        Looks up users in ``self._snapshot.topology["users"]`` whose ``hosts``
+        list contains ``"db"``. Returns ``-u <user> -p<password>`` for the
+        first match, or ``-u root`` (no password) if no user is defined.
+        """
+        if self._snapshot and isinstance(self._snapshot.topology, dict):
+            users = self._snapshot.topology.get("users", [])
+            for user in users:
+                hosts = user.get("hosts", [])
+                if "db" in hosts:
+                    uname = user.get("username", "root")
+                    pwd = user.get("password", "")
+                    if pwd:
+                        return f"-u {uname} -p{pwd}"
+                    return f"-u {uname}"
+        return "-u root"
 
     # -----------------------------------------------------------------
     # Snapshot applicator — deploys files, flags, and SQL to containers
@@ -303,9 +351,10 @@ class RangeEnvironment(_BASE):  # type: ignore[misc]
                         container_name,
                         f"echo '{b64}' | base64 -d > /tmp/_snapshot.sql",
                     )
+                    db_creds = self._db_credentials()
                     _, stderr = self._exec_in_container(
                         container_name,
-                        "mysql -u root -pr00tP@ss! < /tmp/_snapshot.sql",
+                        f"mysql {db_creds} < /tmp/_snapshot.sql",
                     )
                     self._exec_in_container(
                         container_name, "rm -f /tmp/_snapshot.sql"
@@ -372,9 +421,10 @@ class RangeEnvironment(_BASE):  # type: ignore[misc]
                         tmp.write(content)
                         tmp_path = tmp.name
                     try:
+                        db_creds = self._db_credentials()
                         _, stderr = self._exec_via_subprocess(
                             "db",
-                            f"mysql -u root -pr00tP@ss! < {shlex.quote(tmp_path)}",
+                            f"mysql {db_creds} < {shlex.quote(tmp_path)}",
                             timeout=self._exec_timeout,
                         )
                         if stderr and "ERROR" in stderr:
@@ -410,6 +460,60 @@ class RangeEnvironment(_BASE):  # type: ignore[misc]
         )
 
     # -----------------------------------------------------------------
+    # NPC lifecycle
+    # -----------------------------------------------------------------
+
+    def _start_npcs(self, snapshot: SnapshotSpec) -> None:
+        """Start NPC traffic generators for the current episode.
+
+        When execution_mode is not "docker" or Docker is unavailable, only
+        synthetic chat traffic is generated (no Docker exec or LLM calls).
+        In live mode, shell scripts run inside containers and LLM NPC
+        agents poll for stimuli.
+        """
+        try:
+            self._stop_npcs()
+
+            from open_range.builder.npc.npc_manager import NPCManager
+
+            mock = (self._docker_available is False) or (self._execution_mode != "docker")
+            mgr = NPCManager(mock_mode=mock)
+            self._npc_manager = mgr
+
+            # Start synchronously (NPCManager.start_sync handles mock vs live)
+            mgr.start_sync(snapshot)
+
+            # Seed the traffic log immediately from chat traffic generated at
+            # start time so that Blue has NPC noise from step 1.
+            self._refresh_npc_traffic_log()
+
+            logger.info(
+                "NPC manager started (mock=%s, personas=%d)",
+                mock,
+                len(snapshot.npc_personas or []),
+            )
+        except Exception as exc:
+            logger.warning("NPC startup failed (non-fatal): %s", exc)
+            self._npc_manager = None
+
+    def _stop_npcs(self) -> None:
+        """Stop any running NPC traffic generators."""
+        if self._npc_manager is not None:
+            try:
+                self._npc_manager.stop_sync()
+            except Exception as exc:
+                logger.debug("NPC stop error (ignored): %s", exc)
+            self._npc_manager = None
+
+    def _refresh_npc_traffic_log(self) -> None:
+        """Pull latest NPC activity from the manager into the traffic log."""
+        if self._npc_manager is not None:
+            try:
+                self._npc_traffic_log = self._npc_manager.get_traffic_log()
+            except Exception as exc:
+                logger.debug("NPC traffic log refresh failed: %s", exc)
+
+    # -----------------------------------------------------------------
     # Snapshot selection
     # -----------------------------------------------------------------
 
@@ -432,20 +536,16 @@ class RangeEnvironment(_BASE):  # type: ignore[misc]
             self._snapshot_id = admitted.snapshot_id
             snap = admitted.snapshot
         else:
+            # Backward-compatible minimal stub for tests, demos, and local
+            # mock-mode usage when a managed runtime is not configured.
             self._snapshot_id = None
             snap = SnapshotSpec(
-                topology={"hosts": []},
+                topology={"hosts": ["attacker", "siem"]},
                 flags=[],
                 golden_path=[],
                 task={
-                    "red_briefing": (
-                        "Target network detected. Begin reconnaissance and "
-                        "identify vulnerabilities. Capture all flags."
-                    ),
-                    "blue_briefing": (
-                        "Monitor SIEM for suspicious activity. Investigate "
-                        "alerts, patch vulnerabilities, and report findings."
-                    ),
+                    "red_briefing": "Test mode.",
+                    "blue_briefing": "Test mode.",
                 },
             )
 
@@ -686,13 +786,48 @@ class RangeEnvironment(_BASE):  # type: ignore[misc]
     def _resolve_target(self, action: RangeAction) -> str:
         """Determine which container to route the command to.
 
-        For Red: commands run on the attacker container (or specified target).
-        For Blue: commands run on the SIEM container.
+        Reads from the snapshot topology to find the appropriate host:
+        - Red: host with ``role: "attacker"`` or ``zone: "external"``.
+        - Blue: host with ``role: "siem"`` or ``zone: "management"``.
+
+        Falls back to ``"attacker"``/``"siem"`` if no snapshot is loaded
+        or no matching host is found in the topology.
         """
-        if action.mode == "red":
-            return self._container_name("attacker")
-        else:
-            return self._container_name("siem")
+        red_default = "attacker"
+        blue_default = "siem"
+
+        if self._snapshot and isinstance(self._snapshot.topology, dict):
+            hosts = self._snapshot.topology.get("hosts", [])
+
+            if action.mode == "red":
+                # Look for a host with role "attacker" or zone "external"
+                for h in hosts:
+                    if isinstance(h, dict):
+                        if h.get("role") == "attacker" or h.get("zone") == "external":
+                            host_name = h.get("name", h.get("hostname", red_default))
+                            return self._container_name(host_name)
+                # Fallback: check if "attacker" is in the hosts list (string entries)
+                for h in hosts:
+                    if isinstance(h, str) and h == "attacker":
+                        return self._container_name("attacker")
+                # Last resort
+                return self._container_name(red_default)
+            else:
+                # Look for a host with role "siem" or zone "management"
+                for h in hosts:
+                    if isinstance(h, dict):
+                        if h.get("role") == "siem" or h.get("zone") == "management":
+                            host_name = h.get("name", h.get("hostname", blue_default))
+                            return self._container_name(host_name)
+                # Fallback: check if "siem" is in the hosts list (string entries)
+                for h in hosts:
+                    if isinstance(h, str) and h == "siem":
+                        return self._container_name("siem")
+                # Last resort
+                return self._container_name(blue_default)
+
+        # No snapshot loaded — use hardcoded defaults as last resort
+        return self._container_name(red_default if action.mode == "red" else blue_default)
 
     # -----------------------------------------------------------------
     # Core API
@@ -747,6 +882,9 @@ class RangeEnvironment(_BASE):  # type: ignore[misc]
 
         # Deploy snapshot artifacts to running containers
         self._apply_snapshot(self._snapshot)
+
+        # Start NPC traffic for this episode
+        self._start_npcs(self._snapshot)
 
         # Build initial briefing
         task = self._snapshot.task
@@ -878,6 +1016,9 @@ class RangeEnvironment(_BASE):  # type: ignore[misc]
         # Check for pivot opportunities (#26)
         self._check_pivot(action, stdout)
 
+        # Refresh NPC traffic log for reward computation
+        self._refresh_npc_traffic_log()
+
         # Build observation
         obs = RangeObservation(
             stdout=stdout,
@@ -990,18 +1131,44 @@ class RangeEnvironment(_BASE):  # type: ignore[misc]
     # Alert system
     # -----------------------------------------------------------------
 
+    def _query_siem_alerts(self) -> list[str]:
+        """Query the SIEM host for real alert log entries.
+
+        Searches consolidated SIEM logs for error, warning, and attack
+        indicators. Returns up to 20 recent matching lines.
+        """
+        siem_target = self._resolve_target(RangeAction(command="", mode="blue"))
+        stdout, _ = self._exec_in_container(
+            siem_target,
+            "grep -i 'error\\|warning\\|suspicious\\|denied\\|attack\\|scan' "
+            "/var/log/siem/consolidated/*.log 2>/dev/null | tail -20",
+            timeout_s=5.0,
+        )
+        if stdout and stdout.strip():
+            return [line for line in stdout.strip().splitlines() if line.strip()]
+        return []
+
     def _get_pending_alerts(self) -> list[str]:
         """Return alerts from Red's recent actions for Blue to observe.
 
-        In a full deployment, these would come from the SIEM container.
-        In mock mode, we generate synthetic alerts from Red's action history.
+        In production (docker or subprocess mode with real infrastructure),
+        queries the SIEM container for actual log-based alerts. Falls back
+        to synthetic alerts derived from ALL Red actions when SIEM queries
+        return nothing or in unit-test mock mode.
         """
+        # Try real SIEM query in non-mock modes
+        if self._docker_available is not False or self._execution_mode == "subprocess":
+            siem_alerts = self._query_siem_alerts()
+            if siem_alerts:
+                return siem_alerts
+
+        # Synthetic fallback: treat ALL Red actions as potential alerts
         alerts: list[str] = []
         for record in self._red_history:
             cmd = record.get("cmd_name", "")
-            if cmd in ("nmap", "nikto", "hydra", "sqlmap"):
+            if cmd:
                 alerts.append(
-                    f"[IDS] Suspicious activity detected: {cmd} scan "
+                    f"[IDS] Suspicious activity detected: {cmd} "
                     f"at step {record['step']}"
                 )
         return alerts
@@ -1031,8 +1198,9 @@ class RangeEnvironment(_BASE):  # type: ignore[misc]
         return list(self._npc_traffic_log)
 
     def close(self) -> None:
-        """Release resources (Docker client, episode state)."""
+        """Release resources (Docker client, NPC manager, episode state)."""
         self._report_episode_result(completed=False)
+        self._stop_npcs()
         if self._docker_client is not None:
             try:
                 self._docker_client.close()
