@@ -1,0 +1,526 @@
+# Tier 1 Hard — Hardened Basic Enterprise Range
+# Same 8-host topology as tier1_basic, but:
+#   - Tighter step budget (max 8 steps vs 12) requiring efficient exploitation
+#   - Bug families focused on chained vulns (SSRF+SQLi, credential_reuse+RCE)
+#   - WAF/filtering on web endpoints that must be bypassed
+#   - More complex golden path requiring multi-hop exploitation
+#   - Fewer monitoring blind spots (harder for Red stealth)
+
+name: tier1_hard
+tier: 1
+
+# ---------------------------------------------------------------------------
+# Company narrative (same company, same story -- just better defended)
+# ---------------------------------------------------------------------------
+
+company:
+  name: Meridian Health Partners
+  domain: meridianhealth.local
+  industry: healthcare
+  description: >-
+    Meridian Health Partners is a 40-person healthcare consulting firm that
+    manages patient referrals between primary-care clinics and specialists.
+    After a recent HIPAA audit failure, they installed a web application
+    firewall, tightened credential policies, and enabled additional logging.
+    However, the rushed remediation left gaps -- the WAF rules have bypass
+    vectors, the new logging still misses inter-service traffic, and some
+    hardened endpoints introduced new SSRF vectors through their sanitization
+    proxies.
+
+departments:
+  - name: Clinical Operations
+    description: >-
+      Coordinates referrals between clinics and specialists.  Staff use the
+      referral portal daily and have read/write access to patient records.
+    hosts_accessed: [web, db, mail]
+
+  - name: Administration
+    description: >-
+      Front-office staff handling scheduling, billing, and insurance
+      verification.  Heavy email users with access to shared file drives.
+    hosts_accessed: [web, mail, files]
+
+  - name: IT
+    description: >-
+      One full-time sysadmin and one part-time security contractor.  Manages
+      all infrastructure, LDAP accounts, firewall rules, and the SIEM.
+    hosts_accessed: [web, mail, db, files, ldap, siem, firewall]
+
+  - name: Executive
+    description: >-
+      CEO, CFO, and Compliance Officer.  Access confidential financials and
+      compliance reports.  The Compliance Officer reviews HIPAA audit logs.
+    hosts_accessed: [web, mail, files]
+
+# ---------------------------------------------------------------------------
+# Users (same as tier1_basic)
+# ---------------------------------------------------------------------------
+
+users:
+  - username: dthompson
+    full_name: Derek Thompson
+    department: IT
+    role: Systems Administrator
+    email: dthompson@meridianhealth.local
+    hosts: [web, mail, db, files, ldap, siem, firewall]
+
+  - username: rchen
+    full_name: Rachel Chen
+    department: IT
+    role: Security Contractor (Part-Time)
+    email: rchen@meridianhealth.local
+    hosts: [siem, ldap, firewall]
+
+  - username: mgarcia
+    full_name: Maria Garcia
+    department: Clinical Operations
+    role: Referral Coordinator
+    email: mgarcia@meridianhealth.local
+    hosts: [web, db, mail]
+
+  - username: jnelson
+    full_name: James Nelson
+    department: Clinical Operations
+    role: Clinical Analyst
+    email: jnelson@meridianhealth.local
+    hosts: [web, db, mail]
+
+  - username: apatel
+    full_name: Anita Patel
+    department: Administration
+    role: Office Manager
+    email: apatel@meridianhealth.local
+    hosts: [web, mail, files]
+
+  - username: kwilliams
+    full_name: Karen Williams
+    department: Administration
+    role: Billing Specialist
+    email: kwilliams@meridianhealth.local
+    hosts: [web, mail, files]
+
+  - username: bmorris
+    full_name: Brian Morris
+    department: Executive
+    role: CEO
+    email: bmorris@meridianhealth.local
+    hosts: [web, mail, files]
+
+  - username: ldunn
+    full_name: Linda Dunn
+    department: Executive
+    role: Compliance Officer
+    email: ldunn@meridianhealth.local
+    hosts: [web, mail, files, siem]
+
+# ---------------------------------------------------------------------------
+# NPC personas (same security awareness levels)
+# ---------------------------------------------------------------------------
+
+npc_personas:
+  - username: dthompson
+    security_awareness: 0.85
+    daily_activities:
+      - SSH into servers to check service health and apply patches
+      - Review rsyslog dashboards on SIEM for anomalies
+      - Manage LDAP user accounts (add/disable/reset passwords)
+      - Update firewall rules and review denied-connection logs
+    susceptibility:
+      phishing_email: 0.1
+      pretexting_call: 0.15
+      usb_drop: 0.05
+
+  - username: rchen
+    security_awareness: 0.90
+    daily_activities:
+      - Review SIEM alerts and correlate events across hosts
+      - Run vulnerability scans against DMZ hosts
+      - Update IDS signatures and firewall ACLs
+    susceptibility:
+      phishing_email: 0.05
+      pretexting_call: 0.10
+
+  - username: mgarcia
+    security_awareness: 0.35
+    daily_activities:
+      - Log into the referral portal to submit and track patient referrals
+      - Query the database for referral status and specialist availability
+      - Send and receive referral-related emails with clinic partners
+    susceptibility:
+      phishing_email: 0.65
+      pretexting_call: 0.55
+      usb_drop: 0.40
+
+  - username: apatel
+    security_awareness: 0.30
+    daily_activities:
+      - Check email for appointment confirmations and insurance approvals
+      - Browse the referral portal to verify patient scheduling
+      - Access shared file drives for billing templates and HR forms
+    susceptibility:
+      phishing_email: 0.70
+      pretexting_call: 0.65
+      usb_drop: 0.50
+
+# ---------------------------------------------------------------------------
+# Data inventory (same as tier1_basic)
+# ---------------------------------------------------------------------------
+
+data_inventory:
+  - name: Patient referral records
+    classification: restricted
+    host: db
+    location: "mysql:referral_db.patient_referrals"
+    description: >-
+      PHI including patient names, DOBs, diagnoses, referring physician,
+      specialist assignments, and insurance policy numbers.
+
+  - name: User credentials and directory
+    classification: confidential
+    host: ldap
+    location: "ou=People,dc=meridianhealth,dc=local"
+    description: >-
+      LDAP directory containing all employee accounts and password hashes.
+
+  - name: Insurance contracts and fee schedules
+    classification: confidential
+    host: files
+    location: "/srv/shares/contracts"
+    description: >-
+      Negotiated rate agreements with insurance carriers and fee schedules.
+
+  - name: Application source code
+    classification: internal
+    host: web
+    location: "/var/www/portal"
+    description: >-
+      PHP source for the referral portal with WAF integration layer.
+
+# ---------------------------------------------------------------------------
+# Business processes (same data flows)
+# ---------------------------------------------------------------------------
+
+business_processes:
+  - name: Patient referral submission
+    description: >-
+      A clinic submits a referral through the web portal.  WAF inspects
+      the request before the portal validates the form, writes to MySQL,
+      sends email notification, and logs to SIEM.
+    data_flow:
+      - "web:nginx"
+      - "web:modsecurity"
+      - "web:php-fpm"
+      - "ldap:openldap"
+      - "db:mysql"
+      - "mail:postfix"
+      - "siem:rsyslog"
+
+  - name: Internal API proxy
+    description: >-
+      The portal exposes an internal API proxy endpoint for fetching
+      external resources (clinic logos, insurance card images).  The proxy
+      sanitizes URLs but has SSRF bypass vectors via URL encoding and
+      redirect chains.
+    data_flow:
+      - "web:nginx"
+      - "web:php-fpm"
+      - "db:mysql"
+      - "siem:rsyslog"
+
+# ---------------------------------------------------------------------------
+# Technology stack — hardened but with new attack surface
+# ---------------------------------------------------------------------------
+
+tech_stack:
+  web:
+    runtime: "PHP 7.4 (EOL)"
+    webserver: nginx
+    waf: "ModSecurity 3.0 with OWASP CRS v3.3 — blocks obvious SQLi/XSS but bypass via double-encoding, JSON content-type, and multipart form data"
+    session_handler: "Custom PHP session handler backed by OpenLDAP 2.4"
+    api_proxy: "Internal URL fetch proxy at /api/fetch — intended for clinic logos, sanitizes http/https only but allows redirects"
+    known_debt:
+      - "WAF rules do not inspect JSON POST bodies — SQLi via JSON parameters bypasses ModSecurity"
+      - "API proxy follows 3xx redirects without re-validating target — redirect chain SSRF"
+      - "Legacy lookup.php still accessible and not behind WAF rules"
+  db:
+    engine: "MySQL 5.7"
+    known_debt:
+      - "Backup script /opt/scripts/db_backup.sh contains hardcoded credentials"
+      - "MySQL user 'svc_backup' has global SELECT privilege (not scoped to backup tables)"
+  ldap:
+    engine: "OpenLDAP 2.4"
+  mail:
+    mta: "Postfix 3.5"
+    mda: "Dovecot (IMAP)"
+    email_auth: "SPF record added but no DKIM or DMARC — partial protection only"
+
+# ---------------------------------------------------------------------------
+# Credential policy — tightened but with enforcement gaps
+# ---------------------------------------------------------------------------
+
+credential_policy:
+  stated_policy:
+    min_length: 12
+    complexity: true
+    rotation_days: 60
+    mfa: "Required on VPN and web admin panel"
+  enforcement_gaps:
+    - "Service accounts are still exempt from rotation (too disruptive)"
+    - "MySQL local auth not integrated with LDAP password policy"
+    - "WAF bypass via JSON content type means even complex passwords can be extracted via SQLi"
+  service_accounts:
+    - account: svc_backup
+      host: db
+      description: "Runs nightly MySQL backups — password unchanged since 2022, has global SELECT"
+    - account: svc_ldap
+      host: ldap
+      description: "Used by web and mail servers to bind to LDAP — same password as cn=admin"
+
+# ---------------------------------------------------------------------------
+# Monitoring coverage — improved but not complete
+# ---------------------------------------------------------------------------
+
+monitoring_coverage:
+  logged:
+    - source: web
+      streams: ["nginx access log", "nginx error log", "ModSecurity audit log"]
+    - source: db
+      streams: ["MySQL general query log (all queries logged post-audit)"]
+    - source: ldap
+      streams: ["LDAP bind events", "LDAP search queries (newly enabled)"]
+    - source: mail
+      streams: ["Postfix mail.log"]
+    - source: all_hosts
+      streams: ["SSH auth.log"]
+    - source: siem
+      streams: ["Aggregated syslog from all hosts"]
+  blind_spots:
+    - "WAF logs do not capture requests that bypass via JSON content-type (they look like normal API calls)"
+    - "API proxy internal requests are logged as web-server outbound, not as distinct SSRF attempts"
+    - "SMB file access on the file server is still not audited"
+    - "No process-level monitoring (no auditd, no sysmon equivalent)"
+  alert_rules:
+    - trigger: "ModSecurity block events >5 per minute from a single source"
+      action: siem_alert
+    - trigger: "Failed SSH logins >5 per minute from a single source"
+      action: siem_alert
+    - trigger: "HTTP 500 error rate spike (>10 in 60s)"
+      action: siem_alert
+    - trigger: "MySQL query log shows UNION/SELECT on non-application tables"
+      action: siem_alert
+    - trigger: "Outbound HTTP from web server to internal network (potential SSRF)"
+      action: siem_alert
+  retention_days: 90
+
+# ---------------------------------------------------------------------------
+# Trust relationships (same social dynamics)
+# ---------------------------------------------------------------------------
+
+trust_relationships:
+  - from: dthompson
+    to: kwilliams
+    type: delegates_access
+    description: >-
+      Derek occasionally logs in as Karen to troubleshoot billing portal issues.
+
+  - from: rchen
+    to: dthompson
+    type: shares_credentials
+    description: >-
+      Ryan and Derek share the 'admin' account on the web server.
+
+# ---------------------------------------------------------------------------
+# Operational context
+# ---------------------------------------------------------------------------
+
+operational_context:
+  compliance:
+    - HIPAA
+    - HITECH
+  recent_incidents:
+    - date: "2 weeks ago"
+      description: >-
+        WAF deployed after failed HIPAA audit.  Rushed installation left
+        JSON content-type bypass undiscovered.  IT declared remediation
+        complete without testing non-standard content types.
+    - date: "1 month ago"
+      description: >-
+        Internal API proxy added for clinic logo fetching.  Security review
+        checked for direct SSRF but did not test redirect-chain bypasses.
+  audit_findings:
+    - "WAF coverage verified for form-encoded POST only — JSON and multipart untested"
+    - "API proxy URL sanitization relies on regex, not URL parsing library"
+    - "Service account passwords still not rotated despite policy change"
+  maintenance_windows:
+    schedule: "Sunday 02:00-06:00 EST"
+
+# ---------------------------------------------------------------------------
+# Network topology (same as tier1_basic)
+# ---------------------------------------------------------------------------
+
+topology:
+  networks:
+    - name: external
+    - name: dmz
+      cidr: "10.0.1.0/24"
+    - name: internal
+      cidr: "10.0.2.0/24"
+    - name: management
+      cidr: "10.0.3.0/24"
+
+  hosts:
+    - name: attacker
+      zone: external
+      hostname: kali.external
+      purpose: >-
+        Red team operator workstation.  External to the Meridian network.
+      os: kali:latest
+      services: [nmap, curl, hydra, nikto, ssh-client]
+      connects_to: [firewall]
+
+    - name: firewall
+      zone: external
+      hostname: fw.meridianhealth.local
+      purpose: >-
+        Perimeter firewall and NAT gateway.  Enforces zone segmentation.
+      os: ubuntu:22.04
+      services: [iptables, sshd]
+      connects_to: [web, mail]
+
+    - name: web
+      zone: dmz
+      hostname: portal.meridianhealth.local
+      purpose: >-
+        Patient referral portal with ModSecurity WAF.  WAF blocks obvious
+        SQLi/XSS patterns in form-encoded requests but does not inspect
+        JSON request bodies or multipart form data.  Also hosts an
+        internal API proxy for fetching external resources.
+      os: ubuntu:22.04
+      services: [nginx, modsecurity, php-fpm, sshd]
+      connects_to: [db, ldap]
+
+    - name: mail
+      zone: dmz
+      hostname: mail.meridianhealth.local
+      purpose: >-
+        Corporate email server.  SPF configured but no DKIM/DMARC.
+      os: ubuntu:22.04
+      services: [postfix, dovecot, sshd]
+      connects_to: [ldap]
+
+    - name: db
+      zone: internal
+      hostname: db.meridianhealth.local
+      purpose: >-
+        MySQL database server.  General query log enabled post-audit.
+        Contains referral_db with patient records and flags.
+      os: ubuntu:22.04
+      services: [mysql, sshd]
+      connects_to: [ldap]
+
+    - name: files
+      zone: internal
+      hostname: files.meridianhealth.local
+      purpose: >-
+        Samba file server with departmental shares.
+      os: ubuntu:22.04
+      services: [samba, sshd]
+      connects_to: [ldap]
+
+    - name: ldap
+      zone: management
+      hostname: ldap.meridianhealth.local
+      purpose: >-
+        Central LDAP directory.  Search queries now logged (post-audit).
+      os: ubuntu:22.04
+      services: [openldap, sshd]
+      connects_to: []
+
+    - name: siem
+      zone: management
+      hostname: siem.meridianhealth.local
+      purpose: >-
+        SIEM with enhanced alert rules for WAF events, SSRF patterns,
+        and database query anomalies.
+      os: ubuntu:22.04
+      services: [rsyslog, elasticsearch, sshd]
+      connects_to: [web, mail, db, files, ldap]
+
+  firewall_rules:
+    - action: allow
+      from_zone: external
+      to_zone: dmz
+      ports: [80, 443, 25]
+
+    - action: allow
+      from_zone: dmz
+      to_zone: internal
+      ports: [3306, 445]
+
+    - action: allow
+      from_zone: dmz
+      to_zone: management
+      ports: [389, 636]
+
+    - action: allow
+      from_zone: internal
+      to_zone: management
+      ports: [389]
+
+    - action: allow
+      from_zone: management
+      to_zone: dmz
+      ports: [514]
+
+    - action: allow
+      from_zone: management
+      to_zone: internal
+      ports: [514]
+
+    - action: deny
+      from_zone: internal
+      to_zone: external
+      ports: []
+
+    - action: deny
+      from_zone: management
+      to_zone: external
+      ports: []
+
+# ---------------------------------------------------------------------------
+# Vulnerability and task envelope — chained vulns, tighter budget
+# ---------------------------------------------------------------------------
+
+bug_families:
+  # Chained exploitation families (require multi-hop)
+  - ssrf                    # SSRF via API proxy redirect chain -> internal service access
+  - sqli                    # SQLi via WAF bypass (JSON content-type)
+  - credential_reuse        # Leaked creds from SQLi -> pivot to internal services
+  - rce                     # RCE via deserialization or command injection after pivot
+  - command_injection       # OS command injection through unsanitized proxy parameters
+
+  # WAF bypass families
+  - broken_auth             # Auth bypass through WAF-uninspected paths
+  - ssti                    # Template injection via non-standard content types
+  - xxe                     # XML external entity via multipart upload
+
+  # Supporting families for chain completion
+  - weak_creds              # Service account credentials for lateral movement
+  - data_exposure           # Sensitive data in backups, logs, or world-readable locations
+  - insecure_backup         # Backup scripts with hardcoded credentials
+  - config_drift            # WAF misconfiguration, proxy sanitization gaps
+  - service_misconfig       # Debug endpoints behind WAF, admin panels
+  - idor                    # Direct object reference in API (bypasses WAF)
+  - lfi                     # Local file inclusion (legacy endpoint not behind WAF)
+  - log_injection           # Log forging to evade SIEM correlation
+
+task_families:
+  - exploit
+  - investigate
+  - patch
+  - report
+
+difficulty:
+  max_steps: 8
+  min_vulns: 2
+  max_vulns: 4

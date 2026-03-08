@@ -1,0 +1,597 @@
+# Tier 2 Hard — Hardened Corporate Range
+# Same 10-host topology as tier2_corporate (Pinnacle Financial Group), but:
+#   - Chained exploit requirement (3+ hops)
+#   - Enhanced monitoring coverage with fewer blind spots
+#   - Stricter credential policy with fewer enforcement gaps
+#   - Tighter step budget (max 12 steps vs 18)
+#   - More alert rules making Red stealth harder
+
+name: tier2_hard
+tier: 2
+
+# ---------------------------------------------------------------------------
+# Company narrative — post-remediation version of Pinnacle
+# ---------------------------------------------------------------------------
+
+company:
+  name: Pinnacle Financial Group
+  domain: pinnaclefg.local
+  industry: financial_services
+  description: >-
+    Mid-size financial advisory firm with 150 employees.  After an SEC audit
+    flagged multiple compliance gaps, Pinnacle invested heavily in security
+    tooling: enhanced monitoring, stricter credential rotation, jumpbox
+    session recording, and network microsegmentation.  However, the
+    remediation was uneven -- the new controls created complex interactions
+    that introduced subtle bypass opportunities visible only through
+    multi-hop exploit chains.
+
+departments:
+  - name: Wealth Management
+    description: >-
+      Portfolio managers and financial advisors managing client relationships
+      and investment strategies.
+    hosts_accessed: [web, db, mail, files]
+
+  - name: Compliance & Risk
+    description: >-
+      Ensures SOX, PCI-DSS, and SEC compliance.  Reviews trade logs and
+      access audit trails.
+    hosts_accessed: [web, db, files, siem, mail]
+
+  - name: Trading Operations
+    description: >-
+      Executes trades, manages order flow, and reconciles settlements.
+    hosts_accessed: [web, db, mail]
+
+  - name: Information Technology
+    description: >-
+      Manages infrastructure, VPN, firewall, SIEM, and user provisioning.
+      Team expanded from 2 to 3 after the SEC audit.
+    hosts_accessed: [web, mail, jumpbox, db, files, ldap, siem, firewall, vpn_gw]
+
+  - name: Human Resources
+    description: >-
+      Handles employee records, onboarding, and payroll coordination.
+    hosts_accessed: [mail, files, ldap]
+
+# ---------------------------------------------------------------------------
+# Users
+# ---------------------------------------------------------------------------
+
+users:
+  - username: cmorris
+    full_name: Catherine Morris
+    department: Compliance & Risk
+    role: Chief Compliance Officer
+    email: cmorris@pinnaclefg.local
+    hosts: [web, db, files, siem, mail]
+
+  - username: jpark
+    full_name: James Park
+    department: Wealth Management
+    role: Senior Portfolio Manager
+    email: jpark@pinnaclefg.local
+    hosts: [web, db, mail]
+
+  - username: rvasquez
+    full_name: Rachel Vasquez
+    department: Trading Operations
+    role: Head Trader
+    email: rvasquez@pinnaclefg.local
+    hosts: [web, db, mail]
+
+  - username: dkhan
+    full_name: David Khan
+    department: Information Technology
+    role: IT Director
+    email: dkhan@pinnaclefg.local
+    hosts: [web, mail, jumpbox, db, files, ldap, siem, firewall, vpn_gw]
+
+  - username: mwilson
+    full_name: Marcus Wilson
+    department: Compliance & Risk
+    role: Compliance Analyst
+    email: mwilson@pinnaclefg.local
+    hosts: [web, db, files, siem, mail]
+
+  - username: acoleman
+    full_name: Angela Coleman
+    department: Human Resources
+    role: HR Director
+    email: acoleman@pinnaclefg.local
+    hosts: [mail, files, ldap]
+
+  - username: tnguyen
+    full_name: Thomas Nguyen
+    department: Information Technology
+    role: Systems Engineer
+    email: tnguyen@pinnaclefg.local
+    hosts: [web, mail, jumpbox, db, files, ldap, siem, firewall]
+
+  - username: lreeves
+    full_name: Laura Reeves
+    department: Wealth Management
+    role: Client Relations Manager
+    email: lreeves@pinnaclefg.local
+    hosts: [web, mail, files]
+
+# ---------------------------------------------------------------------------
+# NPC personas
+# ---------------------------------------------------------------------------
+
+npc_personas:
+  - username: cmorris
+    security_awareness: 0.80
+    daily_activities:
+      - Review trade audit logs on SIEM
+      - Compile SEC quarterly filing documentation
+      - Email regulatory updates to department heads
+    susceptibility:
+      phishing_email: 0.15
+      pretexting_call: 0.20
+
+  - username: jpark
+    security_awareness: 0.45
+    daily_activities:
+      - Execute portfolio trades via web portal
+      - Review client statements and performance reports
+      - Email trade confirmations to clients
+    susceptibility:
+      phishing_email: 0.50
+      pretexting_call: 0.45
+
+  - username: dkhan
+    security_awareness: 0.85
+    daily_activities:
+      - Monitor SIEM alerts and investigate incidents
+      - Manage firewall rules and VPN access
+      - Review jumpbox session recordings
+    susceptibility:
+      phishing_email: 0.10
+      pretexting_call: 0.15
+
+  - username: acoleman
+    security_awareness: 0.35
+    daily_activities:
+      - Process onboarding paperwork via email
+      - Access HR file shares for employee records
+      - Send password reset requests to IT
+    susceptibility:
+      phishing_email: 0.65
+      pretexting_call: 0.55
+
+# ---------------------------------------------------------------------------
+# Data inventory
+# ---------------------------------------------------------------------------
+
+data_inventory:
+  - name: Client portfolio data
+    classification: restricted
+    host: db
+    location: "postgresql:client_portfolios"
+    description: >-
+      Client investment positions, trade history, account balances.
+      PCI-DSS scoped.
+
+  - name: Trade audit trail
+    classification: restricted
+    host: siem
+    location: "/var/log/siem/trade_audit/"
+    description: >-
+      Tamper-evident log of all trade operations per SOX requirements.
+
+  - name: Employee HR records
+    classification: confidential
+    host: files
+    location: "/srv/shares/hr"
+    description: >-
+      SSNs, salary data, background checks, benefits enrollment.
+
+  - name: SEC compliance filings
+    classification: confidential
+    host: files
+    location: "/srv/shares/compliance/sec"
+    description: >-
+      Draft and final SEC filings, regulatory correspondence.
+
+# ---------------------------------------------------------------------------
+# Business processes
+# ---------------------------------------------------------------------------
+
+business_processes:
+  - name: Trade execution
+    description: >-
+      Advisor initiates trade via web portal.  Portal authenticates via
+      LDAP, validates against risk parameters, writes to PostgreSQL,
+      emails confirmation to client, and logs to SIEM audit trail.
+    data_flow:
+      - "web:nginx"
+      - "ldap:openldap"
+      - "db:postgresql"
+      - "mail:postfix"
+      - "siem:rsyslog"
+
+  - name: Client onboarding
+    description: >-
+      New client data entered in portal, KYC documents uploaded to file
+      share, LDAP account provisioned, confirmation email sent.
+    data_flow:
+      - "web:nginx"
+      - "files:samba"
+      - "ldap:openldap"
+      - "mail:postfix"
+      - "siem:rsyslog"
+
+# ---------------------------------------------------------------------------
+# Technology stack — hardened with new complexity
+# ---------------------------------------------------------------------------
+
+tech_stack:
+  web:
+    runtime: "PHP 8.1 (upgraded from 7.4 post-audit)"
+    webserver: nginx
+    waf: "ModSecurity with OWASP CRS — inspects all content types including JSON"
+    legacy: "Legacy CRM portal still running at /legacy/ — PHP 7.4 compatibility mode, behind WAF but with different session handling"
+    known_debt:
+      - "Legacy CRM at /legacy/ uses separate session cookies from main portal — session confusion possible"
+      - "WAF exception for /api/webhook endpoint to allow partner integrations"
+      - "Node.js API microservice on port 3001 not behind WAF"
+  db:
+    engine: "PostgreSQL 15 (upgraded from MySQL)"
+    known_debt:
+      - "Migration left MySQL connector libraries installed — psql and mysql CLI both work"
+      - "ETL service account has broader access than documented"
+  jumpbox:
+    session_recording: "All SSH sessions recorded via script(1) and shipped to SIEM"
+    known_debt:
+      - "Session recording captures commands but not output for SCP/SFTP transfers"
+      - "SSH agent forwarding enabled — keys from jumpbox sessions can reach internal hosts"
+
+# ---------------------------------------------------------------------------
+# Credential policy — stricter with fewer gaps
+# ---------------------------------------------------------------------------
+
+credential_policy:
+  stated_policy:
+    min_length: 14
+    complexity: true
+    rotation_days: 60
+    mfa: "Required on VPN, web portal, jumpbox SSH, and email"
+  enforcement_gaps:
+    - "ETL service account (svc_etl) rotation postponed due to downstream pipeline dependencies"
+    - "PostgreSQL application password shared in legacy .env files on developer laptops"
+    - "Jumpbox SSH agent forwarding allows credential pass-through to internal hosts"
+  mfa:
+    enabled_for:
+      - VPN gateway login
+      - Corporate email (webmail and IMAP)
+      - Jumpbox SSH (TOTP second factor)
+      - Web portal admin panel
+    not_enabled_for:
+      - Internal database connections (psql/mysql CLI)
+      - Legacy CRM portal at /legacy/
+      - Node.js API microservice on port 3001
+  service_accounts:
+    - username: svc_etl
+      purpose: >-
+        ETL pipeline account — read access to ALL client-facing tables
+        including PII.  Password not rotated in 14 months.
+    - username: svc_report
+      purpose: >-
+        Nightly portfolio valuation reports.  SELECT on client_portfolios
+        and trade_history.
+
+# ---------------------------------------------------------------------------
+# Monitoring coverage — enhanced with fewer blind spots
+# ---------------------------------------------------------------------------
+
+monitoring_coverage:
+  logged:
+    - source: nginx
+      scope: "Access log, error log, and WAF audit log on web host"
+    - source: postgresql
+      scope: "Full query log — all statements including SELECT (SOX requirement)"
+    - source: sshd
+      scope: "Authentication events on all hosts (success and failure)"
+    - source: jumpbox
+      scope: "Session recordings (full command capture) shipped to SIEM"
+    - source: openvpn
+      scope: "VPN connection log — connect, disconnect, IP assignment, cert serial"
+    - source: postfix
+      scope: "Mail relay log — sender, recipient, status, SPF/DKIM results"
+    - source: kibana
+      scope: "Dashboard access audit log"
+    - source: openldap
+      scope: "LDAP auth + search queries (post-audit enhancement)"
+    - source: samba
+      scope: "SMB file access audit log (newly enabled post-audit)"
+  blind_spots:
+    - "Node.js API microservice on port 3001 has no access logging"
+    - "Legacy CRM at /legacy/ logs to a separate file not forwarded to SIEM"
+    - "SSH agent forwarding creates transparent tunnels invisible to jumpbox session recording"
+    - "Redis and Memcached operations are invisible — no auth, no access log"
+  alert_rules:
+    - trigger: "Failed VPN authentication > 3 attempts within 5 minutes"
+      severity: high
+    - trigger: "WAF block events > 3 per minute from single source"
+      severity: high
+    - trigger: "Unusual database query volume (> 2 std dev from baseline)"
+      severity: medium
+    - trigger: "After-hours jumpbox access (outside 07:00-19:00 EST)"
+      severity: medium
+    - trigger: "SSH agent forwarding detected in jumpbox session"
+      severity: high
+    - trigger: "New SSH key added to authorized_keys on any host"
+      severity: high
+    - trigger: "Database query accessing non-application tables"
+      severity: high
+    - trigger: "Outbound connection from internal host to DMZ (reverse shell pattern)"
+      severity: critical
+    - trigger: "SMB access to /hr or /compliance shares from non-HR/compliance user"
+      severity: high
+    - trigger: "Legacy CRM access from non-internal IP"
+      severity: medium
+  retention:
+    days: 365
+
+# ---------------------------------------------------------------------------
+# Trust relationships
+# ---------------------------------------------------------------------------
+
+trust_relationships:
+  - from_user: rvasquez
+    to_user: jpark
+    type: delegates_access
+    description: >-
+      Rachel gives James her trading credentials when traveling.
+
+  - from_user: dkhan
+    to_user: acoleman
+    type: trusts_email
+    description: >-
+      Angela sends password reset requests by email; David processes them
+      without phone verification.
+
+# ---------------------------------------------------------------------------
+# Operational context
+# ---------------------------------------------------------------------------
+
+operational_context:
+  compliance_frameworks:
+    - SOX
+    - PCI-DSS
+    - "SEC Rule 17a-4"
+  recent_incidents:
+    - >-
+      SEC audit triggered major security investment.  Most findings
+      remediated but some controls created new complexity (session
+      recording + agent forwarding, WAF exceptions for webhooks).
+    - >-
+      Legacy CRM decommission delayed again — business users still need
+      it for historical client data access.
+  audit_findings:
+    - >-
+      WAF webhook exception creates unmonitored API surface.
+    - >-
+      ETL service account has unrestricted read access exceeding
+      principle of least privilege.
+    - >-
+      Legacy CRM session handling not integrated with main portal SSO.
+  maintenance_windows:
+    schedule: "Saturday 22:00 — Sunday 06:00 EST"
+
+# ---------------------------------------------------------------------------
+# Topology (same 10 hosts, same 6 zones as tier2_corporate)
+# ---------------------------------------------------------------------------
+
+topology:
+  networks:
+    - name: external
+    - name: dmz
+      cidr: "10.0.1.0/24"
+    - name: internal
+      cidr: "10.0.2.0/24"
+    - name: management
+      cidr: "10.0.3.0/24"
+    - name: guest
+      cidr: "10.0.4.0/24"
+    - name: vpn
+      cidr: "10.0.5.0/24"
+
+  hosts:
+    - name: attacker
+      zone: external
+      purpose: External threat actor workstation
+      hostname: kali.external
+      os: kali:latest
+      services: [nmap, curl, hydra, nikto, ssh-client]
+      connects_to: [firewall, vpn_gw]
+
+    - name: firewall
+      zone: external
+      purpose: >-
+        Perimeter firewall with enhanced IDS signatures and
+        microsegmentation rules between DMZ services
+      hostname: fw01.pinnaclefg.local
+      os: ubuntu:22.04
+      services: [iptables, sshd]
+      connects_to: [web, mail, jumpbox]
+
+    - name: vpn_gw
+      zone: external
+      purpose: >-
+        SSL VPN with certificate-based auth and TOTP MFA.
+        Logs all connection events with cert serial numbers.
+      hostname: vpn.pinnaclefg.local
+      os: ubuntu:22.04
+      services: [openvpn, sshd]
+      connects_to: [jumpbox]
+
+    - name: web
+      zone: dmz
+      purpose: >-
+        Client portal with ModSecurity WAF (all content types).
+        Legacy CRM at /legacy/ with separate session handling.
+        Node.js API microservice on port 3001 (no WAF, no logging).
+      hostname: portal.pinnaclefg.local
+      os: ubuntu:22.04
+      services: [nginx, modsecurity, php-fpm, nodejs, sshd]
+      connects_to: [db, ldap]
+
+    - name: mail
+      zone: dmz
+      purpose: >-
+        Corporate mail server with SPF, DKIM, and DMARC enforced.
+        SEC-compliant email archiving for 3 years.
+      hostname: mail.pinnaclefg.local
+      os: ubuntu:22.04
+      services: [postfix, dovecot, sshd]
+      connects_to: [ldap]
+
+    - name: jumpbox
+      zone: dmz
+      purpose: >-
+        SSH bastion with session recording.  All commands captured and
+        shipped to SIEM.  SSH agent forwarding enabled (known risk).
+      hostname: jump.pinnaclefg.local
+      os: ubuntu:22.04
+      services: [sshd]
+      connects_to: [db, files, ldap, siem]
+
+    - name: db
+      zone: internal
+      purpose: >-
+        PostgreSQL with full query logging.  Legacy MySQL connector
+        libraries still installed.
+      hostname: db01.pinnaclefg.local
+      os: ubuntu:22.04
+      services: [mysql, postgresql, sshd]
+      connects_to: [ldap]
+
+    - name: files
+      zone: internal
+      purpose: >-
+        File share with SMB access audit logging enabled.  Access
+        controlled by LDAP group membership with per-share ACLs.
+      hostname: fs01.pinnaclefg.local
+      os: ubuntu:22.04
+      services: [samba, nfs, sshd]
+      connects_to: [ldap]
+
+    - name: ldap
+      zone: management
+      purpose: >-
+        Centralized directory with auth + search query logging.
+      hostname: dc01.pinnaclefg.local
+      os: ubuntu:22.04
+      services: [openldap, sshd]
+      connects_to: []
+
+    - name: siem
+      zone: management
+      purpose: >-
+        Enhanced SIEM with jumpbox session ingestion, SMB audit logs,
+        and expanded alert ruleset.
+      hostname: siem.pinnaclefg.local
+      os: ubuntu:22.04
+      services: [rsyslog, elasticsearch, kibana, sshd]
+      connects_to: [web, mail, jumpbox, db, files, ldap]
+
+  firewall_rules:
+    # External -> DMZ: public-facing services
+    - action: allow
+      from_zone: external
+      to_zone: dmz
+      ports: [80, 443, 25, 22]
+
+    # VPN -> DMZ: remote employees land on jumpbox
+    - action: allow
+      from_zone: vpn
+      to_zone: dmz
+      ports: [22]
+
+    # DMZ -> Internal: web queries DB; jumpbox reaches files
+    - action: allow
+      from_zone: dmz
+      to_zone: internal
+      ports: [3306, 5432, 445, 2049]
+
+    # DMZ -> Management: LDAP auth
+    - action: allow
+      from_zone: dmz
+      to_zone: management
+      ports: [389, 636]
+
+    # Internal -> Management: DB and files auth against LDAP
+    - action: allow
+      from_zone: internal
+      to_zone: management
+      ports: [389]
+
+    # Guest -> DMZ: visitors browse public portal only
+    - action: allow
+      from_zone: guest
+      to_zone: dmz
+      ports: [80, 443]
+
+    # Deny rules
+    - action: deny
+      from_zone: internal
+      to_zone: external
+      ports: []
+
+    - action: deny
+      from_zone: management
+      to_zone: external
+      ports: []
+
+    - action: deny
+      from_zone: guest
+      to_zone: internal
+      ports: []
+
+    - action: deny
+      from_zone: guest
+      to_zone: management
+      ports: []
+
+# ---------------------------------------------------------------------------
+# Vulnerability and task envelope — chained, 3+ hops required
+# ---------------------------------------------------------------------------
+
+bug_families:
+  # Multi-hop chain starters (web surface)
+  - sqli                    # SQLi via WAF exception on /api/webhook or legacy CRM
+  - ssrf                    # SSRF through Node.js API microservice (no WAF)
+  - xss                     # Stored XSS in legacy CRM (different session handling)
+  - ssti                    # Template injection in legacy CRM
+  - broken_auth             # Legacy CRM session confusion with main portal SSO
+
+  # Lateral movement families (chain middle)
+  - credential_reuse        # ETL service account creds -> database access
+  - ssh_key_exposure        # SSH agent forwarding -> key theft from jumpbox sessions
+  - vpn_misconfig           # VPN cert-based auth bypass or stolen cert
+
+  # Chain completion families (privilege escalation + flag)
+  - rce                     # RCE via deserialization or command injection after pivot
+  - command_injection       # Command injection through unmonitored Node.js service
+  - data_exposure           # Sensitive data in ETL pipeline or unmonitored microservice
+  - insecure_backup         # Backup scripts with credentials for DB access
+  - config_drift            # Legacy CRM config diverged from main portal security policy
+  - overpermission          # ETL account with excessive database privileges
+  - orphaned_access         # Stale accounts from pre-migration era
+  - service_misconfig       # Node.js microservice debug endpoints, legacy admin panels
+  - lfi                     # Local file inclusion in legacy CRM
+  - log_injection           # Log forging to evade enhanced SIEM correlation
+
+task_families:
+  - exploit
+  - investigate
+  - patch
+  - report
+
+difficulty:
+  max_steps: 12
+  min_vulns: 3
+  max_vulns: 5

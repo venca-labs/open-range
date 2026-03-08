@@ -1,0 +1,64 @@
+# Family registry: metadata for all available range manifests.
+# Each family maps to a YAML manifest file and provides discovery metadata
+# (tags, difficulty, learning goals) for filtering and selection.
+
+families:
+  tier1_basic_enterprise:
+    display_name: "Tier 1 - Small Business Healthcare"
+    manifest: tier1_basic.yaml
+    description: "Meridian Health Partners - 8 hosts, basic enterprise with web, mail, DB, LDAP"
+    tags: [healthcare, small-business, tier-1, beginner]
+    difficulty: 1
+    learning_goals:
+      - "Enumerate services on a corporate network"
+      - "Exploit web application vulnerabilities (SQLi, XSS, IDOR)"
+      - "Pivot from web to database using leaked credentials"
+      - "Analyze SIEM logs to detect intrusion"
+
+  tier1_hard:
+    display_name: "Tier 1 Hard - Small Business Healthcare (Hardened)"
+    manifest: tier1_hard.yaml
+    description: "Meridian Health Partners - same 8 hosts but chained vulns, WAF, and tighter step budget"
+    tags: [healthcare, small-business, tier-1, hard, chained]
+    difficulty: 2
+    learning_goals:
+      - "Bypass WAF and input filtering on web applications"
+      - "Chain SSRF + SQLi for multi-hop exploitation"
+      - "Exploit credential reuse for lateral movement under time pressure"
+      - "Detect chained attacks across multiple log sources"
+
+  tier2_corporate:
+    display_name: "Tier 2 - Mid-Market Financial"
+    manifest: tier2_corporate.yaml
+    description: "Pinnacle Financial Group - 10 hosts, corporate network with VPN, APIs, CA"
+    tags: [finance, mid-market, tier-2, intermediate]
+    difficulty: 2
+    learning_goals:
+      - "Multi-stage exploitation across network zones"
+      - "Credential reuse and lateral movement"
+      - "VPN and certificate-based access attacks"
+      - "SOX/PCI-DSS compliance gap exploitation"
+
+  tier2_hard:
+    display_name: "Tier 2 Hard - Mid-Market Financial (Hardened)"
+    manifest: tier2_hard.yaml
+    description: "Pinnacle Financial Group - 10 hosts, 3+ hop chains, tighter monitoring, stricter creds"
+    tags: [finance, mid-market, tier-2, hard, chained]
+    difficulty: 3
+    learning_goals:
+      - "Chain 3+ vulnerabilities across trust boundaries"
+      - "Evade enhanced monitoring and alert correlation"
+      - "Exploit subtle credential policy gaps under strict rotation"
+      - "Lateral movement through jumpbox and VPN with MFA"
+
+  tier3_enterprise:
+    display_name: "Tier 3 - Enterprise SaaS"
+    manifest: tier3_enterprise.yaml
+    description: "NovaStar Technologies - 16 hosts, full enterprise with CI/CD, partner extranet"
+    tags: [saas, enterprise, tier-3, advanced]
+    difficulty: 3
+    learning_goals:
+      - "Chain 2-3 vulnerabilities across trust boundaries"
+      - "Exploit CI/CD pipeline and container registry"
+      - "Social engineering via NPC personas"
+      - "Evidence collection across distributed infrastructure"
