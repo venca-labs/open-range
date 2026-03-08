@@ -207,7 +207,10 @@ class RangeEnvironment(_BASE):  # type: ignore[misc]
             return "", f"Execution error: {exc}"
 
     def _exec_in_container(
-        self, container_name: str, command: str
+        self,
+        container_name: str,
+        command: str,
+        timeout_s: float | None = None,
     ) -> tuple[str, str]:
         """Execute a command inside a Docker container.
 
@@ -219,7 +222,11 @@ class RangeEnvironment(_BASE):  # type: ignore[misc]
         """
         # Subprocess execution mode
         if self._execution_mode == "subprocess":
-            return self._exec_via_subprocess(container_name, command, self._exec_timeout)
+            return self._exec_via_subprocess(
+                container_name,
+                command,
+                timeout_s if timeout_s is not None else self._exec_timeout,
+            )
 
         # Mock mode for unit tests (docker_available explicitly set to False)
         if self._docker_available is False:
@@ -234,6 +241,19 @@ class RangeEnvironment(_BASE):  # type: ignore[misc]
             return "", "Docker unavailable and execution_mode is not 'subprocess'"
         try:
             container = client.containers.get(container_name)
+            if timeout_s is not None:
+                try:
+                    result = sp.run(
+                        ["docker", "exec", container.name, "sh", "-c", command],
+                        capture_output=True,
+                        timeout=timeout_s,
+                        text=True,
+                        check=False,
+                    )
+                    return result.stdout, result.stderr
+                except sp.TimeoutExpired:
+                    return "", f"Command timed out after {timeout_s}s"
+
             result = container.exec_run(
                 ["sh", "-c", command],
                 demux=True,
@@ -718,6 +738,12 @@ class RangeEnvironment(_BASE):  # type: ignore[misc]
         self._npc_traffic_log = []
         self._episode_start = time.time()
         self._episode_recorded = False
+        try:
+            from open_range.server.console import clear_history
+
+            clear_history()
+        except Exception:
+            pass
 
         # Deploy snapshot artifacts to running containers
         self._apply_snapshot(self._snapshot)
@@ -818,7 +844,11 @@ class RangeEnvironment(_BASE):  # type: ignore[misc]
         # Route to container
         target = self._resolve_target(action)
         timeout = timeout_s or self._exec_timeout
-        stdout, stderr = self._exec_in_container(target, action.command)
+        stdout, stderr = self._exec_in_container(
+            target,
+            action.command,
+            timeout_s=timeout,
+        )
 
         # Log action for cross-role reward coupling
         action_record = {
@@ -833,6 +863,12 @@ class RangeEnvironment(_BASE):  # type: ignore[misc]
             self._red_history.append(action_record)
         else:
             self._blue_history.append(action_record)
+        try:
+            from open_range.server.console import record_action
+
+            record_action({"mode": action.mode, **action_record})
+        except Exception:
+            pass
 
         # Check for milestone completion (#17)
         milestone = self._check_milestone(stdout)

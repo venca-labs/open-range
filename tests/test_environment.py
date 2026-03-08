@@ -123,6 +123,21 @@ class TestBlueStep:
         obs = env.step(RangeAction(command="", mode="blue"))
         assert obs.stderr != ""
 
+    def test_step_passes_timeout_override_to_executor(self):
+        env = RangeEnvironment(docker_available=False)
+        env.reset()
+        seen = {}
+
+        def fake_exec(container_name, command, timeout_s=None):
+            seen["container_name"] = container_name
+            seen["command"] = command
+            seen["timeout_s"] = timeout_s
+            return "ok", ""
+
+        env._exec_in_container = fake_exec  # type: ignore[method-assign]
+        env.step(RangeAction(command="nmap -sV web", mode="red"), timeout_s=7.5)
+        assert seen["timeout_s"] == 7.5
+
 
 class TestFlagSubmission:
     """Flag submission triggers correct rewards."""

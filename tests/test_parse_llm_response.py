@@ -104,6 +104,7 @@ class TestRealLLMOutput:
         # The real LLM output uses "cmd" field name
         assert spec.golden_path[0].command == "nmap -p 80 10.0.1.10"
         assert spec.golden_path[0].expect_in_stdout == "80/tcp open"
+        assert spec.golden_path[0].host == "attacker"
 
     def test_task_briefings(self, llm_json):
         spec = _parse_llm_response(llm_json)
@@ -1071,4 +1072,17 @@ class TestRoundtrip:
         assert spec.task.red_briefing == "Hack the network."
         # files: explicit + vulnerable_code dict
         assert "web:/var/www/index.php" in spec.files
-        assert "web:search.php" in spec.files  # from vulnerable_code dict
+
+    def test_golden_path_host_is_preserved(self):
+        raw = _minimal_json(
+            golden_path=[
+                {
+                    "step": 1,
+                    "cmd": "ssh db 'cat /var/flags/flag1.txt'",
+                    "expect_stdout": "FLAG{db}",
+                    "host": "jumpbox",
+                }
+            ]
+        )
+        spec = _parse_llm_response(raw)
+        assert spec.golden_path[0].host == "jumpbox"

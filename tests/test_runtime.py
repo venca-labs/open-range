@@ -9,6 +9,34 @@ from open_range.server.runtime import ManagedSnapshotRuntime
 
 
 class TestManagedSnapshotRuntime:
+    def test_offline_validator_profile_includes_static_checks(self, tier1_manifest, tmp_path):
+        runtime = ManagedSnapshotRuntime(
+            manifest=tier1_manifest,
+            store_dir=tmp_path / "snapshots",
+            validator_profile="offline",
+            refill_enabled=False,
+        )
+        names = [type(check).__name__ for check in runtime.validator.checks]
+        assert names == [
+            "StructuralSnapshotCheck",
+            "TaskFeasibilityCheck",
+        ]
+
+    def test_training_validator_profile_includes_live_checks(self, tier1_manifest, tmp_path):
+        runtime = ManagedSnapshotRuntime(
+            manifest=tier1_manifest,
+            store_dir=tmp_path / "snapshots",
+            validator_profile="training",
+            refill_enabled=False,
+        )
+        names = [type(check).__name__ for check in runtime.validator.checks]
+        assert "BuildBootCheck" in names
+        assert "ExploitabilityCheck" in names
+        assert "PatchabilityCheck" in names
+        assert "EvidenceCheck" in names
+        assert "RewardGroundingCheck" in names
+        assert "DifficultyCheck" in names
+
     def test_start_preloads_snapshot_pool(self, tier1_manifest, tmp_path):
         runtime = ManagedSnapshotRuntime(
             manifest=tier1_manifest,

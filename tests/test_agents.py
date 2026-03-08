@@ -315,6 +315,7 @@ class MockRangeEnvironment:
         done = self._step_count >= self._max_steps
         return RangeObservation(
             stdout=f"[mock] output for: {action.command}",
+            alerts=["scan detected"] if getattr(action, "mode", "") == "red" else [],
             done=done,
             reward=0.0,
         )
@@ -377,6 +378,28 @@ class TestRunEpisode:
         assert len(result.blue_trajectory) >= 1
         assert "command" in result.red_trajectory[0]
         assert "stdout" in result.red_trajectory[0]
+        assert result.blue_trajectory[0]["alerts"] == []
+
+    def test_blue_receives_structured_observation(self):
+        from open_range.agents.episode import run_episode
+
+        class CaptureAgent(ScriptedAgent):
+            def __init__(self, commands):
+                super().__init__(commands=commands)
+                self.observations = []
+
+            def act(self, observation):
+                self.observations.append(observation)
+                return super().act(observation)
+
+        red = ScriptedAgent(commands=["nmap -sV 10.0.1.0/24"])
+        blue = CaptureAgent(commands=["grep logs"])
+        env = MockRangeEnvironment(max_steps=2)
+
+        run_episode(env, red, blue, max_steps=2)
+        assert blue.observations
+        assert hasattr(blue.observations[0], "stdout")
+        assert blue.observations[0].alerts == ["scan detected"]
 
     def test_model_names_propagated(self):
         from open_range.agents.episode import run_episode

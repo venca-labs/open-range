@@ -159,6 +159,16 @@ class TestHistoryAPI:
         assert "time" in data[0]
         assert isinstance(data[0]["time"], float)
 
+    def test_history_updates_from_environment_steps(self, client: TestClient, env: RangeEnvironment):
+        from open_range.server.models import RangeAction
+
+        env.reset()
+        env.step(RangeAction(command="nmap -sV web", mode="red"))
+        data = client.get("/console/api/history").json()
+        assert len(data) == 1
+        assert data[0]["command"] == "nmap -sV web"
+        assert data[0]["mode"] == "red"
+
     def test_history_max_20(self, client: TestClient):
         """History API should return at most 20 entries."""
         import time

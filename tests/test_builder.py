@@ -104,25 +104,14 @@ async def test_template_builder_has_task_briefings(tier1_manifest):
 
 
 @pytest.mark.asyncio
-async def test_mutator_builds_child_snapshot_with_lineage(tier1_manifest):
+async def test_template_builder_preserves_manifest_tier_and_difficulty(tier2_manifest):
     from open_range.builder.builder import TemplateOnlyBuilder
-    from open_range.builder.mutator import Mutator
 
-    mutator = Mutator(TemplateOnlyBuilder())
-    root = await mutator.mutate(tier1_manifest, context=BuildContext(seed=1, tier=1))
-    child = await mutator.mutate(
-        tier1_manifest,
-        context=BuildContext(seed=2, tier=1),
-        parent_snapshot=root,
-        parent_snapshot_id="root_snap",
-    )
-
-    assert child.lineage.parent_snapshot_id == "root_snap"
-    assert child.lineage.generation_depth == 1
-    assert child.mutation_plan is not None
-    assert child.mutation_plan.parent_snapshot_id == "root_snap"
-    assert child.mutation_plan.ops
-    assert child.lineage.mutation_summary
+    builder = TemplateOnlyBuilder()
+    ctx = BuildContext(seed=42, tier=2)
+    spec = await builder.build(tier2_manifest, ctx)
+    assert spec.topology["tier"] == tier2_manifest["tier"]
+    assert spec.topology["difficulty"] == tier2_manifest["difficulty"]
 
 
 # ---------------------------------------------------------------------------

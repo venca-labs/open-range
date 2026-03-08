@@ -24,6 +24,7 @@ def create_app() -> FastAPI:
         RangeObservation,
         env_name="open_range",
     )
+    app.state.env = env_factory()
     app.state.runtime = runtime
     app.add_event_handler("startup", runtime.start)
     app.add_event_handler("shutdown", runtime.stop)
