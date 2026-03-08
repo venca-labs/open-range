@@ -750,7 +750,7 @@ def _parse_llm_response(raw_json: str) -> SnapshotSpec:
         elif isinstance(vc, str) and vc.strip():
             ip = v.injection_point
             if ip.startswith("/") and v.host == "web":
-                web_doc_root = str(llm_output.topology.get("web_doc_root", "/var/www/portal")).rstrip("/")
+                web_doc_root = str(llm_output.topology.get("web_doc_root", "/var/www/html")).rstrip("/")
                 container_key = f"web:{web_doc_root}{ip}"
                 if container_key not in files:
                     files[container_key] = vc
@@ -1579,7 +1579,7 @@ def _rewrite_template_runtime_text(text: str, runtime_contract: dict[str, str]) 
     web_host = runtime_contract.get("web_host", "web")
     db_host = runtime_contract.get("db_host", "db")
     ldap_host = runtime_contract.get("ldap_host", "ldap")
-    web_doc_root = runtime_contract.get("web_doc_root", "/var/www/portal")
+    web_doc_root = runtime_contract.get("web_doc_root", "/var/www/html")
     web_config_path = runtime_contract.get("web_config_path", "/var/www/config.php")
     db_name = runtime_contract.get("db_name", "referral_db")
     db_user = runtime_contract.get("db_user", "svc_db")
