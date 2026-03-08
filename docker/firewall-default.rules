@@ -1,0 +1,51 @@
+*filter
+:INPUT ACCEPT [0:0]
+:FORWARD DROP [0:0]
+:OUTPUT ACCEPT [0:0]
+
+# Allow established connections
+-A FORWARD -m state --state RELATED,ESTABLISHED -j ACCEPT
+
+# Allow loopback
+-A INPUT -i lo -j ACCEPT
+
+# External (10.0.0.0/24) -> DMZ (10.0.1.0/24): HTTP, HTTPS, SMTP
+-A FORWARD -s 10.0.0.0/24 -d 10.0.1.0/24 -p tcp --dport 80 -j ACCEPT
+-A FORWARD -s 10.0.0.0/24 -d 10.0.1.0/24 -p tcp --dport 443 -j ACCEPT
+-A FORWARD -s 10.0.0.0/24 -d 10.0.1.0/24 -p tcp --dport 25 -j ACCEPT
+
+# DMZ (10.0.1.0/24) -> Internal (10.0.2.0/24): MySQL, SMB
+-A FORWARD -s 10.0.1.0/24 -d 10.0.2.0/24 -p tcp --dport 3306 -j ACCEPT
+-A FORWARD -s 10.0.1.0/24 -d 10.0.2.0/24 -p tcp --dport 445 -j ACCEPT
+
+# DMZ (10.0.1.0/24) -> Management (10.0.3.0/24): LDAP, LDAPS
+-A FORWARD -s 10.0.1.0/24 -d 10.0.3.0/24 -p tcp --dport 389 -j ACCEPT
+-A FORWARD -s 10.0.1.0/24 -d 10.0.3.0/24 -p tcp --dport 636 -j ACCEPT
+
+# Internal (10.0.2.0/24) -> Management (10.0.3.0/24): LDAP
+-A FORWARD -s 10.0.2.0/24 -d 10.0.3.0/24 -p tcp --dport 389 -j ACCEPT
+
+# Management (10.0.3.0/24) -> DMZ: syslog collection
+-A FORWARD -s 10.0.3.0/24 -d 10.0.1.0/24 -p tcp --dport 514 -j ACCEPT
+-A FORWARD -s 10.0.3.0/24 -d 10.0.1.0/24 -p udp --dport 514 -j ACCEPT
+
+# Management (10.0.3.0/24) -> Internal: syslog collection
+-A FORWARD -s 10.0.3.0/24 -d 10.0.2.0/24 -p tcp --dport 514 -j ACCEPT
+-A FORWARD -s 10.0.3.0/24 -d 10.0.2.0/24 -p udp --dport 514 -j ACCEPT
+
+# Block internal -> external (no egress from server zones)
+-A FORWARD -s 10.0.2.0/24 -d 10.0.0.0/24 -j DROP
+
+# Block management -> external
+-A FORWARD -s 10.0.3.0/24 -d 10.0.0.0/24 -j DROP
+
+# Allow SSH to firewall for management
+-A INPUT -p tcp --dport 22 -j ACCEPT
+
+# Log dropped packets
+-A FORWARD -j LOG --log-prefix "iptables-dropped: " --log-level 4
+
+# Default deny forward
+-A FORWARD -j DROP
+
+COMMIT
