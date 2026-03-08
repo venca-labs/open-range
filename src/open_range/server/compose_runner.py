@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import time
 import subprocess
 from dataclasses import dataclass
 from pathlib import Path
@@ -29,11 +30,15 @@ class ComposeProjectRunner:
         build_timeout_s: float = 300.0,
         up_timeout_s: float = 300.0,
         down_timeout_s: float = 120.0,
+        health_timeout_s: float = 120.0,
+        health_poll_interval_s: float = 2.0,
         remove_volumes: bool = True,
     ) -> None:
         self.build_timeout_s = build_timeout_s
         self.up_timeout_s = up_timeout_s
         self.down_timeout_s = down_timeout_s
+        self.health_timeout_s = health_timeout_s
+        self.health_poll_interval_s = health_poll_interval_s
         self.remove_volumes = remove_volumes
 
     def boot(
@@ -96,7 +101,7 @@ class ComposeProjectRunner:
             if container_id:
                 container_ids[service] = container_id
 
-        return BootedSnapshotProject(
+        project = BootedSnapshotProject(
             project_name=project_name,
             compose_file=compose_file,
             artifacts_dir=artifacts_dir,
@@ -105,6 +110,8 @@ class ComposeProjectRunner:
                 container_ids=container_ids,
             ),
         )
+        self._wait_until_healthy(project, services)
+        return project
 
     def teardown(self, project: BootedSnapshotProject) -> None:
         args = [
@@ -129,6 +136,32 @@ class ComposeProjectRunner:
         safe = "".join(ch.lower() if ch.isalnum() else "-" for ch in snapshot_id).strip("-")
         return f"openrange-{safe}"[:63]
 
+    def _wait_until_healthy(
+        self,
+        project: BootedSnapshotProject,
+        services: list[str],
+    ) -> None:
+        deadline = time.monotonic() + self.health_timeout_s
+        pending = list(services)
+        while pending and time.monotonic() < deadline:
+            still_pending: list[str] = []
+            for service in pending:
+                try:
+                    healthy = _run_async(project.containers.is_healthy(service))
+                except Exception:
+                    healthy = False
+                if not healthy:
+                    still_pending.append(service)
+            if not still_pending:
+                return
+            pending = still_pending
+            time.sleep(self.health_poll_interval_s)
+        if pending:
+            raise RuntimeError(
+                "Timed out waiting for healthy services: "
+                + ", ".join(pending)
+            )
+
     @staticmethod
     def _run(
         args: list[str],
@@ -152,3 +185,9 @@ class ComposeProjectRunner:
                 f"{' '.join(args)} failed with exit code {result.returncode}: {detail}"
             )
         return result
+
+
+def _run_async(coro):
+    import asyncio
+
+    return asyncio.run(coro)

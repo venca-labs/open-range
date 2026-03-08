@@ -1039,6 +1039,9 @@ class TemplateOnlyBuilder:
             ),
         ]
 
+        company = manifest.get("company", {}) if isinstance(manifest.get("company"), dict) else {}
+        company_name = str(company.get("name", "the company"))
+        industry = str(company.get("industry", "corporate"))
         task = TaskSpec(
             red_briefing=(
                 f"{topology['org_name']} is a {manifest.get('company', {}).get('industry', 'corporate')} "

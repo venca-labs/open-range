@@ -267,13 +267,17 @@ class ContainerSet(BaseModel):
 
         cid = self.container_ids.get(container, container)
         proc = await asyncio.create_subprocess_exec(
-            "docker", "inspect", "--format", "{{.State.Status}}", cid,
+            "docker",
+            "inspect",
+            "--format",
+            "{{if .State.Health}}{{.State.Health.Status}}{{else}}{{.State.Status}}{{end}}",
+            cid,
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
         )
         stdout, _ = await proc.communicate()
         status = (stdout or b"").decode().strip()
-        return status == "running"
+        return status in {"running", "healthy"}
 
     async def cp(self, container: str, src: str, dest: str) -> None:
         """Copy a file into a container: ``docker cp src container:dest``."""
