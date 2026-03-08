@@ -54,8 +54,20 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Validate docker-compose.yml
-        run: docker compose config --quiet
+      - name: Validate compose files (if present)
+        run: |
+          mapfile -t compose_files < <(
+            find . -maxdepth 4 -type f \
+              \( -name "docker-compose.yml" -o -name "docker-compose.yaml" -o -name "compose.yml" -o -name "compose.yaml" \)
+          )
+          if [ "${#compose_files[@]}" -eq 0 ]; then
+            echo "No committed compose file found; skipping static compose validation."
+            exit 0
+          fi
+          for compose_file in "${compose_files[@]}"; do
+            echo "Validating ${compose_file}"
+            docker compose -f "${compose_file}" config --quiet
+          done
 
       - name: Verify Dockerfiles parse correctly
         run: |
