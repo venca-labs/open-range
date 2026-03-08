@@ -573,6 +573,18 @@ class RangeEnvironment(Environment[RangeAction, RangeObservation, RangeState]):
         The snapshot's ``services`` list is normally populated by the renderer.
         Snapshots without explicit service specs skip subprocess provisioning.
         """
+        # Debug trace
+        _dbg = "/tmp/openrange_svc_debug.log"
+        try:
+            with open(_dbg, "a") as f:
+                f.write(
+                    f"[{time.time():.3f}] _start_snapshot_services: "
+                    f"mode={self._execution_mode} "
+                    f"services={len(snapshot.services) if snapshot.services else 0}\n"
+                )
+        except Exception:
+            pass
+
         if self._execution_mode != "subprocess":
             return
 
@@ -1410,6 +1422,14 @@ class RangeEnvironment(Environment[RangeAction, RangeObservation, RangeState]):
         Returns:
             Initial RangeObservation with the challenge briefing.
         """
+        # Debug trace for service startup investigation
+        _dbg = "/tmp/openrange_svc_debug.log"
+        try:
+            with open(_dbg, "a") as f:
+                f.write(f"[{time.time():.3f}] reset() called, mode={self._execution_mode}\n")
+        except Exception:
+            pass
+
         self._report_episode_result(completed=False)
         self._stop_npcs()
         self._teardown_active_project()
