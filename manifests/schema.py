@@ -217,6 +217,14 @@ class OperationalContext(BaseModel, extra="allow"):
 # Topology primitives
 # ---------------------------------------------------------------------------
 
+class ExposurePolicy(BaseModel):
+    """Per-host exposure configuration."""
+
+    level: Literal["public", "hidden", "authenticated", "misconfigured"] = "public"
+    auth_required: bool = False
+    notes: str = ""
+
+
 class Host(BaseModel):
     """A single host (container) in the range topology."""
 
@@ -242,6 +250,7 @@ class Host(BaseModel):
         default="ubuntu:22.04",
         description="Base OS image for the container",
     )
+    exposure: ExposurePolicy = Field(default_factory=ExposurePolicy)
 
 
 class Network(BaseModel):

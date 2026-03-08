@@ -2,7 +2,14 @@
 
 import pytest
 
-from open_range.protocols import FlagSpec, GoldenPathStep, SnapshotSpec, TaskSpec, TruthGraph
+from open_range.protocols import (
+    FlagSpec,
+    GoldenPathStep,
+    SnapshotSpec,
+    TaskSpec,
+    TruthGraph,
+    Vulnerability,
+)
 from open_range.server.environment import RangeEnvironment, _extract_command_name
 from open_range.server.models import RangeAction, RangeObservation, RangeState
 
@@ -181,3 +188,278 @@ class TestStateProperty:
         assert env.state.step_count == 0
         env.step(RangeAction(command="nmap -sV web", mode="red"))
         assert env.state.step_count == 1
+
+
+# -------------------------------------------------------------------
+# Task engine (#17)
+# -------------------------------------------------------------------
+
+
+def _make_multistep_snapshot():
+    """Helper: snapshot with a multi_step task and milestones."""
+    return SnapshotSpec(
+        topology={
+            "hosts": ["attacker", "web", "db"],
+            "users": [
+                {"username": "admin", "password": "admin123", "hosts": ["web", "db"]},
+            ],
+        },
+        flags=[FlagSpec(id="f1", value="FLAG{ms}", path="/f.txt", host="db")],
+        golden_path=[],
+        task=TaskSpec(
+            red_briefing="Multi-step challenge.",
+            blue_briefing="Watch.",
+            task_type="multi_step",
+            milestones=["port scan complete", "credentials found", "database accessed"],
+        ),
+    )
+
+
+class TestTaskEngine:
+    """Milestone checking for multi_step tasks (#17)."""
+
+    def test_milestone_detected_in_output(self):
+        env = RangeEnvironment(docker_available=False)
+        snapshot = _make_multistep_snapshot()
+        env.reset(snapshot=snapshot)
+
+        # Mock mode returns "[mock] executed on attacker: ..." which won't match.
+        # We need to check that _check_milestone works with the right output.
+        ms = env._check_milestone("Port scan complete -- found open ports")
+        assert ms == "port scan complete"
+
+    def test_milestone_not_duplicated(self):
+        env = RangeEnvironment(docker_available=False)
+        snapshot = _make_multistep_snapshot()
+        env.reset(snapshot=snapshot)
+
+        # Simulate first milestone completion
+        env._state.milestones_completed.append("port scan complete")
+        ms = env._check_milestone("Port scan complete again")
+        assert ms is None  # Already completed
+
+    def test_milestone_returns_none_for_exploit_task(self):
+        env = RangeEnvironment(docker_available=False)
+        snapshot = SnapshotSpec(
+            topology={"hosts": ["attacker", "web"]},
+            flags=[],
+            golden_path=[],
+            task=TaskSpec(red_briefing="Go.", blue_briefing="Watch.", task_type="exploit"),
+        )
+        env.reset(snapshot=snapshot)
+        ms = env._check_milestone("anything here")
+        assert ms is None
+
+    def test_milestone_returns_none_for_no_match(self):
+        env = RangeEnvironment(docker_available=False)
+        snapshot = _make_multistep_snapshot()
+        env.reset(snapshot=snapshot)
+        ms = env._check_milestone("nothing relevant here")
+        assert ms is None
+
+    def test_milestones_tracked_in_state(self):
+        env = RangeEnvironment(docker_available=False)
+        snapshot = _make_multistep_snapshot()
+        env.reset(snapshot=snapshot)
+        assert env.state.milestones_completed == []
+
+        # Manually add a milestone (simulating what step() does)
+        env._state.milestones_completed.append("port scan complete")
+        assert env.state.milestones_completed == ["port scan complete"]
+
+    def test_task_type_field_on_task_spec(self):
+        ts = TaskSpec(task_type="multi_step", milestones=["a", "b"])
+        assert ts.task_type == "multi_step"
+        assert ts.milestones == ["a", "b"]
+
+    def test_success_conditions_on_task_spec(self):
+        ts = TaskSpec(
+            success_conditions=[
+                {"type": "flag", "value": "FLAG{x}"},
+                {"type": "endpoint", "url": "/api/data", "expect": "secret"},
+            ],
+        )
+        assert len(ts.success_conditions) == 2
+        assert ts.success_conditions[0]["type"] == "flag"
+
+
+# -------------------------------------------------------------------
+# Auth scenario (#25)
+# -------------------------------------------------------------------
+
+
+def _make_auth_snapshot():
+    """Helper: snapshot with users for auth testing."""
+    return SnapshotSpec(
+        topology={
+            "hosts": ["attacker", "web", "db"],
+            "users": [
+                {"username": "admin", "password": "admin123", "hosts": ["web", "db"]},
+                {"username": "guest", "password": "guest", "hosts": ["web"]},
+            ],
+        },
+        flags=[FlagSpec(id="f1", value="FLAG{auth}", path="/f.txt", host="db")],
+        golden_path=[],
+        task=TaskSpec(red_briefing="Auth challenge.", blue_briefing="Watch."),
+    )
+
+
+class TestAuthScenario:
+    """Auth and logout commands update session tracking (#25)."""
+
+    def test_auth_success(self):
+        env = RangeEnvironment(docker_available=False)
+        env.reset(snapshot=_make_auth_snapshot())
+        obs = env.step(RangeAction(command="auth web admin admin123", mode="red"))
+        assert "Authenticated" in obs.stdout
+        assert env.state.active_sessions["web"] == "admin"
+
+    def test_auth_failure(self):
+        env = RangeEnvironment(docker_available=False)
+        env.reset(snapshot=_make_auth_snapshot())
+        obs = env.step(RangeAction(command="auth web admin wrongpass", mode="red"))
+        assert "failed" in obs.stderr.lower()
+        assert "web" not in env.state.active_sessions
+
+    def test_auth_wrong_host(self):
+        env = RangeEnvironment(docker_available=False)
+        env.reset(snapshot=_make_auth_snapshot())
+        obs = env.step(RangeAction(command="auth db guest guest", mode="red"))
+        # guest only has access to web, not db
+        assert "failed" in obs.stderr.lower()
+        assert "db" not in env.state.active_sessions
+
+    def test_auth_attempt_logged(self):
+        env = RangeEnvironment(docker_available=False)
+        env.reset(snapshot=_make_auth_snapshot())
+        env.step(RangeAction(command="auth web admin admin123", mode="red"))
+        assert len(env.state.auth_attempts) == 1
+        assert env.state.auth_attempts[0]["success"] is True
+
+    def test_auth_failure_logged(self):
+        env = RangeEnvironment(docker_available=False)
+        env.reset(snapshot=_make_auth_snapshot())
+        env.step(RangeAction(command="auth web admin wrong", mode="red"))
+        assert len(env.state.auth_attempts) == 1
+        assert env.state.auth_attempts[0]["success"] is False
+
+    def test_logout_success(self):
+        env = RangeEnvironment(docker_available=False)
+        env.reset(snapshot=_make_auth_snapshot())
+        env.step(RangeAction(command="auth web admin admin123", mode="red"))
+        assert "web" in env.state.active_sessions
+        obs = env.step(RangeAction(command="logout web", mode="red"))
+        assert "Logged out" in obs.stdout
+        assert "web" not in env.state.active_sessions
+
+    def test_logout_no_session(self):
+        env = RangeEnvironment(docker_available=False)
+        env.reset(snapshot=_make_auth_snapshot())
+        obs = env.step(RangeAction(command="logout web", mode="red"))
+        assert "No active session" in obs.stderr
+
+    def test_auth_missing_args(self):
+        env = RangeEnvironment(docker_available=False)
+        env.reset(snapshot=_make_auth_snapshot())
+        obs = env.step(RangeAction(command="auth web admin", mode="red"))
+        assert "Usage" in obs.stderr
+
+    def test_logout_missing_args(self):
+        env = RangeEnvironment(docker_available=False)
+        env.reset(snapshot=_make_auth_snapshot())
+        obs = env.step(RangeAction(command="logout", mode="red"))
+        assert "Usage" in obs.stderr
+
+    def test_auth_creates_access_grant(self):
+        env = RangeEnvironment(docker_available=False)
+        env.reset(snapshot=_make_auth_snapshot())
+        env.step(RangeAction(command="auth web admin admin123", mode="red"))
+        assert "web:shell" in env.state.access_grants
+
+
+# -------------------------------------------------------------------
+# Pivot mechanics (#26)
+# -------------------------------------------------------------------
+
+
+class TestPivotMechanics:
+    """Access grants and pivot tracking (#26)."""
+
+    def test_pivot_detected_from_credential_leak(self):
+        """When command output contains credentials matching the truth graph,
+        access_grants and pivot_history are updated."""
+        env = RangeEnvironment(docker_available=False)
+        snapshot = SnapshotSpec(
+            topology={
+                "hosts": ["attacker", "web", "db"],
+                "users": [
+                    {"username": "dbadmin", "password": "s3cret!", "hosts": ["db"]},
+                ],
+            },
+            flags=[],
+            golden_path=[],
+            task=TaskSpec(red_briefing="Go.", blue_briefing="Watch."),
+        )
+        env.reset(snapshot=snapshot)
+
+        # Simulate checking pivot on command output that contains credentials
+        env._check_pivot(
+            RangeAction(command="cat /etc/app/config.ini", mode="red"),
+            "db_user = dbadmin\ndb_pass = s3cret!\nhost = db",
+        )
+        assert "db:credential" in env.state.access_grants
+        assert len(env.state.pivot_history) == 1
+        assert env.state.pivot_history[0]["to"] == "db"
+        assert env.state.pivot_history[0]["via"] == "credential_reuse"
+
+    def test_no_pivot_without_matching_creds(self):
+        env = RangeEnvironment(docker_available=False)
+        snapshot = SnapshotSpec(
+            topology={
+                "hosts": ["attacker", "web"],
+                "users": [
+                    {"username": "admin", "password": "secret", "hosts": ["web"]},
+                ],
+            },
+            flags=[],
+            golden_path=[],
+            task=TaskSpec(red_briefing="Go.", blue_briefing="Watch."),
+        )
+        env.reset(snapshot=snapshot)
+        env._check_pivot(
+            RangeAction(command="ls", mode="red"),
+            "no credentials here",
+        )
+        assert env.state.access_grants == []
+        assert env.state.pivot_history == []
+
+    def test_pivot_not_duplicated(self):
+        env = RangeEnvironment(docker_available=False)
+        snapshot = SnapshotSpec(
+            topology={
+                "hosts": ["attacker", "web", "db"],
+                "users": [
+                    {"username": "admin", "password": "pass", "hosts": ["db"]},
+                ],
+            },
+            flags=[],
+            golden_path=[],
+            task=TaskSpec(red_briefing="Go.", blue_briefing="Watch."),
+        )
+        env.reset(snapshot=snapshot)
+        action = RangeAction(command="cat config", mode="red")
+        env._check_pivot(action, "admin pass db")
+        env._check_pivot(action, "admin pass db")
+        # Should only appear once
+        assert env.state.access_grants.count("db:credential") == 1
+
+    def test_state_has_access_grants_field(self):
+        state = RangeState()
+        assert state.access_grants == []
+        assert state.pivot_history == []
+
+    def test_state_has_auth_fields(self):
+        state = RangeState()
+        assert state.active_sessions == {}
+        assert state.auth_attempts == []
+        assert state.milestones_completed == []

@@ -3,7 +3,7 @@
 import pytest
 from pydantic import ValidationError
 
-from manifests.schema import Manifest, load_manifest
+from manifests.schema import ExposurePolicy, Host, Manifest, load_manifest
 
 
 class TestManifestLoading:
@@ -141,3 +141,49 @@ class TestBugFamilies:
     def test_difficulty_min_le_max_vulns(self, manifests_dir):
         m = load_manifest(manifests_dir / "tier1_basic.yaml")
         assert m.difficulty.min_vulns <= m.difficulty.max_vulns
+
+
+class TestExposurePolicy:
+    """ExposurePolicy validates correctly (#18)."""
+
+    def test_default_exposure_policy(self):
+        ep = ExposurePolicy()
+        assert ep.level == "public"
+        assert ep.auth_required is False
+        assert ep.notes == ""
+
+    def test_custom_exposure_policy(self):
+        ep = ExposurePolicy(level="hidden", auth_required=True, notes="Internal only")
+        assert ep.level == "hidden"
+        assert ep.auth_required is True
+        assert ep.notes == "Internal only"
+
+    def test_invalid_level_rejected(self):
+        with pytest.raises(ValidationError):
+            ExposurePolicy(level="nonexistent")
+
+    def test_all_valid_levels(self):
+        for level in ("public", "hidden", "authenticated", "misconfigured"):
+            ep = ExposurePolicy(level=level)
+            assert ep.level == level
+
+    def test_host_with_exposure_field(self):
+        h = Host(
+            name="web",
+            zone="dmz",
+            exposure=ExposurePolicy(level="authenticated", auth_required=True),
+        )
+        assert h.exposure.level == "authenticated"
+        assert h.exposure.auth_required is True
+
+    def test_host_default_exposure(self):
+        h = Host(name="web", zone="dmz")
+        assert h.exposure.level == "public"
+        assert h.exposure.auth_required is False
+
+    def test_existing_manifests_still_load_with_exposure(self, manifests_dir):
+        """Adding the exposure field must not break existing manifests."""
+        m = load_manifest(manifests_dir / "tier1_basic.yaml")
+        # All hosts should have default exposure policies
+        for host in m.topology.hosts:
+            assert host.exposure.level == "public"

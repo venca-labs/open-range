@@ -173,3 +173,56 @@ class CurriculumTracker:
             else:
                 rates[vc] = 0.0
         return rates
+
+    def update_from_result(self, result: dict) -> None:
+        """Update curriculum stats from an episode result.
+
+        Accepts a dict with the following optional keys:
+
+        - ``snapshot_id`` (str): episode/snapshot identifier
+        - ``vuln_classes`` (list[str]): vulnerability classes in the episode
+        - ``red_solved`` (bool): whether Red captured a flag
+        - ``blue_detected`` (bool): whether Blue detected the attack
+        - ``tier`` (int): difficulty tier
+        - ``attack_surfaces`` (list[str]): injection points used
+        - ``outcome`` (str): episode outcome (``red_win``, ``blue_win``, ``timeout``)
+        - ``flags_found`` (list[str]): captured flags
+        - ``steps`` (int): total steps taken
+
+        If ``red_solved`` / ``blue_detected`` are not provided they are
+        inferred from ``outcome`` and ``flags_found``.
+        """
+        snapshot_id = result.get("snapshot_id", "")
+        vuln_classes = result.get("vuln_classes", [])
+        tier = result.get("tier", 1)
+        attack_surfaces = result.get("attack_surfaces", [])
+
+        # Infer solve/detect status if not explicitly provided
+        if "red_solved" in result:
+            red_solved = bool(result["red_solved"])
+        else:
+            outcome = result.get("outcome", "")
+            flags = result.get("flags_found", [])
+            red_solved = outcome == "red_win" or bool(flags)
+
+        if "blue_detected" in result:
+            blue_detected = bool(result["blue_detected"])
+        else:
+            blue_detected = result.get("outcome", "") == "blue_win"
+
+        # Collect extra metadata
+        extra_keys = {
+            "outcome", "flags_found", "steps",
+            "red_model", "blue_model",
+        }
+        extra = {k: result[k] for k in extra_keys if k in result}
+
+        self.record_episode(
+            snapshot_id=snapshot_id,
+            vuln_classes=vuln_classes,
+            red_solved=red_solved,
+            blue_detected=blue_detected,
+            tier=tier,
+            attack_surfaces=attack_surfaces,
+            extra=extra if extra else None,
+        )

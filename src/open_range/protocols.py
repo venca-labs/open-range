@@ -8,6 +8,7 @@ Three pluggable infrastructure components:
 
 from __future__ import annotations
 
+from enum import Enum
 from typing import Any, Literal, Protocol, runtime_checkable
 
 from pydantic import BaseModel, Field
@@ -123,11 +124,27 @@ class NPCTrafficSpec(BaseModel):
     scripts: list[str] = Field(default_factory=list)
 
 
+class TaskType(str, Enum):
+    """Types of tasks agents can be assigned."""
+
+    EXPLOIT = "exploit"
+    INVESTIGATE = "investigate"
+    PATCH = "patch"
+    REPORT = "report"
+    ENDPOINT_QUERY = "endpoint_query"
+    MULTI_STEP = "multi_step"
+
+
 class TaskSpec(BaseModel):
     """Agent-facing task descriptions (no leakage of internals)."""
 
     red_briefing: str = ""
     blue_briefing: str = ""
+    task_type: str = "exploit"  # Use str not enum for flexibility
+    milestones: list[str] = Field(default_factory=list)  # For multi_step tasks
+    success_conditions: list[dict[str, Any]] = Field(
+        default_factory=list,
+    )  # [{type: "flag", value: "..."}, {type: "endpoint", url: "...", expect: "..."}]
 
 
 class SnapshotSpec(BaseModel):

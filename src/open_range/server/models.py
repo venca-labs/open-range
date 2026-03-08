@@ -8,6 +8,8 @@ from __future__ import annotations
 
 from typing import Any, Literal
 
+from pydantic import Field
+
 try:
     from openenv.core.env_server.types import Action, Observation, State
 except ImportError:
@@ -45,3 +47,11 @@ class RangeState(State):
     flags_found: list[str] = []
     services_status: dict[str, Any] = {}
     tier: int = 1
+    # Auth scenario (#25): session tracking
+    active_sessions: dict[str, str] = Field(default_factory=dict)  # host -> username
+    auth_attempts: list[dict[str, Any]] = Field(default_factory=list)
+    # Pivot mechanics (#26): access and lateral movement tracking
+    access_grants: list[str] = Field(default_factory=list)  # ["host:service", ...]
+    pivot_history: list[dict[str, str]] = Field(default_factory=list)  # [{from: "web", to: "db", via: "credential_reuse"}]
+    # Task engine (#17): milestone tracking
+    milestones_completed: list[str] = Field(default_factory=list)

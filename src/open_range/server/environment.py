@@ -20,7 +20,7 @@ import time
 from typing import Any
 from uuid import uuid4
 
-from open_range.protocols import SnapshotSpec
+from open_range.protocols import SnapshotSpec, TaskSpec
 
 from open_range.server.models import RangeAction, RangeObservation, RangeState
 
@@ -40,7 +40,7 @@ except ImportError:
     _HAS_OPENENV = False
 
 # Meta-commands processed by the environment itself (not forwarded to containers)
-META_COMMANDS = {"submit_flag", "submit_evidence", "submit_finding"}
+META_COMMANDS = {"submit_flag", "submit_evidence", "submit_finding", "auth", "logout"}
 
 # Maximum steps before forced termination
 DEFAULT_MAX_STEPS = 100
@@ -265,6 +265,152 @@ class RangeEnvironment(_BASE):  # type: ignore[misc]
         )
 
     # -----------------------------------------------------------------
+    # Auth scenario (#25)
+    # -----------------------------------------------------------------
+
+    def _handle_auth(self, action: RangeAction) -> RangeObservation:
+        """Process an ``auth <host> <username> <password>`` command.
+
+        Checks credentials against the topology user list in the snapshot.
+        Successful auth is recorded in ``state.active_sessions``.
+        """
+        parts = action.command.strip().split()
+        if len(parts) < 4:
+            return RangeObservation(
+                stdout="",
+                stderr="Usage: auth <host> <username> <password>",
+            )
+        host = parts[1]
+        username = parts[2]
+        password = parts[3]
+
+        attempt = {
+            "step": self._state.step_count,
+            "host": host,
+            "username": username,
+            "success": False,
+            "time": time.time(),
+        }
+
+        # Lookup credentials in the snapshot topology
+        authenticated = False
+        if self._snapshot and isinstance(self._snapshot.topology, dict):
+            users = self._snapshot.topology.get("users", [])
+            for user in users:
+                if (
+                    user.get("username") == username
+                    and user.get("password") == password
+                    and host in user.get("hosts", [])
+                ):
+                    authenticated = True
+                    break
+
+        attempt["success"] = authenticated
+        self._state.auth_attempts.append(attempt)
+
+        if authenticated:
+            self._state.active_sessions[host] = username
+            # Record access grant for pivot tracking
+            grant = f"{host}:shell"
+            if grant not in self._state.access_grants:
+                self._state.access_grants.append(grant)
+            return RangeObservation(
+                stdout=f"Authenticated as {username} on {host}.",
+            )
+        else:
+            return RangeObservation(
+                stdout="",
+                stderr=f"Authentication failed for {username} on {host}.",
+            )
+
+    def _handle_logout(self, action: RangeAction) -> RangeObservation:
+        """Process a ``logout <host>`` command."""
+        parts = action.command.strip().split()
+        if len(parts) < 2:
+            return RangeObservation(
+                stdout="",
+                stderr="Usage: logout <host>",
+            )
+        host = parts[1]
+
+        if host in self._state.active_sessions:
+            user = self._state.active_sessions.pop(host)
+            return RangeObservation(
+                stdout=f"Logged out {user} from {host}.",
+            )
+        else:
+            return RangeObservation(
+                stdout="",
+                stderr=f"No active session on {host}.",
+            )
+
+    # -----------------------------------------------------------------
+    # Milestone checking (#17 task engine)
+    # -----------------------------------------------------------------
+
+    def _check_milestone(self, output: str) -> str | None:
+        """Check if command output satisfies the next pending milestone.
+
+        Returns the milestone string if matched, None otherwise.
+        """
+        if not self._snapshot:
+            return None
+
+        task = self._snapshot.task
+        if isinstance(task, dict):
+            task_type = task.get("task_type", "exploit")
+            milestones = task.get("milestones", [])
+        elif isinstance(task, TaskSpec):
+            task_type = task.task_type
+            milestones = task.milestones
+        else:
+            return None
+
+        if task_type != "multi_step" or not milestones:
+            return None
+
+        # Check each incomplete milestone against the output
+        completed = set(self._state.milestones_completed)
+        for ms in milestones:
+            if ms not in completed and ms.lower() in output.lower():
+                return ms
+        return None
+
+    # -----------------------------------------------------------------
+    # Pivot mechanics (#26)
+    # -----------------------------------------------------------------
+
+    def _check_pivot(self, action: RangeAction, stdout: str) -> None:
+        """Detect credential or access token leaks in command output.
+
+        When output contains credentials that match the truth graph,
+        record an access grant and log the pivot event.
+        """
+        if not self._snapshot or not isinstance(self._snapshot.topology, dict):
+            return
+
+        users = self._snapshot.topology.get("users", [])
+        for user in users:
+            uname = user.get("username", "")
+            pwd = user.get("password", "")
+            if not uname or not pwd:
+                continue
+            # Check if credentials appear in the command output
+            if uname in stdout and pwd in stdout:
+                for host in user.get("hosts", []):
+                    grant = f"{host}:credential"
+                    if grant not in self._state.access_grants:
+                        self._state.access_grants.append(grant)
+                        # Determine source host from the action target
+                        source = self._resolve_target(action)
+                        self._state.pivot_history.append({
+                            "from": source,
+                            "to": host,
+                            "via": "credential_reuse",
+                            "username": uname,
+                        })
+
+    # -----------------------------------------------------------------
     # Target resolution
     # -----------------------------------------------------------------
 
@@ -397,6 +543,18 @@ class RangeEnvironment(_BASE):  # type: ignore[misc]
             self._check_termination(obs)
             return obs
 
+        if cmd_name == "auth":
+            obs = self._handle_auth(action)
+            obs = self._apply_rewards(action, obs)
+            self._check_termination(obs)
+            return obs
+
+        if cmd_name == "logout":
+            obs = self._handle_logout(action)
+            obs = self._apply_rewards(action, obs)
+            self._check_termination(obs)
+            return obs
+
         # Route to container
         target = self._resolve_target(action)
         timeout = timeout_s or self._exec_timeout
@@ -415,6 +573,14 @@ class RangeEnvironment(_BASE):  # type: ignore[misc]
             self._red_history.append(action_record)
         else:
             self._blue_history.append(action_record)
+
+        # Check for milestone completion (#17)
+        milestone = self._check_milestone(stdout)
+        if milestone and milestone not in self._state.milestones_completed:
+            self._state.milestones_completed.append(milestone)
+
+        # Check for pivot opportunities (#26)
+        self._check_pivot(action, stdout)
 
         # Build observation
         obs = RangeObservation(

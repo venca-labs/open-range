@@ -14,6 +14,7 @@ from open_range.agents.protocol import EpisodeMetrics, EpisodeResult
 
 if TYPE_CHECKING:
     from open_range.agents.protocol import RangeAgent
+    from open_range.training.curriculum import CurriculumTracker
 
 logger = logging.getLogger(__name__)
 
@@ -80,6 +81,7 @@ def run_episode(
     max_steps: int = 100,
     red_model: str = "",
     blue_model: str = "",
+    curriculum: CurriculumTracker | None = None,
 ) -> EpisodeResult:
     """Run one tandem Red + Blue episode.
 
@@ -174,5 +176,25 @@ def run_episode(
         len(flags_found),
         total_flags,
     )
+
+    # Curriculum feedback wiring (#34)
+    if curriculum is not None:
+        # Extract vuln classes from snapshot truth graph if available
+        vuln_classes: list[str] = []
+        if snapshot and hasattr(snapshot, "truth_graph") and snapshot.truth_graph:
+            tg = snapshot.truth_graph
+            vulns = getattr(tg, "vulns", [])
+            vuln_classes = [getattr(v, "type", "") for v in vulns if getattr(v, "type", "")]
+
+        curriculum.update_from_result({
+            "snapshot_id": snapshot_id,
+            "vuln_classes": vuln_classes,
+            "outcome": outcome,
+            "flags_found": list(flags_found),
+            "steps": step,
+            "tier": tier,
+            "red_model": red_model or getattr(red, "model", ""),
+            "blue_model": blue_model or getattr(blue, "model", ""),
+        })
 
     return result
