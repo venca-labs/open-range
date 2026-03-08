@@ -1,7 +1,9 @@
 """NPC traffic orchestrator.
 
 Starts Level 0 shell-script traffic generators and (optionally) Level 1
-LLM-driven NPC agents for a given snapshot.
+LLM-driven NPC agents for a given snapshot.  Multimodal NPC channels
+(chat, voice, document) are initialised at start and their activity logs
+are available for SIEM consumption.
 """
 
 from __future__ import annotations
@@ -11,6 +13,7 @@ import logging
 from pathlib import Path
 from typing import Any
 
+from open_range.builder.npc.channels import ChatChannel, DocumentChannel, VoiceChannel
 from open_range.protocols import ContainerSet, SnapshotSpec
 
 logger = logging.getLogger(__name__)
@@ -25,6 +28,13 @@ class NPCManager:
         self._processes: list[asyncio.subprocess.Process] = []
         self._tasks: list[asyncio.Task[Any]] = []
         self._running = False
+
+        # Multimodal NPC communication channels
+        self.channels: dict[str, ChatChannel | VoiceChannel | DocumentChannel] = {
+            "chat": ChatChannel(),
+            "voice": VoiceChannel(),
+            "document": DocumentChannel(),
+        }
 
     async def start(
         self,
@@ -41,6 +51,30 @@ class NPCManager:
 
         self._running = True
         npc_cfg = snapshot.npc_traffic
+
+        # Re-initialise channels for the new episode
+        self.channels = {
+            "chat": ChatChannel(),
+            "voice": VoiceChannel(),
+            "document": DocumentChannel(),
+        }
+
+        # Generate Level 0 chat traffic if personas are available
+        if snapshot.npc_personas and len(snapshot.npc_personas) >= 2:
+            from open_range.builder.npc.chat_traffic import generate_chat_traffic
+
+            chat_ch = self.channels["chat"]
+            assert isinstance(chat_ch, ChatChannel)
+            generate_chat_traffic(
+                personas=snapshot.npc_personas,
+                channel=chat_ch,
+                num_messages=10,
+            )
+            logger.info(
+                "Generated %d chat messages for %d personas",
+                len(chat_ch.get_channel_log()),
+                len(snapshot.npc_personas),
+            )
 
         # Determine which scripts to run
         scripts = npc_cfg.scripts or ["http_traffic.sh", "db_traffic.sh"]
@@ -106,6 +140,10 @@ class NPCManager:
                     pass
         self._processes.clear()
 
+        # Clear channel state
+        for ch in self.channels.values():
+            ch.clear()
+
         self._running = False
         logger.info("All NPC traffic stopped.")
 
@@ -113,3 +151,19 @@ class NPCManager:
     def running(self) -> bool:
         """Whether NPC traffic is currently active."""
         return self._running
+
+    def get_siem_log(self) -> list[dict[str, Any]]:
+        """Aggregate activity logs from all channels for SIEM consumption."""
+        logs: list[dict[str, Any]] = []
+        chat_ch = self.channels.get("chat")
+        if isinstance(chat_ch, ChatChannel):
+            logs.extend(chat_ch.get_channel_log())
+        voice_ch = self.channels.get("voice")
+        if isinstance(voice_ch, VoiceChannel):
+            logs.extend(voice_ch.get_call_log())
+        doc_ch = self.channels.get("document")
+        if isinstance(doc_ch, DocumentChannel):
+            logs.extend(doc_ch.get_document_log())
+        # Sort by timestamp
+        logs.sort(key=lambda e: e.get("timestamp", 0))
+        return logs

@@ -17,6 +17,7 @@ from typing import Any
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 from pydantic import BaseModel, ValidationError
 
+from open_range.server.console import clear_history, console_router, record_action
 from open_range.server.environment import RangeEnvironment
 from open_range.server.models import RangeAction, RangeObservation, RangeState
 
@@ -37,12 +38,14 @@ def _try_openenv_app() -> FastAPI | None:
     try:
         from openenv.core.env_server import create_app
 
-        return create_app(
+        openenv_app = create_app(
             RangeEnvironment,
             RangeAction,
             RangeObservation,
             env_name="open_range",
         )
+        openenv_app.include_router(console_router)
+        return openenv_app
     except ImportError:
         logger.info("openenv not installed -- using standalone FastAPI app")
         return None
@@ -85,6 +88,12 @@ def _create_standalone_app() -> FastAPI:
     # Each WebSocket session creates its own isolated instance.
     env = RangeEnvironment()
 
+    # Store env on app.state so the console router can access it
+    app.state.env = env
+
+    # Include the operator console router
+    app.include_router(console_router)
+
     # ---------------------------------------------------------------
     # HTTP endpoints
     # ---------------------------------------------------------------
@@ -113,12 +122,21 @@ def _create_standalone_app() -> FastAPI:
     @app.post("/reset")
     async def reset(req: ResetRequest | None = None) -> dict[str, Any]:
         req = req or ResetRequest()
+        clear_history()
         obs = env.reset(seed=req.seed, episode_id=req.episode_id)
         return {"observation": obs.model_dump()}
 
     @app.post("/step")
     async def step(action: RangeAction) -> dict[str, Any]:
+        import time as _time
+
         obs = env.step(action)
+        record_action({
+            "step": env.state.step_count,
+            "command": action.command,
+            "mode": action.mode,
+            "time": _time.time(),
+        })
         return {
             "observation": obs.model_dump(),
             "reward": obs.reward,
