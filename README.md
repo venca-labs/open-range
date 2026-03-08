@@ -8,7 +8,7 @@ The first cybersecurity environment in the [OpenEnv](https://github.com/meta-pyt
 
 ## What is this?
 
-OpenRange drops Red and Blue agents into a **real enterprise network** -- firewalls, web apps, databases, directory services, mail servers, VPNs, SIEM -- then lets them fight. The environment is not a single static benchmark and it is not a free-form LLM sandbox. A manifest defines a legal family of company worlds. A LiteLLM-led builder/mutator proposes candidate snapshots inside that family. Every proposal is compiled into a canonical `SnapshotSpec` plus hidden topology, threat, evidence, and task graphs. Deterministic helper checks make those proposals admissible. `reset()` then selects a **frozen validated snapshot** for the next episode, while background mutation prepares future snapshots asynchronously.
+OpenRange drops Red and Blue agents into a **real enterprise network** -- firewalls, web apps, databases, directory services, mail servers, VPNs, SIEM -- then lets them fight. The environment is not a single static benchmark and it is not a free-form LLM sandbox. A manifest defines a legal family of company worlds. A LiteLLM-led builder/mutator proposes candidate snapshots inside that family. Every proposal is compiled into a canonical `SnapshotSpec` (a typed snapshot specification for that company world) plus hidden topology, truth, evidence, and task graphs. Deterministic helper checks make those proposals admissible. `reset()` then selects a **frozen validated snapshot** for the next episode, while background mutation prepares future snapshots asynchronously.
 
 ```
 You define the legal company family:
@@ -35,7 +35,7 @@ The OpenEnv runtime stays standard:
 |------|-------------|-------------|
 | **Manifest compiler** | Defines the legal world space: topology, services, identities, bug families, task families, difficulty knobs | YAML schema + templates |
 | **Builder / mutator** | Uses LiteLLM to propose candidate snapshots, mutations, and task structure inside the manifest-constrained family | LiteLLM + rules + templates |
-| **Canonical `SnapshotSpec`** | Compiles the proposal into typed hidden truth: topology, threat, evidence, and task graphs | Pydantic models + graph structs |
+| **Canonical `SnapshotSpec`** | Compiles the proposal into typed hidden truth: topology, truth, evidence, and task graphs | Pydantic models + graph structs |
 | **Deterministic helpers** | Answer the specific admission questions: compliance, solvability, exploitability, patchability, evidence, reward grounding | Mechanical check modules |
 | **Validator gate** | Combines helper outputs and admits only snapshots that are runnable, coherent, and solvable | Mechanical admission over graph/spec + rendered artifacts |
 | **Snapshot manager** | Publishes admitted company snapshots and hands a frozen one to `reset()` | Background queue + snapshot store |
@@ -56,7 +56,7 @@ flowchart LR
 
     subgraph C[Canonical SnapshotSpec and hidden graphs]
         C1[Topology graph<br/>hosts, services, users, trust edges]
-        C2[Threat / truth graph<br/>bug, exploit chain, blast radius, remediation]
+        C2[Truth graph<br/>bug, exploit chain, blast radius, remediation]
         C3[Evidence graph<br/>logs, alerts, files, tickets, docs]
         C4[Task graph<br/>exploit, investigate, patch, report]
     end
@@ -92,7 +92,7 @@ flowchart LR
 
 The generator here is a **LiteLLM-led proposal pipeline** rather than a free-form oracle. The model proposes the world, the canonical graph/spec makes it legible, and deterministic helpers make it admissible. That keeps core world logic manifest-constrained and validator-checkable even when the builder uses model-generated code, docs, tickets, or alert text.
 
-Serving stays OpenEnv/Hugging Face-friendly: the deployed app exposes the normal `reset()`, `step()`, and `state` contract via `openenv.yaml` and a `Dockerfile`, and admitted snapshots can be served without live model calls in the request path.
+Serving stays OpenEnv/Hugging Face-friendly: the deployed app exposes the normal `reset()`, `step()`, and `state` contract, and admitted snapshots can be served without live model calls in the request path. When packaged for deployment, that contract can be wrapped with the required OpenEnv/HF metadata.
 
 ## Network Topology
 
@@ -321,7 +321,7 @@ flowchart TB
 
 ## Validation Gate
 
-Every candidate snapshot passes an **executable admission pipeline** before any agent touches it. The validator does not judge raw LLM text directly; it reads the compiled `SnapshotSpec` plus rendered runtime artifacts. Mechanical checks are primary. LLM review, if used at all, is secondary realism critique rather than ground truth.
+Every candidate snapshot passes an **executable admission pipeline** before any agent touches it. The validator does not use free-form LLM prose as ground truth; it operates over the compiled `SnapshotSpec` plus rendered runtime artifacts. Mechanical checks are primary. An optional Validator LLM may review structured specs or artifacts for realism, but its feedback is secondary critique rather than ground truth.
 
 ```mermaid
 flowchart LR
