@@ -4,8 +4,10 @@ from __future__ import annotations
 
 from types import SimpleNamespace
 
-from open_range.server.console import _get_env_context
+from open_range.protocols import SnapshotSpec
+from open_range.server.console import _get_env_context, clear_episode, publish_episode
 from open_range.server.environment import RangeEnvironment
+from open_range.server.models import RangeState
 
 
 class _Req:
@@ -18,6 +20,7 @@ def _app_with_state(**kwargs):
 
 
 def test_prefers_active_websocket_session_env():
+    clear_episode()
     fallback_env = RangeEnvironment(docker_available=False)
     ws_env = RangeEnvironment(docker_available=False)
     server = SimpleNamespace(
@@ -34,6 +37,7 @@ def test_prefers_active_websocket_session_env():
 
 
 def test_uses_app_state_env_when_no_active_session():
+    clear_episode()
     fallback_env = RangeEnvironment(docker_available=False)
     server = SimpleNamespace(_sessions={}, _session_info={})
     request = _Req(_app_with_state(env=fallback_env, openenv_server=server))
@@ -46,6 +50,7 @@ def test_uses_app_state_env_when_no_active_session():
 
 
 def test_multiple_sessions_selects_most_recent_and_warns():
+    clear_episode()
     older_env = RangeEnvironment(docker_available=False)
     newer_env = RangeEnvironment(docker_available=False)
     server = SimpleNamespace(
@@ -62,3 +67,29 @@ def test_multiple_sessions_selects_most_recent_and_warns():
     assert ctx["state_scope"] == "websocket_session"
     assert ctx["session_id"] == "new"
     assert "active sessions" in (ctx["warning"] or "").lower()
+
+
+def test_uses_published_episode_before_app_state_fallback():
+    clear_episode()
+    snapshot = SnapshotSpec(
+        topology={"hosts": ["attacker"], "zones": {"dmz": ["web"]}, "tier": 2},
+        flags=[],
+        golden_path=[],
+        task={"red_briefing": "r", "blue_briefing": "b"},
+    )
+    publish_episode(
+        snapshot,
+        RangeState(episode_id="published_ep", step_count=4, mode="blue", tier=2),
+    )
+
+    fallback_env = RangeEnvironment(docker_available=False)
+    server = SimpleNamespace(_sessions={}, _session_info={})
+    request = _Req(_app_with_state(env=fallback_env, openenv_server=server))
+
+    ctx = _get_env_context(request)
+    assert ctx["env"] is None
+    assert ctx["published_episode"]["snapshot"]["id"] == "published_ep"
+    assert ctx["state_scope"] == "published_episode"
+    assert ctx["session_id"] is None
+    assert "most recent reset/step state" in (ctx["warning"] or "")
+    clear_episode()

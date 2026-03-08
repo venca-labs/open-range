@@ -924,6 +924,15 @@ class RangeEnvironment(Environment[RangeAction, RangeObservation, RangeState]):
         except Exception:
             pass
 
+    def _record_console_action(self, mode: str, action_record: dict[str, Any]) -> None:
+        """Record a console-visible action without coupling to console internals."""
+        try:
+            from open_range.server.console import record_action
+
+            record_action({"mode": mode, **action_record})
+        except Exception:
+            pass
+
     # -----------------------------------------------------------------
     # Snapshot selection
     # -----------------------------------------------------------------
@@ -1462,6 +1471,16 @@ class RangeEnvironment(Environment[RangeAction, RangeObservation, RangeState]):
         )
 
         self._publish_console_state()
+        self._record_console_action(
+            "system",
+            {
+                "step": 0,
+                "command": "reset",
+                "cmd_name": "reset",
+                "time": time.time(),
+                "episode_id": eid,
+            },
+        )
         return RangeObservation(stdout=briefing)
 
     def step(
@@ -1520,6 +1539,15 @@ class RangeEnvironment(Environment[RangeAction, RangeObservation, RangeState]):
         }
 
         if cmd_name in meta_handlers:
+            self._record_console_action(
+                action.mode,
+                {
+                    "step": self._state.step_count,
+                    "command": action.command,
+                    "cmd_name": cmd_name,
+                    "time": time.time(),
+                },
+            )
             obs = meta_handlers[cmd_name](action)
             self._refresh_services_status()
             obs = self._apply_rewards(action, obs)
@@ -1550,12 +1578,7 @@ class RangeEnvironment(Environment[RangeAction, RangeObservation, RangeState]):
             self._red_history.append(action_record)
         else:
             self._blue_history.append(action_record)
-        try:
-            from open_range.server.console import record_action
-
-            record_action({"mode": action.mode, **action_record})
-        except Exception:
-            pass
+        self._record_console_action(action.mode, action_record)
 
         # Check for milestone completion (#17)
         milestone = self._check_milestone(stdout)

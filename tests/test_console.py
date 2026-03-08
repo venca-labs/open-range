@@ -1,21 +1,22 @@
-"""Tests for the operator debugging console (issue #28).
+"""Tests for the operator debugging console.
 
 Uses Starlette's TestClient against the OpenEnv app with console router.
 No Docker dependency.
 
-Note: OpenEnv HTTP endpoints are stateless (each creates a new env instance).
-Console API uses a fallback env stored on app.state.  History is recorded
-via the module-level record_action() / clear_history() helpers.
+The console prefers live WebSocket session state, then published reset/step
+state from real traffic, then a local fallback env for dev/test use.
 """
 
 from __future__ import annotations
+
+from unittest.mock import patch
 
 import pytest
 from starlette.testclient import TestClient
 
 from open_range.protocols import SnapshotSpec
 from open_range.server.app import create_app
-from open_range.server.console import clear_history, record_action
+from open_range.server.console import clear_episode, clear_history, record_action
 from open_range.server.environment import RangeEnvironment
 
 _TEST_SNAPSHOT = SnapshotSpec(
@@ -36,8 +37,11 @@ def client():
     # Store a shared env so console API endpoints can access state
     env = RangeEnvironment(docker_available=False)
     app.state.env = env
+    clear_episode()
     clear_history()
-    return TestClient(app)
+    yield TestClient(app)
+    clear_episode()
+    clear_history()
 
 
 @pytest.fixture()
@@ -101,6 +105,27 @@ class TestSnapshotAPI:
         assert "flags" not in data
         assert "golden_path" not in data
 
+    def test_http_reset_publishes_snapshot_to_console(self):
+        with patch(
+            "open_range.server.environment.RangeEnvironment._select_snapshot",
+            return_value=_TEST_SNAPSHOT,
+        ), patch(
+            "open_range.server.environment.RangeEnvironment._ensure_clean_reset_path",
+        ):
+            app = create_app()
+            clear_episode()
+            clear_history()
+            client = TestClient(app)
+            resp = client.post("/reset", json={"episode_id": "http_reset_1"})
+            assert resp.status_code == 200
+
+            data = client.get("/console/api/snapshot").json()
+            assert data["id"] == "http_reset_1"
+            assert data["state_scope"] == "published_episode"
+            assert data["hosts"] == ["attacker", "siem"]
+            clear_episode()
+            clear_history()
+
 
 # ===================================================================
 # GET /console/api/episode
@@ -132,6 +157,25 @@ class TestEpisodeAPI:
         env.step(RangeAction(command="nmap web", mode="red"))
         data = client.get("/console/api/episode").json()
         assert data["step_count"] == 1
+
+    def test_http_reset_publishes_episode_to_console(self):
+        with patch(
+            "open_range.server.environment.RangeEnvironment._select_snapshot",
+            return_value=_TEST_SNAPSHOT,
+        ), patch(
+            "open_range.server.environment.RangeEnvironment._ensure_clean_reset_path",
+        ):
+            app = create_app()
+            clear_episode()
+            clear_history()
+            client = TestClient(app)
+            client.post("/reset", json={"episode_id": "http_reset_2"})
+            data = client.get("/console/api/episode").json()
+            assert data["step_count"] == 0
+            assert data["mode"] == "red"
+            assert data["state_scope"] == "published_episode"
+            clear_episode()
+            clear_history()
 
 
 # ===================================================================
@@ -176,9 +220,32 @@ class TestHistoryAPI:
         env.reset(snapshot=_TEST_SNAPSHOT)
         env.step(RangeAction(command="nmap -sV web", mode="red"))
         data = client.get("/console/api/history").json()
-        assert len(data) == 1
+        assert len(data) == 2
         assert data[0]["command"] == "nmap -sV web"
         assert data[0]["mode"] == "red"
+        assert data[1]["command"] == "reset"
+        assert data[1]["mode"] == "system"
+
+    def test_history_records_meta_step_commands(self, client: TestClient, env: RangeEnvironment):
+        from open_range.server.models import RangeAction
+
+        env.reset(snapshot=_TEST_SNAPSHOT)
+        env.step(RangeAction(command="submit_finding suspicious scan on web", mode="blue"))
+        data = client.get("/console/api/history").json()
+        assert data[0]["command"] == "submit_finding suspicious scan on web"
+        assert data[0]["mode"] == "blue"
+
+    def test_history_reset_clears_prior_entries_and_records_reset(self, client: TestClient, env: RangeEnvironment):
+        import time
+
+        record_action({"step": 99, "command": "old", "mode": "red", "time": time.time()})
+
+        env.reset(snapshot=_TEST_SNAPSHOT, episode_id="history_reset")
+        data = client.get("/console/api/history").json()
+        assert len(data) == 1
+        assert data[0]["command"] == "reset"
+        assert data[0]["mode"] == "system"
+        assert data[0]["episode_id"] == "history_reset"
 
     def test_history_max_20(self, client: TestClient):
         """History API should return at most 20 entries."""
@@ -188,3 +255,22 @@ class TestHistoryAPI:
             record_action({"step": i, "command": f"cmd_{i}", "mode": "red", "time": time.time()})
         data = client.get("/console/api/history").json()
         assert len(data) == 20
+
+    def test_http_reset_records_history(self):
+        with patch(
+            "open_range.server.environment.RangeEnvironment._select_snapshot",
+            return_value=_TEST_SNAPSHOT,
+        ), patch(
+            "open_range.server.environment.RangeEnvironment._ensure_clean_reset_path",
+        ):
+            app = create_app()
+            clear_episode()
+            clear_history()
+            client = TestClient(app)
+            client.post("/reset", json={"episode_id": "http_reset_3"})
+            data = client.get("/console/api/history").json()
+            assert len(data) == 1
+            assert data[0]["command"] == "reset"
+            assert data[0]["mode"] == "system"
+            clear_episode()
+            clear_history()

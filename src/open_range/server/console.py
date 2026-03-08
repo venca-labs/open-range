@@ -6,6 +6,7 @@ the range environment state, viewing action history, and triggering resets.
 
 from __future__ import annotations
 
+import copy
 import time
 from typing import Any
 
@@ -20,6 +21,7 @@ console_router = APIRouter(prefix="/console", tags=["console"])
 
 _action_history: list[dict[str, Any]] = []
 _MAX_HISTORY = 50  # keep more than 20 internally, but serve 20
+_published_episode: dict[str, dict[str, Any]] | None = None
 
 
 def record_action(action_record: dict[str, Any]) -> None:
@@ -39,6 +41,49 @@ def get_history(limit: int = 20) -> list[dict[str, Any]]:
     return list(reversed(_action_history[-limit:]))
 
 
+def publish_episode(snapshot: Any, state: Any) -> None:
+    """Publish the latest episode summary for console readers.
+
+    This is the bridge used by real reset/step traffic from HTTP handlers,
+    where OpenEnv creates short-lived environment instances per request.
+    """
+    global _published_episode
+
+    topo = snapshot.topology if snapshot and isinstance(snapshot.topology, dict) else {}
+    hosts = topo.get("hosts", [])
+    zones = topo.get("zones", {})
+    vuln_count = 0
+    if snapshot is not None and getattr(snapshot, "truth_graph", None) is not None:
+        vuln_count = len(getattr(snapshot.truth_graph, "vulns", []) or [])
+
+    _published_episode = {
+        "snapshot": {
+            "id": getattr(state, "episode_id", None),
+            "tier": topo.get("tier", getattr(state, "tier", 1)),
+            "hosts": list(hosts) if isinstance(hosts, list) else [],
+            "zones": copy.deepcopy(zones) if isinstance(zones, dict) else {},
+            "vuln_count": vuln_count,
+        },
+        "episode": {
+            "step_count": int(getattr(state, "step_count", 0) or 0),
+            "flags_found": len(getattr(state, "flags_found", []) or []),
+            "mode": getattr(state, "mode", ""),
+            "services_status": copy.deepcopy(getattr(state, "services_status", {}) or {}),
+        },
+    }
+
+
+def clear_episode() -> None:
+    """Clear the published episode summary."""
+    global _published_episode
+    _published_episode = None
+
+
+def get_published_episode() -> dict[str, dict[str, Any]] | None:
+    """Return a defensive copy of the published episode summary."""
+    return copy.deepcopy(_published_episode)
+
+
 # ---------------------------------------------------------------------------
 # API routes
 # ---------------------------------------------------------------------------
@@ -48,6 +93,15 @@ def get_history(limit: int = 20) -> list[dict[str, Any]]:
 async def api_snapshot(request: Request) -> JSONResponse:
     """Return current snapshot metadata (no truth graph or flags)."""
     ctx = _get_env_context(request)
+    published = ctx.get("published_episode")
+    if published is not None:
+        return JSONResponse({
+            **published["snapshot"],
+            "state_scope": ctx["state_scope"],
+            "session_id": ctx["session_id"],
+            "warning": ctx["warning"],
+        })
+
     env = ctx["env"]
     snapshot = env.snapshot
     if snapshot is None:
@@ -84,6 +138,15 @@ async def api_snapshot(request: Request) -> JSONResponse:
 async def api_episode(request: Request) -> JSONResponse:
     """Return current episode state."""
     ctx = _get_env_context(request)
+    published = ctx.get("published_episode")
+    if published is not None:
+        return JSONResponse({
+            **published["episode"],
+            "state_scope": ctx["state_scope"],
+            "session_id": ctx["session_id"],
+            "warning": ctx["warning"],
+        })
+
     env = ctx["env"]
     state = env.state
     return JSONResponse({
@@ -120,8 +183,9 @@ def _get_env_context(request: Request) -> dict[str, Any]:
 
     Priority:
     1. Active OpenEnv WebSocket session environment (session-scoped truth)
-    2. ``app.state.env`` fallback environment (global app scope)
-    3. Lazily created fallback environment (tests/dev)
+    2. Published reset/step state from real HTTP traffic
+    3. ``app.state.env`` fallback environment (global app scope)
+    4. Lazily created fallback environment (tests/dev)
     """
     app = request.app
 
@@ -132,6 +196,7 @@ def _get_env_context(request: Request) -> dict[str, Any]:
             session_id, env = next(iter(sessions.items()))
             return {
                 "env": env,
+                "published_episode": None,
                 "state_scope": "websocket_session",
                 "session_id": session_id,
                 "warning": None,
@@ -144,6 +209,7 @@ def _get_env_context(request: Request) -> dict[str, Any]:
         )
         return {
             "env": sessions[selected_id],
+            "published_episode": None,
             "state_scope": "websocket_session",
             "session_id": selected_id,
             "warning": (
@@ -152,9 +218,23 @@ def _get_env_context(request: Request) -> dict[str, Any]:
             ),
         }
 
+    published = get_published_episode()
+    if published is not None:
+        return {
+            "env": None,
+            "published_episode": published,
+            "state_scope": "published_episode",
+            "session_id": None,
+            "warning": (
+                "No active WebSocket session found; console is showing the most "
+                "recent reset/step state observed by the server."
+            ),
+        }
+
     if hasattr(app.state, "env"):
         return {
             "env": app.state.env,
+            "published_episode": None,
             "state_scope": "app_state_env",
             "session_id": None,
             "warning": (
@@ -170,6 +250,7 @@ def _get_env_context(request: Request) -> dict[str, Any]:
         app.state._fallback_env = RangeEnvironment(docker_available=False)
     return {
         "env": app.state._fallback_env,
+        "published_episode": None,
         "state_scope": "fallback_env",
         "session_id": None,
         "warning": "Console is using a fallback environment (no server session available).",
@@ -284,6 +365,7 @@ _CONSOLE_HTML = """\
   }
   .history-item .mode-red { color: var(--red); }
   .history-item .mode-blue { color: var(--accent); }
+  .history-item .mode-system { color: var(--yellow); }
   .history-item .ts {
     color: var(--text-dim);
     font-size: 11px;
@@ -424,7 +506,11 @@ function renderHistory(items) {
     return;
   }
   el.innerHTML = items.map(function(it) {
-    const modeClass = it.mode === "red" ? "mode-red" : "mode-blue";
+    const modeClass = it.mode === "red"
+      ? "mode-red"
+      : it.mode === "blue"
+        ? "mode-blue"
+        : "mode-system";
     return '<div class="history-item">' +
       '<span class="ts">' + fmtTime(it.time) + '</span>' +
       '<span class="step">step ' + (it.step || "-") + '</span> ' +
