@@ -70,6 +70,8 @@ class SnapshotStore:
             "flag_count": len(snapshot.flags),
             "npc_count": len(snapshot.npc_personas),
             "has_compose": bool(snapshot.compose),
+            "has_payload_files": bool(snapshot.files),
+            "live_validated": bool(snapshot.topology.get("live_validated", False)),
             "parent_snapshot_id": snapshot.lineage.parent_snapshot_id,
             "root_snapshot_id": snapshot.lineage.root_snapshot_id,
             "generation_depth": snapshot.lineage.generation_depth,

@@ -114,6 +114,100 @@ async def test_template_builder_preserves_manifest_tier_and_difficulty(tier2_man
     assert spec.topology["difficulty"] == tier2_manifest["difficulty"]
 
 
+@pytest.mark.asyncio
+async def test_template_builder_emits_payload_files(tier1_manifest):
+    from open_range.builder.builder import TemplateOnlyBuilder
+
+    builder = TemplateOnlyBuilder()
+    ctx = BuildContext(seed=42, tier=1)
+    spec = await builder.build(tier1_manifest, ctx)
+    assert spec.files
+    assert any(key.startswith("web:/var/www/portal/") for key in spec.files)
+    assert any(key.endswith("/var/log/app/access.log") for key in spec.files)
+
+
+@pytest.mark.asyncio
+async def test_template_builder_uses_manifest_users(tier1_manifest):
+    from open_range.builder.builder import TemplateOnlyBuilder
+
+    builder = TemplateOnlyBuilder()
+    spec = await builder.build(tier1_manifest, BuildContext(seed=1, tier=1))
+    usernames = {user["username"] for user in spec.topology["users"]}
+    manifest_usernames = {user["username"] for user in tier1_manifest["users"]}
+    assert manifest_usernames.issubset(usernames)
+
+
+@pytest.mark.asyncio
+async def test_template_builder_uses_manifest_company_context(tier1_manifest):
+    from open_range.builder.builder import TemplateOnlyBuilder
+
+    builder = TemplateOnlyBuilder()
+    spec = await builder.build(tier1_manifest, BuildContext(seed=1, tier=1))
+    company = tier1_manifest["company"]
+    ldap_dn = ",".join(f"dc={part}" for part in company["domain"].split("."))
+
+    assert company["name"] in spec.task.red_briefing
+    assert company["name"] in spec.task.blue_briefing
+    assert ldap_dn in spec.files["web:/var/www/config.php"]
+    assert company["name"] in spec.files["web:/var/www/portal/index.php"]
+
+
+@pytest.mark.asyncio
+async def test_mutator_builds_child_snapshot_with_lineage(tier1_manifest):
+    from open_range.builder.builder import TemplateOnlyBuilder
+    from open_range.builder.mutator import Mutator
+
+    builder = TemplateOnlyBuilder()
+    mutator = Mutator(builder)
+    root = await mutator.mutate(tier1_manifest, context=BuildContext(seed=1, tier=1))
+    child = await mutator.mutate(
+        tier1_manifest,
+        context=BuildContext(seed=2, tier=1),
+        parent_snapshot=root,
+        parent_snapshot_id="root_snap",
+    )
+    assert child.lineage.parent_snapshot_id == "root_snap"
+    assert child.lineage.generation_depth == 1
+    assert child.mutation_plan is not None
+    assert child.mutation_plan.parent_snapshot_id == "root_snap"
+    assert child.mutation_plan.ops
+    assert child.lineage.mutation_summary
+
+
+@pytest.mark.asyncio
+async def test_mutator_rebuilds_child_files_from_mutated_snapshot(tier1_manifest):
+    from open_range.builder.builder import TemplateOnlyBuilder
+    from open_range.builder.mutator import Mutator
+    from open_range.protocols import MutationOp, MutationPlan
+
+    mutator = Mutator(TemplateOnlyBuilder())
+    parent = await mutator.mutate(tier1_manifest, context=BuildContext(seed=1, tier=1))
+    parent.files = {"web:/tmp/stale.txt": "stale\n"}
+
+    def forced_plan(**kwargs):
+        return MutationPlan(
+            parent_snapshot_id="root_snap",
+            ops=[
+                MutationOp(
+                    mutation_id="noise1",
+                    op_type="add_benign_noise",
+                    target_selector={"location": "siem:/var/log/siem/custom.log"},
+                    params={"location": "siem:/var/log/siem/custom.log"},
+                )
+            ],
+        )
+
+    mutator._plan_mutations = forced_plan  # type: ignore[method-assign]
+    child = await mutator.mutate(
+        tier1_manifest,
+        context=BuildContext(seed=2, tier=1),
+        parent_snapshot=parent,
+        parent_snapshot_id="root_snap",
+    )
+    assert "web:/tmp/stale.txt" not in child.files
+    assert "siem:/var/log/siem/custom.log" in child.files
+
+
 # ---------------------------------------------------------------------------
 # FileBuilder
 # ---------------------------------------------------------------------------

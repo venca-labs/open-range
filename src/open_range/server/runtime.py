@@ -19,13 +19,14 @@ import threading
 import time
 from dataclasses import dataclass, field
 from pathlib import Path
+from pathlib import PurePosixPath
 from typing import Any
 
 import yaml
 
 from open_range.builder.builder import LLMSnapshotBuilder, TemplateOnlyBuilder
 from open_range.builder.mutator import Mutator
-from open_range.builder.renderer import SnapshotRenderer
+from open_range.builder.renderer import PAYLOAD_MANIFEST_NAME, SnapshotRenderer
 from open_range.builder.snapshot_store import SnapshotStore
 from open_range.protocols import (
     BuildContext,
@@ -34,6 +35,7 @@ from open_range.protocols import (
     SnapshotBuilder,
     SnapshotSpec,
 )
+from open_range.server.compose_runner import BootedSnapshotProject, ComposeProjectRunner
 from open_range.server.models import RangeState
 from open_range.validator.build_boot import BuildBootCheck
 from open_range.validator.difficulty import DifficultyCheck
@@ -298,6 +300,18 @@ def _build_validator(profile: str) -> ValidatorGate:
     )
 
 
+def _default_live_validator(*, include_patchability: bool = False) -> ValidatorGate:
+    checks = [
+        BuildBootCheck(),
+        ExploitabilityCheck(),
+        EvidenceCheck(),
+        RewardGroundingCheck(),
+    ]
+    if include_patchability:
+        checks.append(PatchabilityCheck())
+    return ValidatorGate(checks)
+
+
 class ManagedSnapshotRuntime:
     """Shared server-side manager for admitted snapshots."""
 
@@ -315,6 +329,11 @@ class ManagedSnapshotRuntime:
         refill_enabled: bool = False,
         refill_interval_s: float = 2.0,
         generation_retries: int = 3,
+        live_admission_enabled: bool = False,
+        teardown_booted_projects: bool = True,
+        compose_runner: ComposeProjectRunner | None = None,
+        live_validator: ValidatorGate | None = None,
+        enable_patch_validation: bool = False,
     ) -> None:
         self.manifest_path = (
             Path(manifest_path).resolve()
@@ -337,6 +356,15 @@ class ManagedSnapshotRuntime:
         self.refill_enabled = refill_enabled
         self.refill_interval_s = max(0.25, refill_interval_s)
         self.generation_retries = max(1, generation_retries)
+        self.live_admission_enabled = live_admission_enabled
+        self.teardown_booted_projects = teardown_booted_projects
+        self.compose_runner = compose_runner or ComposeProjectRunner()
+        self.enable_patch_validation = enable_patch_validation
+        self.live_validator = live_validator or (
+            _default_live_validator(include_patchability=enable_patch_validation)
+            if live_admission_enabled
+            else None
+        )
 
         self._lock = threading.RLock()
         self._refill_thread: threading.Thread | None = None
@@ -355,6 +383,18 @@ class ManagedSnapshotRuntime:
             refill_enabled=_env_flag("OPENRANGE_ENABLE_MANAGED_REFILL", default=False),
             refill_interval_s=float(os.getenv("OPENRANGE_REFILL_INTERVAL_S", "2.0")),
             generation_retries=_env_int("OPENRANGE_GENERATION_RETRIES", 3),
+            live_admission_enabled=_env_flag(
+                "OPENRANGE_ENABLE_LIVE_ADMISSION",
+                default=False,
+            ),
+            teardown_booted_projects=not _env_flag(
+                "OPENRANGE_KEEP_BOOTED_VALIDATION_STACKS",
+                default=False,
+            ),
+            enable_patch_validation=_env_flag(
+                "OPENRANGE_ENABLE_PATCH_VALIDATION",
+                default=False,
+            ),
         )
 
     @staticmethod
@@ -436,6 +476,7 @@ class ManagedSnapshotRuntime:
             "selection_strategy": self.selection_strategy,
             "validator_profile": self.validator_profile,
             "refill_enabled": self.refill_enabled,
+            "live_admission_enabled": self.live_admission_enabled,
             "snapshot_count": self.snapshot_count(),
             "started": self._started,
         }
@@ -503,17 +544,25 @@ class ManagedSnapshotRuntime:
         last_error: str | None = None
         for attempt in range(1, self.generation_retries + 1):
             context = self._build_context()
+            parent_entry = self._select_parent_entry()
             snapshot = _run_coro_sync(
                 self.mutator.mutate(
                     self.manifest,
                     context=context,
                     error={"message": last_error} if last_error else None,
+                    parent_snapshot=parent_entry.snapshot if parent_entry else None,
+                    parent_snapshot_id=parent_entry.snapshot_id if parent_entry else None,
                 )
             )
             validation = self._validate_snapshot(snapshot)
             if validation.passed:
                 snapshot_id = self._snapshot_id(snapshot)
                 materialized = self._materialize_snapshot(snapshot, snapshot_id)
+                if self.live_admission_enabled:
+                    self._run_live_admission(materialized, snapshot_id)
+                    topology = dict(materialized.topology)
+                    topology["live_validated"] = True
+                    materialized.topology = topology
                 snapshot_id = _run_coro_sync(
                     self.store.store(materialized, snapshot_id=snapshot_id)
                 )
@@ -542,6 +591,8 @@ class ManagedSnapshotRuntime:
         tier = int(self.manifest.get("tier", 1) or 1)
         context = self.curriculum.build_context(seed=seed, tier=tier)
         context.episode_count = self.mutator.episode_count
+        if self.live_admission_enabled:
+            context.narrative_hints.append("prefer_live_admission_compatible_vulns")
         return context
 
     def _validate_snapshot(self, snapshot: SnapshotSpec) -> ValidationResult:
@@ -734,6 +785,15 @@ class ManagedSnapshotRuntime:
             finally:
                 temp_file.unlink(missing_ok=True)
 
+    def _validate_live_snapshot(
+        self,
+        snapshot: SnapshotSpec,
+        containers: ContainerSet,
+    ) -> ValidationResult:
+        if self.live_validator is None:
+            raise RuntimeError("Live validator requested but not configured")
+        return _run_coro_sync(self.live_validator.validate(snapshot, containers))
+
     @staticmethod
     def _validation_error(result: ValidationResult) -> str:
         failed = [check for check in result.checks if not check.passed]
@@ -754,6 +814,11 @@ class ManagedSnapshotRuntime:
         prefix = "snap_" + "_".join(vuln_types[:3]) if vuln_types else "snap_generated"
         return f"{prefix}_{int(time.time() * 1000)}"
 
+    def _select_parent_entry(self):
+        if self.snapshot_count() == 0:
+            return None
+        return _run_coro_sync(self.store.select_entry(strategy=self.selection_strategy))
+
     def _snapshot_dir(self, snapshot_id: str) -> Path:
         return self.store_dir / snapshot_id
 
@@ -770,6 +835,9 @@ class ManagedSnapshotRuntime:
         topology = dict(rendered.topology)
         topology["snapshot_id"] = snapshot_id
         rendered.topology = topology
+        rendered.lineage.snapshot_id = snapshot_id
+        if not rendered.lineage.root_snapshot_id:
+            rendered.lineage.root_snapshot_id = snapshot_id
 
         snapshot_dir = self._snapshot_dir(snapshot_id)
         artifacts_dir = self._artifacts_dir(snapshot_id)
@@ -782,3 +850,83 @@ class ManagedSnapshotRuntime:
         compose_path = artifacts_dir / "docker-compose.yml"
         rendered.compose = yaml.safe_load(compose_path.read_text(encoding="utf-8")) or {}
         return rendered
+
+    def _run_live_admission(self, snapshot: SnapshotSpec, snapshot_id: str) -> None:
+        project: BootedSnapshotProject | None = None
+        try:
+            project = self.compose_runner.boot(
+                snapshot_id=snapshot_id,
+                artifacts_dir=self._artifacts_dir(snapshot_id),
+                compose=snapshot.compose,
+            )
+            snapshot.compose["x-project-name"] = project.project_name
+            self._apply_rendered_payloads(snapshot_id, project.containers, snapshot)
+            validation = self._validate_live_snapshot(snapshot, project.containers)
+            if not validation.passed:
+                raise RuntimeError(self._validation_error(validation))
+        finally:
+            if (
+                project is not None
+                and self.teardown_booted_projects
+            ):
+                self.compose_runner.teardown(project)
+
+    def _apply_rendered_payloads(
+        self,
+        snapshot_id: str,
+        containers: ContainerSet,
+        snapshot: SnapshotSpec,
+    ) -> None:
+        manifest_path = self._artifacts_dir(snapshot_id) / PAYLOAD_MANIFEST_NAME
+        if not manifest_path.exists():
+            return
+
+        payloads = json.loads(manifest_path.read_text(encoding="utf-8"))
+        if not isinstance(payloads, dict):
+            return
+
+        for file_key, rel_path in payloads.items():
+            src = self._artifacts_dir(snapshot_id) / str(rel_path)
+            if file_key == "db:sql":
+                self._apply_sql_payload(containers, src, snapshot)
+                continue
+
+            if ":" not in file_key:
+                continue
+
+            container, target_path = file_key.split(":", 1)
+            parent_dir = PurePosixPath(target_path).parent.as_posix() or "/"
+            _run_coro_sync(containers.exec(container, f"mkdir -p '{parent_dir}'"))
+            _run_coro_sync(containers.cp(container, str(src), target_path))
+
+    def _apply_sql_payload(
+        self,
+        containers: ContainerSet,
+        sql_path: Path,
+        snapshot: SnapshotSpec,
+    ) -> None:
+        root_password = self._mysql_root_password(snapshot)
+        _run_coro_sync(containers.cp("db", str(sql_path), "/tmp/openrange-generated.sql"))
+        _run_coro_sync(
+            containers.exec(
+                "db",
+                (
+                    "mysql -u root "
+                    f"-p'{root_password}' < /tmp/openrange-generated.sql"
+                ),
+            )
+        )
+        _run_coro_sync(containers.exec("db", "rm -f /tmp/openrange-generated.sql"))
+
+    @staticmethod
+    def _mysql_root_password(snapshot: SnapshotSpec) -> str:
+        db_service = snapshot.compose.get("services", {}).get("db", {})
+        environment = db_service.get("environment", {})
+        if isinstance(environment, dict):
+            return str(environment.get("MYSQL_ROOT_PASSWORD", "r00tP@ss!"))
+        if isinstance(environment, list):
+            for item in environment:
+                text = str(item)
+                if text.startswith("MYSQL_ROOT_PASSWORD="):
+                    return text.split("=", 1)[1]
+        return "r00tP@ss!"
