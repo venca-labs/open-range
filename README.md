@@ -19,31 +19,58 @@ tags:
   <br />
   <a href="https://github.com/meta-pytorch/OpenEnv"><img src="https://img.shields.io/badge/Powered_by-OpenEnv-green.svg" alt="Powered by OpenEnv"></a>
   <img src="https://img.shields.io/badge/Status-Experimental-yellow" alt="Status: Experimental">
-  <img src="https://img.shields.io/badge/Status-WIP-orange" alt="Status: WIP">
+  <img src="https://img.shields.io/badge/Validator-12%2F12_Pass-brightgreen" alt="Validator: 12/12 Pass">
   <img src="https://img.shields.io/badge/License-Apache_2.0-blue.svg" alt="License: Apache 2.0">
 </div>
 
-A multi-agent cybersecurity gymnasium on [OpenEnv](https://github.com/meta-pytorch/OpenEnv). Red and Blue agents train on validated enterprise networks that mutate between episodes.
+A multi-agent cybersecurity gymnasium on [OpenEnv](https://github.com/meta-pytorch/OpenEnv). An LLM generates complete enterprise network labs from YAML manifests, deploys them to Kubernetes via Helm, and validates them end-to-end — including executing real SQL injection through live pods. Red and Blue agents train on validated environments that mutate between episodes.
 
 ---
 
+## End-to-End Pipeline
+
+One manifest in, validated cyber range out:
+
+```
+YAML Manifest → LLMSnapshotBuilder (gpt-5.2-codex, ~120s)
+                         ↓
+                    SnapshotSpec
+                    (vulns, flags, golden path, PHP app, SQL seeds, NPCs)
+                         ↓
+                    KindRenderer → Helm Chart + Kind Config
+                         ↓
+                    helm install → 4 namespaces, 7+ pods, 14+ NetworkPolicies
+                         ↓
+                    ValidatorGate → 12 checks including live exploitability
+                         ↓
+                    RangeEnvironment → Red/Blue agent episodes
+```
+
+**Validated result from `tier1_basic.yaml` (Meridian Health Partners, healthcare):**
+
+| Component | Detail |
+|-----------|--------|
+| LLM Build | 3 vulns (sqli, weak_creds, missing_authz), 2 flags, 6 golden path steps, 18 files, 8 NPCs |
+| Deploy | 7 pods across 4 namespaces in 10s, attacker tools ready in 30s |
+| Network | 14 NetworkPolicies (namespace-per-zone), 18 ExternalName DNS aliases |
+| Validation | **12/12 checks pass** including live SQLi execution from attacker pod |
+
 ## How It Works
 
-A **manifest** declares a family of legal enterprise worlds — topology, services, identities, trust relationships, vulnerability classes, and mutation bounds. A shared **ManagedSnapshotRuntime** inside the shipped OpenEnv server process owns the admitted snapshot population. It compiles a graph-friendly root snapshot from the manifest, normalizing trust-only principals into a canonical principal catalog, then derives child snapshots by applying explicit typed mutations to admitted parents. Parent selection is policy-driven over the admitted population rather than raw latest/random sampling. Each candidate child is validated in layers: manifest compliance, canonical graph checks, structural/task checks, and, in managed-generation mode, booted runtime checks before admission. `reset()` selects one frozen admitted snapshot. `step()` runs commands inside it.
+A **manifest** declares a family of legal enterprise worlds — topology, services, identities, trust relationships, vulnerability classes, and mutation bounds. The **LLMSnapshotBuilder** calls `gpt-5.2-codex` to generate a complete `SnapshotSpec` — a multi-page PHP web application with planted vulnerabilities, database seed SQL, file share documents, NPC personas, and golden path exploit chains. The **KindRenderer** produces a Helm chart with namespace-per-zone isolation (NetworkPolicies replacing iptables), ConfigMap-injected payloads, and ExternalName services for cross-namespace DNS. The **ValidatorGate** runs 12 admission checks — 7 offline graph checks plus 5 live checks that `kubectl exec` into pods to verify the golden path is actually exploitable.
 
 ```mermaid
 flowchart LR
-    M[Manifest<br/>legal family +<br/>mutation envelope] --> B[Base snapshot compiler]
-    B --> P[Admitted root snapshot]
-    P --> R[ManagedSnapshotRuntime<br/>shared inside server process]
-    R --> U[Policy-guided parent selector +<br/>typed mutator]
-    U --> V{Validator<br/>manifest + graph +<br/>runtime checks}
-    V -->|fail| U
-    V -->|pass| S[Admitted snapshot population]
-    S --> E["reset() → step() → obs + reward"]
+    M[Manifest<br/>legal family +<br/>mutation envelope] --> B[LLMSnapshotBuilder<br/>gpt-5.2-codex]
+    B --> S[SnapshotSpec<br/>vulns + flags + files + golden path]
+    S --> R[KindRenderer<br/>Helm chart + Kind config]
+    R --> K[Kind Cluster<br/>namespace-per-zone pods]
+    K --> V{ValidatorGate<br/>12 checks incl.<br/>live exploitability}
+    V -->|fail + retry| B
+    V -->|pass| E["reset() → step() → obs + reward"]
 
     style V fill:#ffd93d,color:#333
-    style S fill:#6bcb77,color:#fff
+    style E fill:#6bcb77,color:#fff
 ```
 
 Red and Blue operate on the **same infrastructure simultaneously**. Red's stealth reward depends on whether Blue catches them. Blue's detection reward depends on Red's actual actions in the logs. This coupling drives co-evolution.
@@ -54,149 +81,118 @@ Red and Blue operate on the **same infrastructure simultaneously**. Red's stealt
 # Install
 git clone https://github.com/open-cybernauts/open-range.git
 cd open-range
-uv sync
+pip install -e .
 
-# Optional: enable the LiteLLM-backed builder pipeline
-uv sync --extra builder
+# Prerequisites for Kind deployment
+# - Docker, Kind (https://kind.sigs.k8s.io/), Helm (https://helm.sh/), kubectl
 
-# Optional: enable LiteLLM-backed synthetic teacher agents
-uv sync --extra synthetic
+# Full E2E: manifest → LLM build → Helm deploy → validate
+export OPENAI_API_KEY="sk-..."
+python -c "
+import asyncio, yaml
+from pathlib import Path
+from open_range.builder.builder import LLMSnapshotBuilder
+from open_range.builder.renderer import KindRenderer
+from open_range.protocols import BuildContext
 
-# Optional: enable background refill inside the server
-export OPENRANGE_ENABLE_MANAGED_REFILL=1
-export OPENRANGE_RUNTIME_BUILDER=llm
+manifest = yaml.safe_load(Path('manifests/tier1_basic.yaml').read_text())
+builder = LLMSnapshotBuilder(model='openai/gpt-5.2-codex', max_tokens=32768)
+spec = asyncio.run(builder.build(manifest, BuildContext(seed=42, tier=1)))
+KindRenderer().render(spec, Path('/tmp/openrange'))
+print(f'Vulns: {[v.type for v in spec.truth_graph.vulns]}')
+print(f'Chart: /tmp/openrange/openrange')
+"
 
-# End-to-end demo (no Docker, no LLM)
-uv run python examples/demo.py
+# Deploy to Kind
+helm upgrade --install openrange /tmp/openrange/openrange
 
-# Generate synthetic SFT traces from a snapshot or manifest
-uv run openrange synthetic-data \
+# Check pods
+kubectl get pods --all-namespaces -l app.kubernetes.io/part-of=openrange
+
+# CLI commands
+openrange build -m manifests/tier1_basic.yaml -o /tmp/snapshot --model openai/gpt-5.2-codex
+openrange render -s /tmp/snapshot/spec.json -o /tmp/artifacts
+openrange validate -s /tmp/snapshot/spec.json
+openrange deploy -s /tmp/snapshot/spec.json
+openrange episode -s /tmp/snapshot/spec.json --golden-path
+
+# Generate synthetic SFT traces
+openrange synthetic-data \
   --manifest manifests/tier1_basic.yaml \
   --output data/sft_red.jsonl \
   --roles red
 
-# Merge local bootstrap traces and tool context into generated output
-uv run openrange synthetic-data \
-  --manifest manifests/tier1_basic.yaml \
-  --output data/synthetic_sft_5.jsonl \
-  --num-traces 5 \
-  --roles red \
-  --bootstrap-traces data/sft.jsonl \
-  --tool-info data/tool_info.md
-
-# Run the OpenEnv client against a running server
-uv run python examples/remote_client_demo.py --base-url http://localhost:8000
-
-# Build, validate, and boot a fresh range locally (Tier 2 example)
-export OPENRANGE_BUILDER_MODEL="${OPENRANGE_BUILDER_MODEL:-azure/gpt-5.2-codex}"
-uv run python -m open_range.lint manifests/tier2_corporate.yaml
-uv run openrange build \
-  -m manifests/tier2_corporate.yaml \
-  -o /tmp/openrange-tier2/snapshot \
-  --tier 2 \
-  --model "$OPENRANGE_BUILDER_MODEL" \
-  --max-tokens 4096 \
-  --timeout 180
-uv run openrange validate -s /tmp/openrange-tier2/snapshot/spec.json
-uv run openrange validate -s /tmp/openrange-tier2/snapshot/spec.json --docker
-uv run openrange validate -s /tmp/openrange-tier2/snapshot/spec.json --docker \
-  --deploy-hf --hf-space <user>/<space>
-uv run openrange render -s /tmp/openrange-tier2/snapshot/spec.json -o /tmp/openrange-tier2/artifacts
-uv run openrange deploy -s /tmp/openrange-tier2/snapshot/spec.json --compose-dir /tmp/openrange-tier2/artifacts
-uv run openrange episode -s /tmp/openrange-tier2/snapshot/spec.json --docker --golden-path
-
-# Run the FastAPI server
-uv run openrange server                         # default: 0.0.0.0:8000
-uv run openrange server --port 9000             # custom port
-
-# ManagedSnapshotRuntime is enabled by default for the shipped server.
-# Disable it only for isolated tests or local debugging, for example:
-# OPENRANGE_DISABLE_MANAGED_RUNTIME=1 uv run pytest tests/test_app.py -q
-
-# Or via uvicorn directly
-uv run uvicorn open_range.server.app:app --host 0.0.0.0 --port 8000 --reload
-
-# Tests
-uv run pytest tests/ -v --tb=short
+# Run the OpenEnv server
+openrange server
 ```
 
-Notes:
-- `openrange validate --docker` now boots a temporary compose project, runs the live Docker-backed checks, and tears the project down automatically.
-- `openrange validate --deploy-hf` uploads the current app plus the validated snapshot to a Hugging Face Space and configures the Space to boot that exact snapshot.
-- The same workflow works for any manifest; swap the manifest path, output directory, and `--tier` value to match the range you want to build.
-- For large builder responses, cap `--max-tokens` and set an explicit `--timeout` so the CLI fails fast instead of waiting indefinitely on oversized generations.
+## Kubernetes Architecture
+
+The range deploys to Kind with **namespace-per-zone** isolation:
+
+| Zone | Namespace | Pods | Role |
+|------|-----------|------|------|
+| external | `openrange-external` | attacker | Red team operator (nmap, curl, sqlmap, hydra) |
+| dmz | `openrange-dmz` | web, mail | Internet-facing services (PHP app, SMTP/IMAP) |
+| internal | `openrange-internal` | db, files | Data tier (MySQL, Samba shares) |
+| management | `openrange-management` | ldap, siem | Identity + monitoring (OpenLDAP, syslog-ng) |
+
+**Key design decisions:**
+- **NetworkPolicies** replace iptables (default-deny + allow-same-zone + cross-zone firewall rules from manifest)
+- **ExternalName services** in every namespace so bare hostnames (`web`, `db`) resolve anywhere — the attacker can `curl http://web/` without full DNS
+- **ConfigMaps** inject all payload files (PHP code, SQL seeds, configs, flag files) via `subPath` volume mounts
+- **Base DB schema** runs as `00-base-schema.sql`; LLM SQL runs as `99-openrange-init.sh` with `mysql --force` to tolerate minor LLM errors
+- **Golden path post-processing** fixes URL encoding (`%25'`→`%27`), encodes spaces in SQL payloads, and wraps `grep` with `|| true`
+
+## Validator Pipeline
+
+12 admission checks — 7 offline graph checks + 5 live container checks:
+
+| # | Check | Type | What it verifies |
+|---|-------|------|-----------------|
+| 1 | manifest_compliance | offline | Topology matches manifest hosts/zones |
+| 2 | graph_consistency | offline | Hosts, users, principals, edges are consistent |
+| 3 | path_solvability | offline | All vuln/flag hosts reachable from attacker via graph edges |
+| 4 | graph_evidence_sufficiency | offline | Evidence locations grounded in graph |
+| 5 | graph_reward_grounding | offline | Flags linked to vulns, rewards computable |
+| 6 | task_feasibility | offline | Briefings present and non-leaking |
+| 7 | difficulty | offline | Golden path step count within tier range (T1: 6-10) |
+| 8 | build_boot | live | All pods Running + Ready (firewall skipped — K8s virtual host) |
+| 9 | exploitability | live | Execute golden path end-to-end via `kubectl exec` in attacker pod |
+| 10 | evidence | live | Evidence artifacts exist at declared locations |
+| 11 | reward_grounding | live | Flag capture produces correct reward signal |
+| 12 | isolation | live | Zone isolation enforced, no cross-zone leakage |
 
 ## Core Components
 
-**Manifest** — YAML defining the legal world family and mutation envelope: hosts, zones, services, users, NPCs, data assets, credential policies, monitoring coverage, trust relationships, and which vulnerability classes the runtime may plant or extend. Three example manifests ship (healthcare, fintech, SaaS) at tiers 1-3.
+**Manifest** — YAML defining the legal world family: hosts, zones, services, users, NPCs, data assets, credential policies, monitoring coverage, trust relationships, vulnerability classes, and pre-provisioned DB schema with exact column definitions.
 
-**ManagedSnapshotRuntime** — Shared singleton created at server startup. Owns the `SnapshotStore`, base builder, population-aware parent selector, parent-snapshot mutator, validator gate, `SnapshotRenderer`, snapshot preload, optional background refill, and episode-result feedback. This is the hidden orchestrator behind the env; callers still only see `reset()`, `step()`, and `state()`.
+**Builder / Mutator** — `LLMSnapshotBuilder` calls `gpt-5.2-codex` to generate a `SnapshotSpec`. `compile_manifest_topology` hydrates the LLM output with dependency edges and trust edges from the manifest. `_fixup_golden_path` post-processes commands to fix URL encoding and shell exit codes. The mutator derives child snapshots using typed mutation plans with curriculum-guided parent selection.
 
-**Builder / Mutator** — The base builder compiles an initial `SnapshotSpec` from a manifest. Root hydration then expands that into canonical topology state: host details, dependency edges, trust edges, and a principal catalog that can represent trust-only people without inventing login accounts. The mutator derives child `SnapshotSpec`s from admitted parents using typed mutation plans plus an explicit mutation-policy layer that scores parents and candidate edits with curriculum, replay, novelty, and lineage signals. Each snapshot carries lineage metadata (`snapshot_id`, `parent_snapshot_id`, `root_snapshot_id`, generation depth, mutation summary) and can emit constrained service/app payloads through `SnapshotSpec.files`. Three base builders ship: `LLMSnapshotBuilder` (production, via litellm), `TemplateOnlyBuilder` (deterministic shipped default), `FileBuilder` (load from disk).
+**KindRenderer** — Produces a Helm chart (`values.yaml` from SnapshotSpec + static Go templates) and Kind cluster config. Namespace-per-zone, NetworkPolicies, ConfigMap payloads, ExternalName DNS aliases.
 
-The deployed package exposes the standard OpenEnv `reset()`, `step()`, and `state()` contract through `server.app:app`, which is the entrypoint referenced by `openenv.yaml`.
+**HelmRunner / KubePodSet** — `helm upgrade --install` / `helm uninstall` for lifecycle. `KubePodSet` provides `exec()`, `is_healthy()`, `cp()`, `restart()` via `kubectl` (drop-in replacement for the Docker-backed `ContainerSet`).
 
-**Validator** — Admission gate for candidate snapshots. The shipped runtime enforces manifest compliance plus graph-native checks such as graph consistency, path solvability, evidence sufficiency, and reward grounding before structural/task checks. With the `training` profile, the runtime boots rendered bundles, applies payload files, constructs a real `ContainerSet`, and runs live build/exploit/patch/evidence/reward/isolation/difficulty/NPC/realism checks before admission.
-
-Validator profile matrix:
-
-| Profile | Checks | Guarantees |
-|---------|--------|------------|
-| `offline` | Graph + structural/task checks only (no live containers) | Fast static admission only; no live exploitability/patchability guarantee |
-| `training` | `offline` checks + live/container-backed checks | Full admission guarantees for managed training/runtime use |
-
-Managed runtime defaults and safety behavior:
-- `OPENRANGE_RUNTIME_VALIDATOR_PROFILE` defaults to `training`.
-- `OPENRANGE_ENABLE_LIVE_ADMISSION` defaults to `1`.
-- If managed runtime is configured non-live (`offline` profile and/or live admission disabled), startup raises an error unless you explicitly opt out with `OPENRANGE_ALLOW_NON_LIVE_ADMISSION=1` (legacy alias: `OPENRANGE_ALLOW_OFFLINE_ADMISSION=1`), in which case a warning is emitted.
-
-**Environment** — `RangeEnvironment(Environment)` following the OpenEnv contract. `reset()` asks the shared runtime for a frozen admitted snapshot. `step(action)` routes commands to the appropriate container — Red runs on the attacker box, Blue runs on the SIEM. No artificial command allowlists; the container's installed tools are the constraint.
+**Environment** — `RangeEnvironment(MCPEnvironment)` following the OpenEnv contract. `reset()` selects a frozen admitted snapshot. `step(action)` routes commands — Red runs on the attacker pod, Blue runs on the SIEM. MCP tool protocol with `shell_command`, `submit_flag`, `submit_finding`, `python_code`.
 
 **Rewards** — All grounded in container state, not LLM judgment:
 
 | Red | Blue |
 |-----|------|
-| Flag capture (binary, `docker exec cat`) | Detection (TP rate vs Red's log) |
+| Flag capture (binary, `kubectl exec`) | Detection (TP rate vs Red's log) |
 | Efficiency (`gamma^steps`) | Patch validity (re-run exploit, must fail) |
 | Stealth (inversely coupled to Blue detection) | Availability (healthcheck fraction) |
 | Anti-hallucination (-0.3 per fake flag) | False positive penalty (-0.2 per NPC flagged) |
 
-**NPC Traffic** — Background noise and social engineering surface. Two levels:
-
-- **Level 0** (shell scripts): `http_traffic.sh`, `db_traffic.sh`, `ssh_traffic.sh` generate benign traffic that Blue must filter from real attacks. Scripts discover targets dynamically (available pages, databases, tables) — no hardcoded endpoints.
-- **Level 1** (LLM agents): Each NPC persona runs an autonomous workday via LiteLLM — browsing pages, sending emails, querying databases, accessing file shares. NPCs also react to incoming stimuli (phishing emails) based on their `security_awareness` profile.
-
-All NPC actions are derived from the `SnapshotSpec` at runtime (pages, shares, tables, credentials, domain), so they generalize to any Builder-generated environment. NPC logs carry structured fields (`type`, `label`, `source`, `result`) that couple directly to Red/Blue reward signals.
-
-Configure the NPC model via environment variable:
-```bash
-export OPENRANGE_NPC_MODEL="azure/gpt-5.2-codex"  # or openai/gpt-4o, anthropic/claude-haiku-4-5-20251001, ollama/llama3
-```
-
-**Agents** — Structural protocol: any object with `reset(briefing, role)` and `act(observation) -> command` works. Ships with `LLMRangeAgent` (litellm, any provider), `ScriptedAgent`, and `HumanAgent`.
-
-**Synthetic Data** — `open_range.training.synthetic` provides snapshot-grounded trajectory generation for SFT warm-start. It uses a fast simulated `RangeEnvironment`, optional LiteLLM teacher agents, per-episode flag randomization, and exports JSONL through `TrajectoryLogger`.
-
-```python
-from open_range.agents.episode import run_episode
-from open_range.agents.llm_agent import LLMRangeAgent
-from open_range.server.environment import RangeEnvironment
-
-env = RangeEnvironment()
-red = LLMRangeAgent(model="anthropic/claude-sonnet-4-20250514")
-blue = LLMRangeAgent(model="openai/gpt-4o")
-result = run_episode(env, red, blue, max_steps=50)
-```
+**NPC Traffic** — Background noise and social engineering surface. Level 0: shell scripts generating benign traffic. Level 1: LLM-driven NPC agents with autonomous workday loops and stimulus-response for phishing.
 
 ## Tier System
 
-Difficulty grows horizontally — more hosts, zones, and chained attack surface. Not just harder passwords.
-
-| Tier | Scale | Example |
-|------|-------|---------|
-| 1 | 6-8 hosts, 3-4 zones | Healthcare clinic: web + DB + mail + LDAP + SIEM |
-| 2 | 10-12 hosts, 5-6 zones | Financial firm: + VPN, internal APIs, certificate authority |
-| 3 | 14-18 hosts, 7-8 zones | SaaS company: + CI/CD, container registry, partner extranet |
+| Tier | Scale | Steps | Example |
+|------|-------|-------|---------|
+| 1 | 6-8 hosts, 3-4 zones | 6-10 | Healthcare clinic: web + DB + mail + LDAP + SIEM |
+| 2 | 10-12 hosts, 5-6 zones | 12-18 | Financial firm: + VPN, jumpbox, internal APIs |
+| 3 | 14-18 hosts, 7-8 zones | 20-30 | SaaS company: + CI/CD, container registry, partner extranet |
 
 ## Server Endpoints
 
@@ -209,23 +205,17 @@ Difficulty grows horizontally — more hosts, zones, and chained attack surface.
 | GET | `/state` | Current episode state |
 | WS | `/ws` | WebSocket session |
 
-Built directly on the OpenEnv HTTP/WebSocket contract.
-
 ## CLI
-
-The `openrange` CLI covers the full lifecycle:
 
 | Command | What it does |
 |---------|-------------|
 | `openrange build` | Generate a snapshot from a manifest (LLM or template) |
 | `openrange validate` | Run admission checks against a snapshot |
-| `openrange render` | Render a snapshot into Docker artifacts |
-| `openrange deploy` | Boot a rendered snapshot via Docker Compose |
+| `openrange render` | Render a snapshot into a Helm chart + Kind config |
+| `openrange deploy` | Deploy to Kind cluster via Helm |
 | `openrange episode` | Run a scripted or interactive episode |
 | `openrange synthetic-data` | Generate SFT training traces |
 | `openrange server` | Start the OpenEnv FastAPI server |
-
-Run `uv run openrange --help` for full option details.
 
 ## Docs
 
