@@ -3,9 +3,11 @@
 from __future__ import annotations
 
 import json
+import logging
 from pathlib import Path
 
 import pytest
+import yaml
 
 from open_range.protocols import CheckResult, ContainerSet, SnapshotSpec
 from open_range.server.compose_runner import BootedSnapshotProject
@@ -15,6 +17,62 @@ from open_range.validator.validator import ValidationResult
 
 
 class TestManagedSnapshotRuntime:
+    def test_from_env_defaults_to_training_and_live(self, tier1_manifest, tmp_path, monkeypatch):
+        manifest_path = tmp_path / "manifest.yaml"
+        manifest_path.write_text(yaml.safe_dump(tier1_manifest), encoding="utf-8")
+
+        monkeypatch.setenv("OPENRANGE_RUNTIME_MANIFEST", str(manifest_path))
+        monkeypatch.setenv("OPENRANGE_SNAPSHOT_DIR", str(tmp_path / "snapshots"))
+        monkeypatch.delenv("OPENRANGE_RUNTIME_VALIDATOR_PROFILE", raising=False)
+        monkeypatch.delenv("OPENRANGE_ENABLE_LIVE_ADMISSION", raising=False)
+        monkeypatch.delenv("OPENRANGE_ALLOW_NON_LIVE_ADMISSION", raising=False)
+
+        runtime = ManagedSnapshotRuntime.from_env()
+        assert runtime.validator_profile == "training"
+        assert runtime.live_admission_enabled is True
+
+    def test_from_env_rejects_non_live_without_explicit_opt_out(
+        self,
+        tier1_manifest,
+        tmp_path,
+        monkeypatch,
+    ):
+        manifest_path = tmp_path / "manifest.yaml"
+        manifest_path.write_text(yaml.safe_dump(tier1_manifest), encoding="utf-8")
+
+        monkeypatch.setenv("OPENRANGE_RUNTIME_MANIFEST", str(manifest_path))
+        monkeypatch.setenv("OPENRANGE_SNAPSHOT_DIR", str(tmp_path / "snapshots"))
+        monkeypatch.setenv("OPENRANGE_RUNTIME_VALIDATOR_PROFILE", "offline")
+        monkeypatch.setenv("OPENRANGE_ENABLE_LIVE_ADMISSION", "0")
+        monkeypatch.delenv("OPENRANGE_ALLOW_NON_LIVE_ADMISSION", raising=False)
+
+        with pytest.raises(RuntimeError, match="OPENRANGE_ALLOW_NON_LIVE_ADMISSION=1"):
+            ManagedSnapshotRuntime.from_env()
+
+    def test_from_env_allows_non_live_with_explicit_opt_out_warning(
+        self,
+        tier1_manifest,
+        tmp_path,
+        monkeypatch,
+        caplog,
+    ):
+        manifest_path = tmp_path / "manifest.yaml"
+        manifest_path.write_text(yaml.safe_dump(tier1_manifest), encoding="utf-8")
+
+        monkeypatch.setenv("OPENRANGE_RUNTIME_MANIFEST", str(manifest_path))
+        monkeypatch.setenv("OPENRANGE_SNAPSHOT_DIR", str(tmp_path / "snapshots"))
+        monkeypatch.setenv("OPENRANGE_RUNTIME_VALIDATOR_PROFILE", "offline")
+        monkeypatch.setenv("OPENRANGE_ENABLE_LIVE_ADMISSION", "0")
+        monkeypatch.setenv("OPENRANGE_ALLOW_NON_LIVE_ADMISSION", "1")
+
+        with caplog.at_level(logging.WARNING):
+            runtime = ManagedSnapshotRuntime.from_env()
+
+        assert runtime.validator_profile == "offline"
+        assert runtime.live_admission_enabled is False
+        assert "strict live admission" in caplog.text
+        assert "OPENRANGE_ALLOW_NON_LIVE_ADMISSION=1" in caplog.text
+
     def test_offline_validator_profile_includes_static_checks(self, tier1_manifest, tmp_path):
         runtime = ManagedSnapshotRuntime(
             manifest=tier1_manifest,

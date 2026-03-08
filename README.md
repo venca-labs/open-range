@@ -100,7 +100,19 @@ uv run pytest tests/ -v --tb=short
 
 The deployed package exposes the standard OpenEnv `reset()`, `step()`, and `state()` contract through `server.app:app`, which is the entrypoint referenced by `openenv.yaml`.
 
-**Validator** — Admission gate for candidate snapshots. The shipped runtime first enforces manifest compliance plus graph-native checks such as graph consistency, path solvability, evidence sufficiency, and reward grounding before structural/task checks. When `OPENRANGE_ENABLE_LIVE_ADMISSION=1`, the runtime also boots the rendered child bundle, applies rendered payload files, constructs a real `ContainerSet`, and runs live build/exploit/evidence/reward checks before admission. Public/HF mode can still rely on a prebuilt admitted pool with live admission disabled.
+**Validator** — Admission gate for candidate snapshots. The shipped runtime enforces manifest compliance plus graph-native checks such as graph consistency, path solvability, evidence sufficiency, and reward grounding before structural/task checks. With the `training` profile, the runtime boots rendered bundles, applies payload files, constructs a real `ContainerSet`, and runs live build/exploit/patch/evidence/reward/isolation/difficulty/NPC/realism checks before admission.
+
+Validator profile matrix:
+
+| Profile | Checks | Guarantees |
+|---------|--------|------------|
+| `offline` | Graph + structural/task checks only (no live containers) | Fast static admission only; no live exploitability/patchability guarantee |
+| `training` | `offline` checks + live/container-backed checks | Full admission guarantees for managed training/runtime use |
+
+Managed runtime defaults and safety behavior:
+- `OPENRANGE_RUNTIME_VALIDATOR_PROFILE` defaults to `training`.
+- `OPENRANGE_ENABLE_LIVE_ADMISSION` defaults to `1`.
+- If managed runtime is configured non-live (`offline` profile and/or live admission disabled), startup raises an error unless you explicitly opt out with `OPENRANGE_ALLOW_NON_LIVE_ADMISSION=1`, in which case a warning is emitted.
 
 **Environment** — `RangeEnvironment(Environment)` following the OpenEnv contract. `reset()` asks the shared runtime for a frozen admitted snapshot. `step(action)` routes commands to the appropriate container — Red runs on the attacker box, Blue runs on the SIEM. No artificial command allowlists; the container's installed tools are the constraint.
 
