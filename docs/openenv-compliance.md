@@ -25,6 +25,35 @@ OpenRange implements the OpenEnv 0.2.x environment contract. This doc maps every
 | `openenv.yaml` manifest | Required | Environment metadata for HF Spaces |
 | `Dockerfile` | Required | For container deployment |
 
+## Deployment
+
+The OpenEnv server runs as a **container in the same Docker Compose stack** as the enterprise range. It reaches range containers via the Docker SDK (mounted `/var/run/docker.sock`).
+
+```mermaid
+flowchart TD
+    subgraph compose [docker-compose.yml]
+        subgraph server [OpenEnv Server Container]
+            APP[FastAPI app<br/>/reset, /step, /state, /ws]
+        end
+        subgraph range [Enterprise Range - 8 containers]
+            ATK[attacker] --- FW[firewall]
+            FW --- WEB[web] --- MAIL[mail]
+            WEB --- DB[db] --- FILES[files]
+            DB --- LDAP[ldap] --- SIEM[siem]
+        end
+        SOCK[docker.sock mount]
+    end
+
+    APP -->|docker SDK| SOCK
+    SOCK -->|docker exec| range
+    APP -->|port 8000| EXT[External clients]
+
+    style server fill:#6bcb7722,stroke:#6bcb77
+    style range fill:#7c73e622,stroke:#7c73e6
+```
+
+`reset()` selects a pre-validated frozen snapshot from the snapshot store. No LLM calls in the hot path -- snapshot generation is asynchronous.
+
 ## Common Mistakes to Avoid
 
 1. **Don't redeclare `done` or `reward` on Observation.** The base class already has them.
