@@ -256,25 +256,80 @@ flowchart TB
 
 **Key design**: NPC LLM calls are **async, not in the step() hot path**. Red sends a phishing email to Postfix in one step. The NPC agent processes it on its own schedule (per `email_check_interval_min`). Red observes the result in later steps via access logs, new sessions, or SIEM alerts. Blue sees the same logs and must distinguish legitimate NPC-to-NPC email from Red's social engineering.
 
-## LLM Integration via LiteLLM
+## Pluggable Infrastructure Components
 
-Builder uses LiteLLM for model-agnostic snapshot generation:
+Builder, NPC behavior, and validator checks are all **pluggable via Protocol-based structural subtyping**. No base class inheritance required. Any class with a matching method signature satisfies the protocol.
+
+See [`docs/agent-protocols.md`](agent-protocols.md) for the full design.
+
+### Three Protocols
 
 ```python
-import litellm
+@runtime_checkable
+class SnapshotBuilder(Protocol):
+    async def build(self, manifest: dict, context: BuildContext) -> SnapshotSpec: ...
 
-response = litellm.completion(
-    model=os.environ.get("OPENRANGE_BUILDER_MODEL", "anthropic/claude-sonnet-4-20250514"),
-    messages=[
-        {"role": "system", "content": BUILDER_SYSTEM_PROMPT},
-        {"role": "user", "content": json.dumps(builder_input)}
-    ],
-    response_format={"type": "json_object"},
-)
+@runtime_checkable
+class NPCBehavior(Protocol):
+    async def decide(self, persona: NPCPersona, stimulus: Stimulus) -> NPCAction: ...
+
+@runtime_checkable
+class ValidatorCheck(Protocol):
+    async def check(self, snapshot: SnapshotSpec, containers: ContainerSet) -> CheckResult: ...
 ```
 
-Configure via environment variables:
-- `OPENRANGE_BUILDER_MODEL` -- which model generates snapshots
-- `LITELLM_API_KEY` or model-specific keys (`ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, etc.)
+### Configuration via YAML
 
-Validator is **purely mechanical** -- no LLM calls. All checks are executable scripts against live containers.
+```yaml
+# openrange.yaml
+agents:
+  builder:
+    class: open_range.builder.LLMSnapshotBuilder
+    kwargs:
+      model: "anthropic/claude-sonnet-4-20250514"
+      temperature: 0.7
+  npc_behavior:
+    class: open_range.npc.LLMNPCBehavior
+    kwargs:
+      model: "anthropic/claude-haiku-4-5-20251001"
+  validator_checks:
+    - class: open_range.validator.BuildBootCheck
+    - class: open_range.validator.ExploitabilityCheck
+    - class: open_range.validator.PatchabilityCheck
+    # ... add, remove, or reorder checks
+```
+
+### Resolution
+
+Dynamic import + Protocol check at startup:
+
+```python
+def resolve_component(class_path: str, kwargs: dict, protocol: type) -> Any:
+    module_name, _, class_name = class_path.rpartition(".")
+    module = importlib.import_module(module_name)
+    cls = getattr(module, class_name)
+    instance = cls(**kwargs)
+    if not isinstance(instance, protocol):
+        raise TypeError(f"{class_path} does not satisfy {protocol.__name__}")
+    return instance
+```
+
+### Default Implementations
+
+| Protocol | Default | Alternatives |
+|----------|---------|-------------|
+| `SnapshotBuilder` | `LLMSnapshotBuilder` (LiteLLM) | `TemplateOnlyBuilder` (testing), `FileBuilder` (demo) |
+| `NPCBehavior` | `NullNPCBehavior` (Level 0) | `LLMNPCBehavior` (Level 1+), `RuleBasedNPCBehavior` (heuristic) |
+| `ValidatorCheck` | 7 built-in checks | Add custom checks via config |
+
+### Environment Variables
+
+Env vars override YAML config at deploy time:
+
+| Env Var | Overrides | Default |
+|---------|-----------|---------|
+| `OPENRANGE_BUILDER_MODEL` | Builder LLM model | `anthropic/claude-sonnet-4-20250514` |
+| `OPENRANGE_NPC_MODEL` | NPC LLM model | `anthropic/claude-haiku-4-5-20251001` |
+| `LITELLM_API_KEY` | Global API key | (or model-specific keys) |
+
+Validator checks are **purely mechanical** by default -- no LLM calls. The only LLM-calling check is NPCConsistencyCheck (optional).
