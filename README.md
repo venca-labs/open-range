@@ -12,14 +12,15 @@ A multi-agent cybersecurity gymnasium on [OpenEnv](https://github.com/meta-pytor
 
 ## How It Works
 
-A **manifest** declares a family of legal enterprise worlds — topology, services, identities, vulnerability classes, difficulty. A **Builder** LLM proposes a concrete snapshot within that family. A **Validator** pipeline admits only snapshots that are runnable, exploitable, patchable, and non-leaking. `reset()` selects a frozen validated snapshot. `step()` runs commands inside it.
+A **manifest** declares a family of legal enterprise worlds — topology, services, identities, vulnerability classes, difficulty. A shared **ManagedSnapshotRuntime** inside the shipped OpenEnv server process owns the snapshot pool. It loads admitted snapshots from disk or preloads a deterministic pool from the manifest, then optionally refills that pool in the background. `reset()` selects one frozen admitted snapshot. `step()` runs commands inside it.
 
 ```mermaid
 flowchart LR
-    M[Manifest<br/>topology, services,<br/>bug families, difficulty] --> B[Builder<br/>LLM proposes<br/>snapshot]
-    B --> V{Validator<br/>10 checks}
+    M[Manifest<br/>topology, services,<br/>bug families, difficulty] --> R[ManagedSnapshotRuntime<br/>shared inside server process]
+    R --> B[Builder / mutator<br/>deterministic by default,<br/>LiteLLM optional]
+    B --> V{Validator}
     V -->|fail| B
-    V -->|pass| S[Frozen Snapshot]
+    V -->|pass| S[Frozen admitted snapshots]
     S --> E["reset() → step() → obs + reward"]
 
     style V fill:#ffd93d,color:#333
@@ -38,6 +39,10 @@ uv sync
 
 # Optional: enable the LiteLLM-backed builder pipeline
 uv sync --extra builder
+
+# Optional: enable background refill inside the server
+export OPENRANGE_ENABLE_MANAGED_REFILL=1
+export OPENRANGE_RUNTIME_BUILDER=llm
 
 # End-to-end demo (no Docker, no LLM)
 uv run python examples/demo.py
@@ -61,13 +66,15 @@ uv run pytest tests/ -v --tb=short
 
 **Manifest** — YAML defining the legal world: hosts, zones, services, users, NPCs, data assets, credential policies, monitoring coverage, trust relationships, and which vulnerability classes the Builder may plant. Three example manifests ship (healthcare, fintech, SaaS) at tiers 1-3.
 
-**Builder** — Takes a manifest + curriculum context, outputs a `SnapshotSpec`: topology graph, truth graph (planted vulns + exploit chain), evidence graph (what Blue can find), flags, golden path, NPC traffic, and task briefings. Three implementations: `LLMSnapshotBuilder` (production, via litellm), `TemplateOnlyBuilder` (deterministic, for tests), `FileBuilder` (load from disk).
+**ManagedSnapshotRuntime** — Shared singleton created at server startup. Owns the `SnapshotStore`, builder/mutator, validator gate, snapshot preload, optional background refill, and episode-result feedback. This is the hidden orchestrator behind the env; callers still only see `reset()`, `step()`, and `state()`.
+
+**Builder** — Takes a manifest + curriculum context, outputs a `SnapshotSpec`: topology graph, truth graph (planted vulns + exploit chain), evidence graph (what Blue can find), flags, golden path, NPC traffic, and task briefings. Three implementations: `LLMSnapshotBuilder` (production, via litellm), `TemplateOnlyBuilder` (deterministic shipped default), `FileBuilder` (load from disk).
 
 The deployed package exposes the standard OpenEnv `reset()`, `step()`, and `state()` contract through `server.app:app`, which is the entrypoint referenced by `openenv.yaml`.
 
-**Validator** — 10-check admission pipeline. 8 mechanical checks (build/boot, exploitability, patchability, evidence sufficiency, reward grounding, isolation, task feasibility, difficulty calibration) + 2 LLM advisory checks (NPC consistency, realism review). Inverse mutation: patching each planted vuln must break its exploit step.
+**Validator** — Admission gate for candidate snapshots. The shipped runtime uses structural checks that operate on the compiled `SnapshotSpec` without requiring live model calls; richer container-backed checks remain available for private/local generation workflows.
 
-**Environment** — `RangeEnvironment(Environment)` following the OpenEnv contract. `reset()` picks a frozen snapshot + samples a task. `step(action)` routes commands to the appropriate container — Red runs on the attacker box, Blue runs on the SIEM. No artificial command allowlists; the container's installed tools are the constraint.
+**Environment** — `RangeEnvironment(Environment)` following the OpenEnv contract. `reset()` asks the shared runtime for a frozen admitted snapshot. `step(action)` routes commands to the appropriate container — Red runs on the attacker box, Blue runs on the SIEM. No artificial command allowlists; the container's installed tools are the constraint.
 
 **Rewards** — All grounded in container state, not LLM judgment:
 

@@ -17,12 +17,15 @@ from __future__ import annotations
 
 import logging
 import time
-from typing import Any
+from typing import TYPE_CHECKING, Any
 from uuid import uuid4
 
 from open_range.protocols import SnapshotSpec, TaskSpec
 
 from open_range.server.models import RangeAction, RangeObservation, RangeState
+
+if TYPE_CHECKING:
+    from open_range.server.runtime import ManagedSnapshotRuntime
 
 logger = logging.getLogger(__name__)
 
@@ -87,6 +90,7 @@ class RangeEnvironment(_BASE):  # type: ignore[misc]
 
     def __init__(
         self,
+        runtime: "ManagedSnapshotRuntime | None" = None,
         max_steps: int = DEFAULT_MAX_STEPS,
         exec_timeout: float = EXEC_TIMEOUT,
         docker_available: bool | None = None,
@@ -95,6 +99,7 @@ class RangeEnvironment(_BASE):  # type: ignore[misc]
             super().__init__()
         self._state = RangeState()
         self._snapshot: SnapshotSpec | None = None
+        self._snapshot_id: str | None = None
         self._red_history: list[dict[str, Any]] = []
         self._blue_history: list[dict[str, Any]] = []
         self._npc_traffic_log: list[dict[str, Any]] = []
@@ -109,6 +114,8 @@ class RangeEnvironment(_BASE):  # type: ignore[misc]
         # Docker client -- resolved lazily
         self._docker_client: Any = None
         self._docker_available = docker_available
+        self._runtime = runtime
+        self._episode_recorded = False
 
     # -----------------------------------------------------------------
     # Docker helpers
@@ -181,10 +188,18 @@ class RangeEnvironment(_BASE):  # type: ignore[misc]
         3. A minimal fallback (for testing without Docker)
         """
         if "snapshot" in kwargs and isinstance(kwargs["snapshot"], SnapshotSpec):
+            self._snapshot_id = kwargs.get("snapshot_id")
             return kwargs["snapshot"]
 
-        # In production, a SnapshotStore would be consulted here.
-        # For now, return a minimal placeholder.
+        if self._runtime is not None:
+            if "snapshot_id" in kwargs and kwargs["snapshot_id"]:
+                admitted = self._runtime.get_snapshot(str(kwargs["snapshot_id"]))
+            else:
+                admitted = self._runtime.acquire_snapshot()
+            self._snapshot_id = admitted.snapshot_id
+            return admitted.snapshot
+
+        self._snapshot_id = None
         return SnapshotSpec(
             topology={"hosts": []},
             flags=[],
@@ -457,6 +472,8 @@ class RangeEnvironment(_BASE):  # type: ignore[misc]
         Returns:
             Initial RangeObservation with the challenge briefing.
         """
+        self._report_episode_result(completed=False)
+
         # Select snapshot
         self._snapshot = self._select_snapshot(**kwargs)
 
@@ -477,6 +494,7 @@ class RangeEnvironment(_BASE):  # type: ignore[misc]
         self._blue_history = []
         self._npc_traffic_log = []
         self._episode_start = time.time()
+        self._episode_recorded = False
 
         # Build initial briefing
         task = self._snapshot.task
@@ -540,30 +558,35 @@ class RangeEnvironment(_BASE):  # type: ignore[misc]
             obs = self._handle_submit_flag(action)
             obs = self._apply_rewards(action, obs)
             self._check_termination(obs)
+            self._report_if_done(obs)
             return obs
 
         if cmd_name == "submit_evidence":
             obs = self._handle_submit_evidence(action)
             obs = self._apply_rewards(action, obs)
             self._check_termination(obs)
+            self._report_if_done(obs)
             return obs
 
         if cmd_name == "submit_finding":
             obs = self._handle_submit_finding(action)
             obs = self._apply_rewards(action, obs)
             self._check_termination(obs)
+            self._report_if_done(obs)
             return obs
 
         if cmd_name == "auth":
             obs = self._handle_auth(action)
             obs = self._apply_rewards(action, obs)
             self._check_termination(obs)
+            self._report_if_done(obs)
             return obs
 
         if cmd_name == "logout":
             obs = self._handle_logout(action)
             obs = self._apply_rewards(action, obs)
             self._check_termination(obs)
+            self._report_if_done(obs)
             return obs
 
         # Route to container
@@ -604,6 +627,7 @@ class RangeEnvironment(_BASE):  # type: ignore[misc]
         # Compute rewards and check termination
         obs = self._apply_rewards(action, obs)
         self._check_termination(obs)
+        self._report_if_done(obs)
 
         return obs
 
@@ -678,6 +702,28 @@ class RangeEnvironment(_BASE):  # type: ignore[misc]
                 obs.done = True
                 return
 
+    def _report_if_done(self, obs: RangeObservation) -> None:
+        """Report a completed episode to the shared runtime once."""
+        if obs.done:
+            self._report_episode_result(completed=True)
+
+    def _report_episode_result(self, completed: bool) -> None:
+        """Record the current episode outcome with the shared runtime."""
+        if self._episode_recorded or self._runtime is None or self._snapshot is None:
+            return
+        if self._state.episode_id is None:
+            return
+
+        self._runtime.record_episode_result(
+            snapshot_id=self._snapshot_id,
+            snapshot=self._snapshot,
+            state=self._state,
+            red_history=self.red_history,
+            blue_history=self.blue_history,
+            completed=completed,
+        )
+        self._episode_recorded = True
+
     # -----------------------------------------------------------------
     # Alert system
     # -----------------------------------------------------------------
@@ -724,6 +770,7 @@ class RangeEnvironment(_BASE):  # type: ignore[misc]
 
     def close(self) -> None:
         """Release resources (Docker client, episode state)."""
+        self._report_episode_result(completed=False)
         if self._docker_client is not None:
             try:
                 self._docker_client.close()

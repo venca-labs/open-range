@@ -11,12 +11,21 @@ import json
 import logging
 import random
 import time
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
 from open_range.protocols import SnapshotSpec
 
 logger = logging.getLogger(__name__)
+
+
+@dataclass(frozen=True, slots=True)
+class StoredSnapshot:
+    """A frozen snapshot plus its persisted identifier."""
+
+    snapshot_id: str
+    snapshot: SnapshotSpec
 
 
 class SnapshotStore:
@@ -82,6 +91,10 @@ class SnapshotStore:
         Raises:
             FileNotFoundError: If the store is empty.
         """
+        return (await self.select_entry(strategy=strategy)).snapshot
+
+    async def select_entry(self, strategy: str = "latest") -> StoredSnapshot:
+        """Select a snapshot plus its persisted ID."""
         spec_files = sorted(self.store_dir.glob("*/spec.json"))
         if not spec_files:
             raise FileNotFoundError(
@@ -94,7 +107,10 @@ class SnapshotStore:
             chosen = max(spec_files, key=lambda p: p.stat().st_mtime)
 
         raw = json.loads(chosen.read_text(encoding="utf-8"))
-        return SnapshotSpec.model_validate(raw)
+        return StoredSnapshot(
+            snapshot_id=chosen.parent.name,
+            snapshot=SnapshotSpec.model_validate(raw),
+        )
 
     async def list_snapshots(self) -> list[dict[str, Any]]:
         """List all snapshots with their metadata.
@@ -124,3 +140,10 @@ class SnapshotStore:
             raise FileNotFoundError(f"Snapshot not found: {snapshot_id}")
         raw = json.loads(spec_path.read_text(encoding="utf-8"))
         return SnapshotSpec.model_validate(raw)
+
+    async def get_entry(self, snapshot_id: str) -> StoredSnapshot:
+        """Load a specific snapshot plus its ID."""
+        return StoredSnapshot(
+            snapshot_id=snapshot_id,
+            snapshot=await self.get(snapshot_id),
+        )
