@@ -1283,7 +1283,7 @@ echo "Login";
 def _default_config_php(*, domain: str) -> str:
     ldap_dn = ",".join(f"dc={part}" for part in domain.split(".") if part) or "dc=corp,dc=local"
     return f"""<?php
-$db_host = "db.openrange-internal.svc.cluster.local";
+$db_host = "db";
 $db_name = "referral_db";
 $db_user = "app_user";
 $db_pass = "AppUs3r!2024";

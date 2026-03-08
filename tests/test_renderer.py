@@ -248,7 +248,7 @@ def test_values_web_has_db_env(renderer, sqli_spec):
         values = yaml.safe_load((out / "openrange" / "values.yaml").read_text())
         env = values["services"]["web"]["env"]
         assert "DB_HOST" in env
-        assert "internal" in env["DB_HOST"]
+        assert env["DB_HOST"] == "db"
         assert "DB_USER" in env
 
 

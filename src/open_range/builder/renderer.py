@@ -202,11 +202,11 @@ class KindRenderer:
         env: dict[str, str] = {}
         if name == "web":
             env.update({
-                "DB_HOST": f"db.{prefix}-internal.svc.cluster.local",
+                "DB_HOST": "db",
                 "DB_USER": _find_db_user(users),
                 "DB_PASS": _find_db_pass(users),
                 "DB_NAME": "referral_db",
-                "LDAP_HOST": f"ldap.{prefix}-management.svc.cluster.local",
+                "LDAP_HOST": "ldap",
                 "LDAP_BASE_DN": ",".join(f"dc={p}" for p in domain.split(".")),
             })
         elif name == "db":
@@ -245,7 +245,16 @@ class KindRenderer:
                 ),
             ]
         if name == "attacker":
-            return ["sleep", "infinity"]
+            return [
+                "bash", "-c",
+                (
+                    "apt-get update -qq > /dev/null 2>&1; "
+                    "apt-get install -y -qq nmap curl wget smbclient sqlmap "
+                    "hydra nikto netcat-traditional ssh dnsutils "
+                    "mysql-client python3 > /dev/null 2>&1; "
+                    "sleep infinity"
+                ),
+            ]
         return None
 
     @staticmethod

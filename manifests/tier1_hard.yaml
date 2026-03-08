@@ -558,6 +558,6 @@ infrastructure:
         notes: "Column is 'flag' NOT 'flag_value'."
 
   web_docroot: /var/www/html
-  db_connection: "new mysqli('db.openrange-internal.svc.cluster.local', 'app_user', 'AppUs3r!2024', 'referral_db')"
+  db_connection: "new mysqli('db', 'app_user', 'AppUs3r!2024', 'referral_db')"
   samba_shares: [/srv/shares/contracts, /srv/shares/hr, /srv/shares/compliance, /srv/shares/general]
 

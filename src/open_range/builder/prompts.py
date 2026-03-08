@@ -41,8 +41,9 @@ The range runs on a Kind cluster with **namespace-per-zone** isolation:
 
 Cross-namespace traffic is controlled by NetworkPolicies (replacing iptables).
 
-Services are reachable via K8s DNS: `<service>.<namespace>.svc.cluster.local`.
-Within the same namespace, just `<service>` works.
+**All services are reachable by bare hostname from every namespace** thanks \
+to ExternalName service aliases. Use `curl http://web/`, `mysql -h db`, \
+`smbclient //files/share`, etc. — no full DNS names needed anywhere.
 
 ## Pod Details
 
@@ -51,8 +52,7 @@ Within the same namespace, just `<service>` works.
 - PHP files in `/var/www/html/` are served at `http://web/<path>`
 - Subdirs work: `/var/www/html/admin/`, `/var/www/html/api/`, etc.
 - PHP extensions: mysqli, pdo_mysql (installed at startup)
-- DB connection from PHP: \
-`new mysqli('db.openrange-internal.svc.cluster.local', 'app_user', 'AppUs3r!2024', 'referral_db')`
+- DB connection from PHP: `new mysqli('db', 'app_user', 'AppUs3r!2024', 'referral_db')`
 - Ports: **80** (HTTP)
 - Namespace: openrange-dmz
 
@@ -125,7 +125,7 @@ The flags table column is `flag` (NOT `flag_value`).
 **attacker** (Kali Linux):
 - Tools: nmap, sqlmap, hydra, smbclient, nikto, curl, wget, ssh, nc, \
 python3, tcpdump
-- Attacker uses **service DNS or IPs**, not bare hostnames
+- Attacker uses **bare hostnames**: `curl http://web/`, `mysql -h db`, etc.
 - Namespace: openrange-external
 
 # Output Format
@@ -211,8 +211,7 @@ Requirements:
 - At least 3-5 additional PHP pages (dashboard, search, forms, API)
 - Some pages are safe, some contain the planted vulnerabilities
 - All PHP files that access DB use inline: \
-`$conn = new mysqli('db.openrange-internal.svc.cluster.local', 'app_user', \
-'AppUs3r!2024', 'referral_db');`
+`$conn = new mysqli('db', 'app_user', 'AppUs3r!2024', 'referral_db');`
 - Pages should output realistic HTML (not just raw JSON)
 - Include CSS styling inline or in a `<style>` block — make it look real
 - Login should check credentials against `referral_db.users` \
