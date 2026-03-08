@@ -59,6 +59,8 @@ class TestRealLLMOutput:
     @pytest.fixture
     def llm_json(self):
         path = ROOT / "snapshots" / "llm_tier1_test.json"
+        if not path.exists():
+            pytest.skip("llm_tier1_test.json fixture not present")
         return path.read_text()
 
     def test_parses_to_snapshot_spec(self, llm_json):

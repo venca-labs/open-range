@@ -16,8 +16,9 @@ from pathlib import Path
 from typing import Any
 
 from open_range.agents.llm_agent import LLMRangeAgent
+from open_range.agents.parsing import strip_command_from_response
 from open_range.agents.protocol import RangeAgent
-from open_range.agents.scripted_agent import ScriptedBlueAgent, ScriptedRedAgent
+from open_range.agents.replay_agent import ScriptedBlueAgent, ScriptedRedAgent
 from open_range.builder.builder import LLMSnapshotBuilder, TemplateOnlyBuilder
 from open_range.protocols import BuildContext, SnapshotBuilder, SnapshotSpec, Vulnerability
 from open_range.server.environment import RangeEnvironment
@@ -27,6 +28,14 @@ from open_range.training.trajectory import TrajectoryLogger
 logger = logging.getLogger(__name__)
 
 _TOKEN_RE = re.compile(r"[a-z0-9_./:-]+")
+_SYNTHETIC_REASONING_GUIDE = (
+    "When you act, think briefly inside <think>...</think> about what you learned, "
+    "what hypothesis you are testing, and why the next step is justified. "
+    "After the reasoning, output exactly one command prefixed with 'Command:'. "
+    "Prefer high-signal interaction with the listed services and artifacts over "
+    "repeating local workstation discovery commands. Do not claim success until "
+    "the tool output confirms it."
+)
 
 
 def _run_async(coro: Any) -> Any:
@@ -106,6 +115,207 @@ def _observation_text(observation: str | RangeObservation) -> str:
     return "\n\n".join(parts)
 
 
+def _prefixed_output(text: str, *, step: int) -> str:
+    """Add deterministic pseudo-timing prefixes to tool output lines."""
+    cleaned = text.strip("\n")
+    if not cleaned:
+        return f"[{0.2 + (step % 5) * 0.1:.1f}s]"
+    prefix = f"[{0.2 + (step % 5) * 0.1:.1f}s] "
+    return "\n".join(f"{prefix}{line}" for line in cleaned.splitlines())
+
+
+def _host_inventory(snapshot: SnapshotSpec) -> str:
+    host_lines: list[str] = []
+    zones = snapshot.topology.get("zones", {}) if isinstance(snapshot.topology, dict) else {}
+    zone_map: dict[str, str] = {}
+    if isinstance(zones, dict):
+        for zone, hosts in zones.items():
+            if isinstance(hosts, list):
+                for host in hosts:
+                    zone_map[str(host)] = str(zone)
+
+    for host in _iter_hosts(snapshot):
+        details = [zone_map.get(host, "").strip()]
+        if host == "web":
+            details.append("primary web application")
+        elif host == "mail":
+            details.append("mail gateway")
+        elif host == "db":
+            details.append("database service")
+        elif host == "files":
+            details.append("file share service")
+        elif host == "ldap":
+            details.append("directory and identity service")
+        elif host == "siem":
+            details.append("log aggregation and monitoring")
+        elif host == "firewall":
+            details.append("perimeter routing and filtering")
+        elif host == "attacker":
+            details.append("your operator workstation")
+        rendered = ", ".join(part for part in details if part)
+        if rendered:
+            host_lines.append(f"- {host}: {rendered}")
+        else:
+            host_lines.append(f"- {host}")
+    return "\n".join(host_lines)
+
+
+def _entry_points(snapshot: SnapshotSpec) -> str:
+    entries: list[str] = []
+    seen: set[str] = set()
+    for step in snapshot.golden_path:
+        for match in re.findall(r"https?://[^\s'\"`]+", step.command):
+            if match not in seen:
+                entries.append(f"- {match}")
+                seen.add(match)
+    for host in _iter_hosts(snapshot):
+        if host == "web":
+            for candidate in ("http://web/", "http://web/login", "http://web/search?q=test"):
+                if candidate not in seen:
+                    entries.append(f"- {candidate}")
+                    seen.add(candidate)
+        elif host == "mail":
+            target = "mail:25 (SMTP)"
+            if target not in seen:
+                entries.append(f"- {target}")
+                seen.add(target)
+        elif host == "db":
+            target = "db:3306 (MySQL)"
+            if target not in seen:
+                entries.append(f"- {target}")
+                seen.add(target)
+        elif host == "files":
+            target = "files:445 (SMB)"
+            if target not in seen:
+                entries.append(f"- {target}")
+                seen.add(target)
+        elif host == "ldap":
+            target = "ldap:389 (LDAP)"
+            if target not in seen:
+                entries.append(f"- {target}")
+                seen.add(target)
+    return "\n".join(entries)
+
+
+def _build_training_briefing(snapshot: SnapshotSpec, *, role: str) -> str:
+    task = snapshot.task
+    org_name = str(snapshot.topology.get("org_name", "OpenRange target")).strip() or "OpenRange target"
+    tier = int(snapshot.topology.get("tier", 1) or 1)
+    host_summary = _host_inventory(snapshot)
+    success_conditions = task.success_conditions if hasattr(task, "success_conditions") else []
+    objective_lines = []
+    for item in success_conditions:
+        if isinstance(item, dict):
+            description = str(item.get("description") or item.get("type") or "").strip()
+            if description:
+                objective_lines.append(f"- {description}")
+
+    if role == "red":
+        scenario = task.red_briefing or "Investigate the environment and recover the flag."
+        mission = [
+            "# ROLE",
+            "You are an autonomous red-team operator authorized to assess this environment.",
+            "",
+            "# TARGET INFORMATION",
+            f"**Organization**: {org_name}",
+            f"**Tier**: {tier}",
+            "**Goal**: Identify a viable attack path, validate it with evidence, and recover the exercise flag.",
+            "",
+            "## Scenario Brief",
+            scenario,
+            "",
+            "## Reachable Hosts",
+            host_summary or "- attacker",
+            "",
+            "## Known Access Points",
+            _entry_points(snapshot),
+            "",
+            "## Operating Notes",
+            "- Service hostnames are already known from the range context.",
+            "- Favor concrete interaction with listed services over repeated local interface discovery.",
+        ]
+        if objective_lines:
+            mission.extend(["", "## Success Conditions", *objective_lines])
+        return "\n".join(mission).strip()
+
+    scenario = task.blue_briefing or "Monitor the SIEM, investigate suspicious activity, and respond."
+    mission = [
+        "# ROLE",
+        "You are an autonomous SOC analyst responsible for this environment.",
+        "",
+        "# DEFENSIVE CONTEXT",
+        f"**Organization**: {org_name}",
+        f"**Tier**: {tier}",
+        "**Goal**: Detect attacker activity, confirm it with log evidence, and respond without breaking healthy services.",
+        "",
+        "## Scenario Brief",
+        scenario,
+        "",
+        "## Monitored Hosts",
+        host_summary or "- siem",
+    ]
+    return "\n".join(mission).strip()
+
+
+def _infer_tool_call(command: str) -> tuple[str, dict[str, Any]]:
+    stripped = command.strip()
+    lowered = stripped.lower()
+    try:
+        parts = shlex.split(stripped)
+    except ValueError:
+        parts = stripped.split()
+
+    if lowered.startswith("submit_flag "):
+        flag = stripped.split(maxsplit=1)[1] if len(stripped.split(maxsplit=1)) == 2 else ""
+        return "flag_found", {"flag": flag}
+    if lowered.startswith("cat ") and len(parts) >= 2:
+        return "read_file", {"file_path": parts[1], "line_numbers": True}
+    if lowered.startswith("grep "):
+        return "grep", {"command": stripped}
+    if lowered.startswith("find "):
+        return "file_search", {"command": stripped}
+    return "shell_command", {"command": stripped, "timeout": 120}
+
+
+def _render_trace_reasoning(agent: RangeAgent, *, role: str, command: str) -> str:
+    raw_response = str(getattr(agent, "last_response_text", "") or "").strip()
+    if raw_response:
+        reasoning = strip_command_from_response(raw_response, command)
+        if reasoning:
+            return reasoning
+
+    lowered = command.lower()
+    if "nmap" in lowered:
+        thought = "I need a service inventory first so I can narrow the exposed attack surface."
+    elif "curl" in lowered and ("union" in lowered or "select" in lowered):
+        thought = "The web workflow looks injectable, so I will test a UNION-style payload that can expose sensitive data."
+    elif "curl" in lowered:
+        thought = "I should interrogate the web surface directly to learn the available routes and behaviors."
+    elif lowered.startswith("cat "):
+        thought = "I need to inspect the referenced file directly for source-level clues, credentials, or the flag."
+    elif lowered.startswith("grep "):
+        thought = (
+            "I need to filter the SIEM signal down to evidence that confirms the current hypothesis."
+            if role == "blue"
+            else "I should search the available artifacts for indicators that support the next exploit step."
+        )
+    elif lowered.startswith("submit_flag "):
+        thought = "The recovered token is strong enough to validate immediately."
+    elif lowered.startswith("submit_finding "):
+        thought = "The observed activity is concrete enough to escalate as a finding."
+    else:
+        thought = "I will take the next low-risk step that reduces uncertainty and advances the objective."
+    return f"<think>\n{thought}\n</think>"
+
+
+def _blue_stimulus(env: SyntheticRangeEnvironment) -> RangeObservation:
+    alerts = env._get_pending_alerts()
+    status = "Suspicious activity has been observed in the monitored environment."
+    if not alerts:
+        status = "No high-confidence alerts yet. Continue monitoring for attacker activity."
+    return RangeObservation(stdout=status, alerts=alerts)
+
+
 class SyntheticRangeEnvironment(RangeEnvironment):
     """Fast, deterministic simulator built from a ``SnapshotSpec``."""
 
@@ -162,6 +372,12 @@ class SyntheticRangeEnvironment(RangeEnvironment):
             return "kali\n", ""
         if normalized == "pwd":
             return "/root\n", ""
+        if normalized.startswith("ip ") or normalized in {"ip", "hostname -i", "hostname -i && ip route && ip -br addr", "hostname -i && ip route"}:
+            return self._render_network_identity(command), ""
+        if normalized.startswith("arp"):
+            return self._render_arp_cache(), ""
+        if normalized.startswith("getent hosts"):
+            return self._render_hosts_lookup(command), ""
         if normalized.startswith("ls"):
             return self._render_ls(command), ""
         if normalized.startswith("cat "):
@@ -320,6 +536,37 @@ class SyntheticRangeEnvironment(RangeEnvironment):
             return "220 mail ESMTP Postfix\n"
         return "HTTP/1.1 200 OK\n"
 
+    def _render_network_identity(self, command: str) -> str:
+        del command
+        lines = [
+            "lo               UNKNOWN        127.0.0.1/8",
+            "eth0             UP             10.0.0.2/24",
+            "default via 10.0.0.1 dev eth0",
+            "10.0.0.0/24 dev eth0 proto kernel scope link src 10.0.0.2",
+        ]
+        return "\n".join(lines) + "\n"
+
+    def _render_arp_cache(self) -> str:
+        return (
+            "? (10.0.0.1) at 02:42:0a:00:00:01 [ether] on eth0\n"
+            "? (10.0.1.4) at 02:42:0a:00:01:04 [ether] on eth0\n"
+        )
+
+    def _render_hosts_lookup(self, command: str) -> str:
+        hosts = []
+        for index, host in enumerate(_iter_hosts(self._snapshot) if self._snapshot else [], start=2):
+            if host == "attacker":
+                continue
+            hosts.append(f"10.0.{index // 4}.{index + 1} {host}")
+        if not hosts:
+            hosts = ["10.0.1.4 web", "10.0.2.10 db", "10.0.3.10 ldap"]
+        requested = command.lower().split()[2:] if len(command.split()) > 2 else []
+        if requested:
+            filtered = [line for line in hosts if any(name in line for name in requested)]
+            if filtered:
+                hosts = filtered
+        return "\n".join(hosts) + "\n"
+
     def _render_mysql(self, command: str) -> str:
         lowered = command.lower()
         flag = self._flag_value()
@@ -365,6 +612,8 @@ class SyntheticRangeEnvironment(RangeEnvironment):
             return "", "cat: missing operand"
         if path in self._ephemeral_files:
             return self._ephemeral_files[path], ""
+        if path in ("/etc/hosts", "etc/hosts"):
+            return self._render_etc_hosts(), ""
         for flag in self._snapshot.flags if self._snapshot else []:
             if path == flag.path or path.endswith(Path(flag.path).name):
                 return f"{flag.value}\n", ""
@@ -381,12 +630,30 @@ class SyntheticRangeEnvironment(RangeEnvironment):
             return "root:x:0:0:root:/root:/bin/bash\nwww-data:x:33:33:www-data:/var/www:/usr/sbin/nologin\n", ""
         return "", f"cat: {path}: No such file or directory"
 
+    def _render_etc_hosts(self) -> str:
+        entries = ["127.0.0.1 localhost", "10.0.0.2 attacker"]
+        host_map = {
+            "firewall": "10.0.0.3",
+            "mail": "10.0.1.3",
+            "web": "10.0.1.4",
+            "db": "10.0.2.10",
+            "files": "10.0.2.20",
+            "ldap": "10.0.3.10",
+            "siem": "10.0.3.20",
+        }
+        for host in _iter_hosts(self._snapshot) if self._snapshot else []:
+            if host in host_map:
+                entries.append(f"{host_map[host]} {host}")
+        return "\n".join(entries) + "\n"
+
     def _render_ls(self, command: str) -> str:
         path = self._extract_first_path(command) or "."
         if path in (".", "/root"):
             entries = ["notes.txt"]
             entries.extend(sorted(Path(p).name for p in self._ephemeral_files))
             return "\n".join(sorted(set(entries))) + "\n"
+        if path == "/":
+            return "bin\netc\nhome\nroot\ntmp\nusr\nvar\n"
         if path == "/var/log/siem":
             return "consolidated\nalerts.log\nweb_access.log\n"
         if self._snapshot and self._snapshot.files:
@@ -495,6 +762,7 @@ class SyntheticTraceGenerator:
         builder: SnapshotBuilder | None = None,
         red_agent: RangeAgent | None = None,
         blue_agent: RangeAgent | None = None,
+        active_roles: tuple[str, ...] = ("red", "blue"),
         tier: int = 1,
         max_steps: int = 30,
         randomize_flags: bool = True,
@@ -507,6 +775,7 @@ class SyntheticTraceGenerator:
         self._tier = tier
         self._max_steps = max_steps
         self._randomize_flags = randomize_flags
+        self._active_roles = tuple(dict.fromkeys(active_roles)) or ("red", "blue")
         self.red_agent = red_agent or ScriptedRedAgent()
         self.blue_agent = blue_agent or ScriptedBlueAgent()
 
@@ -517,6 +786,7 @@ class SyntheticTraceGenerator:
         *,
         red_agent: RangeAgent | None = None,
         blue_agent: RangeAgent | None = None,
+        active_roles: tuple[str, ...] = ("red", "blue"),
         builder: SnapshotBuilder | None = None,
         template_only: bool = True,
         builder_model: str | None = None,
@@ -537,6 +807,7 @@ class SyntheticTraceGenerator:
             builder=resolved_builder,
             red_agent=red_agent,
             blue_agent=blue_agent,
+            active_roles=active_roles,
             tier=tier,
             max_steps=max_steps,
             randomize_flags=randomize_flags,
@@ -605,18 +876,29 @@ class SyntheticTraceGenerator:
             if active_snapshot is None:
                 raise RuntimeError("Synthetic environment failed to load a snapshot")
 
-            task = active_snapshot.task
-            red_briefing = getattr(task, "red_briefing", "") or "Begin the assessment."
-            blue_briefing = getattr(task, "blue_briefing", "") or "Monitor the range."
+            red_briefing = _build_training_briefing(
+                active_snapshot,
+                role="red",
+            )
+            blue_briefing = _build_training_briefing(
+                active_snapshot,
+                role="blue",
+            )
 
-            self.red_agent.reset(briefing=red_briefing, role="red")
-            self.blue_agent.reset(briefing=blue_briefing, role="blue")
+            if "red" in self._active_roles:
+                self.red_agent.reset(briefing=red_briefing, role="red")
+            if "blue" in self._active_roles:
+                self.blue_agent.reset(briefing=blue_briefing, role="blue")
 
             snapshot_id = active_snapshot.topology.get("snapshot_id", f"synth-{episode_index:04d}")
             logger.start_episode(
                 episode_id=f"synth-{episode_index:04d}",
                 snapshot_id=snapshot_id,
                 tier=env.state.tier,
+                briefings={
+                    "red": red_briefing,
+                    "blue": blue_briefing,
+                },
             )
 
             current_red_observation: str | RangeObservation = red_briefing
@@ -626,35 +908,64 @@ class SyntheticTraceGenerator:
             last_obs: RangeObservation = RangeObservation(stdout=red_briefing)
 
             while step < self._max_steps and not done:
-                red_cmd = self.red_agent.act(current_red_observation)
-                red_view = _observation_text(current_red_observation)
-                red_obs = env.step(RangeAction(command=red_cmd, mode="red"))
-                logger.log_turn(
-                    role="red",
-                    observation=red_view,
-                    action=red_cmd,
-                    reward=float(red_obs.reward or 0.0),
-                )
-                step += 1
-                last_obs = red_obs
-                done = bool(red_obs.done)
-                current_blue_observation = red_obs
-                if done or step >= self._max_steps:
-                    break
+                if "red" in self._active_roles:
+                    red_cmd = self.red_agent.act(current_red_observation)
+                    red_obs = env.step(RangeAction(command=red_cmd, mode="red"))
+                    red_output = _prefixed_output(
+                        _observation_text(red_obs),
+                        step=step + 1,
+                    )
+                    tool_name, tool_arguments = _infer_tool_call(red_cmd)
+                    logger.log_turn(
+                        role="red",
+                        observation=red_output,
+                        action=red_cmd,
+                        reward=float(red_obs.reward or 0.0),
+                        assistant_content=_render_trace_reasoning(
+                            self.red_agent,
+                            role="red",
+                            command=red_cmd,
+                        ),
+                        tool_name=tool_name,
+                        tool_arguments=tool_arguments,
+                        tool_output=red_output,
+                    )
+                    step += 1
+                    last_obs = red_obs
+                    done = bool(red_obs.done)
+                    current_red_observation = red_obs
+                    current_blue_observation = _blue_stimulus(env)
+                    if done or step >= self._max_steps:
+                        break
+
+                if "blue" not in self._active_roles:
+                    continue
 
                 blue_cmd = self.blue_agent.act(current_blue_observation)
-                blue_view = _observation_text(current_blue_observation)
                 blue_obs = env.step(RangeAction(command=blue_cmd, mode="blue"))
+                blue_output = _prefixed_output(
+                    _observation_text(blue_obs),
+                    step=step + 1,
+                )
+                tool_name, tool_arguments = _infer_tool_call(blue_cmd)
                 logger.log_turn(
                     role="blue",
-                    observation=blue_view,
+                    observation=blue_output,
                     action=blue_cmd,
                     reward=float(blue_obs.reward or 0.0),
+                    assistant_content=_render_trace_reasoning(
+                        self.blue_agent,
+                        role="blue",
+                        command=blue_cmd,
+                    ),
+                    tool_name=tool_name,
+                    tool_arguments=tool_arguments,
+                    tool_output=blue_output,
                 )
                 step += 1
                 last_obs = blue_obs
                 done = bool(blue_obs.done)
-                current_red_observation = blue_obs
+                current_blue_observation = blue_obs
 
             state = env.state
             outcome = self._episode_outcome(env)
@@ -666,6 +977,13 @@ class SyntheticTraceGenerator:
                     "red_actions": len(env.red_history),
                     "blue_actions": len(env.blue_history),
                     "done": bool(last_obs.done),
+                    "source": "open_range.synthetic",
+                    "ground_truth_flags": [flag.value for flag in active_snapshot.flags],
+                    "optimal_steps": len(active_snapshot.golden_path),
+                    "metadata": {
+                        "generator": "synthetic",
+                        "snapshot_origin": "manifest" if self._manifest is not None else "snapshot",
+                    },
                 },
             )
         finally:
@@ -689,14 +1007,27 @@ def build_teacher_agents(
     roles: tuple[str, ...] = ("red",),
     red_model: str | None = None,
     blue_model: str | None = None,
+    red_bootstrap_messages: list[dict[str, Any]] | None = None,
+    blue_bootstrap_messages: list[dict[str, Any]] | None = None,
+    red_system_suffix: str = "",
+    blue_system_suffix: str = "",
     temperature: float | None = 0.2,
     max_tokens: int = 512,
     **litellm_kwargs: Any,
 ) -> tuple[RangeAgent, RangeAgent]:
     """Construct teacher agents for the selected roles, scripted fallbacks otherwise."""
+    red_suffix = "\n\n".join(
+        block for block in (_SYNTHETIC_REASONING_GUIDE, red_system_suffix.strip()) if block
+    )
+    blue_suffix = "\n\n".join(
+        block for block in (_SYNTHETIC_REASONING_GUIDE, blue_system_suffix.strip()) if block
+    )
+
     if "red" in roles and (red_model or teacher_model):
         red_agent: RangeAgent = LLMRangeAgent(
             model=red_model or str(teacher_model),
+            bootstrap_messages=red_bootstrap_messages,
+            system_suffix=red_suffix,
             temperature=temperature,
             max_tokens=max_tokens,
             **litellm_kwargs,
@@ -707,6 +1038,8 @@ def build_teacher_agents(
     if "blue" in roles and (blue_model or teacher_model):
         blue_agent: RangeAgent = LLMRangeAgent(
             model=blue_model or str(teacher_model),
+            bootstrap_messages=blue_bootstrap_messages,
+            system_suffix=blue_suffix,
             temperature=temperature,
             max_tokens=max_tokens,
             **litellm_kwargs,

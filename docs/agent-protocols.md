@@ -117,7 +117,7 @@ class RangeAgent(Protocol):
 | Implementation | File | When to use | LLM? |
 |----------------|------|------------|------|
 | `LLMRangeAgent` | `src/open_range/agents/llm_agent.py` | Production — model-agnostic via LiteLLM | Yes (LiteLLM) |
-| `ScriptedAgent` | `src/open_range/agents/scripted_agent.py` | Testing/CI/demos — replays fixed command list | No |
+| `ScriptedAgent` | `src/open_range/agents/replay_agent.py` | Testing/CI/demos — replays fixed command list | No |
 | `HumanAgent` | `src/open_range/agents/human_agent.py` | Manual play/debugging — stdin/stdout | No |
 
 ```python
@@ -162,7 +162,7 @@ class HumanAgent:
     def act(self, observation: str) -> str: ...
 ```
 
-Pre-built demo agents are also available as `ScriptedRedAgent` and `ScriptedBlueAgent` in `src/open_range/agents/scripted_agent.py`.
+Pre-built demo agents are also available as `ScriptedRedAgent` and `ScriptedBlueAgent` in `src/open_range/agents/replay_agent.py`.
 
 ### Builder
 

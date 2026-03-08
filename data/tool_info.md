@@ -1,0 +1,10 @@
+- `shell_command`: run one-shot shell commands and capture stdout/stderr
+- `exec_command`: start an interactive PTY process
+- `write_stdin`: send follow-up input to a running PTY session
+- `python_code`: execute Python for local analysis or decoding
+- `read_file`: inspect source or challenge files directly
+- `grep`: search for indicators, flags, or suspicious patterns in files
+- `file_search`: locate files by name or path fragment
+- `flag_found`: submit a recovered flag immediately
+- `web_search`: look up external references when the environment allows it
+- `apply_patch`: edit local files when the task requires code changes

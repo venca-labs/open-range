@@ -15,6 +15,7 @@ from typing import Any
 
 import jinja2
 
+from open_range.builder.service_manifest import generate_service_specs
 from open_range.protocols import SnapshotSpec
 
 logger = logging.getLogger(__name__)
@@ -81,12 +82,41 @@ class SnapshotRenderer:
             encoding="utf-8",
         )
         logger.info("Rendered %d payload artifact(s) -> %s", len(payload_manifest), manifest_path)
+
+        # Generate ServiceSpec entries from compose + topology
+        self._build_service_specs(spec)
+
         logger.info(
-            "SnapshotRenderer: rendering complete (%d templates, %d payloads)",
+            "SnapshotRenderer: rendering complete (%d templates, %d payloads, %d services)",
             len(_TEMPLATE_MAP),
             len(payload_manifest),
+            len(spec.services),
         )
         return output_dir
+
+    def _build_service_specs(self, spec: SnapshotSpec) -> None:
+        """Populate ``spec.services`` from compose and topology.
+
+        Delegates to :func:`generate_service_specs` which maps Docker
+        image names (or topology host names) to subprocess-mode daemon
+        lifecycle declarations.  Only runs if the spec does not already
+        have services declared (idempotent).
+        """
+        if spec.services:
+            logger.debug("ServiceSpec entries already present — skipping generation")
+            return
+
+        svc_specs = generate_service_specs(
+            compose=spec.compose,
+            topology=spec.topology,
+        )
+        spec.services = svc_specs
+        if svc_specs:
+            logger.info(
+                "Generated %d ServiceSpec entries: %s",
+                len(svc_specs),
+                [s.daemon for s in svc_specs],
+            )
 
     def _render_payloads(self, spec: SnapshotSpec, output_dir: Path) -> dict[str, str]:
         payload_manifest: dict[str, str] = {}
@@ -176,6 +206,9 @@ def _build_context(spec: SnapshotSpec) -> dict[str, Any]:
         has_download,
     )
 
+    db_user = _find_db_user(users)
+    db_pass = _find_db_pass(users)
+
     context: dict[str, Any] = {
         # docker-compose.yml.j2
         "snapshot_id": topology.get("snapshot_id", "generated"),
@@ -183,12 +216,15 @@ def _build_context(spec: SnapshotSpec) -> dict[str, Any]:
         "hosts": hosts,
         "host_names": host_names,
         "db_host": "db",
-        "db_user": _find_db_user(users),
-        "db_pass": _find_db_pass(users),
+        "db_user": db_user,
+        "db_pass": db_pass,
+        "db_name": topology.get("db_name", "app_db"),
+        "db_password": db_pass,
         "mysql_root_password": topology.get("mysql_root_password", _find_mysql_root_pass(users)),
-        "domain": topology.get("domain", "acmecorp.local"),
-        "org_name": topology.get("org_name", "AcmeCorp"),
-        "ldap_admin_pass": "LdapAdm1n!",
+        "domain": topology.get("domain", "corp.local"),
+        "org_name": topology.get("org_name", "Corp"),
+        "ldap_admin_pass": topology.get("ldap_admin_pass", "LdapAdm1n!"),
+        "smb_shares": _find_smb_shares(spec),
         # Dockerfile.web.j2
         "users": users,
         "app_files": app_files,
@@ -304,3 +340,17 @@ def _find_mysql_root_pass(users: list[dict[str, Any]]) -> str:
         if u.get("username") == "admin" and "db" in u.get("hosts", []):
             return u.get("password", "r00tP@ss!")
     return "r00tP@ss!"
+
+
+def _find_smb_shares(spec: SnapshotSpec) -> list[str]:
+    """Extract Samba share names from snapshot files dict."""
+    shares: set[str] = set()
+    for key in spec.files:
+        if not key.startswith("files:"):
+            continue
+        path = key.split(":", 1)[1]
+        if "/srv/shares/" in path:
+            parts = path.split("/srv/shares/")[1].split("/")
+            if parts:
+                shares.add(parts[0])
+    return sorted(shares) or ["general"]

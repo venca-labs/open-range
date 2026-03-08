@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 # Level 0 NPC: Database traffic generator (mysql query loop)
 #
-# Simulates application database queries -- SELECT, INSERT operations
-# that a normal web application backend would generate.
+# Simulates application database queries. Discovers available databases
+# and tables dynamically so it adapts to any LLM-generated environment.
 #
 # Environment variables:
 #   DB_HOST    - hostname of the database server (default: db)
@@ -15,29 +15,56 @@ RATE_LAMBDA="${RATE_LAMBDA:-20}"
 
 INTERVAL=$(awk "BEGIN {printf \"%.1f\", 60.0 / $RATE_LAMBDA}")
 
-DB_NAME="referral_db"
+# App database credentials -- resolved from env or defaults
+DB_USER="${DB_USER:-app_user}"
+DB_PASS="${DB_PASS:-AppUs3r!2024}"
 
-# Application-level queries that a normal app would run
-QUERIES=(
-    "SELECT id, first_name, last_name FROM ${DB_NAME}.patients LIMIT 5"
-    "SELECT id, status, specialist FROM ${DB_NAME}.patient_referrals ORDER BY created_at DESC LIMIT 3"
-    "SELECT COUNT(*) FROM ${DB_NAME}.patient_referrals WHERE status='Pending'"
-    "SELECT id, amount_due, status FROM ${DB_NAME}.billing WHERE status='Open'"
-    "SELECT username, role, department FROM ${DB_NAME}.users LIMIT 10"
-    "UPDATE ${DB_NAME}.billing SET last_updated=CURDATE() WHERE id=5001"
-    "SELECT p.first_name, p.last_name, r.status FROM ${DB_NAME}.patients p JOIN ${DB_NAME}.patient_referrals r ON p.id=r.patient_id LIMIT 5"
-    "INSERT INTO ${DB_NAME}.access_log (user_id, action, ip) VALUES (3, 'view_referrals', '10.0.1.10')"
-)
+# Discover databases (skip system DBs)
+discover_db() {
+    mysql -h "${DB_HOST}" -u "${DB_USER}" -p"${DB_PASS}" \
+        -N -e "SHOW DATABASES" 2>/dev/null \
+        | grep -v -E '^(information_schema|mysql|performance_schema|sys)$' \
+        | head -1
+}
 
-# App database credentials (non-privileged)
-DB_USER="app_user"
-DB_PASS="AppUs3r!2024"
+# Discover tables in a database
+discover_tables() {
+    local db="$1"
+    mysql -h "${DB_HOST}" -u "${DB_USER}" -p"${DB_PASS}" \
+        -N -e "SHOW TABLES FROM ${db}" 2>/dev/null \
+        | head -10
+}
 
-echo "[NPC-DB] Starting DB traffic to ${DB_HOST} at ${RATE_LAMBDA} queries/min"
+# Wait for DB to be ready
+for i in $(seq 1 10); do
+    DB_NAME=$(discover_db) && [ -n "$DB_NAME" ] && break
+    sleep 3
+done
+
+if [ -z "${DB_NAME:-}" ]; then
+    echo "[NPC-DB] No application database found, exiting"
+    exit 0
+fi
+
+# Get available tables
+mapfile -t TABLES < <(discover_tables "$DB_NAME")
+if [ ${#TABLES[@]} -eq 0 ]; then
+    echo "[NPC-DB] No tables found in ${DB_NAME}, exiting"
+    exit 0
+fi
+
+echo "[NPC-DB] Starting DB traffic to ${DB_HOST}/${DB_NAME} at ${RATE_LAMBDA} queries/min (${#TABLES[@]} tables)"
 
 while true; do
-    IDX=$(( RANDOM % ${#QUERIES[@]} ))
-    QUERY="${QUERIES[$IDX]}"
+    IDX=$(( RANDOM % ${#TABLES[@]} ))
+    TABLE="${TABLES[$IDX]}"
+
+    # Alternate between safe read queries
+    case $(( RANDOM % 3 )) in
+        0) QUERY="SELECT * FROM ${DB_NAME}.${TABLE} LIMIT 5" ;;
+        1) QUERY="SELECT COUNT(*) FROM ${DB_NAME}.${TABLE}" ;;
+        2) QUERY="DESCRIBE ${DB_NAME}.${TABLE}" ;;
+    esac
 
     mysql -h "${DB_HOST}" \
           -u "${DB_USER}" \

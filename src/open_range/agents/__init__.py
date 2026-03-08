@@ -4,7 +4,7 @@ Exports:
     - RangeAgent: Protocol for any compatible agent
     - EpisodeResult, EpisodeMetrics: Trajectory/metrics dataclasses
     - LLMRangeAgent: LiteLLM-powered agent (any model)
-    - ScriptedAgent, ScriptedRedAgent, ScriptedBlueAgent: Fixed-sequence agents
+    - ScriptedAgent, ScriptedRedAgent, ScriptedBlueAgent: Fixed-sequence replay agents
     - HumanAgent: Interactive stdin/stdout agent
     - run_episode: Orchestration loop
     - evaluate: Multi-episode evaluation harness
@@ -13,7 +13,7 @@ Exports:
 
 from open_range.agents.protocol import EpisodeMetrics, EpisodeResult, RangeAgent
 from open_range.agents.parsing import extract_command
-from open_range.agents.scripted_agent import (
+from open_range.agents.replay_agent import (
     ScriptedAgent,
     ScriptedBlueAgent,
     ScriptedRedAgent,

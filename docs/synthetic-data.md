@@ -55,6 +55,19 @@ uv run openrange synthetic-data \
   --roles red
 ```
 
+Merge previously collected bootstrap traces and append a reusable tool catalog to generated system prompts:
+
+```bash
+uv run openrange synthetic-data \
+  --manifest manifests/tier1_basic.yaml \
+  --output data/synthetic_sft_5.jsonl \
+  --num-traces 5 \
+  --roles red \
+  --teacher-model azure/gpt-5.2-codex \
+  --bootstrap-traces data/sft.jsonl \
+  --tool-info data/tool_info.md
+```
+
 Generate traces from a manifest using the deterministic builder:
 
 ```bash

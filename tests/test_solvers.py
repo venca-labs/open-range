@@ -12,7 +12,7 @@ from __future__ import annotations
 import pytest
 
 from open_range.agents.protocol import RangeAgent
-from open_range.agents.scripted_agent import ScriptedAgent
+from open_range.agents.replay_agent import ScriptedAgent
 from open_range.agents.solvers import (
     BLUE_DEFENSE_COMMANDS,
     TIER1_RED_COMMANDS,

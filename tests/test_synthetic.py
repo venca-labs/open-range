@@ -11,9 +11,10 @@ import pytest
 from click.testing import CliRunner
 
 from open_range.agents.llm_agent import LLMRangeAgent
-from open_range.agents.scripted_agent import ScriptedAgent, ScriptedBlueAgent, ScriptedRedAgent
+from open_range.agents.replay_agent import ScriptedAgent, ScriptedBlueAgent, ScriptedRedAgent
 from open_range.cli import cli
 from open_range.server.models import RangeAction
+from open_range.training.dataset import append_tool_context, load_jsonl_records, load_tool_context
 from open_range.training.synthetic import (
     SyntheticRangeEnvironment,
     SyntheticTraceGenerator,
@@ -101,6 +102,11 @@ class TestSyntheticTraceGenerator:
         records = [json.loads(line) for line in output_path.read_text().splitlines()]
         assert {record["role"] for record in records} == {"red", "blue"}
         assert all(record["messages"][0]["role"] == "system" for record in records)
+        assert all(record["messages"][1]["role"] == "user" for record in records)
+        assert any(message["role"] == "tool" for message in records[0]["messages"])
+        assert all("metadata" in record for record in records)
+        assert all("ground_truth_flag" in record for record in records)
+        assert all("optimal_steps" in record for record in records)
 
     def test_build_teacher_agents_falls_back_to_scripted_when_no_model(self):
         red, blue = build_teacher_agents(teacher_model=None, roles=("red", "blue"))
@@ -154,6 +160,42 @@ class TestLiteLLMSupport:
         assert captured["drop_params"] is True
 
 
+class TestDatasetHelpers:
+    def test_load_bootstrap_records_and_append_tool_context(self, tmp_path):
+        bootstrap_path = tmp_path / "bootstrap.jsonl"
+        bootstrap_path.write_text(
+            json.dumps(
+                {
+                    "messages": [
+                        {"role": "system", "content": "Seed system prompt"},
+                        {"role": "user", "content": "obs"},
+                        {"role": "assistant", "content": "cmd"},
+                    ],
+                    "metadata": {"source": "bootstrap"},
+                }
+            )
+            + "\n"
+        )
+        tool_path = tmp_path / "tools.json"
+        tool_path.write_text(
+            json.dumps(
+                [
+                    {"name": "shell_command", "description": "Run a shell command"},
+                    {"name": "read_file", "description": "Read file contents"},
+                ]
+            )
+        )
+
+        records = load_jsonl_records([bootstrap_path])
+        tool_context = load_tool_context([tool_path])
+        enriched = append_tool_context(records, tool_context)
+
+        assert len(records) == 1
+        assert "shell_command" in tool_context
+        assert "Available tools" in enriched[0]["messages"][0]["content"]
+        assert "read_file" in enriched[0]["messages"][0]["content"]
+
+
 class TestSyntheticCLI:
     def test_cli_generates_jsonl_from_snapshot(self, tmp_path, sample_snapshot_spec):
         runner = CliRunner()
@@ -187,6 +229,130 @@ class TestSyntheticCLI:
         records = [json.loads(line) for line in output_path.read_text().splitlines()]
         assert len(records) == 1
         assert records[0]["role"] == "red"
+        assert any(message["role"] == "tool" for message in records[0]["messages"])
+        assert any(message.get("tool_calls") for message in records[0]["messages"] if message["role"] == "assistant")
+
+    def test_cli_merges_bootstrap_traces_and_tool_info(self, tmp_path, sample_snapshot_spec):
+        runner = CliRunner()
+        snapshot_path = tmp_path / "spec.json"
+        snapshot_path.write_text(json.dumps(sample_snapshot_spec.model_dump(mode="python")))
+        bootstrap_path = tmp_path / "bootstrap.jsonl"
+        bootstrap_path.write_text(
+            json.dumps(
+                {
+                    "messages": [
+                        {"role": "system", "content": "Bootstrap system"},
+                        {"role": "user", "content": "bootstrap obs"},
+                        {"role": "assistant", "content": "bootstrap cmd"},
+                    ],
+                    "metadata": {"source": "bootstrap"},
+                }
+            )
+            + "\n"
+        )
+        tool_path = tmp_path / "tools.md"
+        tool_path.write_text("- shell_command: Run shell commands\n- read_file: Read files\n")
+        output_path = tmp_path / "merged.jsonl"
+
+        result = runner.invoke(
+            cli,
+            [
+                "synthetic-data",
+                "--snapshot",
+                str(snapshot_path),
+                "--output",
+                str(output_path),
+                "--num-traces",
+                "1",
+                "--max-steps",
+                "1",
+                "--roles",
+                "red",
+                "--reward-threshold",
+                "-1",
+                "--bootstrap-traces",
+                str(bootstrap_path),
+                "--tool-info",
+                str(tool_path),
+                "--static-flags",
+            ],
+        )
+
+        assert result.exit_code == 0, result.output
+        records = [json.loads(line) for line in output_path.read_text().splitlines()]
+        assert len(records) == 2
+        assert records[0]["metadata"]["source"] == "bootstrap"
+        assert "Available tools" in records[1]["messages"][0]["content"]
+        assert "shell_command" in records[1]["messages"][0]["content"]
+
+    def test_cli_can_emit_generated_only_while_using_bootstrap_examples(self, tmp_path, sample_snapshot_spec):
+        runner = CliRunner()
+        snapshot_path = tmp_path / "spec.json"
+        snapshot_path.write_text(json.dumps(sample_snapshot_spec.model_dump(mode="python")))
+        bootstrap_path = tmp_path / "bootstrap.jsonl"
+        bootstrap_path.write_text(
+            json.dumps(
+                {
+                    "messages": [
+                        {"role": "system", "content": "Bootstrap system"},
+                        {"role": "user", "content": "bootstrap prompt"},
+                        {
+                            "role": "assistant",
+                            "content": "<think>Seed</think>",
+                            "tool_calls": [
+                                {
+                                    "id": "call_seed",
+                                    "type": "function",
+                                    "function": {
+                                        "name": "shell_command",
+                                        "arguments": "{\"command\": \"whoami\"}",
+                                    },
+                                }
+                            ],
+                        },
+                        {
+                            "role": "tool",
+                            "name": "shell_command",
+                            "tool_call_id": "call_seed",
+                            "content": "[0.2s] kali",
+                        },
+                    ],
+                    "metadata": {"source": "bootstrap", "success": True, "total_turns": 4},
+                }
+            )
+            + "\n"
+        )
+        output_path = tmp_path / "generated_only.jsonl"
+
+        result = runner.invoke(
+            cli,
+            [
+                "synthetic-data",
+                "--snapshot",
+                str(snapshot_path),
+                "--output",
+                str(output_path),
+                "--num-traces",
+                "1",
+                "--max-steps",
+                "1",
+                "--roles",
+                "red",
+                "--reward-threshold",
+                "-1",
+                "--bootstrap-traces",
+                str(bootstrap_path),
+                "--bootstrap-examples",
+                "1",
+                "--generated-only",
+                "--static-flags",
+            ],
+        )
+
+        assert result.exit_code == 0, result.output
+        records = [json.loads(line) for line in output_path.read_text().splitlines()]
+        assert len(records) == 1
+        assert records[0]["metadata"]["source"] == "open_range.synthetic"
 
 
 @pytest.mark.live_model

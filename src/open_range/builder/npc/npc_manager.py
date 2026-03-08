@@ -89,10 +89,11 @@ def _container_for_script(script_name: str, topology: dict[str, Any]) -> str:
 
 
 def _resolve_env_vars(topology: dict[str, Any], rate_lambda: float) -> dict[str, str]:
-    """Build environment variables by resolving roles from the topology.
+    """Build environment variables by resolving roles and credentials from topology.
 
-    Instead of hardcoding ``WEB_HOST=web``, this finds the host whose
-    services list contains web/nginx/etc and maps the role to its name.
+    Resolves host roles (WEB_HOST, DB_HOST, etc.) and credentials (DB_USER,
+    DB_PASS, SSH_USER, SSH_PASS) from the topology so shell scripts don't
+    need hardcoded values.
     """
     hosts = _hosts_from_topology(topology)
     env: dict[str, str] = {"RATE_LAMBDA": str(int(rate_lambda))}
@@ -102,6 +103,21 @@ def _resolve_env_vars(topology: dict[str, Any], rate_lambda: float) -> dict[str,
             if _host_matches_keywords(host, keywords):
                 env[role] = host["name"]
                 break
+
+    # Pass DB and SSH credentials from topology to shell scripts
+    users = topology.get("users", [])
+    for user in users:
+        if not isinstance(user, dict):
+            continue
+        hosts_list = user.get("hosts", [])
+        if "db" in hosts_list and "DB_USER" not in env:
+            env["DB_USER"] = user.get("username", "app_user")
+            env["DB_PASS"] = user.get("password", "AppUs3r!2024")
+        if any(h in hosts_list for h in ("web", "files", "ldap", "siem")):
+            role = user.get("role", "")
+            if role in ("admin", "sysadmin", "root") and "SSH_USER" not in env:
+                env["SSH_USER"] = user.get("username", "admin")
+                env["SSH_PASS"] = user.get("password", "Adm1n!2024")
 
     return env
 
@@ -127,10 +143,20 @@ def _derive_scripts_from_topology(topology: dict[str, Any]) -> list[str]:
 
 
 class NPCManager:
-    """Start and stop NPC background traffic for a snapshot."""
+    """Start and stop NPC background traffic for a snapshot.
 
-    def __init__(self, mock_mode: bool = False) -> None:
+    Args:
+        mock_mode: When True, skip Docker exec and LLM calls (unit tests).
+        model: LiteLLM model string for Level 1 NPC agents.
+            Defaults to ``OPENRANGE_NPC_MODEL`` env var, then
+            ``azure/gpt-5.2-codex``.  Any LiteLLM-supported model works
+            (e.g. ``openai/gpt-4o``, ``anthropic/claude-haiku-4-5-20251001``,
+            ``ollama/llama3``).
+    """
+
+    def __init__(self, mock_mode: bool = False, model: str | None = None) -> None:
         self._mock_mode = mock_mode
+        self._model = model  # passed to LLMNPCAgent
         self._processes: list[asyncio.subprocess.Process] = []
         self._tasks: list[asyncio.Task[Any]] = []
         self._running = False
@@ -261,9 +287,9 @@ class NPCManager:
             from open_range.builder.npc.npc_agent import LLMNPCAgent
 
             for persona in snapshot.npc_personas:
-                agent = LLMNPCAgent()
+                agent = LLMNPCAgent(model=self._model)
                 task = asyncio.create_task(
-                    agent.run_loop(persona, containers),
+                    agent.run_loop(persona, containers, snapshot),
                     name=f"npc_{persona.name}",
                 )
                 self._tasks.append(task)
@@ -354,8 +380,6 @@ class NPCManager:
 
         self._running = True
         self._containers = containers
-        npc_cfg = snapshot.npc_traffic
-
         # Re-initialise channels for the new episode
         self.channels = {
             "chat": ChatChannel(),

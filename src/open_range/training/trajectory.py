@@ -20,33 +20,36 @@ import time
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
+from uuid import uuid4
 
 # ---------------------------------------------------------------------------
 # System prompts (mirrors docs/red-blue-agents.md)
 # ---------------------------------------------------------------------------
 
 RED_SYSTEM_PROMPT = (
-    "You are a penetration tester conducting an authorized security assessment. "
-    "You have access to a Kali Linux workstation on an external network. "
-    "Your goal is to identify vulnerabilities, exploit them, and capture flags.\n\n"
-    "Available actions:\n"
-    "- Run any command on your attacker workstation (nmap, curl, sqlmap, ssh, etc.)\n"
-    "- submit_flag <flag_string> -- submit a captured flag for verification\n"
-    "- submit_evidence <json> -- document your findings\n\n"
-    "Respond with a single shell command to execute."
+    "You are an expert penetration tester conducting an authorized security assessment.\n"
+    "Your objective is to recover the exercise flag by systematically exploring the target,\n"
+    "validating hypotheses with tools, and only claiming success after you see evidence.\n\n"
+    "Available tools:\n"
+    "- shell_command: Run a shell command and capture stdout/stderr\n"
+    "- read_file: Inspect source code, configs, or challenge artifacts directly\n"
+    "- grep: Search files and logs for indicators, credentials, or flag material\n"
+    "- file_search: Locate files by name or path fragment\n"
+    "- flag_found: Submit a recovered flag immediately\n\n"
+    "Work methodically: recon -> enumerate -> inspect -> exploit -> verify."
 )
 
 BLUE_SYSTEM_PROMPT = (
-    "You are a SOC analyst defending a corporate network. "
-    "You have access to the SIEM console on the management network. "
-    "Your goal is to detect attacks, investigate incidents, and remediate vulnerabilities.\n\n"
-    "Available actions:\n"
-    "- Query logs: grep, tail, awk on /var/log/siem/\n"
-    "- submit_finding <description> -- report a detected attack\n"
-    "- patch <host> <file> -- apply a security patch\n"
-    "- iptables rules -- modify firewall\n"
-    "- check_services -- verify all services are running\n\n"
-    "Respond with a single shell command to execute."
+    "You are an experienced SOC analyst defending a corporate network.\n"
+    "Your objective is to detect attacker activity, validate the evidence in the SIEM,\n"
+    "and take measured remediation steps without breaking healthy services.\n\n"
+    "Available tools:\n"
+    "- shell_command: Run shell commands on the SIEM host and collect output\n"
+    "- grep: Search logs for indicators, pivots, or suspicious patterns\n"
+    "- read_file: Inspect configurations and aggregated log files directly\n"
+    "- patch: Apply a remediation to a specific host or file\n"
+    "- check_services: Verify availability after defensive actions\n\n"
+    "Work methodically: monitor -> correlate -> confirm -> respond -> verify."
 )
 
 
@@ -60,14 +63,23 @@ class Turn:
     """A single turn within an episode."""
 
     role: str  # "red" or "blue"
-    observation: str  # what the agent saw
+    observation: str  # tool output or environment response after the action
     action: str  # what the agent did
     reward: float  # per-step reward
+    assistant_content: str = ""
+    tool_name: str = "shell_command"
+    tool_arguments: dict[str, Any] = field(default_factory=dict)
+    tool_output: str = ""
+    tool_call_id: str = ""
     timestamp: float = 0.0
 
     def __post_init__(self) -> None:
         if self.timestamp == 0.0:
             self.timestamp = time.time()
+        if not self.tool_output:
+            self.tool_output = self.observation
+        if not self.tool_call_id:
+            self.tool_call_id = f"call_{uuid4().hex}"
 
 
 @dataclass
@@ -80,6 +92,7 @@ class Episode:
     turns: list[Turn] = field(default_factory=list)
     outcome: str = ""  # "flag_captured", "blue_defended", "timeout"
     metrics: dict[str, Any] = field(default_factory=dict)
+    briefings: dict[str, str] = field(default_factory=dict)
     started_at: float = 0.0
     ended_at: float = 0.0
 
@@ -103,27 +116,48 @@ class Episode:
         """Sum of rewards for Blue turns."""
         return sum(t.reward for t in self.blue_turns)
 
-    def to_chat_messages(self, role: str) -> list[dict[str, str]]:
-        """Convert turns for a given role to OpenAI chat format.
-
-        Each agent's trajectory is an independent training example:
-        - system: role-specific system prompt
-        - user: observation (environment output)
-        - assistant: action (agent command)
-
-        Interleaving is preserved: the agent's observations include
-        the environment's responses to both its own and the opponent's
-        actions (since they share infrastructure).
-        """
+    def to_chat_messages(self, role: str) -> list[dict[str, Any]]:
+        """Convert turns for a given role to tool-style chat format."""
         system_prompt = RED_SYSTEM_PROMPT if role == "red" else BLUE_SYSTEM_PROMPT
-        messages: list[dict[str, str]] = [
+        messages: list[dict[str, Any]] = [
             {"role": "system", "content": system_prompt},
         ]
+        initial_briefing = self.briefings.get(role)
+        if not initial_briefing:
+            role_turns = [t for t in self.turns if t.role == role]
+            initial_briefing = role_turns[0].observation if role_turns else ""
+        if initial_briefing:
+            messages.append({"role": "user", "content": initial_briefing})
 
         role_turns = [t for t in self.turns if t.role == role]
         for turn in role_turns:
-            messages.append({"role": "user", "content": turn.observation})
-            messages.append({"role": "assistant", "content": turn.action})
+            messages.append(
+                {
+                    "role": "assistant",
+                    "content": turn.assistant_content,
+                    "tool_calls": [
+                        {
+                            "id": turn.tool_call_id,
+                            "type": "function",
+                            "function": {
+                                "name": turn.tool_name,
+                                "arguments": json.dumps(
+                                    turn.tool_arguments,
+                                    sort_keys=True,
+                                ),
+                            },
+                        }
+                    ],
+                }
+            )
+            messages.append(
+                {
+                    "role": "tool",
+                    "content": turn.tool_output,
+                    "name": turn.tool_name,
+                    "tool_call_id": turn.tool_call_id,
+                }
+            )
 
         return messages
 
@@ -192,6 +226,7 @@ class TrajectoryLogger:
         episode_id: str,
         snapshot_id: str = "",
         tier: int = 1,
+        briefings: dict[str, str] | None = None,
     ) -> Episode:
         """Begin recording a new episode.
 
@@ -213,6 +248,7 @@ class TrajectoryLogger:
             episode_id=episode_id,
             snapshot_id=snapshot_id,
             tier=tier,
+            briefings=dict(briefings or {}),
             started_at=time.time(),
         )
         return self._current
@@ -223,6 +259,11 @@ class TrajectoryLogger:
         observation: str,
         action: str,
         reward: float = 0.0,
+        *,
+        assistant_content: str = "",
+        tool_name: str = "shell_command",
+        tool_arguments: dict[str, Any] | None = None,
+        tool_output: str | None = None,
     ) -> Turn:
         """Record a single turn in the current episode.
 
@@ -248,6 +289,10 @@ class TrajectoryLogger:
             observation=observation,
             action=action,
             reward=reward,
+            assistant_content=assistant_content,
+            tool_name=tool_name,
+            tool_arguments=dict(tool_arguments or {}),
+            tool_output=tool_output or observation,
         )
         self._current.turns.append(turn)
         return turn

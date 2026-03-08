@@ -66,6 +66,15 @@ uv run openrange synthetic-data \
   --output data/sft_red.jsonl \
   --roles red
 
+# Merge local bootstrap traces and tool context into generated output
+uv run openrange synthetic-data \
+  --manifest manifests/tier1_basic.yaml \
+  --output data/synthetic_sft_5.jsonl \
+  --num-traces 5 \
+  --roles red \
+  --bootstrap-traces data/sft.jsonl \
+  --tool-info data/tool_info.md
+
 # Run the OpenEnv client against a running server
 uv run python examples/remote_client_demo.py --base-url http://localhost:8000
 
@@ -103,6 +112,18 @@ The deployed package exposes the standard OpenEnv `reset()`, `step()`, and `stat
 | Efficiency (`gamma^steps`) | Patch validity (re-run exploit, must fail) |
 | Stealth (inversely coupled to Blue detection) | Availability (healthcheck fraction) |
 | Anti-hallucination (-0.3 per fake flag) | False positive penalty (-0.2 per NPC flagged) |
+
+**NPC Traffic** — Background noise and social engineering surface. Two levels:
+
+- **Level 0** (shell scripts): `http_traffic.sh`, `db_traffic.sh`, `ssh_traffic.sh` generate benign traffic that Blue must filter from real attacks. Scripts discover targets dynamically (available pages, databases, tables) — no hardcoded endpoints.
+- **Level 1** (LLM agents): Each NPC persona runs an autonomous workday via LiteLLM — browsing pages, sending emails, querying databases, accessing file shares. NPCs also react to incoming stimuli (phishing emails) based on their `security_awareness` profile.
+
+All NPC actions are derived from the `SnapshotSpec` at runtime (pages, shares, tables, credentials, domain), so they generalize to any Builder-generated environment. NPC logs carry structured fields (`type`, `label`, `source`, `result`) that couple directly to Red/Blue reward signals.
+
+Configure the NPC model via environment variable:
+```bash
+export OPENRANGE_NPC_MODEL="azure/gpt-5.2-codex"  # or openai/gpt-4o, anthropic/claude-haiku-4-5-20251001, ollama/llama3
+```
 
 **Agents** — Structural protocol: any object with `reset(briefing, role)` and `act(observation) -> command` works. Ships with `LLMRangeAgent` (litellm, any provider), `ScriptedAgent`, and `HumanAgent`.
 

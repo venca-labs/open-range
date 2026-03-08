@@ -220,6 +220,10 @@ def build(
 @click.option("--teacher-model", default=None, help="LiteLLM teacher model. If omitted, selected roles use scripted agents.")
 @click.option("--red-model", default=None, help="Override model for Red teacher.")
 @click.option("--blue-model", default=None, help="Override model for Blue teacher.")
+@click.option("--bootstrap-traces", multiple=True, type=click.Path(exists=True), help="Existing SFT JSONL files to merge into the output.")
+@click.option("--bootstrap-examples", default=0, type=click.IntRange(0), help="How many bootstrap traces to inject as few-shot examples per generated role.")
+@click.option("--merge-bootstrap/--generated-only", default=True, help="Merge bootstrap traces into the output file, or emit only newly generated records.")
+@click.option("--tool-info", multiple=True, type=click.Path(exists=True), help="Text, JSON, or YAML tool catalog file to append to generated system prompts.")
 @click.option("--temperature", default=0.2, type=float, help="Teacher sampling temperature.")
 @click.option("--max-tokens", default=512, type=int, help="Maximum completion tokens per teacher action.")
 @click.option("--template-only/--llm-builder", default=True, help="When using --manifest, build snapshots deterministically instead of via LLM.")
@@ -238,6 +242,10 @@ def synthetic_data(
     teacher_model: str | None,
     red_model: str | None,
     blue_model: str | None,
+    bootstrap_traces: tuple[str, ...],
+    bootstrap_examples: int,
+    merge_bootstrap: bool,
+    tool_info: tuple[str, ...],
     temperature: float,
     max_tokens: int,
     template_only: bool,
@@ -249,6 +257,13 @@ def synthetic_data(
         SyntheticTraceGenerator,
         build_teacher_agents,
     )
+    from open_range.training.dataset import (
+        append_tool_context,
+        extract_bootstrap_messages,
+        load_jsonl_records,
+        load_tool_context,
+        write_jsonl_records,
+    )
 
     if bool(manifest) == bool(snapshot):
         click.echo("Error: provide exactly one of --manifest or --snapshot.", err=True)
@@ -259,11 +274,25 @@ def synthetic_data(
         teacher_model
         or os.environ.get("OPENRANGE_SYNTH_MODEL")
     )
+    bootstrap_records = load_jsonl_records(bootstrap_traces) if bootstrap_traces else []
+    tool_context = load_tool_context(tool_info) if tool_info else ""
     red_agent, blue_agent = build_teacher_agents(
         teacher_model=resolved_teacher_model,
         roles=selected_roles,
         red_model=red_model,
         blue_model=blue_model,
+        red_bootstrap_messages=extract_bootstrap_messages(
+            bootstrap_records,
+            role="red",
+            limit=bootstrap_examples,
+        ),
+        blue_bootstrap_messages=extract_bootstrap_messages(
+            bootstrap_records,
+            role="blue",
+            limit=bootstrap_examples,
+        ),
+        red_system_suffix=tool_context,
+        blue_system_suffix=tool_context,
         temperature=temperature,
         max_tokens=max_tokens,
     )
@@ -274,6 +303,7 @@ def synthetic_data(
             snapshot=_load_snapshot(snapshot),
             red_agent=red_agent,
             blue_agent=blue_agent,
+            active_roles=selected_roles,
             tier=tier,
             max_steps=max_steps,
             randomize_flags=randomize_flags,
@@ -284,6 +314,7 @@ def synthetic_data(
             _load_manifest(str(manifest)),
             red_agent=red_agent,
             blue_agent=blue_agent,
+            active_roles=selected_roles,
             template_only=template_only,
             builder_model=builder_model,
             tier=tier,
@@ -307,18 +338,38 @@ def synthetic_data(
         + (", ".join(teacher_roles) if teacher_roles else "none (scripted fallbacks)")
     )
     try:
-        logger, count = generator.export_jsonl(
-            output,
+        logger = generator.generate(
             num_traces=num_traces,
             seed=seed,
+        )
+        generated_records = logger.to_records(
             reward_threshold=reward_threshold,
             roles=selected_roles,
         )
+        if tool_context:
+            generated_records = append_tool_context(
+                generated_records,
+                tool_context,
+            )
+
+        records_to_write = [*bootstrap_records, *generated_records] if merge_bootstrap else generated_records
+        count = write_jsonl_records(output, records_to_write)
+        generated_count = len(generated_records)
+        bootstrap_count = len(bootstrap_records)
     except Exception as exc:
         click.echo(f"Error: synthetic data generation failed: {exc}", err=True)
         sys.exit(1)
 
     click.echo(f"Wrote {count} JSONL records to {output}")
+    click.echo(f"  Generated records: {generated_count}")
+    if bootstrap_traces and merge_bootstrap:
+        click.echo(f"  Bootstrap records: {bootstrap_count}")
+    elif bootstrap_traces:
+        click.echo(f"  Bootstrap records loaded for prompting only: {bootstrap_count}")
+    if bootstrap_examples:
+        click.echo(f"  Few-shot bootstrap examples per role: {bootstrap_examples}")
+    if tool_info:
+        click.echo(f"  Tool catalogs applied: {len(tool_info)}")
     click.echo(f"  Episodes: {len(logger.episodes)}")
     click.echo(f"  Randomized flags: {'yes' if randomize_flags else 'no'}")
 
@@ -531,6 +582,123 @@ def deploy(snapshot: str, compose_dir: str | None) -> None:
             click.echo(ps.stdout)
     except Exception:
         pass  # Non-critical
+
+
+# ---------------------------------------------------------------------------
+# episode
+# ---------------------------------------------------------------------------
+
+
+@cli.command()
+@click.option("-s", "--snapshot", required=True, type=click.Path(exists=True), help="Path to snapshot JSON.")
+@click.option("--mode", default="red", type=click.Choice(["red", "blue", "both"]), help="Agent role(s) to play.")
+@click.option("--golden-path", "golden", is_flag=True, default=False, help="Replay golden path steps (Red only).")
+@click.option("--interactive", is_flag=True, default=False, help="Interactive mode (read commands from stdin).")
+@click.option("--docker/--no-docker", default=False, help="Use Docker containers (default: mock mode).")
+@click.option("--max-steps", default=50, type=click.IntRange(1), help="Maximum steps per episode.")
+def episode(
+    snapshot: str,
+    mode: str,
+    golden: bool,
+    interactive: bool,
+    docker: bool,
+    max_steps: int,
+) -> None:
+    """Run an episode against a snapshot.
+
+    Golden-path mode replays the snapshot's golden path commands as Red.
+    Interactive mode reads commands from stdin. Default runs golden path
+    if available, otherwise enters interactive mode.
+
+    \b
+    Examples:
+        openrange episode -s snapshots/spec.json --golden-path
+        openrange episode -s snapshots/spec.json --interactive --mode both
+    """
+    from open_range.server.environment import RangeEnvironment
+    from open_range.server.models import RangeAction
+
+    spec = _load_snapshot(snapshot)
+
+    env = RangeEnvironment(docker_available=docker, max_steps=max_steps)
+    obs = env.reset(snapshot=spec, episode_id="cli-episode")
+    click.echo(f"[RESET] {obs.stdout[:200]}")
+    click.echo()
+
+    if golden or (not interactive and spec.golden_path):
+        # Golden path replay
+        if not spec.golden_path:
+            click.echo("Error: snapshot has no golden path steps.", err=True)
+            sys.exit(1)
+
+        click.echo(f"Replaying {len(spec.golden_path)} golden path steps ...\n")
+        for gp in spec.golden_path:
+            action = RangeAction(command=gp.command, mode="red")
+            result = env.step(action)
+            reward = result.reward if result.reward is not None else 0.0
+
+            status = ""
+            if result.flags_captured:
+                status = f" FLAGS={result.flags_captured}"
+            if result.done:
+                status += " [DONE]"
+
+            click.echo(f"  [{gp.step:2d}] RED >> {gp.command[:80]}")
+            if docker:
+                stdout_preview = result.stdout[:120].replace("\n", " ")
+                click.echo(f"       stdout: {stdout_preview}")
+            else:
+                click.echo(f"       expect: {gp.expect_in_stdout[:60]}")
+            click.echo(f"       reward={reward:.4f}{status}")
+
+            if result.done:
+                break
+
+    elif interactive:
+        # Interactive REPL
+        click.echo("Interactive mode. Type commands, Ctrl-D to exit.\n")
+        current_mode = mode if mode != "both" else "red"
+        try:
+            while True:
+                prompt = f"[{current_mode.upper()}] >> "
+                try:
+                    cmd = input(prompt)
+                except EOFError:
+                    break
+                if not cmd.strip():
+                    continue
+                if cmd.strip() == "/switch" and mode == "both":
+                    current_mode = "blue" if current_mode == "red" else "red"
+                    click.echo(f"Switched to {current_mode.upper()}")
+                    continue
+
+                action = RangeAction(command=cmd, mode=current_mode)
+                result = env.step(action)
+                if result.stdout:
+                    click.echo(result.stdout)
+                if result.stderr:
+                    click.echo(result.stderr, err=True)
+                reward = result.reward if result.reward is not None else 0.0
+                click.echo(f"[reward={reward:.4f}]")
+                if result.done:
+                    click.echo("[EPISODE DONE]")
+                    break
+        except KeyboardInterrupt:
+            click.echo("\nInterrupted.")
+    else:
+        click.echo("No golden path and --interactive not set. Use --interactive for manual play.", err=True)
+        sys.exit(1)
+
+    # Print final state
+    state = env.state
+    click.echo(f"\n{'='*60}")
+    click.echo(f"  RESULT")
+    click.echo(f"{'='*60}")
+    click.echo(f"  Steps:       {state.step_count}")
+    click.echo(f"  Flags found: {state.flags_found}")
+    click.echo(f"  Tier:        {state.tier}")
+    click.echo(f"  Episode:     {state.episode_id}")
+    click.echo(f"{'='*60}")
 
 
 # ---------------------------------------------------------------------------

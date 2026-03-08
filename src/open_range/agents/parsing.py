@@ -83,3 +83,43 @@ def extract_command(text: str) -> str:
         return first
 
     return stripped
+
+
+def strip_command_from_response(text: str, command: str) -> str:
+    """Remove the extracted command from an LLM response, preserving reasoning.
+
+    This is best-effort. It handles the response patterns encouraged by the
+    synthetic-data prompts:
+    - fenced code blocks
+    - ``Command: ...`` lines
+    - a trailing bare command line
+    """
+    if not text:
+        return ""
+
+    stripped = text.strip()
+    if not command:
+        return stripped
+
+    command_pattern = re.escape(command.strip())
+
+    # Remove fenced blocks that only contain the command.
+    stripped = re.sub(
+        rf"```(?:bash|sh|shell|zsh)?\s*\n\s*{command_pattern}\s*```",
+        "",
+        stripped,
+        flags=re.IGNORECASE | re.DOTALL,
+    ).strip()
+
+    # Remove explicit "Command:" lines.
+    stripped = re.sub(
+        rf"(?im)^\s*(?:command|run|execute|cmd)\s*:\s*{command_pattern}\s*$",
+        "",
+        stripped,
+    ).strip()
+
+    # Remove a trailing bare command line.
+    lines = stripped.splitlines()
+    if lines and lines[-1].strip().strip("`") == command.strip():
+        lines = lines[:-1]
+    return "\n".join(lines).strip()

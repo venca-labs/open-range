@@ -23,7 +23,7 @@ import time
 from typing import TYPE_CHECKING, Any
 from uuid import uuid4
 
-from open_range.protocols import SnapshotSpec, TaskSpec
+from open_range.protocols import ServiceSpec, SnapshotSpec, TaskSpec
 
 from open_range.server.models import RangeAction, RangeObservation, RangeState
 
@@ -209,15 +209,19 @@ class RangeEnvironment(_BASE):  # type: ignore[misc]
         if self._execution_mode == "subprocess":
             return host
 
-        # In unit-test mock mode, return the bare hostname for compatibility
+        # In unit-test mock mode or when no containers are running,
+        # return the bare hostname.  Execution will fail gracefully
+        # (docker exec won't find the container → stderr returned).
         if self._docker_available is False and self._execution_mode == "docker":
             return host
 
-        raise RuntimeError(
-            f"Cannot resolve container for host '{host}'. "
-            f"No compose config, no running container found, and no mock mode active. "
-            f"Ensure Docker is running or provide a snapshot with compose configuration."
+        # Docker is reachable but no matching container exists — return bare
+        # hostname so the exec layer can report the error in the observation
+        # instead of crashing the API.
+        logger.debug(
+            "No running container found for host '%s'; returning bare name", host
         )
+        return host
 
     def _exec_via_subprocess(self, host: str, command: str, timeout: float = 30.0) -> tuple[str, str]:
         """Execute a command via local subprocess (all-in-one container mode).
@@ -636,6 +640,43 @@ class RangeEnvironment(_BASE):  # type: ignore[misc]
     # NPC lifecycle
     # -----------------------------------------------------------------
 
+    def _build_container_set(self) -> "ContainerSet | None":
+        """Build a ContainerSet from running Docker containers.
+
+        Returns None when Docker is unavailable or no containers are found.
+        """
+        from open_range.protocols import ContainerSet
+
+        client = self._get_docker()
+        if client is None:
+            return None
+
+        container_ids: dict[str, str] = {}
+        try:
+            for container in client.containers.list():
+                name = container.name
+                # Map service name to container id (open-range-web-1 → web)
+                for suffix in ("-1",):
+                    if name.endswith(suffix):
+                        svc = name.rsplit("-", 1)[0]  # open-range-web
+                        svc = svc.rsplit("-", 1)[-1]   # web
+                        container_ids[svc] = name
+                        break
+                else:
+                    container_ids[name] = name
+        except Exception as exc:
+            logger.debug("Container discovery failed: %s", exc)
+            return None
+
+        if not container_ids:
+            return None
+
+        project = "open-range"
+        if self._snapshot and self._snapshot.compose:
+            project = self._snapshot.compose.get("x-project-name", project)
+
+        return ContainerSet(project_name=project, container_ids=container_ids)
+
     def _start_npcs(self, snapshot: SnapshotSpec) -> None:
         """Start NPC traffic generators for the current episode.
 
@@ -650,19 +691,24 @@ class RangeEnvironment(_BASE):  # type: ignore[misc]
             from open_range.builder.npc.npc_manager import NPCManager
 
             mock = (self._docker_available is False) or (self._execution_mode != "docker")
-            mgr = NPCManager(mock_mode=mock)
+            npc_model = os.environ.get("OPENRANGE_NPC_MODEL")
+            mgr = NPCManager(mock_mode=mock, model=npc_model)
             self._npc_manager = mgr
 
+            # Build ContainerSet for live Docker mode
+            containers = None if mock else self._build_container_set()
+
             # Start synchronously (NPCManager.start_sync handles mock vs live)
-            mgr.start_sync(snapshot)
+            mgr.start_sync(snapshot, containers)
 
             # Seed the traffic log immediately from chat traffic generated at
             # start time so that Blue has NPC noise from step 1.
             self._refresh_npc_traffic_log()
 
             logger.info(
-                "NPC manager started (mock=%s, personas=%d)",
+                "NPC manager started (mock=%s, containers=%s, personas=%d)",
                 mock,
+                bool(containers),
                 len(snapshot.npc_personas or []),
             )
         except Exception as exc:

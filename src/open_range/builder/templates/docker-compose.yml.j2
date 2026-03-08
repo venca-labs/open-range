@@ -110,7 +110,7 @@ services:
   mail:
     image: namshi/smtp:latest
     environment:
-      - MAILNAME={{ domain | default('meridianhealth.local') }}
+      - MAILNAME={{ domain | default('corp.local') }}
     volumes:
       - shared_logs:/var/log/mail
     networks:
@@ -125,9 +125,9 @@ services:
     command: --default-authentication-plugin=mysql_native_password
     environment:
       - MYSQL_ROOT_PASSWORD={{ mysql_root_password | default('r00tP@ss!') }}
-      - MYSQL_DATABASE=referral_db
-      - MYSQL_USER=app_user
-      - MYSQL_PASSWORD=AppUs3r!2024
+      - MYSQL_DATABASE={{ db_name | default('app_db') }}
+      - MYSQL_USER={{ db_user | default('app_user') }}
+      - MYSQL_PASSWORD={{ db_password | default('AppUs3r!2024') }}
     volumes:
       - db_data:/var/lib/mysql
       - shared_logs:/var/log/mysql
@@ -144,11 +144,10 @@ services:
   files:
     image: dperson/samba:latest
     environment:
-      - USER=smbuser;smbP@ss!
-      - SHARE=general;/srv/shares/general;yes;no;no;smbuser
-      - SHARE2=hr;/srv/shares/hr;yes;no;no;smbuser
-      - SHARE3=compliance;/srv/shares/compliance;yes;no;no;smbuser
-      - SHARE4=contracts;/srv/shares/contracts;yes;no;no;smbuser
+      - USER={{ smb_user | default('smbuser') }};{{ smb_password | default('smbP@ss!') }}
+{%- for share in smb_shares | default(['general', 'hr', 'compliance', 'contracts']) %}
+      - SHARE{{ loop.index if loop.index > 1 else '' }}={{ share }};/srv/shares/{{ share }};yes;no;no;{{ smb_user | default('smbuser') }}
+{%- endfor %}
     volumes:
       - shared_logs:/var/log/samba
     networks:
@@ -159,8 +158,8 @@ services:
   ldap:
     image: osixia/openldap:latest
     environment:
-      - LDAP_ORGANISATION={{ org_name | default('MeridianHealth') }}
-      - LDAP_DOMAIN={{ domain | default('meridianhealth.local') }}
+      - LDAP_ORGANISATION={{ org_name | default('Corp') }}
+      - LDAP_DOMAIN={{ domain | default('corp.local') }}
       - LDAP_ADMIN_PASSWORD={{ ldap_admin_pass | default('LdapAdm1n!') }}
     volumes:
       - shared_logs:/var/log/ldap

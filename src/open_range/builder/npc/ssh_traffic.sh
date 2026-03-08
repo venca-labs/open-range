@@ -31,9 +31,9 @@ COMMANDS=(
     "w"
 )
 
-# Credentials for benign SSH sessions
-SSH_USER="admin"
-SSH_PASS="Adm1n!2024"
+# Credentials for benign SSH sessions -- resolved from env or defaults
+SSH_USER="${SSH_USER:-admin}"
+SSH_PASS="${SSH_PASS:-Adm1n!2024}"
 
 HOSTS=("${WEB_HOST}" "${DB_HOST}")
 

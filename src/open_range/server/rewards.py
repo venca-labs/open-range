@@ -243,7 +243,8 @@ class CompositeRedReward:
         }
         evidence_score = self.evidence.score(evidence_content, topo_hosts)
 
-        # Social engineering
+        # Social engineering -- reactive NPC actions from send_phish or
+        # agent loop stimulus reactions (type=social_engineering, result=success/blocked)
         social_successes = [
             e for e in npc_log
             if e.get("type") == "social_engineering" and e.get("result") == "success"

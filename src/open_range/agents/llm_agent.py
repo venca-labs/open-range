@@ -9,6 +9,7 @@ Works with any LiteLLM-supported provider:
 
 from __future__ import annotations
 
+import copy
 from typing import Any, Literal
 
 from open_range.agents.observation import format_observation
@@ -34,23 +35,34 @@ class LLMRangeAgent:
         model: str = "anthropic/claude-sonnet-4-20250514",
         temperature: float | None = 0.3,
         max_tokens: int = 512,
+        bootstrap_messages: list[dict[str, Any]] | None = None,
+        system_suffix: str = "",
         **litellm_kwargs: Any,
     ) -> None:
         self.model = model
         self.temperature = temperature
         self.max_tokens = max_tokens
+        self.bootstrap_messages = copy.deepcopy(bootstrap_messages or [])
+        self.system_suffix = system_suffix.strip()
         self.litellm_kwargs = litellm_kwargs
-        self.messages: list[dict[str, str]] = []
+        self.messages: list[dict[str, Any]] = []
         self.role: str = "red"
+        self.last_response_text: str = ""
+        self.last_command: str = ""
 
     def reset(self, briefing: str, role: Literal["red", "blue"]) -> None:
         """Initialize conversation history with role-specific system prompt."""
         self.role = role
         system = RED_SYSTEM_PROMPT if role == "red" else BLUE_SYSTEM_PROMPT
+        if self.system_suffix:
+            system = f"{system}\n\n{self.system_suffix}"
         self.messages = [
             {"role": "system", "content": system},
-            {"role": "user", "content": briefing},
         ]
+        self.messages.extend(copy.deepcopy(self.bootstrap_messages))
+        self.messages.append({"role": "user", "content": briefing})
+        self.last_response_text = ""
+        self.last_command = ""
 
     def act(self, observation: Any) -> str:
         """Call the LLM with the conversation history and return a command.
@@ -81,5 +93,6 @@ class LLMRangeAgent:
         response = litellm.completion(**kwargs)
         text = response.choices[0].message.content.strip()
         self.messages.append({"role": "assistant", "content": text})
-
-        return extract_command(text)
+        self.last_response_text = text
+        self.last_command = extract_command(text)
+        return self.last_command

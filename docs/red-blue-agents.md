@@ -688,7 +688,7 @@ agents/
 ├── __init__.py           # Public API (re-exports all key symbols)
 ├── protocol.py           # RangeAgent protocol + EpisodeResult + EpisodeMetrics dataclasses
 ├── llm_agent.py          # LLMRangeAgent (LiteLLM -- any model)
-├── scripted_agent.py     # ScriptedAgent, ScriptedRedAgent, ScriptedBlueAgent (demo/test)
+├── replay_agent.py       # ScriptedAgent, ScriptedRedAgent, ScriptedBlueAgent (demo/test)
 ├── human_agent.py        # HumanAgent (interactive terminal)
 ├── prompts.py            # RED_SYSTEM_PROMPT, BLUE_SYSTEM_PROMPT
 ├── parsing.py            # extract_command() -- pull command from LLM text

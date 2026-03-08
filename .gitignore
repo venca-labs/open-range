@@ -53,6 +53,9 @@ IMPLEMENTATION_PLAN.md
 .coverage
 htmlcov/
 
+# Synthetic data outputs
+data/synthetic*.jsonl
+
 # Pre-validated range pool (generated at startup)
 pool/
 snapshots/

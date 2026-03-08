@@ -2,7 +2,7 @@
 
 Covers:
 - RangeAgent protocol compliance for all agent types
-- ScriptedAgent command replay and fallback
+- replay-agent command replay and fallback
 - extract_command parsing of various LLM output formats
 - run_episode orchestration with a mocked environment
 - evaluate harness with multiple episodes
@@ -19,7 +19,7 @@ from open_range.agents.protocol import (
     RangeAgent,
 )
 from open_range.agents.parsing import extract_command
-from open_range.agents.scripted_agent import (
+from open_range.agents.replay_agent import (
     ScriptedAgent,
     ScriptedBlueAgent,
     ScriptedRedAgent,
@@ -488,7 +488,7 @@ class TestResolveAgents:
         from open_range.resolve import resolve_component
 
         agent = resolve_component(
-            "open_range.agents.scripted_agent.ScriptedAgent",
+            "open_range.agents.replay_agent.ScriptedAgent",
             {"commands": ["echo test"]},
             RangeAgent,
         )

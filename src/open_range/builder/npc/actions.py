@@ -20,8 +20,9 @@ logger = logging.getLogger(__name__)
 class NPCActionExecutor:
     """Execute NPC actions inside Docker containers.
 
-    At init, extracts available pages, shares, DB tables, and users from
-    the snapshot so every action targets real resources in this environment.
+    At init, extracts available pages, shares, DB tables, users, and
+    credentials from the snapshot so every action targets real resources
+    in this environment.
     """
 
     def __init__(self, containers: ContainerSet, snapshot: SnapshotSpec) -> None:
@@ -32,6 +33,8 @@ class NPCActionExecutor:
         self._db_tables = _extract_db_tables(snapshot)
         self._users = _extract_users(snapshot)
         self._domain = snapshot.topology.get("domain", "corp.local")
+        self._db_creds = _extract_db_credentials(snapshot)
+        self._ssh_creds = _extract_ssh_credentials(snapshot)
 
     # ------------------------------------------------------------------
     # Routine actions (autonomous workday)
@@ -146,9 +149,11 @@ class NPCActionExecutor:
             query = f"SELECT * FROM {table} LIMIT 5"
         else:
             query = "SHOW TABLES"
+        db_user, db_pass = self._db_creds
+        cred_flag = f"-u {db_user} -p'{db_pass}'" if db_pass else f"-u {db_user}"
         await self.containers.exec(
             "db",
-            f'mysql -u app_user -p\'AppUs3r!2024\' -e "{query}" 2>/dev/null || true',
+            f'mysql {cred_flag} -e "{query}" 2>/dev/null || true',
         )
         return _log(persona, "query_db", detail or f"Queried {target or 'database'}", "db:query_log")
 
@@ -184,7 +189,7 @@ class NPCActionExecutor:
             "web",
             f'curl -s -o /dev/null -A "Mozilla/5.0 ({username})" "{url}"',
         )
-        return _log(persona, "click_link", f"Clicked: {url}", "web:access_log")
+        return _se_log(persona, "click_link", f"Clicked: {url}", "web:access_log", result="success")
 
     async def _react_email(self, persona: NPCPersona, action: NPCAction) -> dict[str, Any]:
         username = _username_from_persona(persona)
@@ -196,7 +201,7 @@ class NPCActionExecutor:
             f"&& echo 'From: {username}@{self._domain}\\nSubject: Re\\n\\n{body}' "
             f"> /var/mail/{username}/sent_{ts_i}.eml",
         )
-        return _log(persona, action.action, "Replied to message", "mail:spool")
+        return _se_log(persona, action.action, "Replied to message", "mail:spool", result="success")
 
     async def _react_share_creds(self, persona: NPCPersona, action: NPCAction) -> dict[str, Any]:
         username = _username_from_persona(persona)
@@ -216,7 +221,7 @@ class NPCActionExecutor:
             f'echo "[$(date)] CRED-LEAK: {persona.name} shared credentials" '
             f">> /var/log/siem/consolidated/all.log",
         )
-        return _log(persona, "share_credentials", f"{persona.name} leaked credentials", "web+siem")
+        return _se_log(persona, "share_credentials", f"{persona.name} leaked credentials", "web+siem", result="success")
 
     async def _react_report(self, persona: NPCPersona, action: NPCAction) -> dict[str, Any]:
         detail = "; ".join(action.side_effects) if action.side_effects else "suspicious activity"
@@ -225,10 +230,10 @@ class NPCActionExecutor:
             f'echo "[$(date)] NPC-REPORT: {persona.name}: {detail}" '
             f">> /var/log/siem/consolidated/all.log",
         )
-        return _log(persona, "report_to_IT", detail, "siem:alert")
+        return _se_log(persona, "report_to_IT", detail, "siem:alert", result="blocked")
 
     async def _react_ignore(self, persona: NPCPersona, action: NPCAction) -> dict[str, Any]:
-        return _log(persona, "ignore", "Ignored stimulus", "none")
+        return _se_log(persona, "ignore", "Ignored stimulus", "none", result="blocked")
 
 
 # ---------------------------------------------------------------------------
@@ -237,17 +242,22 @@ class NPCActionExecutor:
 
 
 def _extract_web_pages(snapshot: SnapshotSpec) -> list[str]:
-    """Extract URL paths from snapshot files dict (web:*.php -> /path)."""
+    """Extract URL paths from snapshot files dict (web:*.php -> /path).
+
+    Handles arbitrary doc roots by stripping any ``/var/www/<app>/`` prefix
+    to produce URL paths.
+    """
     pages: list[str] = []
     for key in snapshot.files:
         if not key.startswith("web:"):
             continue
         path = key.split(":", 1)[1]
-        # Convert filesystem path to URL path
-        if "/var/www/" in path and path.endswith(".php"):
-            url_path = path.replace("/var/www/portal", "").replace("/var/www/html", "")
-            if url_path:
-                pages.append(url_path)
+        if not path.endswith((".php", ".html", ".htm")):
+            continue
+        # Strip doc root: /var/www/<anything>/ -> /
+        url_path = re.sub(r"^/var/www/[^/]+", "", path)
+        if url_path:
+            pages.append(url_path)
     return pages or ["/"]
 
 
@@ -287,6 +297,38 @@ def _extract_users(snapshot: SnapshotSpec) -> list[str]:
     return [u["username"] for u in users if isinstance(u, dict) and "username" in u]
 
 
+def _extract_db_credentials(snapshot: SnapshotSpec) -> tuple[str, str]:
+    """Extract DB credentials from topology users. Fallback to defaults."""
+    users = snapshot.topology.get("users", [])
+    for user in users:
+        if not isinstance(user, dict):
+            continue
+        hosts = user.get("hosts", [])
+        if "db" in hosts:
+            return user.get("username", "app_user"), user.get("password", "")
+    return "app_user", "AppUs3r!2024"
+
+
+def _extract_ssh_credentials(snapshot: SnapshotSpec) -> tuple[str, str]:
+    """Extract SSH admin credentials from topology users. Fallback to defaults."""
+    users = snapshot.topology.get("users", [])
+    # First pass: look for explicit admin roles
+    for user in users:
+        if not isinstance(user, dict):
+            continue
+        role = user.get("role", "")
+        if role in ("admin", "sysadmin", "root"):
+            return user.get("username", "admin"), user.get("password", "")
+    # Second pass: look for users on SSH-accessible hosts
+    for user in users:
+        if not isinstance(user, dict):
+            continue
+        hosts = user.get("hosts", [])
+        if any(h in hosts for h in ("web", "files", "ldap", "siem")):
+            return user.get("username", "admin"), user.get("password", "")
+    return "admin", "Adm1n!2024"
+
+
 def _username_from_persona(persona: NPCPersona) -> str:
     email = persona.accounts.get("email", "")
     if "@" in email:
@@ -295,12 +337,36 @@ def _username_from_persona(persona: NPCPersona) -> str:
 
 
 def _log(persona: NPCPersona, action: str, detail: str, source: str) -> dict[str, Any]:
+    """Log a routine (benign) NPC action."""
     return {
         "timestamp": time.time(),
         "type": f"npc_{action}",
+        "label": "benign",
         "persona": persona.name,
         "department": persona.department,
         "action": action,
         "detail": detail,
         "source": source,
+    }
+
+
+def _se_log(
+    persona: NPCPersona,
+    action: str,
+    detail: str,
+    source: str,
+    *,
+    result: str = "unknown",
+) -> dict[str, Any]:
+    """Log a social-engineering reactive NPC action for reward coupling."""
+    return {
+        "timestamp": time.time(),
+        "type": "social_engineering",
+        "label": "reactive",
+        "persona": persona.name,
+        "department": persona.department,
+        "action": action,
+        "detail": detail,
+        "source": source,
+        "result": result,
     }

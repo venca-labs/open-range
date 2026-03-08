@@ -18,7 +18,7 @@ from __future__ import annotations
 
 from typing import Literal
 
-from open_range.agents.scripted_agent import ScriptedAgent
+from open_range.agents.replay_agent import ScriptedAgent
 
 
 # =====================================================================

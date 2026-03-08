@@ -41,12 +41,48 @@ class TestTurn:
 class TestEpisode:
     def _make_episode(self) -> Episode:
         ep = Episode(episode_id="ep-1", snapshot_id="snap-1", tier=1)
+        ep.briefings = {
+            "red": "Red briefing",
+            "blue": "Blue briefing",
+        }
         ep.turns = [
-            Turn(role="red", observation="briefing", action="nmap -sV web", reward=0.1),
-            Turn(role="blue", observation="alert: nmap", action="submit_finding nmap scan", reward=0.2),
-            Turn(role="red", observation="ports found", action="curl http://web/search?q=test", reward=0.15),
-            Turn(role="blue", observation="sql log", action="grep UNION /var/log/siem/web.log", reward=0.05),
-            Turn(role="red", observation="sqli output", action="submit_flag FLAG{sqli_123}", reward=0.5),
+            Turn(
+                role="red",
+                observation="[0.2s] 80/tcp open http",
+                action="nmap -sV web",
+                reward=0.1,
+                assistant_content="<think>\nRecon first.\n</think>",
+            ),
+            Turn(
+                role="blue",
+                observation="[0.3s] suspicious nmap",
+                action="submit_finding nmap scan",
+                reward=0.2,
+                assistant_content="<think>\nThis is actionable.\n</think>",
+            ),
+            Turn(
+                role="red",
+                observation="[0.4s] products",
+                action="curl http://web/search?q=test",
+                reward=0.15,
+                assistant_content="<think>\nInspect the search route.\n</think>",
+            ),
+            Turn(
+                role="blue",
+                observation="[0.5s] SQLi in web log",
+                action="grep UNION /var/log/siem/web.log",
+                reward=0.05,
+                assistant_content="<think>\nI need evidence.\n</think>",
+            ),
+            Turn(
+                role="red",
+                observation="[0.6s] correct",
+                action="submit_flag FLAG{sqli_123}",
+                reward=0.5,
+                assistant_content="<think>\nThis token is worth validating.\n</think>",
+                tool_name="flag_found",
+                tool_arguments={"flag": "FLAG{sqli_123}"},
+            ),
         ]
         ep.outcome = "flag_captured"
         return ep
@@ -74,22 +110,26 @@ class TestEpisode:
     def test_to_chat_messages_red(self):
         ep = self._make_episode()
         msgs = ep.to_chat_messages("red")
-        # system + 3 * (user + assistant) = 7 messages
-        assert len(msgs) == 7
+        # system + briefing + 3 * (assistant + tool) = 8 messages
+        assert len(msgs) == 8
         assert msgs[0]["role"] == "system"
         assert msgs[0]["content"] == RED_SYSTEM_PROMPT
         assert msgs[1]["role"] == "user"
-        assert msgs[1]["content"] == "briefing"
+        assert msgs[1]["content"] == "Red briefing"
         assert msgs[2]["role"] == "assistant"
-        assert msgs[2]["content"] == "nmap -sV web"
+        assert "tool_calls" in msgs[2]
+        assert msgs[2]["tool_calls"][0]["function"]["name"] == "shell_command"
+        assert msgs[3]["role"] == "tool"
 
     def test_to_chat_messages_blue(self):
         ep = self._make_episode()
         msgs = ep.to_chat_messages("blue")
-        # system + 2 * (user + assistant) = 5 messages
-        assert len(msgs) == 5
+        # system + briefing + 2 * (assistant + tool) = 6 messages
+        assert len(msgs) == 6
         assert msgs[0]["role"] == "system"
         assert msgs[0]["content"] == BLUE_SYSTEM_PROMPT
+        assert msgs[1]["role"] == "user"
+        assert msgs[1]["content"] == "Blue briefing"
 
     def test_to_jsonl_record(self):
         ep = self._make_episode()
@@ -113,10 +153,16 @@ class TestEpisode:
 class TestTrajectoryLogger:
     def test_start_episode(self):
         logger = TrajectoryLogger()
-        ep = logger.start_episode("ep-1", snapshot_id="snap-1", tier=2)
+        ep = logger.start_episode(
+            "ep-1",
+            snapshot_id="snap-1",
+            tier=2,
+            briefings={"red": "brief"},
+        )
         assert ep.episode_id == "ep-1"
         assert ep.snapshot_id == "snap-1"
         assert ep.tier == 2
+        assert ep.briefings["red"] == "brief"
         assert logger.current_episode is ep
 
     def test_log_turn(self):
@@ -238,9 +284,13 @@ class TestExportJsonl:
             # Messages must follow chat format
             msgs = record["messages"]
             assert msgs[0]["role"] == "system"
+            assert msgs[1]["role"] == "user"
             for msg in msgs:
                 assert "role" in msg
                 assert "content" in msg
+            for msg in msgs:
+                if msg["role"] == "assistant":
+                    assert msg["tool_calls"]
 
     def test_export_creates_parent_dirs(self, tmp_path: Path):
         logger = self._build_logger_with_episodes()
