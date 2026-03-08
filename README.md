@@ -8,17 +8,21 @@ The first cybersecurity environment in the [OpenEnv](https://github.com/meta-pyt
 
 ## What is this?
 
-OpenRange drops Red and Blue agents into a **real enterprise network** -- firewalls, web apps, databases, directory services, mail servers, VPNs, SIEM -- then lets them fight. The environment is not a single static benchmark and it is not a free-form LLM sandbox. A manifest defines a legal family of company worlds. A constrained builder/mutator proposes candidate snapshots inside that family. A validator admits only snapshots that boot, remain coherent, and are actually solvable. `reset()` then selects a **frozen validated snapshot** for the next episode, while background mutation prepares future snapshots asynchronously.
+OpenRange drops Red and Blue agents into a **real enterprise network** -- firewalls, web apps, databases, directory services, mail servers, VPNs, SIEM -- then lets them fight. The environment is not a single static benchmark and it is not a free-form LLM sandbox. A manifest defines a legal family of company worlds. A LiteLLM-led builder/mutator proposes candidate snapshots inside that family. Every proposal is compiled into a canonical `SnapshotSpec` plus hidden topology, threat, evidence, and task graphs. Deterministic helper checks make those proposals admissible. `reset()` then selects a **frozen validated snapshot** for the next episode, while background mutation prepares future snapshots asynchronously.
 
 ```
 You define the legal company family:
   topology, identities, services, bug families, task families, difficulty knobs
 
-The builder/mutator proposes a candidate snapshot:
+The LiteLLM builder/mutator proposes a candidate snapshot:
   add billing-api -> seed SSRF -> derive exploit/remediation chain -> emit evidence
 
-The validator admits only runnable snapshots:
-  build/run, exploitability, patchability, evidence sufficiency, reward checks
+The proposal compiles into a canonical SnapshotSpec + hidden graphs:
+  topology graph + truth graph + evidence graph + task graph
+
+Deterministic helper-backed validation admits only runnable snapshots:
+  manifest compliance, reachability, exploitability, patchability,
+  evidence sufficiency, reward grounding, isolation/leakage
 
 The OpenEnv runtime stays standard:
   reset() -> pick frozen snapshot + sample task
@@ -30,8 +34,10 @@ The OpenEnv runtime stays standard:
 | Component | What it does | Typical implementation |
 |------|-------------|-------------|
 | **Manifest compiler** | Defines the legal world space: topology, services, identities, bug families, task families, difficulty knobs | YAML schema + templates |
-| **Builder / mutator** | Applies graph mutations, seeds bugs or misconfigs, derives truth graphs, evidence, and tasks | Rules, search, templates, optional LLM-generated artifacts |
-| **Validator gate** | Proves a candidate snapshot is runnable, coherent, and solvable before admission | Executable checks first, optional LLM realism review second |
+| **Builder / mutator** | Uses LiteLLM to propose candidate snapshots, mutations, and task structure inside the manifest-constrained family | LiteLLM + rules + templates |
+| **Canonical `SnapshotSpec`** | Compiles the proposal into typed hidden truth: topology, threat, evidence, and task graphs | Pydantic models + graph structs |
+| **Deterministic helpers** | Answer the specific admission questions: compliance, solvability, exploitability, patchability, evidence, reward grounding | Mechanical check modules |
+| **Validator gate** | Combines helper outputs and admits only snapshots that are runnable, coherent, and solvable | Mechanical admission over graph/spec + rendered artifacts |
 | **Snapshot manager** | Publishes admitted company snapshots and hands a frozen one to `reset()` | Background queue + snapshot store |
 | **Red** | External attacker. Recon, exploit, pivot, escalate, exfiltrate. | Outside the firewall -- no creds, no access |
 | **Blue** | Internal defender. SIEM analysis, patching, firewall rules, incident response. | SOC workstation on management network |
@@ -46,13 +52,13 @@ flowchart LR
     M[Manifest / mutation policy<br/>allowed services, bug families, task families] --> B
     S[Curriculum / failure stats<br/>what Red or Blue is weak at] --> B
 
-    B[Company mutator / builder<br/>generate next snapshot<br/>graph mutations, bug seeding, task derivation] --> C
+    B[LiteLLM builder / mutator<br/>propose next snapshot<br/>mutations, bugs, tasks] --> C
 
-    subgraph C[Candidate snapshot artifacts]
+    subgraph C[Canonical SnapshotSpec and hidden graphs]
         C1[Topology graph<br/>hosts, services, users, trust edges]
-        C2[Truth graph<br/>bug, exploit chain, blast radius, remediation]
-        C3[Evidence spec<br/>logs, alerts, files, tickets, docs]
-        C4[Task set<br/>exploit, investigate, patch, report]
+        C2[Threat / truth graph<br/>bug, exploit chain, blast radius, remediation]
+        C3[Evidence graph<br/>logs, alerts, files, tickets, docs]
+        C4[Task graph<br/>exploit, investigate, patch, report]
     end
 
     C --> D
@@ -84,7 +90,9 @@ flowchart LR
     style R fill:#7c73e611,stroke:#7c73e6
 ```
 
-The generator here is the **builder/mutator pipeline**, not one magical model. Core world logic should stay manifest-constrained and mechanically checkable. LLMs are useful for optional artifact generation -- service code, docs, tickets, alert text -- but not for deciding whether the exploit chain is real or whether reward should be granted.
+The generator here is a **LiteLLM-led proposal pipeline** rather than a free-form oracle. The model proposes the world, the canonical graph/spec makes it legible, and deterministic helpers make it admissible. That keeps core world logic manifest-constrained and validator-checkable even when the builder uses model-generated code, docs, tickets, or alert text.
+
+Serving stays OpenEnv/Hugging Face-friendly: the deployed app exposes the normal `reset()`, `step()`, and `state` contract via `openenv.yaml` and a `Dockerfile`, and admitted snapshots can be served without live model calls in the request path.
 
 ## Network Topology
 
@@ -313,7 +321,7 @@ flowchart TB
 
 ## Validation Gate
 
-Every candidate snapshot passes an **executable admission pipeline** before any agent touches it. Mechanical checks are primary. LLM review, if used at all, is secondary realism critique rather than ground truth.
+Every candidate snapshot passes an **executable admission pipeline** before any agent touches it. The validator does not judge raw LLM text directly; it reads the compiled `SnapshotSpec` plus rendered runtime artifacts. Mechanical checks are primary. LLM review, if used at all, is secondary realism critique rather than ground truth.
 
 ```mermaid
 flowchart LR
