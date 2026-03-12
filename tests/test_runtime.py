@@ -175,6 +175,8 @@ def test_one_day_prompt_mode_exposes_high_level_risky_surfaces(tmp_path: Path):
     assert decision.actor == "red"
     assert "briefing_mode=one_day" in decision.obs.stdout
     assert "known_risky_surfaces=" in decision.obs.stdout
+    assert "@svc-" not in decision.obs.stdout
+    assert "sql_injection" not in decision.obs.stdout
 
 
 def test_blue_only_from_prefix_starts_blue_after_compromise_prefix(tmp_path: Path):

@@ -57,6 +57,12 @@ Each row must carry:
 
 This is the ground-truth training substrate.
 
+Default prompt/rendering rule:
+
+- exported row metadata may include weakness inventory and benchmark tags
+- default decision prompts used for SFT/eval must mirror the runtime observation surface
+- hidden weakness inventory, benchmark tags, and other oracle-like context must be excluded from the default prompt text unless an explicit research/debug export asks for them
+
 ## Decision Surface
 
 Training should happen on the actual OpenRange decision surface:

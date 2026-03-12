@@ -117,7 +117,7 @@ def test_compiler_builds_hand_checkable_world_ir():
         "svc-idp",
     }
     assert world.red_objectives[0].objective_tags == ("file_access",)
-    assert world.red_objectives[1].objective_tags == ("unauthorized_admin_login",)
+    assert world.red_objectives[1].objective_tags == ("privilege_escalation",)
     assert any(edge.kind == "telemetry" and edge.target == "svc-siem" for edge in world.telemetry_edges)
 
 

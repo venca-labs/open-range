@@ -78,4 +78,4 @@ def test_predicate_engine_builds_service_native_graders_for_red_objectives() -> 
     assert graders["asset_read(finance_docs)"].grader_kind == "file_exists"
     assert graders["credential_obtained(idp_admin_cred)"] is not None
     assert graders["credential_obtained(idp_admin_cred)"].grader_kind == "event_present"
-    assert graders["credential_obtained(idp_admin_cred)"].objective_tag == "unauthorized_admin_login"
+    assert graders["credential_obtained(idp_admin_cred)"].objective_tag == "privilege_escalation"

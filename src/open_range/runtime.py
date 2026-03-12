@@ -852,6 +852,7 @@ class WitnessDrivenRuntime:
         return ""
 
     def _check_terminal_conditions(self) -> None:
+        self._refresh_red_objective_state()
         red_terminal = self._red_terminal_satisfied()
         blue_terminal = self._blue_terminal_satisfied(red_terminal)
         if red_terminal:
@@ -994,6 +995,15 @@ class WitnessDrivenRuntime:
                 return tuple(service.telemetry_surfaces) + ("svc-siem",)
         return ("svc-siem",)
 
+    def _refresh_red_objective_state(self) -> None:
+        if self._snapshot is None or self._predicates is None:
+            return
+        self._red_objectives_satisfied = self._predicates.evaluate_red_objectives(
+            snapshot=self._snapshot,
+            events=tuple(self._events),
+            service_health=self._state.service_health,
+        )
+
     def _observation_stdout(self, actor: ExternalRole, *, first_observation: bool) -> str:
         base = f"sim_time={self._state.sim_time:.2f}"
         if not first_observation or self._snapshot is None:
@@ -1013,12 +1023,25 @@ class WitnessDrivenRuntime:
         ]
         if self._episode_config.prompt_mode == "one_day":
             surfaces = ", ".join(
-                f"{weak.family}:{weak.kind}@{weak.target}"
+                self._briefing_surface_summary(world, weak)
                 for weak in world.weaknesses
                 if weak.family != "telemetry_blindspot" or actor == "blue"
             )
             lines.append(f"known_risky_surfaces={surfaces or 'none'}")
         return "\n".join(lines)
+
+    @staticmethod
+    def _briefing_surface_summary(world, weak) -> str:
+        service = next((service for service in world.services if service.id == weak.target), None)
+        service_label = service.kind if service is not None else weak.target_kind
+        family_label = {
+            "code_web": "web surface",
+            "config_identity": "identity surface",
+            "secret_exposure": "secret surface",
+            "workflow_abuse": "workflow surface",
+            "telemetry_blindspot": "telemetry gap",
+        }.get(weak.family, weak.family)
+        return f"{service_label} {family_label}"
 
     def _execute_live_action(self, action: Action) -> ActionExecution:
         if self.action_backend is None:

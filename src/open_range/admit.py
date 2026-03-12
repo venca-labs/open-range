@@ -450,9 +450,15 @@ def _check_red_witness(_world: WorldIR, _artifacts: KindArtifacts, wb: WitnessBu
             error="no valid red witness",
         )
     snapshot = _ephemeral_snapshot(_world, _artifacts, wb)
-    score, events, _health, outputs = run_red_witness(snapshot, None, episode_seed=_world.seed)
+    score, events, health, outputs = run_red_witness(snapshot, None, episode_seed=_world.seed)
     trace = wb.red_witnesses[0]
-    passed = score.winner == "red" and score.done
+    predicates = PredicateEngine(_world)
+    satisfied = predicates.evaluate_red_objectives(
+        snapshot=snapshot,
+        events=events,
+        service_health=dict(health),
+    )
+    passed = score.winner == "red" and score.done and predicates.red_terminal_satisfied(satisfied)
     return ValidatorCheckReport(
         name="red_witness",
         passed=passed,
@@ -461,6 +467,7 @@ def _check_red_witness(_world: WorldIR, _artifacts: KindArtifacts, wb: WitnessBu
             "step_count": len(trace.steps),
             "winner": score.winner,
             "event_count": len(events),
+            "satisfied_predicates": sorted(satisfied),
             "outputs": outputs,
         },
         error="" if passed else "offline red witness did not satisfy terminal objectives",
@@ -601,6 +608,10 @@ def _witness_weakness_id(trace) -> str:
 
 def _ephemeral_snapshot(world: WorldIR, artifacts: KindArtifacts, witness_bundle: WitnessBundle) -> Snapshot:
     predicates = PredicateEngine(world)
+    db_seed_state = {"services": [service.id for service in world.services if service.kind == "db"]}
+    mail_state = {"mailboxes": [persona.mailbox for persona in world.green_personas if persona.mailbox]}
+    file_assets = {asset.id: asset.location for asset in world.assets}
+    identity_seed = {"users": [user.id for user in world.users]}
     report = ValidatorReport(
         admitted=True,
         graph_ok=True,
@@ -633,6 +644,10 @@ def _ephemeral_snapshot(world: WorldIR, artifacts: KindArtifacts, witness_bundle
         validator_report_path=f"{artifacts.render_dir}/validator_report.json",
         world=world,
         artifacts=artifacts,
+        db_seed_state=db_seed_state,
+        mail_state=mail_state,
+        file_assets=file_assets,
+        identity_seed=identity_seed,
         validator_report=report,
         witness_bundle=witness_bundle,
         world_hash=world_hash(world),
@@ -663,12 +678,23 @@ def _live_service_smoke_check(world: WorldIR, release) -> ValidatorCheckReport:
 
 
 def _live_red_witness_check(snapshot: Snapshot, backend: PodActionBackend) -> ValidatorCheckReport:
-    score, _events, _health, outputs = run_red_witness(snapshot, backend, episode_seed=snapshot.world.seed)
-    passed = score.winner == "red" and score.done
+    score, events, health, outputs = run_red_witness(snapshot, backend, episode_seed=snapshot.world.seed)
+    predicates = PredicateEngine(snapshot.world)
+    satisfied = predicates.evaluate_red_objectives(
+        snapshot=snapshot,
+        events=events,
+        service_health=dict(health),
+    )
+    passed = score.winner == "red" and score.done and predicates.red_terminal_satisfied(satisfied)
     return ValidatorCheckReport(
         name="live_red_witness",
         passed=passed,
-        details={"winner": score.winner, "terminal_reason": score.terminal_reason, "outputs": outputs},
+        details={
+            "winner": score.winner,
+            "terminal_reason": score.terminal_reason,
+            "satisfied_predicates": sorted(satisfied),
+            "outputs": outputs,
+        },
         error="" if passed else "live red witness did not satisfy terminal objectives",
     )
 

@@ -207,6 +207,7 @@ def render_decision_prompt(row: TraceDecisionRow) -> str:
         teacher_source=row.teacher_source,
         split=row.split,
         prompt_mode=row.episode_config.prompt_mode,
+        include_hidden_context=False,
     )
 
 
@@ -228,14 +229,11 @@ def build_decision_prompt(
     teacher_source: TeacherSource,
     split: TraceSplit,
     prompt_mode: str,
+    include_hidden_context: bool = False,
 ) -> str:
     visible = _visible_event_lines(observation.visible_events)
     candidates = "\n".join(f"- [{candidate.label}] {candidate.text}" for candidate in candidate_actions)
-    weaknesses_text = "\n".join(
-        f"- {weak.family}:{weak.kind}@{weak.target} tags={','.join(weak.benchmark_tags) or 'none'} objectives={','.join(weak.objective_tags) or 'none'}"
-        for weak in weaknesses
-    )
-    return (
+    lines = [
         f"trace_source={trace_source}\n"
         f"teacher_source={teacher_source}\n"
         f"split={split}\n"
@@ -255,11 +253,17 @@ def build_decision_prompt(
         f"alerts_delta={len(observation.alerts_delta)}\n"
         f"service_health={_service_health_text(observation)}\n"
         f"visible_events:\n{visible}\n"
-        f"benchmark_tags={','.join(benchmark_tags) or 'none'}\n"
-        f"weaknesses:\n{weaknesses_text or '- none'}\n"
         "candidate_actions:\n"
         f"{candidates}"
-    )
+    ]
+    if include_hidden_context:
+        weaknesses_text = "\n".join(
+            f"- {weak.family}:{weak.kind}@{weak.target} tags={','.join(weak.benchmark_tags) or 'none'} objectives={','.join(weak.objective_tags) or 'none'}"
+            for weak in weaknesses
+        )
+        lines.append(f"benchmark_tags={','.join(benchmark_tags) or 'none'}\n")
+        lines.append(f"weaknesses:\n{weaknesses_text or '- none'}\n")
+    return "".join(lines)
 
 
 def system_prompt_for_role(role: Literal["red", "blue"]) -> str:

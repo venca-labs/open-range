@@ -158,6 +158,10 @@ def test_admission_controller_admits_seeded_world(tmp_path: Path):
     objective_grounding = next(stage for stage in report.stages if stage.name == "static").checks[3]
     assert objective_grounding.name == "objective_grounding"
     assert objective_grounding.details["graders"]
+    red_witness = next(stage for stage in report.stages if stage.name == "red_witness").checks[0]
+    assert sorted(red_witness.details["satisfied_predicates"]) == sorted(
+        objective.predicate for objective in world.red_objectives if objective.terminal
+    )
     assert witness_bundle.red_witnesses
     assert witness_bundle.blue_witnesses
 

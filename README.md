@@ -127,6 +127,7 @@ Key rules:
 - raw data comes from executed traces over admitted snapshots
 - `sim` and `runtime` traces stay explicitly separated
 - rows carry snapshot, world, world hash, lineage, mode, role, observation, candidates, chosen action, emitted events, reward delta, winner, and terminal reason
+- default decision prompts mirror the runtime observation surface and do not include hidden weakness inventory or benchmark tags
 - dataset splits are assigned by lineage root, not random row
 - derived SFT rows preserve `split` and lineage metadata
 - trace export writes clean role/source shards for red, blue, runtime, and sim subsets
@@ -142,9 +143,9 @@ Current implementation points:
 
 - exact `code_web` flaws carry benchmark tags plus benchmark-aligned `objective_tags`
 - red objectives compile with derived offensive objective tags where applicable
-- admission now builds service-native grader specs for grounded red objectives
+- admission now executes service-native grader checks during red witness validation for grounded red objectives
 - `EpisodeConfig.prompt_mode` supports `zero_day` and `one_day`
-- runtime first observations expose prompt-mode-specific briefings without leaking private witnesses
+- runtime first observations expose prompt-mode-specific briefings without leaking private witnesses or exact flaw inventories
 
 ## Current pipeline
 

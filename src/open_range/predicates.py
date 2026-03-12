@@ -5,7 +5,9 @@ from __future__ import annotations
 from collections import deque
 from dataclasses import dataclass
 
-from open_range.objectives import ObjectiveGraderSpec, objective_grader_for_predicate
+from collections.abc import Mapping
+
+from open_range.objectives import ObjectiveGraderSpec, evaluate_red_objectives, objective_grader_for_predicate
 from open_range.world_ir import AssetSpec, ServiceSpec, WeaknessSpec, WorldIR
 
 
@@ -137,6 +139,25 @@ class PredicateEngine:
             if grader is not None:
                 graders.append(grader)
         return tuple(graders)
+
+    def evaluate_red_objectives(
+        self,
+        *,
+        snapshot: object,
+        events: tuple[object, ...],
+        service_health: Mapping[str, float],
+    ) -> set[str]:
+        graders = {
+            objective.predicate: self.objective_grader(objective.predicate)
+            for objective in self.world.red_objectives
+        }
+        return evaluate_red_objectives(
+            snapshot=snapshot,
+            objective_specs=self.world.red_objectives,
+            graders=graders,
+            events=events,
+            service_health=service_health,
+        )
 
     def red_terminal_satisfied(self, satisfied_predicates: set[str]) -> bool:
         required = {objective.predicate for objective in self.world.red_objectives if objective.terminal}

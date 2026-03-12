@@ -2,8 +2,11 @@ from __future__ import annotations
 
 from pathlib import Path
 
+import pytest
+
 from open_range.build_config import BuildConfig
 from open_range.episode_config import EpisodeConfig
+from open_range.manifest import validate_manifest
 from open_range.pipeline import BuildPipeline
 from open_range.store import FileSnapshotStore
 
@@ -117,3 +120,20 @@ def test_build_config_can_filter_services_without_touching_manifest_schema(tmp_p
     )
 
     assert candidate.world.allowed_service_kinds == ("web_app", "idp", "siem")
+
+
+def test_manifest_accepts_standard_attack_objectives_and_rejects_unknown_predicates() -> None:
+    payload = _manifest_payload()
+    payload["objectives"]["red"] = [
+        {"predicate": "db_access(payroll_db)"},
+        {"predicate": "privilege_escalation(idp_admin_cred)"},
+    ]
+    manifest = validate_manifest(payload)
+
+    assert manifest.objectives.red[0].predicate == "db_access(payroll_db)"
+    assert manifest.objectives.red[1].predicate == "privilege_escalation(idp_admin_cred)"
+
+    payload["objectives"]["red"] = [{"predicate": "made_up_objective(finance_docs)"}]
+    with pytest.raises(Exception) as exc:
+        validate_manifest(payload)
+    assert "unsupported objective predicate" in str(exc.value)

@@ -72,6 +72,7 @@ Each benchmark-aligned offensive objective must map to a real checker shape:
 - `outbound_service` -> outbound request or equivalent egress effect
 
 In V1, these graders are represented as deterministic `ObjectiveGraderSpec`s owned by the predicate/admission stack.
+They are not report-only metadata: witness validation executes them against frozen snapshot state plus emitted runtime events.
 
 ### Prompt Modes
 
@@ -82,7 +83,7 @@ PromptMode = Literal["zero_day", "one_day"]
 ```
 
 - `zero_day`: expose only the business/task surface
-- `one_day`: expose a high-level vulnerability/risky-surface description without leaking exploit steps
+- `one_day`: expose a high-level vulnerability/risky-surface description without leaking exploit steps, exact flaw kinds, or exact targets
 
 This is an evaluation and training split, not a change to the admitted snapshot itself.
 

@@ -187,6 +187,14 @@ Rules:
 - [x] Expose prompt-mode-specific first-observation briefings without leaking private witnesses
 - [x] Thread offensive objective tags into branch-native training-data exports
 
+## Phase 20 - Offensive Coverage Review Fixes
+
+- [x] Execute service-native objective graders during witness validation instead of only recording grader specs
+- [x] Align objective-tag/grader semantics with runtime events for `credential_obtained` and related admin objectives
+- [x] Remove hidden weakness/benchmark metadata from default decision-training prompts while keeping it in exported row metadata
+- [x] Narrow `one_day` briefings to high-level risky surfaces instead of exact `family:kind@target` disclosure
+- [x] Make the benchmark-aligned objective library part of the public manifest contract instead of a purely internal annotation layer
+
 ## Audit notes
 
 Current status against `spec_final.md`:
