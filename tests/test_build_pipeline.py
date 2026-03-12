@@ -44,10 +44,10 @@ def _manifest_payload() -> dict:
         },
         "security": {
             "allowed_weakness_families": [
-                "auth_misconfig",
+                "config_identity",
                 "workflow_abuse",
                 "secret_exposure",
-                "input_validation",
+                "code_web",
                 "telemetry_blindspot",
             ],
             "observability": {
@@ -80,4 +80,6 @@ def test_pipeline_builds_and_admits_snapshot(tmp_path: Path):
     assert candidate.synth.generated_files
     assert snapshot.validator_report.admitted is True
     assert snapshot.snapshot_id.startswith(candidate.world.world_id)
+    assert snapshot.world_id == candidate.world.world_id
+    assert snapshot.artifacts_dir == candidate.artifacts.render_dir
     assert "mailboxes" in snapshot.identity_seed

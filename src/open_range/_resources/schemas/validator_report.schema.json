@@ -81,12 +81,61 @@
       "title": "Admitted",
       "type": "boolean"
     },
+    "benchmark_tags_covered": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Benchmark Tags Covered",
+      "type": "array"
+    },
+    "blue_signal_points": {
+      "default": 0,
+      "minimum": 0,
+      "title": "Blue Signal Points",
+      "type": "integer"
+    },
+    "blue_witness_ok": {
+      "default": false,
+      "title": "Blue Witness Ok",
+      "type": "boolean"
+    },
+    "boot_ok": {
+      "default": false,
+      "title": "Boot Ok",
+      "type": "boolean"
+    },
     "build_logs": {
       "items": {
         "type": "string"
       },
       "title": "Build Logs",
       "type": "array"
+    },
+    "business_continuity_score": {
+      "default": 0.0,
+      "maximum": 1.0,
+      "minimum": 0.0,
+      "title": "Business Continuity Score",
+      "type": "number"
+    },
+    "determinism_score": {
+      "default": 0.0,
+      "maximum": 1.0,
+      "minimum": 0.0,
+      "title": "Determinism Score",
+      "type": "number"
+    },
+    "flakiness": {
+      "default": 1.0,
+      "maximum": 1.0,
+      "minimum": 0.0,
+      "title": "Flakiness",
+      "type": "number"
+    },
+    "graph_ok": {
+      "default": false,
+      "title": "Graph Ok",
+      "type": "boolean"
     },
     "health_info": {
       "additionalProperties": true,
@@ -102,6 +151,45 @@
       "title": "Mode",
       "type": "string"
     },
+    "necessity_ok": {
+      "default": false,
+      "title": "Necessity Ok",
+      "type": "boolean"
+    },
+    "red_alt_path_count": {
+      "default": 0,
+      "minimum": 0,
+      "title": "Red Alt Path Count",
+      "type": "integer"
+    },
+    "red_path_depth": {
+      "default": 0,
+      "minimum": 0,
+      "title": "Red Path Depth",
+      "type": "integer"
+    },
+    "red_witness_ok": {
+      "default": false,
+      "title": "Red Witness Ok",
+      "type": "boolean"
+    },
+    "rejection_reasons": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Rejection Reasons",
+      "type": "array"
+    },
+    "shortcut_risk": {
+      "default": "high",
+      "enum": [
+        "low",
+        "medium",
+        "high"
+      ],
+      "title": "Shortcut Risk",
+      "type": "string"
+    },
     "stages": {
       "items": {
         "$ref": "#/$defs/ValidatorStageReport"
@@ -113,6 +201,16 @@
       "default": "",
       "title": "Summary",
       "type": "string"
+    },
+    "telemetry_ok": {
+      "default": false,
+      "title": "Telemetry Ok",
+      "type": "boolean"
+    },
+    "workflow_ok": {
+      "default": false,
+      "title": "Workflow Ok",
+      "type": "boolean"
     },
     "world_hash": {
       "minLength": 1,

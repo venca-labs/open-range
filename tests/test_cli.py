@@ -48,10 +48,10 @@ def _manifest_payload() -> dict:
         },
         "security": {
             "allowed_weakness_families": [
-                "auth_misconfig",
+                "config_identity",
                 "workflow_abuse",
                 "secret_exposure",
-                "input_validation",
+                "code_web",
                 "telemetry_blindspot",
             ],
             "observability": {
@@ -160,3 +160,29 @@ def test_reset_command_loads_snapshot_from_store(tmp_path: Path):
     assert "Episode ready on" in reset_result.output
     assert "Sim Time:" in reset_result.output
     assert "Next Actor:" in reset_result.output
+
+
+def test_traces_command_writes_branch_native_datasets(tmp_path: Path):
+    manifest_path = _write_manifest(tmp_path)
+    output_dir = tmp_path / "traces"
+
+    result = CliRunner().invoke(
+        cli,
+        [
+            "traces",
+            "--manifest",
+            str(manifest_path),
+            "--output",
+            str(output_dir),
+            "--roots",
+            "1",
+            "--mutations",
+            "1",
+        ],
+    )
+
+    assert result.exit_code == 0, result.output
+    assert (output_dir / "trace_rows.jsonl").exists()
+    assert (output_dir / "decision_sft.jsonl").exists()
+    assert (output_dir / "report.json").exists()
+    assert "Trace dataset written to" in result.output

@@ -60,7 +60,7 @@ def run_demo(
                     actor_id="red",
                     role="red",
                     kind=red_steps[0].kind,
-                    payload={"target": red_steps[0].target},
+                    payload={"target": red_steps[0].target, **red_steps[0].payload},
                 ),
                 Action(actor_id="red", role="red", kind="sleep", payload={}),
             ]
@@ -88,7 +88,7 @@ def run_demo(
             snapshot,
             red_agent=red_agent,
             blue_agent=blue_agent,
-            episode_config=EpisodeConfig(mode="joint_pool", scheduler_mode="strict_turn"),
+            episode_config=EpisodeConfig(mode="joint_pool", scheduler_mode="strict_turns"),
         )
         score = service.score()
         events = service.runtime.export_events()

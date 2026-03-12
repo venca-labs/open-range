@@ -37,10 +37,11 @@ class RewardEngine:
         emitted: tuple[Any, ...],
         *,
         shaping_enabled: bool = True,
+        hallucination_penalty_enabled: bool = True,
     ) -> float:
         reward = self.red_tick_cost if shaping_enabled else 0.0
         claim = str(action.payload.get("claim_objective", ""))
-        if claim:
+        if claim and hallucination_penalty_enabled:
             objective_hit = any(claim in event.linked_objective_predicates for event in emitted)
             if not objective_hit:
                 reward -= 0.3
@@ -54,11 +55,17 @@ class RewardEngine:
                 reward += 0.1
         return reward
 
-    def on_blue_detection(self, malicious_event: Any | None, *, shaping_enabled: bool = True) -> float:
+    def on_blue_detection(
+        self,
+        malicious_event: Any | None,
+        *,
+        shaping_enabled: bool = True,
+        false_positive_penalty_enabled: bool = True,
+    ) -> float:
         if not shaping_enabled:
-            return 0.0 if malicious_event is not None else -0.1
+            return 0.0
         if malicious_event is None:
-            return -0.1
+            return -0.1 if false_positive_penalty_enabled else 0.0
         key = malicious_event.id
         if key in self.blue_detected_events:
             return 0.0

@@ -56,10 +56,10 @@ objectives:
 
 security:
   allowed_weakness_families:
-    - auth_misconfig
+    - config_identity
     - workflow_abuse
     - secret_exposure
-    - input_validation
+    - code_web
     - telemetry_blindspot
   observability:
     require_web_logs: true

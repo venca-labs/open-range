@@ -8,7 +8,7 @@ from __future__ import annotations
 
 from typing import Literal
 
-from pydantic import BaseModel, ConfigDict, Field, PositiveInt
+from pydantic import BaseModel, ConfigDict, Field, PositiveInt, model_validator
 
 
 class _StrictModel(BaseModel):
@@ -16,15 +16,120 @@ class _StrictModel(BaseModel):
 
 
 WeaknessFamily = Literal[
-    "auth_misconfig",
-    "workflow_abuse",
+    "code_web",
+    "config_identity",
     "secret_exposure",
-    "input_validation",
+    "workflow_abuse",
     "telemetry_blindspot",
+]
+
+CodeFlawKind = Literal[
+    "sql_injection",
+    "broken_authorization",
+    "auth_bypass",
+    "path_traversal",
+    "ssrf",
+    "command_injection",
+]
+ConfigIdentityKind = Literal[
+    "weak_password",
+    "default_credential",
+    "overbroad_service_account",
+    "admin_surface_exposed",
+    "trust_edge_misconfig",
+]
+SecretExposureKind = Literal[
+    "env_file_leak",
+    "credential_in_share",
+    "backup_leak",
+    "token_in_email",
+    "hardcoded_app_secret",
+]
+WorkflowAbuseKind = Literal[
+    "helpdesk_reset_bypass",
+    "approval_chain_bypass",
+    "document_share_abuse",
+    "phishing_credential_capture",
+    "internal_request_impersonation",
+]
+TelemetryBlindspotKind = Literal[
+    "missing_web_logs",
+    "missing_idp_logs",
+    "delayed_siem_ingest",
+    "unmonitored_admin_action",
+    "silent_mail_rule",
+]
+SupportedWeaknessKind = Literal[
+    "sql_injection",
+    "broken_authorization",
+    "auth_bypass",
+    "path_traversal",
+    "ssrf",
+    "command_injection",
+    "weak_password",
+    "default_credential",
+    "overbroad_service_account",
+    "admin_surface_exposed",
+    "trust_edge_misconfig",
+    "env_file_leak",
+    "credential_in_share",
+    "backup_leak",
+    "token_in_email",
+    "hardcoded_app_secret",
+    "helpdesk_reset_bypass",
+    "approval_chain_bypass",
+    "document_share_abuse",
+    "phishing_credential_capture",
+    "internal_request_impersonation",
+    "missing_web_logs",
+    "missing_idp_logs",
+    "delayed_siem_ingest",
+    "unmonitored_admin_action",
+    "silent_mail_rule",
 ]
 
 NoiseDensity = Literal["low", "medium", "high"]
 AssetClass = Literal["crown_jewel", "sensitive", "operational"]
+WeaknessTargetKind = Literal["service", "workflow", "asset", "credential", "telemetry"]
+
+WEAKNESS_KIND_CATALOG: dict[WeaknessFamily, tuple[str, ...]] = {
+    "code_web": (
+        "sql_injection",
+        "broken_authorization",
+        "auth_bypass",
+        "path_traversal",
+        "ssrf",
+        "command_injection",
+    ),
+    "config_identity": (
+        "weak_password",
+        "default_credential",
+        "overbroad_service_account",
+        "admin_surface_exposed",
+        "trust_edge_misconfig",
+    ),
+    "secret_exposure": (
+        "env_file_leak",
+        "credential_in_share",
+        "backup_leak",
+        "token_in_email",
+        "hardcoded_app_secret",
+    ),
+    "workflow_abuse": (
+        "helpdesk_reset_bypass",
+        "approval_chain_bypass",
+        "document_share_abuse",
+        "phishing_credential_capture",
+        "internal_request_impersonation",
+    ),
+    "telemetry_blindspot": (
+        "missing_web_logs",
+        "missing_idp_logs",
+        "delayed_siem_ingest",
+        "unmonitored_admin_action",
+        "silent_mail_rule",
+    ),
+}
 
 
 class BusinessSpec(_StrictModel):
@@ -62,12 +167,43 @@ class ObservabilityRequirements(_StrictModel):
     require_siem_ingest: bool = False
 
 
+class PinnedWeaknessSpec(_StrictModel):
+    family: WeaknessFamily
+    kind: SupportedWeaknessKind
+    target: str = Field(min_length=1)
+
+    @model_validator(mode="after")
+    def _validate_family_kind_pair(self) -> "PinnedWeaknessSpec":
+        if self.kind not in WEAKNESS_KIND_CATALOG[self.family]:
+            raise ValueError(f"unsupported kind {self.kind!r} for family {self.family!r}")
+        return self
+
+
 class SecuritySpec(_StrictModel):
     allowed_weakness_families: tuple[WeaknessFamily, ...] = Field(
         default_factory=tuple,
         min_length=1,
     )
+    code_flaw_kinds: tuple[CodeFlawKind, ...] = Field(default_factory=tuple)
+    pinned_weaknesses: tuple[PinnedWeaknessSpec, ...] = Field(default_factory=tuple)
+    phishing_surface_enabled: bool = True
     observability: ObservabilityRequirements
+
+    @model_validator(mode="after")
+    def _validate_security_catalog(self) -> "SecuritySpec":
+        allowed = set(self.allowed_weakness_families)
+        if self.code_flaw_kinds and "code_web" not in allowed:
+            raise ValueError("code_flaw_kinds requires code_web in allowed_weakness_families")
+        for pinned in self.pinned_weaknesses:
+            if pinned.family not in allowed:
+                raise ValueError(
+                    f"pinned weakness family {pinned.family!r} is not enabled in allowed_weakness_families"
+                )
+            if pinned.family == "code_web" and self.code_flaw_kinds and pinned.kind not in self.code_flaw_kinds:
+                raise ValueError(
+                    f"pinned code_web kind {pinned.kind!r} must be present in code_flaw_kinds when that list is set"
+                )
+        return self
 
 
 class DifficultySpec(_StrictModel):
@@ -81,6 +217,7 @@ class MutationBounds(_StrictModel):
     max_new_services: int = Field(ge=0, default=0)
     max_new_users: int = Field(ge=0, default=0)
     max_new_weaknesses: int = Field(ge=0, default=0)
+    allow_patch_old_weaknesses: bool = True
 
 
 class EnterpriseSaaSManifest(_StrictModel):

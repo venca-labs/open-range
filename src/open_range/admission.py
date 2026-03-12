@@ -57,6 +57,22 @@ class ValidatorStageReport(_StrictModel):
 
 class ValidatorReport(_StrictModel):
     admitted: bool
+    graph_ok: bool = False
+    boot_ok: bool = False
+    workflow_ok: bool = False
+    telemetry_ok: bool = False
+    red_witness_ok: bool = False
+    blue_witness_ok: bool = False
+    necessity_ok: bool = False
+    shortcut_risk: Literal["low", "medium", "high"] = "high"
+    determinism_score: float = Field(default=0.0, ge=0.0, le=1.0)
+    flakiness: float = Field(default=1.0, ge=0.0, le=1.0)
+    red_path_depth: int = Field(default=0, ge=0)
+    red_alt_path_count: int = Field(default=0, ge=0)
+    blue_signal_points: int = Field(default=0, ge=0)
+    business_continuity_score: float = Field(default=0.0, ge=0.0, le=1.0)
+    benchmark_tags_covered: tuple[str, ...] = Field(default_factory=tuple)
+    rejection_reasons: tuple[str, ...] = Field(default_factory=tuple)
     mode: ReportMode = "fail_fast"
     world_id: str = Field(min_length=1)
     world_hash: str = Field(min_length=1)

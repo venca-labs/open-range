@@ -29,6 +29,13 @@ class KindArtifacts(_StrictModel):
 
 class Snapshot(_StrictModel):
     snapshot_id: str
+    world_id: str
+    seed: int
+    artifacts_dir: str
+    image_digests: dict[str, str] = Field(default_factory=dict)
+    state_seed_dir: str
+    witness_bundle_path: str
+    validator_report_path: str
     world: WorldIR
     artifacts: KindArtifacts
     db_seed_state: dict[str, Any] = Field(default_factory=dict)
@@ -38,6 +45,7 @@ class Snapshot(_StrictModel):
     validator_report: ValidatorReport
     witness_bundle: WitnessBundle
     world_hash: str
+    parent_snapshot_id: str | None = None
     parent_world_id: str | None = None
 
 

@@ -59,54 +59,33 @@ class ScriptedGreenScheduler:
             self._snapshot is None
             or not self._episode_config.green_enabled
             or not self._episode_config.green_branch_enabled
-            or self._episode_config.green_branch_backend == "disabled"
+            or self._episode_config.green_branch_backend == "none"
             or not event.malicious
         ):
             return
         personas = sorted(self._snapshot.world.green_personas, key=lambda persona: (-persona.awareness, persona.id))
         if not personas:
             return
+        backend = self._episode_config.green_branch_backend
         slot = floor(event.time) + 1
         target = event.target_entity
         reaction_key = (slot, event.event_type, target)
         if reaction_key in self._scheduled_reactions:
             return
         self._scheduled_reactions.add(reaction_key)
-
-        reporter = personas[0]
-        self._reactive_queue[slot].append(
-            Action(
-                actor_id=reporter.id,
-                role="green",
-                kind="shell",
-                payload={
-                    "target": "svc-siem",
-                    "command": "wget -qO- http://svc-siem:9200/all.log | tail -n 20",
-                    "branch": "report_suspicious_activity",
-                    "reported_target": target,
-                    "reported_event_type": event.event_type,
-                },
-            )
-        )
-
-        if event.event_type in {"CredentialObtained", "UnauthorizedCredentialUse"}:
-            self._reactive_queue[slot].append(
-                Action(
-                    actor_id=reporter.id,
-                    role="green",
-                    kind="control",
-                    payload={
-                        "target": "svc-idp",
-                        "action": "recover",
-                        "branch": "reset_password",
-                        "reported_target": target,
-                    },
-                )
-            )
+        if backend == "scripted":
+            self._schedule_scripted_reaction(event, personas, slot)
+            return
+        if backend == "small_llm":
+            self._schedule_small_llm_reaction(event, personas, slot)
+            return
+        self._schedule_workflow_orchestrator_reaction(event, personas, slot)
 
     def _routine_actions(self, slot: int) -> tuple[Action, ...]:
         assert self._snapshot is not None
         if not self._episode_config.green_routine_enabled:
+            return ()
+        if self._episode_config.green_profile == "off":
             return ()
         personas = list(self._snapshot.world.green_personas)
         if not personas:
@@ -156,20 +135,102 @@ class ScriptedGreenScheduler:
         return tuple(actions)
 
     def _parallel_budget(self, base_budget: int) -> int:
-        if self._episode_config.green_profile == "quiet":
+        if self._episode_config.green_profile == "off":
+            return 0
+        if self._episode_config.green_profile == "low":
             return max(1, base_budget // 2)
-        if self._episode_config.green_profile == "busy":
+        if self._episode_config.green_profile == "high":
             return base_budget + 1
         return base_budget
 
     def _reactive_budget(self) -> int:
         assert self._snapshot is not None
         base_budget = self._snapshot.world.green_workload.reactive_branch_budget
-        if self._episode_config.green_profile == "quiet":
+        if self._episode_config.green_branch_backend == "workflow_orchestrator":
+            base_budget += 2
+        elif self._episode_config.green_branch_backend == "small_llm":
+            base_budget += 1
+        if self._episode_config.green_profile == "off":
+            return 0
+        if self._episode_config.green_profile == "low":
             return max(0, base_budget - 1)
-        if self._episode_config.green_profile == "busy":
+        if self._episode_config.green_profile == "high":
             return base_budget + 1
         return base_budget
+
+    def _schedule_scripted_reaction(self, event: RuntimeEvent, personas: list[Any], slot: int) -> None:
+        reporter = personas[0]
+        self._reactive_queue[slot].append(self._report_action(reporter.id, event.target_entity, event.event_type))
+        if event.event_type in {"CredentialObtained", "UnauthorizedCredentialUse"}:
+            self._reactive_queue[slot].append(self._recover_action(reporter.id, event.target_entity))
+
+    def _schedule_small_llm_reaction(self, event: RuntimeEvent, personas: list[Any], slot: int) -> None:
+        reporter = max(
+            personas,
+            key=lambda persona: (
+                round(persona.awareness - (persona.susceptibility * 0.4), 4),
+                persona.id,
+            ),
+        )
+        delay = 2 if event.event_type == "InitialAccess" else 1
+        llm_slot = slot + delay - 1
+        self._reactive_queue[llm_slot].append(
+            self._report_action(reporter.id, event.target_entity, event.event_type, depth=40)
+        )
+        if (
+            event.event_type in {"CredentialObtained", "UnauthorizedCredentialUse"}
+            and reporter.awareness >= (reporter.susceptibility * 0.8)
+        ):
+            self._reactive_queue[llm_slot].append(self._recover_action(reporter.id, event.target_entity))
+
+    def _schedule_workflow_orchestrator_reaction(self, event: RuntimeEvent, personas: list[Any], slot: int) -> None:
+        reporter = personas[0]
+        self._reactive_queue[slot].append(self._report_action(reporter.id, event.target_entity, event.event_type))
+        self._reactive_queue[slot].append(
+            Action(
+                actor_id=reporter.id,
+                role="green",
+                kind="shell",
+                payload={
+                    "target": "svc-siem",
+                    "command": "printf '%s\n' openrange-ticket >> /tmp/openrange-green-ticket",
+                    "branch": "open_it_ticket",
+                    "reported_target": event.target_entity,
+                    "reported_event_type": event.event_type,
+                },
+            )
+        )
+        if event.event_type in {"CredentialObtained", "UnauthorizedCredentialUse", "InitialAccess"}:
+            self._reactive_queue[slot].append(self._recover_action(reporter.id, event.target_entity))
+
+    @staticmethod
+    def _report_action(actor_id: str, target: str, event_type: str, *, depth: int = 20) -> Action:
+        return Action(
+            actor_id=actor_id,
+            role="green",
+            kind="shell",
+            payload={
+                "target": "svc-siem",
+                "command": f"wget -qO- http://svc-siem:9200/all.log | tail -n {depth}",
+                "branch": "report_suspicious_activity",
+                "reported_target": target,
+                "reported_event_type": event_type,
+            },
+        )
+
+    @staticmethod
+    def _recover_action(actor_id: str, target: str) -> Action:
+        return Action(
+            actor_id=actor_id,
+            role="green",
+            kind="control",
+            payload={
+                "target": "svc-idp",
+                "action": "recover",
+                "branch": "reset_password",
+                "reported_target": target,
+            },
+        )
 
 
 def _routine_service(routine: str) -> str:

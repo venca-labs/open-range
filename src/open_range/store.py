@@ -60,6 +60,7 @@ class FileSnapshotStore:
         mail_state = {"mailboxes": [persona.mailbox for persona in world.green_personas if persona.mailbox]}
         file_assets = {asset.id: asset.location for asset in world.assets}
         identity_seed = {"users": [user.id for user in world.users]}
+        state_seed_dir = artifacts.render_dir
         if synth is not None:
             db_seed_state = {
                 "services": [svc.id for svc in world.services if svc.kind == "db"],
@@ -74,9 +75,23 @@ class FileSnapshotStore:
                 "users": [user.id for user in world.users],
                 "mailboxes": sorted(synth.mailboxes),
             }
+            state_seed_dir = synth.outdir
         snapshot_id = f"{world.world_id}-{world_hash(world)[:8]}"
+        snap_dir = self.store_dir / snapshot_id
+        snap_dir.mkdir(parents=True, exist_ok=True)
+        witness_bundle_path = snap_dir / "witness_bundle.json"
+        validator_report_path = snap_dir / "validator_report.json"
+        witness_bundle_path.write_text(wb.model_dump_json(indent=2), encoding="utf-8")
+        validator_report_path.write_text(vr.model_dump_json(indent=2), encoding="utf-8")
         snapshot = Snapshot(
             snapshot_id=snapshot_id,
+            world_id=world.world_id,
+            seed=world.seed,
+            artifacts_dir=artifacts.render_dir,
+            image_digests=artifacts.pinned_image_digests,
+            state_seed_dir=state_seed_dir,
+            witness_bundle_path=str(witness_bundle_path),
+            validator_report_path=str(validator_report_path),
             world=world,
             artifacts=artifacts,
             db_seed_state=db_seed_state,
@@ -86,11 +101,9 @@ class FileSnapshotStore:
             validator_report=vr,
             witness_bundle=wb,
             world_hash=world_hash(world),
+            parent_snapshot_id=None,
             parent_world_id=world.lineage.parent_world_id,
         )
-
-        snap_dir = self.store_dir / snapshot_id
-        snap_dir.mkdir(parents=True, exist_ok=True)
         (snap_dir / "snapshot.json").write_text(snapshot.model_dump_json(indent=2), encoding="utf-8")
         (snap_dir / "metadata.json").write_text(
             json.dumps(

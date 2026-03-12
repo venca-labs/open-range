@@ -7,11 +7,13 @@ import json
 import shlex
 from dataclasses import dataclass, field
 from typing import Any, Protocol
+from urllib.parse import urlencode
 
 from open_range.cluster import BootedRelease
+from open_range.code_web import code_web_cleanup_commands, code_web_guard_path
 from open_range.runtime_types import Action
 from open_range.snapshot import Snapshot
-from open_range.world_ir import ServiceSpec
+from open_range.world_ir import ServiceSpec, WeaknessSpec
 
 
 @dataclass(frozen=True, slots=True)
@@ -23,6 +25,7 @@ class ActionExecution:
     ok: bool = True
     service_health: dict[str, float] = field(default_factory=dict)
     containment_applied: bool = False
+    patch_applied: bool = False
     recovery_applied: bool = False
 
 
@@ -111,14 +114,20 @@ class PodActionBackend:
                 ok=False,
                 service_health=self.service_health(),
             )
-        command = "rm -f /tmp/openrange-contained" if directive in {"recover", "restore"} else "touch /tmp/openrange-contained"
+        if directive in {"recover", "restore"}:
+            command = self._recovery_command_for(target)
+        elif directive in {"patch", "mitigate"}:
+            command = self._patch_command_for(target)
+        else:
+            command = "touch /tmp/openrange-contained"
         result = asyncio.run(self._release.pods.exec(target, command, timeout=action.timeout_s))
         return ActionExecution(
             stdout=result.stdout.strip(),
             stderr=result.stderr.strip(),
             ok=result.ok,
             service_health=self.service_health(),
-            containment_applied=result.ok and directive not in {"recover", "restore"},
+            containment_applied=result.ok and directive not in {"recover", "restore", "patch", "mitigate"},
+            patch_applied=result.ok and directive in {"patch", "mitigate"},
             recovery_applied=result.ok and directive in {"recover", "restore"},
         )
 
@@ -131,12 +140,19 @@ class PodActionBackend:
                 service_health=self.service_health(),
             )
         target = _action_target(action)
-        if target and target in self._service_by_id and self._is_contained(target):
-            return ActionExecution(
-                stderr=f"target {target} is contained",
-                ok=False,
-                service_health=self.service_health(),
-            )
+        if target and target in self._service_by_id:
+            if self._is_contained(target):
+                return ActionExecution(
+                    stderr=f"target {target} is contained",
+                    ok=False,
+                    service_health=self.service_health(),
+                )
+            if self._is_patched(target):
+                return ActionExecution(
+                    stderr=f"target {target} is patched",
+                    ok=False,
+                    service_health=self.service_health(),
+                )
         runner = self._runner_for(action)
         result = asyncio.run(self._release.pods.exec(runner, command, timeout=action.timeout_s))
         return ActionExecution(
@@ -166,7 +182,17 @@ class PodActionBackend:
             return f"echo unknown target {target}; exit 1"
         port = service.ports[0] if service.ports else 80
         if service.kind == "web_app":
-            return f"wget -qO- http://{target}:{port}/ | head -c 2048"
+            path = str(action.payload.get("path", "/") or "/")
+            if not path.startswith("/"):
+                path = f"/{path}"
+            query = action.payload.get("query", {})
+            suffix = ""
+            if isinstance(query, dict) and query:
+                suffix = "?" + urlencode(
+                    [(str(key), str(value)) for key, value in query.items()],
+                    doseq=True,
+                )
+            return f"wget -qO- http://{target}:{port}{path}{suffix} | head -c 2048"
         if service.kind == "db":
             return f"nc -z -w 3 {target} {port}"
         return f"nc -z -w 3 {target} {port}"
@@ -215,6 +241,40 @@ class PodActionBackend:
             self._release.pods.exec(target, "test ! -f /tmp/openrange-contained", timeout=5.0)
         )
         return not result.ok
+
+    def _is_patched(self, target: str) -> bool:
+        assert self._release is not None
+        weakness = self._weakness_for(target)
+        if weakness is not None and weakness.family == "code_web":
+            result = asyncio.run(
+                self._release.pods.exec(
+                    target,
+                    f"test ! -f {shlex.quote(code_web_guard_path(weakness))}",
+                    timeout=5.0,
+                )
+            )
+            return not result.ok
+        result = asyncio.run(
+            self._release.pods.exec(target, "test ! -f /tmp/openrange-patched", timeout=5.0)
+        )
+        return not result.ok
+
+    def _patch_command_for(self, target: str) -> str:
+        weakness = self._weakness_for(target)
+        if weakness is not None and weakness.remediation_kind == "shell" and weakness.remediation_command:
+            return weakness.remediation_command
+        return "touch /tmp/openrange-patched"
+
+    def _recovery_command_for(self, target: str) -> str:
+        cleanup = ["rm -f /tmp/openrange-contained /tmp/openrange-patched"]
+        weakness = self._weakness_for(target)
+        if weakness is not None and weakness.family == "code_web":
+            cleanup.extend(code_web_cleanup_commands(weakness))
+        return " && ".join(cleanup)
+
+    def _weakness_for(self, target: str) -> WeaknessSpec | None:
+        assert self._snapshot is not None
+        return next((weak for weak in self._snapshot.world.weaknesses if weak.target == target), None)
 
 
 def _action_target(action: Action) -> str:

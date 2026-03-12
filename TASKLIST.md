@@ -1,12 +1,13 @@
 # OpenRange Tasklist
 
-This file tracks the branch-local rewrite against `spec_new.md`.
+This file tracks the branch-local rewrite against `spec_final.md`.
 
 Rules:
-- Do not edit `spec.md` or `spec_new.md`.
+- Do not edit `spec.md`, `spec_new.md`, or `spec_final.md`.
 - Prefer deletion over compatibility shims when an older API conflicts with the current spec.
 - Keep the branch runnable at the end of each completed phase.
 - Check off only work that is implemented and verified.
+- Keep [docs/v1-paper-scope.md](/home/talian/priv/open-range/docs/v1-paper-scope.md) aligned with the release and paper claim boundary.
 
 ## Phase 0 - Audit and freeze
 
@@ -88,19 +89,127 @@ Rules:
 - [x] Rewrite runtime/service/integration tests to the new contract
 - [x] Re-run the full suite
 
+## Phase 9 - Weakness lifecycle
+
+- [x] Add public family mode and pinned weakness mode to the manifest surface
+- [x] Enrich `WeaknessSpec` with typed target, realization, and remediation fields
+- [x] Realize seeded weaknesses into synthesized service payloads
+- [x] Split runtime blue `patch` from blue `contain`
+- [x] Use executable remediation metadata in live necessity checks
+- [x] Update curriculum-added weaknesses to the richer weakness model
+- [x] Add mutation operators that can persistently harden or move existing weaknesses between child worlds
+
+## Phase 10 - Spec Final Rebase
+
+- [x] Rebase public weakness families to `code_web`, `config_identity`, `secret_exposure`, `workflow_abuse`, and `telemetry_blindspot`
+- [x] Add `code_flaw_kinds` to the public manifest and `BuildConfig`
+- [x] Rebase `EpisodeConfig` enum values to the `spec_final.md` contract
+- [x] Add `kind`, `benchmark_tags`, `remediation_id`, and `instantiation_mode` to `WeaknessSpec`
+- [x] Move pinned weaknesses to the `family + kind + target` shape
+- [x] Rework `ValidatorReport` to the summarized `spec_final.md` schema
+- [x] Rework `Snapshot` to the `spec_final.md` contract
+- [x] Rework `WorldIR` from split edge tuples to the unified edge model
+- [x] Implement exact code flaw templates for the required `code_web` kinds
+- [x] Extend curriculum with persistent `patch/remove weakness` and route-hardening operators
+
+## Phase 11 - Paper-Readiness Hardening
+
+- [x] Make `code_web` seeding mandatory when that family is allowed in enterprise web worlds
+- [x] Ground exact web witnesses on real handler output instead of path-only matching
+- [x] Add service-native route-guard remediation for exact web flaws
+- [x] Add bounded file/config rewrite mitigations for representative non-code weaknesses
+- [x] Expand the non-code weakness catalog so every required `config_identity`, `secret_exposure`, `workflow_abuse`, and `telemetry_blindspot` kind has a concrete realization path
+- [x] Add mailbox-backed realizations for email-borne secret/workflow weaknesses
+- [x] Validate pinned weakness family/kind pairs at manifest parse time
+- [x] Broaden live shortcut probes beyond port reachability to include obvious web-route and public-asset exposure checks
+- [x] Add artifact-side shortcut checks for public secret leakage and missing service-local telemetry on critical weakness targets
+- [x] Re-verify integration coverage for live admission, runtime patching, and the demo flow
+
+## Phase 12 - Review Fixes
+
+- [x] Make red witnesses and necessity checks depend on exact non-code weakness realizations instead of only target overlap
+- [x] Execute static witness checks in the default admission path instead of treating trace existence as success
+- [x] Fix `blue_only_from_prefix` semantics so prefix states are not collapsed to generic first-step replay
+- [x] Wire `false_positive_penalty_enabled` and `hallucination_penalty_enabled` into runtime reward behavior
+- [x] Differentiate opponent-controller and green-branch enum modes so they are not simple boolean aliases
+
+## Phase 13 - Tiny Training Path
+
+- [x] Add deterministic train/validation splitting to the tiny SFT path
+- [x] Add a held-out evaluation script for tiny SFT adapters
+- [x] Document the tiny training and evaluation flow
+- [x] Run and verify a real GPU-backed tiny SFT job on bootstrap-style data
+
+## Phase 14 - Rollout Evaluation
+
+- [x] Add a branch-native rollout evaluation script over admitted snapshots and mutations
+- [x] Evaluate deterministic bootstrap and runtime episodes across held-out mutated worlds
+- [x] Keep the rollout evaluation covered by a regression test
+
+## Phase 15 - Model-In-Loop Rollout Probe
+
+- [x] Add a bounded red-only model rollout probe that scores candidate runtime actions with the tiny adapter
+- [x] Keep the model rollout probe covered by a helper-level regression test
+
+## Phase 16 - Branch-Native Training Data
+
+- [x] Add a written branch-native training-data spec separate from the frozen top-level specs
+- [x] Add a first-class package trace generator for sim/runtime traces over admitted snapshots and mutations
+- [x] Export canonical raw decision rows with snapshot, world, world hash, lineage, role, observation, candidate actions, chosen action, emitted events, and terminal metadata
+- [x] Export branch-native decision SFT rows derived from those canonical trace rows
+- [x] Keep sim traces and runtime traces explicitly labeled and separate in the exported dataset
+- [x] Assign dataset splits by lineage root instead of random row
+- [x] Switch the tiny training/eval default path to generated branch-native decision traces
+- [x] Add CLI/script entrypoints and regression coverage for the trace-generation pipeline
+- [x] Make multi-mutation trace generation robust to rejected child admissions instead of aborting the entire dataset build
+
+## Phase 17 - Role-Correct Native Training
+
+- [x] Make tiny SFT and held-out eval filter branch-native rows by role/source before sample caps
+- [x] Default the tiny train/eval path to red-only decision data until a real blue policy-training loop exists
+- [x] Add regression coverage for filtered sample limiting on mixed-role datasets
+- [x] Tighten witness-step matching so extra API fields do not let probe actions count as teacher steps
+
+## Phase 18 - Corpus Growth
+
+- [x] Preserve lineage-aware split metadata in derived `decision_sft.jsonl` rows
+- [x] Export clean role/source shard files for red, blue, runtime, and sim subsets
+- [x] Document the shard outputs and runtime-first corpus workflow
+
+## Phase 19 - Benchmark-Aligned Offensive Coverage
+
+- [x] Add a written benchmark-aligned offensive coverage spec without editing the frozen top-level specs
+- [x] Add a first-class standard attack objective library and service-native objective grader specs
+- [x] Extend `WeaknessSpec` with benchmark-aligned `objective_tags`
+- [x] Compile red objectives with derived offensive objective tags where possible
+- [x] Require grounded red objectives to resolve to service-native graders in admission
+- [x] Add `EpisodeConfig.prompt_mode` with `zero_day` and `one_day`
+- [x] Expose prompt-mode-specific first-observation briefings without leaking private witnesses
+- [x] Thread offensive objective tags into branch-native training-data exports
+
 ## Audit notes
 
-Current status against `spec_new.md`:
+Current status against `spec_final.md`:
 - public runtime now exposes `reset(..., episode_config)`, `next_decision()`, `act(...)`, `state()`, and `score()`
 - green is runtime-owned and no longer trainer-stepped
 - `BuildConfig` and `EpisodeConfig` are part of the public package surface
 - build/admission signatures now carry `BuildConfig`
 - training modes and prefix-start semantics are represented explicitly in `EpisodeConfig`
+- weakness taxonomy has been rebased to the benchmark-oriented family model
+- exact weakness instances now carry `kind`, `benchmark_tags`, and instantiation metadata
+- exact weakness instances now also carry benchmark-aligned `objective_tags`
+- the required non-code weakness kinds now realize as distinct config/file/workflow/mailbox artifacts instead of collapsing into one generic placeholder per family
+- `WorldIR` now uses a canonical unified edge set with kind-filtered projections for network, trust, workflow, data, and telemetry views
+- `code_web` weaknesses now render exact PHP handlers and witness routes for the required web flaw kinds
+- curriculum now supports persistent weakness patch/remove behavior and route hardening with alternate-route exposure
+- branch-native training data now comes from admitted-snapshot trace generation rather than the older mixed bootstrap chat file by default
+- benchmark-aligned offensive coverage is now explicit through objective tags, service-native graders, and prompt-mode control
 
 Current keep list:
 - manifest-first `enterprise_saas_v1`
 - deterministic weakness seeding
 - private witness-driven admission
+- shared predicate/objective reasoning between admission and runtime
 - immutable snapshots
 - live Kind backend
 - objective/event-grounded rewards

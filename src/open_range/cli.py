@@ -15,6 +15,7 @@ from open_range.episode_config import EpisodeConfig
 from open_range.pipeline import BuildPipeline
 from open_range.service import OpenRange
 from open_range.store import FileSnapshotStore
+from open_range.tracegen import generate_trace_dataset
 
 LOG_FORMAT = "%(asctime)s [%(levelname)s] %(name)s: %(message)s"
 LOG_DATE_FORMAT = "%H:%M:%S"
@@ -112,7 +113,7 @@ def reset_cmd(
     service = OpenRange(store=FileSnapshotStore(store_dir))
     state = service.reset(
         snapshot_id,
-        EpisodeConfig(mode=mode, episode_horizon=horizon),
+        EpisodeConfig(mode=mode, episode_horizon_minutes=horizon),
         split=split,
         strategy=strategy,
         sample_seed=sample_seed,
@@ -124,6 +125,41 @@ def reset_cmd(
     click.echo(f"  Controls Red: {state.controls_red}")
     click.echo(f"  Controls Blue: {state.controls_blue}")
     click.echo(f"  Next Actor: {state.next_actor or 'n/a'}")
+
+
+@cli.command("traces")
+@click.option("-m", "--manifest", required=True, type=click.Path(exists=True), help="Path to manifest YAML.")
+@click.option("-o", "--output", required=True, type=click.Path(), help="Output directory for generated trace data.")
+@click.option("--roots", default=1, type=int, help="How many independent root lineages to generate.")
+@click.option("--mutations", default=3, type=int, help="How many admitted child mutations per lineage.")
+@click.option("--include-joint-pool", is_flag=True, default=False, help="Also export runtime joint_pool traces.")
+@click.option("--no-sim", is_flag=True, default=False, help="Skip sim-plane bootstrap traces.")
+def traces_cmd(
+    manifest: str,
+    output: str,
+    roots: int,
+    mutations: int,
+    include_joint_pool: bool,
+    no_sim: bool,
+) -> None:
+    """Generate branch-native trace datasets from admitted snapshots."""
+    output_dir = Path(output)
+    report = generate_trace_dataset(
+        _load_manifest(manifest),
+        output_dir,
+        manifest_source=manifest,
+        roots=roots,
+        mutations_per_root=mutations,
+        include_sim=not no_sim,
+        include_joint_pool=include_joint_pool,
+    )
+    report_path = _write_json(report.model_dump(mode="json"), output_dir / "report.json")
+
+    click.echo(f"Trace dataset written to {output_dir}")
+    click.echo(f"  Rows: {report.rows}")
+    click.echo(f"  Raw Rows: {report.raw_path}")
+    click.echo(f"  Decision SFT: {report.decision_sft_path}")
+    click.echo(f"  Report: {report_path}")
 
 
 if __name__ == "__main__":

@@ -29,5 +29,7 @@ def test_bundled_schemas_match_checked_in_schemas():
 
 def test_bundled_docs_are_readable():
     contents = load_bundled_doc("architecture.md")
+    weakness_contents = load_bundled_doc("weakness-lifecycle.md")
 
     assert "Python control plane" in contents
+    assert "Blue has two distinct control actions" in weakness_contents

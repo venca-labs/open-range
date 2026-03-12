@@ -9,6 +9,8 @@ from uuid import uuid4
 from open_range.episode_config import DEFAULT_EPISODE_CONFIG, EpisodeConfig
 from open_range.execution import ActionBackend, ActionExecution
 from open_range.green import GreenScheduler, ScriptedGreenScheduler
+from open_range.predicates import PredicateEngine
+from open_range.probe_planner import runtime_action as witness_runtime_action
 from open_range.rewards import RewardEngine
 from open_range.runtime_types import (
     Action,
@@ -38,6 +40,7 @@ class WitnessDrivenRuntime:
         self.action_backend = action_backend
         self.reward_engine = RewardEngine()
         self._snapshot: Snapshot | None = None
+        self._predicates: PredicateEngine | None = None
         self._episode_config = DEFAULT_EPISODE_CONFIG
         self._state = EpisodeState(snapshot_id="", episode_id="")
         self._events: list[RuntimeEvent] = []
@@ -47,9 +50,11 @@ class WitnessDrivenRuntime:
         self._red_reward_shaping = 0.0
         self._blue_reward_shaping = 0.0
         self._red_progress = 0
+        self._blue_internal_progress = 0
         self._blue_detected = False
         self._blue_contained = False
         self._contained_targets: set[str] = set()
+        self._patched_targets: set[str] = set()
         self._red_objectives_satisfied: set[str] = set()
         self._blue_objectives_satisfied: set[str] = set()
         self._detected_event_ids: set[str] = set()
@@ -65,6 +70,7 @@ class WitnessDrivenRuntime:
         episode_config: EpisodeConfig = DEFAULT_EPISODE_CONFIG,
     ) -> EpisodeState:
         self._snapshot = snapshot
+        self._predicates = PredicateEngine(snapshot.world)
         self._episode_config = episode_config
         self.reward_engine.reset()
         self._events = []
@@ -74,9 +80,11 @@ class WitnessDrivenRuntime:
         self._red_reward_shaping = 0.0
         self._blue_reward_shaping = 0.0
         self._red_progress = 0
+        self._blue_internal_progress = 0
         self._blue_detected = False
         self._blue_contained = False
         self._contained_targets = set()
+        self._patched_targets = set()
         self._red_objectives_satisfied = set()
         self._blue_objectives_satisfied = set()
         self._detected_event_ids = set()
@@ -123,6 +131,8 @@ class WitnessDrivenRuntime:
             raise RuntimeError("episode is done; reset() is required before more decisions")
         if not self._pending_actor:
             self._advance_until_external_decision()
+        if self._state.done:
+            raise RuntimeError("episode is done; reset() is required before more decisions")
         if not self._pending_actor:
             raise RuntimeError("no external decision is available")
 
@@ -180,6 +190,7 @@ class WitnessDrivenRuntime:
 
     def close(self) -> None:
         self._snapshot = None
+        self._predicates = None
         self._pending_actor = ""
         self._state.done = True
         self._state.next_actor = ""
@@ -192,27 +203,51 @@ class WitnessDrivenRuntime:
             return
         if self._episode_config.mode != "blue_only_from_prefix" or self._episode_config.start_state == "clean":
             return
+        if self._episode_config.start_state == "prefix_delivery":
+            if not any(
+                step.payload.get("action") in {"deliver_phish", "deliver_lure"}
+                for step in self._snapshot.witness_bundle.red_witnesses[0].steps
+            ):
+                return
+        if self._episode_config.start_state == "prefix_click":
+            if not any(
+                step.payload.get("action") == "click_lure"
+                for step in self._snapshot.witness_bundle.red_witnesses[0].steps
+            ):
+                return
         for _ in range(len(self._snapshot.witness_bundle.red_witnesses[0].steps)):
             step = self._next_red_step()
             if step is None or self._state.done:
                 break
             due = max(self._state.sim_time, self._next_due_time["red"])
             self._advance_time(due)
-            emitted = self._act_red(_runtime_action("red", step), internal=True).emitted_events
+            emitted = self._act_red(witness_runtime_action("red", step), internal=True).emitted_events
             self._advance_due_time("red")
             self._check_terminal_conditions()
-            if self._prefix_satisfied(self._episode_config.start_state, emitted):
+            if self._prefix_satisfied(
+                self._episode_config.start_state,
+                step_action=str(step.payload.get("action", "")),
+                emitted=emitted,
+            ):
                 break
 
-    def _prefix_satisfied(self, start_state: str, emitted: tuple[RuntimeEvent, ...]) -> bool:
+    def _prefix_satisfied(
+        self,
+        start_state: str,
+        *,
+        step_action: str,
+        emitted: tuple[RuntimeEvent, ...],
+    ) -> bool:
         event_types = {event.event_type for event in emitted}
-        if start_state == "post_delivery":
-            return True
-        if start_state in {"post_click", "post_foothold"}:
+        if start_state == "prefix_delivery":
+            return step_action in {"deliver_phish", "deliver_lure"}
+        if start_state == "prefix_click":
+            return step_action == "click_lure" or "InitialAccess" in event_types
+        if start_state == "prefix_foothold":
             return "InitialAccess" in event_types
-        if start_state == "post_credential_theft":
+        if start_state == "prefix_credential_theft":
             return "CredentialObtained" in event_types
-        if start_state == "during_lateral_movement":
+        if start_state == "prefix_lateral_movement":
             return "CrossZoneTraversal" in event_types or self._red_progress >= 2
         return False
 
@@ -241,7 +276,11 @@ class WitnessDrivenRuntime:
 
     def _next_scheduled_actor(self) -> tuple[ExternalRole | None, float]:
         candidates = sorted(
-            ((role, due_time) for role, due_time in self._next_due_time.items()),
+            (
+                (role, due_time)
+                for role, due_time in self._next_due_time.items()
+                if not (self._episode_config.mode == "blue_only_from_prefix" and role == "red")
+            ),
             key=lambda item: (item[1], 0 if item[0] == "red" else 1),
         )
         if not candidates:
@@ -275,18 +314,21 @@ class WitnessDrivenRuntime:
         alerts = tuple(
             event
             for event in visible
-            if event.malicious or event.event_type in {"DetectionAlertRaised", "ContainmentApplied", "ServiceDegraded"}
+            if event.malicious
+            or event.event_type in {"DetectionAlertRaised", "ContainmentApplied", "PatchApplied", "ServiceDegraded"}
         )
         reward_delta = self._last_reward_delta[actor]
         self._last_reward_delta[actor] = 0.0
         self._observed_event_ids[actor].update(event.id for event in visible)
         session = self._state.red_session if actor == "red" else self._state.blue_session
+        first_observation = session is not None and session.observation_count == 0
         if session is not None:
             session.observation_count += 1
+        stdout = self._observation_stdout(actor, first_observation=first_observation)
         return Observation(
             actor_id=actor,
             sim_time=round(self._state.sim_time, 4),
-            stdout=f"sim_time={self._state.sim_time:.2f}",
+            stdout=stdout,
             visible_events=visible,
             alerts_delta=alerts,
             service_health=self._service_health_tuple(),
@@ -339,6 +381,17 @@ class WitnessDrivenRuntime:
                     observability_surfaces=self._service_surfaces(target),
                 ),
             )
+        if branch == "open_it_ticket":
+            return (
+                self._emit_event(
+                    event_type="DetectionAlertRaised",
+                    actor="green",
+                    source_entity=action.actor_id,
+                    target_entity=reported_target,
+                    malicious=False,
+                    observability_surfaces=("svc-siem",),
+                ),
+            )
         return (
             self._emit_event(
                 event_type="BenignUserAction",
@@ -368,11 +421,12 @@ class WitnessDrivenRuntime:
         stderr = live.stderr
 
         expected = self._next_red_step()
-        if target in self._contained_targets:
-            containment_msg = f"target {target} is contained"
-            if containment_msg not in {line.strip() for line in stderr.splitlines() if line.strip()}:
-                stderr = "\n".join(filter(None, [stderr, containment_msg])).strip()
-        elif expected is not None and live.ok and self._matches_step(action, expected):
+        blocked_reason = self._path_block_reason(target)
+        if blocked_reason:
+            blocked_msg = f"target {target} is {blocked_reason}"
+            if blocked_msg not in {line.strip() for line in stderr.splitlines() if line.strip()}:
+                stderr = "\n".join(filter(None, [stderr, blocked_msg])).strip()
+        elif expected is not None and live.ok and self._matches_step(action, expected, live.stdout):
             self._red_progress += 1
             stdout = f"red advanced on {target}"
             emitted = self._events_for_red_step(expected, action)
@@ -383,6 +437,7 @@ class WitnessDrivenRuntime:
             action,
             tuple(emitted),
             shaping_enabled=self._episode_config.red_shaping_enabled,
+            hallucination_penalty_enabled=self._episode_config.hallucination_penalty_enabled,
         )
         self._red_reward_shaping += reward_delta
         if not internal:
@@ -404,6 +459,9 @@ class WitnessDrivenRuntime:
 
         emitted: list[RuntimeEvent] = []
         reward_delta = 0.0
+        expected_internal = None
+        if internal and self._resolved_opponent_mode("blue") in {"witness", "replay"}:
+            expected_internal = self._next_blue_step()
         live = self._execute_live_action(action)
         stdout = live.stdout or "blue action applied"
         stderr = live.stderr
@@ -429,21 +487,26 @@ class WitnessDrivenRuntime:
                 self._detected_event_ids.add(matched.id)
                 reward_delta += self.reward_engine.on_blue_detection(
                     matched,
-                    shaping_enabled=self._episode_config.blue_shaping_enabled,
+                    shaping_enabled=self._episode_config.blue_detection_shaping,
+                    false_positive_penalty_enabled=self._episode_config.false_positive_penalty_enabled,
                 )
                 stdout = f"validated finding for {matched.event_type}"
             else:
                 reward_delta += self.reward_engine.on_blue_detection(
                     None,
-                    shaping_enabled=self._episode_config.blue_shaping_enabled,
+                    shaping_enabled=self._episode_config.blue_detection_shaping,
+                    false_positive_penalty_enabled=self._episode_config.false_positive_penalty_enabled,
                 )
                 stdout = "finding rejected as false positive"
         elif action.kind == "control":
             target = _action_target(action)
+            directive = str(action.payload.get("action", "contain")).lower()
             remaining_targets = self._remaining_red_targets()
             continuity_before = self._state.continuity
-            if target and target in remaining_targets and live.containment_applied:
+            path_broken = bool(target and target in remaining_targets and (live.containment_applied or live.patch_applied))
+            if target and live.containment_applied:
                 self._contained_targets.add(target)
+                self._patched_targets.discard(target)
                 emitted.append(
                     self._emit_event(
                         event_type="ContainmentApplied",
@@ -452,29 +515,72 @@ class WitnessDrivenRuntime:
                         target_entity=target,
                         malicious=False,
                         observability_surfaces=("svc-siem",),
-                        linked_objective_predicates=("intrusion_contained(before_asset_read)",),
+                        linked_objective_predicates=("intrusion_contained(before_asset_read)",) if path_broken else (),
                     )
                 )
+            elif target and live.patch_applied:
+                self._patched_targets.add(target)
+                self._contained_targets.discard(target)
+                emitted.append(
+                    self._emit_event(
+                        event_type="PatchApplied",
+                        actor="blue",
+                        source_entity="blue",
+                        target_entity=target,
+                        malicious=False,
+                        observability_surfaces=("svc-siem",),
+                        linked_objective_predicates=("intrusion_contained(before_asset_read)",) if path_broken else (),
+                    )
+                )
+            elif target and live.recovery_applied:
+                self._contained_targets.discard(target)
+                self._patched_targets.discard(target)
+                emitted.append(
+                    self._emit_event(
+                        event_type="RecoveryCompleted",
+                        actor="blue",
+                        source_entity="blue",
+                        target_entity=target,
+                        malicious=False,
+                        observability_surfaces=("svc-siem",),
+                    )
+                )
+
+            if path_broken:
                 self._blue_contained = True
                 self._blue_objectives_satisfied.add("intrusion_contained(before_asset_read)")
-                stdout = f"containment applied to {target}"
+                if live.patch_applied:
+                    if directive == "mitigate":
+                        stdout = f"mitigation applied to {target}"
+                    else:
+                        stdout = f"patch applied to {target}"
+                else:
+                    stdout = f"containment applied to {target}"
                 self._update_continuity()
                 reward_delta += self.reward_engine.on_blue_containment(
                     target=target,
                     path_broken=True,
                     continuity_before=continuity_before,
                     continuity_after=self._state.continuity,
-                    shaping_enabled=self._episode_config.blue_shaping_enabled,
+                    shaping_enabled=self._episode_config.blue_containment_shaping,
                 )
             else:
-                stdout = live.stdout or f"control action on {target or 'unknown target'} had no path-breaking effect"
+                if live.recovery_applied:
+                    stdout = live.stdout or f"recovery applied to {target or 'unknown target'}"
+                elif live.patch_applied:
+                    noun = "mitigation" if directive == "mitigate" else "patch"
+                    stdout = live.stdout or f"{noun} on {target or 'unknown target'} did not break the remaining path"
+                elif directive == "contain":
+                    stdout = live.stdout or f"control action on {target or 'unknown target'} had no path-breaking effect"
+                else:
+                    stdout = live.stdout or f"{directive} on {target or 'unknown target'} had no path-breaking effect"
                 self._update_continuity()
                 reward_delta += self.reward_engine.on_blue_containment(
                     target=target,
                     path_broken=False,
                     continuity_before=continuity_before,
                     continuity_after=self._state.continuity,
-                    shaping_enabled=self._episode_config.blue_shaping_enabled,
+                    shaping_enabled=self._episode_config.blue_containment_shaping,
                 )
         elif action.kind == "sleep":
             stdout = "blue slept"
@@ -484,6 +590,8 @@ class WitnessDrivenRuntime:
         self._blue_reward_shaping += reward_delta
         if not internal:
             self._last_reward_delta["blue"] += reward_delta
+        elif expected_internal is not None and self._matches_step(action, expected_internal, live.stdout):
+            self._blue_internal_progress += 1
 
         return ActionResult(
             action=action,
@@ -500,8 +608,20 @@ class WitnessDrivenRuntime:
         target = expected.target
         step_action = str(expected.payload.get("action", ""))
         asset_id = str(expected.payload.get("asset", ""))
+        objective = str(expected.payload.get("objective", "")).strip()
 
         if step_action == "initial_access":
+            emitted.append(
+                self._emit_event(
+                    event_type="InitialAccess",
+                    actor="red",
+                    source_entity=action.actor_id,
+                    target_entity=target,
+                    malicious=True,
+                    observability_surfaces=self._service_surfaces(target),
+                )
+            )
+        elif step_action == "click_lure":
             emitted.append(
                 self._emit_event(
                     event_type="InitialAccess",
@@ -523,35 +643,128 @@ class WitnessDrivenRuntime:
                     observability_surfaces=self._service_surfaces(target),
                 )
             )
+        elif step_action == "collect_secret":
+            emitted.extend(self._events_for_secret_collection(target, asset_id, objective=objective))
+        elif step_action == "abuse_identity":
+            emitted.extend(self._events_for_identity_abuse(target, objective=objective))
+        elif step_action == "abuse_workflow":
+            emitted.extend(self._events_for_workflow_abuse(target, objective=objective))
         elif step_action == "satisfy_objective":
-            if asset_id and "cred" in asset_id:
-                emitted.append(
-                    self._emit_event(
-                        event_type="CredentialObtained",
-                        actor="red",
-                        source_entity=target,
-                        target_entity=asset_id,
-                        malicious=True,
-                        observability_surfaces=self._service_surfaces(target),
-                        linked_objective_predicates=(f"credential_obtained({asset_id})",),
-                    )
-                )
-                self._red_objectives_satisfied.add(f"credential_obtained({asset_id})")
-            elif asset_id:
-                emitted.append(
-                    self._emit_event(
-                        event_type="SensitiveAssetRead",
-                        actor="red",
-                        source_entity=target,
-                        target_entity=asset_id,
-                        malicious=True,
-                        observability_surfaces=self._service_surfaces(target),
-                        linked_objective_predicates=(f"asset_read({asset_id})",),
-                    )
-                )
-                self._red_objectives_satisfied.add(f"asset_read({asset_id})")
+            emitted.extend(self._events_for_objective(target, objective=objective, asset_id=asset_id))
         self._last_red_target = target
         return emitted
+
+    def _events_for_secret_collection(self, target: str, asset_id: str, *, objective: str = "") -> list[RuntimeEvent]:
+        if objective:
+            return self._events_for_objective(target, objective=objective, asset_id=asset_id)
+        if not asset_id:
+            return [
+                self._emit_event(
+                    event_type="SensitiveAssetRead",
+                    actor="red",
+                    source_entity=target,
+                    target_entity=target,
+                    malicious=True,
+                    observability_surfaces=self._service_surfaces(target),
+                )
+            ]
+        if "cred" in asset_id or "token" in asset_id:
+            self._red_objectives_satisfied.add(f"credential_obtained({asset_id})")
+            return [
+                self._emit_event(
+                    event_type="CredentialObtained",
+                    actor="red",
+                    source_entity=target,
+                    target_entity=asset_id,
+                    malicious=True,
+                    observability_surfaces=self._service_surfaces(target),
+                    linked_objective_predicates=(f"credential_obtained({asset_id})",),
+                )
+            ]
+        self._red_objectives_satisfied.add(f"asset_read({asset_id})")
+        return [
+            self._emit_event(
+                event_type="SensitiveAssetRead",
+                actor="red",
+                source_entity=target,
+                target_entity=asset_id,
+                malicious=True,
+                observability_surfaces=self._service_surfaces(target),
+                linked_objective_predicates=(f"asset_read({asset_id})",),
+            )
+        ]
+
+    def _events_for_identity_abuse(self, target: str, *, objective: str = "") -> list[RuntimeEvent]:
+        if objective:
+            return self._events_for_objective(target, objective=objective)
+        return [
+            self._emit_event(
+                event_type="CredentialObtained",
+                actor="red",
+                source_entity=target,
+                target_entity=target,
+                malicious=True,
+                observability_surfaces=self._service_surfaces(target),
+            ),
+            self._emit_event(
+                event_type="UnauthorizedCredentialUse",
+                actor="red",
+                source_entity=target,
+                target_entity=target,
+                malicious=True,
+                observability_surfaces=self._service_surfaces(target),
+            ),
+        ]
+
+    def _events_for_workflow_abuse(self, target: str, *, objective: str = "") -> list[RuntimeEvent]:
+        if objective:
+            return self._events_for_objective(target, objective=objective)
+        return [
+            self._emit_event(
+                event_type="UnauthorizedCredentialUse",
+                actor="red",
+                source_entity=target,
+                target_entity=target,
+                malicious=True,
+                observability_surfaces=self._service_surfaces(target),
+            )
+        ]
+
+    def _events_for_objective(self, target: str, *, objective: str, asset_id: str = "") -> list[RuntimeEvent]:
+        if not objective and not asset_id:
+            return []
+        objective = objective or (f"credential_obtained({asset_id})" if "cred" in asset_id else f"asset_read({asset_id})")
+        target_ref = _predicate_inner(objective) or asset_id or target
+        name = _predicate_name(objective)
+        surfaces = self._service_surfaces(target)
+        if name in {"credential_obtained", "unauthorized_admin_login"}:
+            event_type = "CredentialObtained" if name == "credential_obtained" else "UnauthorizedCredentialUse"
+        elif name in {"asset_read", "file_access", "db_access"}:
+            event_type = "SensitiveAssetRead"
+        elif name == "file_creation":
+            event_type = "PersistenceEstablished"
+        elif name == "db_modification":
+            event_type = "PrivilegeEscalation"
+        elif name == "privilege_escalation":
+            event_type = "PrivilegeEscalation"
+        elif name == "outbound_service":
+            event_type = "PersistenceEstablished"
+        elif name == "dos":
+            event_type = "ServiceDegraded"
+        else:
+            event_type = "SensitiveAssetRead"
+        self._red_objectives_satisfied.add(objective)
+        return [
+            self._emit_event(
+                event_type=event_type,
+                actor="red",
+                source_entity=target,
+                target_entity=target_ref,
+                malicious=True,
+                observability_surfaces=surfaces,
+                linked_objective_predicates=(objective,),
+            )
+        ]
 
     def _next_red_step(self):
         if self._snapshot is None:
@@ -561,9 +774,48 @@ class WitnessDrivenRuntime:
             return None
         return trace.steps[self._red_progress]
 
+    def _next_blue_step(self):
+        if self._snapshot is None:
+            return None
+        trace = self._snapshot.witness_bundle.blue_witnesses[0]
+        if self._blue_internal_progress >= len(trace.steps):
+            return None
+        return trace.steps[self._blue_internal_progress]
+
     @staticmethod
-    def _matches_step(action: Action, expected) -> bool:
-        return action.kind == expected.kind and _action_target(action) == expected.target
+    def _matches_step(action: Action, expected, live_stdout: str) -> bool:
+        if action.kind != expected.kind or _action_target(action) != expected.target:
+            return False
+        if action.kind == "api":
+            expected_path = expected.payload.get("path")
+            actual_path = action.payload.get("path")
+            if (expected_path or actual_path) and actual_path != expected_path:
+                return False
+            expected_query = expected.payload.get("query")
+            actual_query = action.payload.get("query")
+            if (expected_query or actual_query) and actual_query != expected_query:
+                return False
+            expected_contains = str(expected.payload.get("expect_contains", "")).strip()
+            if expected_contains and expected_contains not in live_stdout:
+                return False
+        if action.kind in {"shell", "mail"}:
+            expected_path = expected.payload.get("path")
+            actual_path = action.payload.get("path")
+            if (expected_path or actual_path) and actual_path != expected_path:
+                return False
+            expected_contains = str(expected.payload.get("expect_contains", "")).strip()
+            if expected_contains and expected_contains not in live_stdout:
+                return False
+        if action.kind == "control":
+            expected_directive = expected.payload.get("action")
+            if expected_directive and action.payload.get("action") != expected_directive:
+                return False
+        if action.kind == "submit_finding":
+            expected_event = expected.payload.get("event_type", expected.payload.get("event"))
+            actual_event = action.payload.get("event_type", action.payload.get("event"))
+            if expected_event and actual_event != expected_event:
+                return False
+        return True
 
     def _find_detectable_event(
         self,
@@ -590,6 +842,15 @@ class WitnessDrivenRuntime:
         trace = self._snapshot.witness_bundle.red_witnesses[0]
         return {step.target for step in trace.steps[self._red_progress:]}
 
+    def _path_block_reason(self, target: str) -> str:
+        if not target:
+            return ""
+        if target in self._patched_targets:
+            return "patched"
+        if target in self._contained_targets:
+            return "contained"
+        return ""
+
     def _check_terminal_conditions(self) -> None:
         red_terminal = self._red_terminal_satisfied()
         blue_terminal = self._blue_terminal_satisfied(red_terminal)
@@ -612,18 +873,21 @@ class WitnessDrivenRuntime:
             self._pending_actor = ""
 
     def _red_terminal_satisfied(self) -> bool:
-        if self._snapshot is None:
+        if self._predicates is None:
             return False
-        required = {objective.predicate for objective in self._snapshot.world.red_objectives if objective.terminal}
-        return bool(required) and required <= self._red_objectives_satisfied
+        return self._predicates.red_terminal_satisfied(self._red_objectives_satisfied)
 
     def _blue_terminal_satisfied(self, red_terminal: bool) -> bool:
-        continuity_ok = (
-            self._state.continuity >= self._episode_config.continuity_threshold
-            if self._episode_config.continuity_enforced
-            else True
+        if self._predicates is None:
+            return False
+        return self._predicates.blue_terminal_satisfied(
+            red_terminal=red_terminal,
+            blue_detected=self._blue_detected,
+            blue_contained=self._blue_contained,
+            continuity=self._state.continuity,
+            continuity_threshold=self._episode_config.continuity_threshold,
+            continuity_enforced=self._episode_config.continuity_enforced,
         )
-        return not red_terminal and self._blue_detected and self._blue_contained and continuity_ok
 
     def _update_continuity(self) -> None:
         if not self._state.service_health:
@@ -652,7 +916,12 @@ class WitnessDrivenRuntime:
                 if event.observability_surfaces:
                     visible.append(event)
                 continue
-            if event.actor in {"green", "red"} or event.event_type in {"ContainmentApplied", "RecoveryCompleted", "ServiceDegraded"}:
+            if event.actor in {"green", "red"} or event.event_type in {
+                "ContainmentApplied",
+                "PatchApplied",
+                "RecoveryCompleted",
+                "ServiceDegraded",
+            }:
                 visible.append(event)
         return tuple(visible)
 
@@ -684,15 +953,38 @@ class WitnessDrivenRuntime:
             linked_objective_predicates=linked_objective_predicates,
         )
         self._events.append(event)
-        blue_delay = 0.5 if self._episode_config.telemetry_delay_enabled else 0.0
+        blue_delay = self._blue_visibility_time(event, observability_surfaces)
         self._event_visibility[event.id] = {
             "red": self._state.sim_time,
-            "blue": self._state.sim_time + (blue_delay if observability_surfaces else inf),
+            "blue": blue_delay,
         }
         self.green_scheduler.record_event(event)
         if self.action_backend is not None:
             self.action_backend.record_event(event)
         return event
+
+    def _blue_visibility_time(
+        self,
+        event: RuntimeEvent,
+        observability_surfaces: tuple[str, ...],
+    ) -> float:
+        if not observability_surfaces:
+            return inf
+        blindspots = self._active_telemetry_blindspots()
+        if event.malicious and {event.source_entity, event.target_entity} & blindspots:
+            return inf
+        delay = _telemetry_delay(self._episode_config)
+        return self._state.sim_time + delay
+
+    def _active_telemetry_blindspots(self) -> set[str]:
+        if self._predicates is None:
+            return set()
+        return {
+            weakness.target
+            for weakness in self._predicates.active_weaknesses()
+            if weakness.family == "telemetry_blindspot"
+            and weakness.target not in self._patched_targets
+        }
 
     def _service_surfaces(self, target: str) -> tuple[str, ...]:
         if self._snapshot is None:
@@ -702,11 +994,47 @@ class WitnessDrivenRuntime:
                 return tuple(service.telemetry_surfaces) + ("svc-siem",)
         return ("svc-siem",)
 
+    def _observation_stdout(self, actor: ExternalRole, *, first_observation: bool) -> str:
+        base = f"sim_time={self._state.sim_time:.2f}"
+        if not first_observation or self._snapshot is None:
+            return base
+        return f"{self._briefing_text(actor)}\n{base}"
+
+    def _briefing_text(self, actor: ExternalRole) -> str:
+        assert self._snapshot is not None
+        world = self._snapshot.world
+        objectives = world.red_objectives if actor == "red" else world.blue_objectives
+        public_services = ",".join(service.id for service in world.services if self._predicates and self._predicates.is_public_service(service))
+        lines = [
+            f"briefing_mode={self._episode_config.prompt_mode}",
+            f"business={world.business_archetype}",
+            f"public_services={public_services or 'none'}",
+            f"objectives={'; '.join(objective.predicate for objective in objectives) or 'none'}",
+        ]
+        if self._episode_config.prompt_mode == "one_day":
+            surfaces = ", ".join(
+                f"{weak.family}:{weak.kind}@{weak.target}"
+                for weak in world.weaknesses
+                if weak.family != "telemetry_blindspot" or actor == "blue"
+            )
+            lines.append(f"known_risky_surfaces={surfaces or 'none'}")
+        return "\n".join(lines)
+
     def _execute_live_action(self, action: Action) -> ActionExecution:
         if self.action_backend is None:
             directive = str(action.payload.get("action", "contain")).lower()
+            weakness_id = str(action.payload.get("weakness_id", action.payload.get("weakness", ""))).strip()
+            if action.kind in {"api", "shell", "mail"} and weakness_id:
+                weakness = self._active_weakness(weakness_id)
+                if weakness is None:
+                    return ActionExecution(stderr=f"weakness {weakness_id} unavailable", ok=False)
+                return ActionExecution(
+                    stdout=str(action.payload.get("expect_contains", "")) or f"exercised {weakness.kind}",
+                )
             return ActionExecution(
-                containment_applied=action.kind == "control" and directive not in {"recover", "restore"},
+                stdout=str(action.payload.get("expect_contains", "")) if action.kind in {"api", "shell", "mail"} else "",
+                containment_applied=action.kind == "control" and directive == "contain",
+                patch_applied=action.kind == "control" and directive in {"patch", "mitigate"},
                 recovery_applied=action.kind == "control" and directive in {"recover", "restore"},
             )
         result = self.action_backend.execute(action)
@@ -716,7 +1044,7 @@ class WitnessDrivenRuntime:
         return result
 
     def _advance_due_time(self, actor: ExternalRole) -> None:
-        cadence = 1.0
+        cadence = 1.0 if self._is_controlled(actor) else self._opponent_cadence(actor)
         self._next_due_time[actor] = round(max(self._next_due_time[actor], self._state.sim_time) + cadence, 4)
 
     def _is_controlled(self, actor: ExternalRole) -> bool:
@@ -724,15 +1052,26 @@ class WitnessDrivenRuntime:
 
     def _internal_action(self, actor: ExternalRole) -> Action:
         if actor == "red":
-            if self._episode_config.opponent_red == "sleep":
-                return Action(actor_id="red", role="red", kind="sleep", payload={})
-            step = self._next_red_step()
-            if step is None:
-                return Action(actor_id="red", role="red", kind="sleep", payload={})
-            return _runtime_action("red", step)
+            return self._internal_red_action()
+        return self._internal_blue_action()
 
-        if self._episode_config.opponent_blue == "sleep":
+    def _internal_red_action(self) -> Action:
+        if self._resolved_opponent_mode("red") == "none":
+            return Action(actor_id="red", role="red", kind="sleep", payload={})
+        step = self._next_red_step()
+        if step is None:
+            return Action(actor_id="red", role="red", kind="sleep", payload={})
+        return witness_runtime_action("red", step)
+
+    def _internal_blue_action(self) -> Action:
+        mode = self._resolved_opponent_mode("blue")
+        if mode == "none":
             return Action(actor_id="blue", role="blue", kind="sleep", payload={})
+        if mode in {"witness", "replay"}:
+            step = self._next_blue_step()
+            if step is None:
+                return Action(actor_id="blue", role="blue", kind="sleep", payload={})
+            return witness_runtime_action("blue", step)
         for event in self._visible_events("blue"):
             if event.malicious and event.id not in self._detected_event_ids:
                 return Action(
@@ -746,20 +1085,56 @@ class WitnessDrivenRuntime:
             return Action(actor_id="blue", role="blue", kind="control", payload={"target": remaining[0], "action": "contain"})
         return Action(actor_id="blue", role="blue", kind="sleep", payload={})
 
+    def _resolved_opponent_mode(self, actor: ExternalRole) -> str:
+        mode = self._episode_config.opponent_red if actor == "red" else self._episode_config.opponent_blue
+        if mode != "checkpoint_pool":
+            return mode
+        if self._snapshot is None:
+            return "scripted"
+        if actor == "red":
+            return "witness" if self._snapshot.seed % 2 == 0 else "frozen_policy"
+        return "witness" if self._snapshot.seed % 2 == 0 else "scripted"
 
-def _runtime_action(actor: ExternalRole, step) -> Action:
-    payload = dict(step.payload)
-    if step.target:
-        payload.setdefault("target", step.target)
-    if actor == "blue" and step.kind == "submit_finding":
-        payload["event_type"] = str(payload.get("event", payload.get("event_type", "InitialAccess")))
-    return Action(actor_id=actor, role=actor, kind=step.kind, payload=payload)
+    def _opponent_cadence(self, actor: ExternalRole) -> float:
+        mode = self._resolved_opponent_mode(actor)
+        if actor == "red":
+            if mode == "replay":
+                return 0.75
+            if mode == "frozen_policy":
+                return 1.5
+            if mode == "scripted":
+                return 1.25
+            return 1.0
+        if mode == "replay":
+            return 0.5
+        if mode == "witness":
+            return 0.75
+        if mode == "frozen_policy":
+            return 1.25
+        return 1.0
+
+    def _active_weakness(self, weakness_id: str):
+        if self._predicates is None:
+            return None
+        return next((weakness for weakness in self._predicates.active_weaknesses() if weakness.id == weakness_id), None)
 
 
 def _initial_due_times(config: EpisodeConfig) -> dict[str, float]:
-    if config.scheduler_mode == "strict_turn":
+    if config.scheduler_mode == "strict_turns":
         return {"red": 0.0, "blue": 0.0}
-    return {"red": 0.0, "blue": 0.5 if config.telemetry_delay_enabled else 0.0}
+    return {"red": 0.0, "blue": _telemetry_delay(config)}
+
+
+def _telemetry_delay(config: EpisodeConfig) -> float:
+    if not config.telemetry_delay_enabled:
+        return 0.0
+    if config.telemetry_delay_profile == "none":
+        return 0.0
+    if config.telemetry_delay_profile == "low":
+        return 0.25
+    if config.telemetry_delay_profile == "high":
+        return 1.0
+    return 0.5
 
 
 def _action_target(action: Action) -> str:
@@ -770,3 +1145,15 @@ def _action_target(action: Action) -> str:
     if isinstance(service, str) and service:
         return service
     return ""
+
+
+def _predicate_name(predicate: str) -> str:
+    if "(" not in predicate or ")" not in predicate:
+        return predicate.strip()
+    return predicate.split("(", 1)[0].strip()
+
+
+def _predicate_inner(predicate: str) -> str:
+    if "(" not in predicate or ")" not in predicate:
+        return ""
+    return predicate.split("(", 1)[1].rsplit(")", 1)[0].strip()

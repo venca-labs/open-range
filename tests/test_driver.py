@@ -53,10 +53,10 @@ def _manifest_payload() -> dict:
         },
         "security": {
             "allowed_weakness_families": [
-                "auth_misconfig",
+                "config_identity",
                 "workflow_abuse",
                 "secret_exposure",
-                "input_validation",
+                "code_web",
                 "telemetry_blindspot",
             ],
             "observability": {
@@ -97,7 +97,12 @@ def test_tandem_driver_runs_joint_pool_episode(tmp_path: Path):
     blue_target = red_trace[1].target
     red_agent = ScriptedRuntimeAgent(
         [
-            Action(actor_id="red", role="red", kind=red_trace[0].kind, payload={"target": red_trace[0].target}),
+            Action(
+                actor_id="red",
+                role="red",
+                kind=red_trace[0].kind,
+                payload={"target": red_trace[0].target, **red_trace[0].payload},
+            ),
             Action(actor_id="red", role="red", kind="sleep", payload={}),
         ]
     )
@@ -144,7 +149,7 @@ def test_driver_can_run_blue_only_prefix_episode(tmp_path: Path):
         snapshot,
         red_agent=red_agent,
         blue_agent=blue_agent,
-        episode_config=EpisodeConfig(mode="blue_only_from_prefix", start_state="post_foothold", green_enabled=False),
+        episode_config=EpisodeConfig(mode="blue_only_from_prefix", start_state="prefix_foothold", green_enabled=False),
     )
 
     assert episode.done is True

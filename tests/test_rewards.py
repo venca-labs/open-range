@@ -33,6 +33,20 @@ def test_red_reward_applies_hallucination_penalty_for_false_claim():
     assert reward == -0.31
 
 
+def test_red_reward_can_disable_hallucination_penalty_for_false_claim():
+    engine = RewardEngine()
+    action = Action(
+        actor_id="red",
+        role="red",
+        kind="api",
+        payload={"target": "svc-web", "claim_objective": "asset_read(finance_docs)"},
+    )
+
+    reward = engine.on_red_action(action, (), hallucination_penalty_enabled=False)
+
+    assert reward == -0.01
+
+
 def test_blue_reward_tracks_valid_detection_and_false_positives():
     engine = RewardEngine()
     valid = SimpleNamespace(id="evt-1")
@@ -40,6 +54,13 @@ def test_blue_reward_tracks_valid_detection_and_false_positives():
     assert engine.on_blue_detection(valid) == 0.1
     assert engine.on_blue_detection(valid) == 0.0
     assert engine.on_blue_detection(None) == -0.1
+
+
+def test_blue_reward_can_disable_false_positive_penalty_and_all_shaping():
+    engine = RewardEngine()
+
+    assert engine.on_blue_detection(None, false_positive_penalty_enabled=False) == 0.0
+    assert engine.on_blue_detection(None, shaping_enabled=False) == 0.0
 
 
 def test_blue_containment_reward_is_path_breakage_minus_continuity_loss():

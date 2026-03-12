@@ -6,6 +6,7 @@ from typing import Protocol
 
 from open_range.build_config import BuildConfig, DEFAULT_BUILD_CONFIG
 from open_range.manifest import EnterpriseSaaSManifest, ManifestAsset, validate_manifest
+from open_range.objectives import objective_tags_for_predicate
 from open_range.world_ir import (
     AssetSpec,
     CredentialSpec,
@@ -106,16 +107,19 @@ class EnterpriseSaaSManifestCompiler:
         build_config: BuildConfig = DEFAULT_BUILD_CONFIG,
     ) -> WorldIR:
         parsed = manifest if isinstance(manifest, EnterpriseSaaSManifest) else validate_manifest(manifest)
+        if build_config.world_family != parsed.world_family:
+            raise ValueError(
+                f"build_config.world_family={build_config.world_family!r} does not match manifest world_family={parsed.world_family!r}"
+            )
         service_names = self._selected_services(parsed, build_config)
         workflow_names = self._selected_workflows(parsed, build_config)
         allowed_families = self._selected_weakness_families(parsed, build_config)
+        allowed_code_flaw_kinds = self._selected_code_flaw_kinds(parsed, build_config)
         allowed_surfaces = set(build_config.observability_surfaces_enabled)
 
         hosts = []
         services = []
-        network_edges = []
-        trust_edges = []
-        telemetry_edges = []
+        edges = []
 
         for service_name in service_names:
             if service_name not in self._SERVICE_LAYOUT:
@@ -144,7 +148,7 @@ class EnterpriseSaaSManifestCompiler:
                 )
             )
             for dep in layout["dependencies"]:
-                network_edges.append(
+                edges.append(
                     EdgeSpec(
                         id=f"net-{layout['service_id']}-to-{dep}",
                         kind="network",
@@ -153,7 +157,7 @@ class EnterpriseSaaSManifestCompiler:
                         label="service_dependency",
                     )
                 )
-                trust_edges.append(
+                edges.append(
                     EdgeSpec(
                         id=f"trust-{layout['service_id']}-to-{dep}",
                         kind="trust",
@@ -163,7 +167,7 @@ class EnterpriseSaaSManifestCompiler:
                     )
                 )
             if service_name != "siem" and (not allowed_surfaces or telemetry):
-                telemetry_edges.append(
+                edges.append(
                     EdgeSpec(
                         id=f"telemetry-{layout['service_id']}-to-siem",
                         kind="telemetry",
@@ -174,15 +178,25 @@ class EnterpriseSaaSManifestCompiler:
                 )
 
         users, groups, credentials, personas = self._expand_users(parsed, build_config)
-        workflows, data_edges = self._compile_workflows(parsed, workflow_names)
+        workflows, workflow_edges = self._compile_workflows(parsed, workflow_names)
         assets = tuple(self._place_asset(asset) for asset in parsed.assets)
 
         red_objectives = tuple(
-            ObjectiveSpec(id=f"red-{idx}", owner="red", predicate=obj.predicate)
+            self._compile_objective(
+                owner="red",
+                index=idx,
+                predicate=obj.predicate,
+                assets=assets,
+            )
             for idx, obj in enumerate(parsed.objectives.red, start=1)
         )
         blue_objectives = tuple(
-            ObjectiveSpec(id=f"blue-{idx}", owner="blue", predicate=obj.predicate)
+            self._compile_objective(
+                owner="blue",
+                index=idx,
+                predicate=obj.predicate,
+                assets=assets,
+            )
             for idx, obj in enumerate(parsed.objectives.blue, start=1)
         )
 
@@ -192,6 +206,10 @@ class EnterpriseSaaSManifestCompiler:
             business_archetype=parsed.business.archetype,
             allowed_service_kinds=service_names,
             allowed_weakness_families=allowed_families,
+            allowed_code_flaw_kinds=allowed_code_flaw_kinds,
+            pinned_weaknesses=parsed.security.pinned_weaknesses,
+            target_weakness_count=self._target_weakness_budget(parsed, build_config),
+            phishing_surface_enabled=parsed.security.phishing_surface_enabled and build_config.phishing_surface_enabled,
             target_red_path_depth=parsed.difficulty.target_red_path_depth,
             target_blue_signal_points=parsed.difficulty.target_blue_signal_points,
             zones=parsed.topology.zones,
@@ -202,10 +220,7 @@ class EnterpriseSaaSManifestCompiler:
             credentials=credentials,
             assets=assets,
             workflows=workflows,
-            network_edges=tuple(network_edges),
-            trust_edges=tuple(trust_edges),
-            data_edges=data_edges,
-            telemetry_edges=tuple(telemetry_edges),
+            edges=tuple(edges) + workflow_edges,
             weaknesses=(),
             red_objectives=red_objectives,
             blue_objectives=blue_objectives,
@@ -218,6 +233,7 @@ class EnterpriseSaaSManifestCompiler:
                 max_new_services=parsed.mutation_bounds.max_new_services,
                 max_new_users=parsed.mutation_bounds.max_new_users,
                 max_new_weaknesses=parsed.mutation_bounds.max_new_weaknesses,
+                allow_patch_old_weaknesses=parsed.mutation_bounds.allow_patch_old_weaknesses,
             ),
             lineage=LineageSpec(seed=parsed.seed),
         )
@@ -262,6 +278,52 @@ class EnterpriseSaaSManifestCompiler:
         return families
 
     @staticmethod
+    def _selected_code_flaw_kinds(
+        manifest: EnterpriseSaaSManifest,
+        build_config: BuildConfig,
+    ) -> tuple:
+        kinds = tuple(manifest.security.code_flaw_kinds)
+        if build_config.code_flaw_kinds_enabled:
+            enabled = set(build_config.code_flaw_kinds_enabled)
+            kinds = tuple(kind for kind in kinds if kind in enabled)
+        return kinds
+
+    @staticmethod
+    def _compile_objective(
+        *,
+        owner: str,
+        index: int,
+        predicate: str,
+        assets: tuple[AssetSpec, ...],
+    ) -> ObjectiveSpec:
+        target = _predicate_inner(predicate)
+        asset = next((item for item in assets if item.id == target), None)
+        objective_tags = objective_tags_for_predicate(
+            predicate,
+            asset_location=asset.location if asset is not None else "",
+            owner_service=asset.owner_service if asset is not None else "",
+            target_id=target,
+        )
+        return ObjectiveSpec(
+            id=f"{owner}-{index}",
+            owner=owner,
+            predicate=predicate,
+            objective_tags=objective_tags,
+        )
+
+    @staticmethod
+    def _target_weakness_budget(
+        manifest: EnterpriseSaaSManifest,
+        build_config: BuildConfig,
+    ) -> int:
+        base = 2 if manifest.difficulty.target_red_path_depth <= 8 else 3
+        if build_config.topology_scale == "small":
+            return max(1, base - 1)
+        if build_config.topology_scale == "large":
+            return base + 1
+        return base
+
+    @staticmethod
     def _resolve_zone(available: tuple[str, ...], preferred: str) -> str:
         if preferred in available:
             return preferred
@@ -285,7 +347,12 @@ class EnterpriseSaaSManifestCompiler:
         personas = []
 
         for role, count in manifest.users.roles.items():
-            scaled_count = 1 if build_config.topology_scale == "small" else count
+            if build_config.topology_scale == "small":
+                scaled_count = 1
+            elif build_config.topology_scale == "large":
+                scaled_count = max(1, count * 2)
+            else:
+                scaled_count = count
             member_ids = []
             home_service = self._ROLE_HOME_SERVICE.get(role, "svc-web")
             home_host = self._host_for_service(home_service)
@@ -336,7 +403,7 @@ class EnterpriseSaaSManifestCompiler:
         workflow_names: tuple[str, ...],
     ) -> tuple[tuple[WorkflowSpec, ...], tuple[EdgeSpec, ...]]:
         workflows = []
-        data_edges = []
+        workflow_edges = []
         for workflow_name in workflow_names:
             steps = self._workflow_steps(workflow_name)
             workflows.append(
@@ -347,8 +414,18 @@ class EnterpriseSaaSManifestCompiler:
                 )
             )
             for idx, step in enumerate(steps, start=1):
+                if step.service:
+                    workflow_edges.append(
+                        EdgeSpec(
+                            id=f"workflow-{workflow_name}-{idx}",
+                            kind="workflow",
+                            source=step.actor_role,
+                            target=step.service,
+                            label=step.action,
+                        )
+                    )
                 if step.asset:
-                    data_edges.append(
+                    workflow_edges.append(
                         EdgeSpec(
                             id=f"data-{workflow_name}-{idx}",
                             kind="data",
@@ -357,7 +434,7 @@ class EnterpriseSaaSManifestCompiler:
                             label=step.action,
                         )
                     )
-        return tuple(workflows), tuple(data_edges)
+        return tuple(workflows), tuple(workflow_edges)
 
     @staticmethod
     def _workflow_steps(workflow_name: str) -> tuple[WorkflowStepSpec, ...]:
@@ -426,3 +503,9 @@ class EnterpriseSaaSManifestCompiler:
         if role == "it_admin":
             return ("review_idp", "triage_alerts", "reset_password")
         return ("check_mail", "browse_app", "access_fileshare")
+
+
+def _predicate_inner(predicate: str) -> str:
+    if "(" not in predicate or ")" not in predicate:
+        return ""
+    return predicate.split("(", 1)[1].rsplit(")", 1)[0].strip()

@@ -48,10 +48,10 @@ def _manifest_payload() -> dict:
         },
         "security": {
             "allowed_weakness_families": [
-                "auth_misconfig",
+                "config_identity",
                 "workflow_abuse",
                 "secret_exposure",
-                "input_validation",
+                "code_web",
                 "telemetry_blindspot",
             ],
             "observability": {
@@ -148,6 +148,9 @@ def test_policy_mutate_is_deterministic_and_tracks_lineage():
     assert len(child_a.users) <= len(world.users) + world.mutation_bounds.max_new_users
     assert len(child_a.weaknesses) <= len(world.weaknesses) + world.mutation_bounds.max_new_weaknesses
     assert child_a.lineage.mutation_ops != world.lineage.mutation_ops
+    assert all(weak.realization for weak in child_a.weaknesses)
+    assert all(weak.remediation_kind == "shell" for weak in child_a.weaknesses)
+    assert all(weak.remediation_command for weak in child_a.weaknesses)
 
 
 def test_mutated_child_is_admitted_and_can_live_in_eval_pool(tmp_path: Path):
@@ -205,3 +208,75 @@ def test_propose_mutations_loads_best_parent_from_store(tmp_path: Path):
 
     assert len(children) == 1
     assert children[0].lineage.parent_world_id == parent_snapshot.world.world_id
+
+
+def test_mutation_added_weakness_carries_target_metadata():
+    world = _seeded_world()
+    policy = FrontierMutationPolicy()
+    child = policy.mutate(
+        world,
+        parent_stats=PopulationStats(
+            snapshot_id="snap-parent",
+            world_id=world.world_id,
+            split="train",
+            episodes=12,
+            red_win_rate=0.2,
+            blue_win_rate=0.8,
+            flake_rate=0.01,
+            novelty=0.5,
+            blue_signal_points=4,
+        ),
+        child_seed=4040,
+    )
+
+    assert any(weak.target_kind in {"service", "workflow", "asset", "telemetry"} for weak in child.weaknesses)
+    assert all(weak.target_ref for weak in child.weaknesses)
+
+
+def test_mutation_can_persistently_patch_parent_weakness_and_replace_it():
+    world = _seeded_world()
+    parent_ids = {weak.id for weak in world.weaknesses}
+    policy = FrontierMutationPolicy()
+    child = policy.mutate(
+        world,
+        parent_stats=PopulationStats(
+            snapshot_id="snap-parent",
+            world_id=world.world_id,
+            split="train",
+            episodes=10,
+            red_win_rate=0.2,
+            blue_win_rate=0.8,
+            flake_rate=0.01,
+            novelty=0.6,
+            blue_signal_points=4,
+        ),
+        child_seed=5050,
+    )
+
+    assert any(token.startswith("patch_weakness") for token in child.lineage.mutation_ops)
+    assert parent_ids - {weak.id for weak in child.weaknesses}
+    assert child.weaknesses
+
+
+def test_mutation_can_harden_direct_route_and_expose_alternate_one():
+    world = _seeded_world()
+    policy = FrontierMutationPolicy()
+    child = policy.mutate(
+        world,
+        parent_stats=PopulationStats(
+            snapshot_id="snap-parent",
+            world_id=world.world_id,
+            split="train",
+            episodes=10,
+            red_win_rate=0.5,
+            blue_win_rate=0.5,
+            flake_rate=0.01,
+            novelty=0.6,
+            blue_signal_points=4,
+        ),
+        child_seed=6060,
+    )
+
+    assert any(token.startswith("harden_route_expose_alternate") for token in child.lineage.mutation_ops)
+    assert not any(edge.source == "svc-web" and edge.target == "svc-fileshare" for edge in child.network_edges)
+    assert any(edge.source == "svc-email" and edge.target.startswith("svc-fileshare") for edge in child.network_edges)

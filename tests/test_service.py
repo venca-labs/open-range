@@ -50,10 +50,10 @@ def _manifest_payload() -> dict:
         },
         "security": {
             "allowed_weakness_families": [
-                "auth_misconfig",
+                "config_identity",
                 "workflow_abuse",
                 "secret_exposure",
-                "input_validation",
+                "code_web",
                 "telemetry_blindspot",
             ],
             "observability": {
@@ -123,7 +123,7 @@ def test_service_proxies_runtime_decisions_and_actions(tmp_path: Path):
     red_step = train_snapshot.witness_bundle.red_witnesses[0].steps[0]
     result = service.act(
         "red",
-        Action(actor_id="red", role="red", kind=red_step.kind, payload={"target": red_step.target}),
+        Action(actor_id="red", role="red", kind=red_step.kind, payload={"target": red_step.target, **red_step.payload}),
     )
 
     assert decision.actor == "red"

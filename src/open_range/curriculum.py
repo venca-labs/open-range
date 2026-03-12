@@ -9,6 +9,7 @@ from typing import Literal, Protocol
 from pydantic import BaseModel, ConfigDict, Field
 
 from open_range.store import FileSnapshotStore
+from open_range.weaknesses import build_catalog_weakness
 from open_range.world_ir import (
     CredentialSpec,
     EdgeSpec,
@@ -34,6 +35,8 @@ MutationKind = Literal[
     "add_noise_source",
     "seed_weakness",
     "alter_observability",
+    "patch_weakness",
+    "harden_route_expose_alternate",
 ]
 
 
@@ -201,10 +204,14 @@ class FrontierMutationPolicy:
             ops.append(MutationOp(kind="add_noise_source"))
             ops.append(MutationOp(kind="alter_observability"))
         elif stats.blue_win_rate >= 0.65 or stats.red_win_rate <= 0.35:
+            if parent.mutation_bounds.allow_patch_old_weaknesses:
+                ops.append(MutationOp(kind="patch_weakness"))
             ops.append(MutationOp(kind="add_trust_edge"))
             ops.append(MutationOp(kind="seed_weakness"))
         else:
             ops.append(MutationOp(kind="add_workflow_branch"))
+            if parent.mutation_bounds.allow_patch_old_weaknesses:
+                ops.append(MutationOp(kind="harden_route_expose_alternate"))
             ops.append(MutationOp(kind="seed_weakness"))
 
         deduped: list[MutationOp] = []
@@ -234,6 +241,10 @@ class FrontierMutationPolicy:
             return _seed_additional_weakness(world)
         if op.kind == "alter_observability":
             return _alter_observability(world)
+        if op.kind == "patch_weakness":
+            return _patch_weakness(world)
+        if op.kind == "harden_route_expose_alternate":
+            return _harden_route_expose_alternate(world)
         raise ValueError(f"unsupported mutation op: {op.kind}")
 
 
@@ -370,13 +381,14 @@ def _add_service(world: WorldIR, *, objective_service_id: str) -> WorldIR | None
         assets[idx] = asset.model_copy(update={"owner_service": new_service_id, "location": location})
         break
 
-    return world.model_copy(
+    return world.replace_edges(
+        network=tuple(network_edges),
+        trust=tuple(trust_edges),
+        telemetry=telemetry_edges,
+    ).model_copy(
         update={
             "hosts": world.hosts + (new_host,),
             "services": world.services + (new_service,),
-            "network_edges": tuple(network_edges),
-            "trust_edges": tuple(trust_edges),
-            "telemetry_edges": telemetry_edges,
             "assets": tuple(assets),
         }
     )
@@ -454,7 +466,17 @@ def _add_workflow_branch(world: WorldIR) -> WorldIR | None:
     )
     workflows = list(world.workflows)
     workflows[0] = workflow.model_copy(update={"steps": workflow.steps + (new_step,)})
+    workflow_edges = list(world.workflow_edges)
     data_edges = list(world.data_edges)
+    workflow_edges.append(
+        EdgeSpec(
+            id=f"workflow-{workflow.id}-branch-{len(workflow_edges) + 1}",
+            kind="workflow",
+            source=new_step.actor_role,
+            target=service_id,
+            label=new_step.action,
+        )
+    )
     if asset is not None:
         data_edges.append(
             EdgeSpec(
@@ -465,7 +487,9 @@ def _add_workflow_branch(world: WorldIR) -> WorldIR | None:
                 label=new_step.action,
             )
         )
-    return world.model_copy(update={"workflows": tuple(workflows), "data_edges": tuple(data_edges)})
+    return world.replace_edges(data=tuple(data_edges), workflow=tuple(workflow_edges)).model_copy(
+        update={"workflows": tuple(workflows)}
+    )
 
 
 def _add_trust_edge(world: WorldIR) -> WorldIR | None:
@@ -476,19 +500,17 @@ def _add_trust_edge(world: WorldIR) -> WorldIR | None:
     edge_id = f"trust-{public_service}-to-{objective_service}-mut"
     if any(edge.id == edge_id for edge in world.trust_edges):
         return None
-    return world.model_copy(
-        update={
-            "trust_edges": world.trust_edges
-            + (
-                EdgeSpec(
-                    id=edge_id,
-                    kind="trust",
-                    source=public_service,
-                    target=objective_service,
-                    label="curriculum_route",
-                ),
-            )
-        }
+    return world.replace_edges(
+        trust=world.trust_edges
+        + (
+            EdgeSpec(
+                id=edge_id,
+                kind="trust",
+                source=public_service,
+                target=objective_service,
+                label="curriculum_route",
+            ),
+        )
     )
 
 
@@ -543,6 +565,75 @@ def _alter_observability(world: WorldIR) -> WorldIR | None:
     return None
 
 
+def _patch_weakness(world: WorldIR) -> WorldIR | None:
+    if not world.mutation_bounds.allow_patch_old_weaknesses:
+        return None
+    seeded = [weak for weak in world.weaknesses if weak.status == "seeded"]
+    if not seeded:
+        return None
+    target = next((weak for weak in seeded if weak.family == "code_web"), seeded[0])
+    remaining = tuple(weak for weak in world.weaknesses if weak.id != target.id)
+    return world.model_copy(update={"weaknesses": remaining})
+
+
+def _harden_route_expose_alternate(world: WorldIR) -> WorldIR | None:
+    if not world.mutation_bounds.allow_patch_old_weaknesses:
+        return None
+    start = next((service.id for service in world.services if service.kind == "web_app"), "")
+    alternate = next(
+        (service.id for service in world.services if service.kind == "email" and service.id != start),
+        "",
+    )
+    objective = _first_objective_service(world)
+    route_target = _route_hardening_target(world, start, objective)
+    if not start or not objective or not route_target or start == objective or not alternate:
+        return None
+
+    direct_pairs = {(start, route_target), (route_target, start)}
+    network_edges = tuple(edge for edge in world.network_edges if (edge.source, edge.target) not in direct_pairs)
+    trust_edges = tuple(edge for edge in world.trust_edges if (edge.source, edge.target) not in direct_pairs)
+    if len(network_edges) == len(world.network_edges) and len(trust_edges) == len(world.trust_edges):
+        return None
+
+    alt_net_id = f"net-{alternate}-to-{objective}-alt"
+    alt_trust_id = f"trust-{alternate}-to-{objective}-alt"
+    if all(edge.id != alt_net_id for edge in network_edges):
+        network_edges += (
+            EdgeSpec(
+                id=alt_net_id,
+                kind="network",
+                source=alternate,
+                target=objective,
+                label="alternate_route",
+            ),
+        )
+    if all(edge.id != alt_trust_id for edge in trust_edges):
+        trust_edges += (
+            EdgeSpec(
+                id=alt_trust_id,
+                kind="trust",
+                source=alternate,
+                target=objective,
+                label="alternate_route",
+            ),
+        )
+    return world.replace_edges(network=network_edges, trust=trust_edges)
+
+
+def _route_hardening_target(world: WorldIR, start: str, objective: str) -> str:
+    if any(edge.source == start and edge.target == objective for edge in world.network_edges):
+        return objective
+    objective_service = next((service for service in world.services if service.id == objective), None)
+    if objective_service is not None:
+        for dependency in objective_service.dependencies:
+            if any(edge.source == start and edge.target == dependency for edge in world.network_edges):
+                return dependency
+    for edge in world.network_edges:
+        if edge.source == start and edge.target not in {"svc-db"}:
+            return edge.target
+    return ""
+
+
 def _next_host_id(prefix: str, existing: set[str]) -> str:
     base = {
         "workstation": "workstation",
@@ -588,9 +679,9 @@ def _moved_asset_location(location: str, new_service_id: str) -> str:
 def _weakness_target(world: WorldIR, family: str) -> str | None:
     service_by_kind = {service.kind: service.id for service in world.services}
     objective_service = _first_objective_service(world)
-    if family in {"input_validation", "workflow_abuse"}:
+    if family in {"code_web", "workflow_abuse"}:
         return service_by_kind.get("web_app")
-    if family == "auth_misconfig":
+    if family == "config_identity":
         return service_by_kind.get("idp")
     if family == "telemetry_blindspot":
         return service_by_kind.get("email") or service_by_kind.get("web_app")
@@ -606,63 +697,56 @@ def _make_weakness(
     *,
     existing_ids: set[str],
 ) -> WeaknessSpec:
-    telemetry = next((service.telemetry_surfaces for service in world.services if service.id == target_service), ())
     suffix = 1
     weak_id = f"wk-{family.replace('_', '-')}-{suffix}"
     while weak_id in existing_ids:
         suffix += 1
         weak_id = f"wk-{family.replace('_', '-')}-{suffix}"
-
-    if family == "input_validation":
-        return WeaknessSpec(
-            id=weak_id,
-            family=family,
-            target=target_service,
-            preconditions=("public_reachability", "user_input_surface"),
-            expected_event_signatures=("InitialAccess", "SensitiveAssetRead"),
-            blue_observability_surfaces=telemetry,
-            remediation="deploy input validation on exposed request handlers",
-        )
-    if family == "workflow_abuse":
-        workflow_id = world.workflows[0].id if world.workflows else "wf-generic"
-        return WeaknessSpec(
-            id=weak_id,
-            family=family,
-            target=target_service,
-            preconditions=(workflow_id, "approval_path_exists"),
-            expected_event_signatures=("InitialAccess", "UnauthorizedCredentialUse"),
-            blue_observability_surfaces=telemetry,
-            remediation="enforce workflow state and role authorization checks",
-        )
-    if family == "auth_misconfig":
-        return WeaknessSpec(
-            id=weak_id,
-            family=family,
-            target=target_service,
-            preconditions=("interactive_login",),
-            expected_event_signatures=("CredentialObtained", "UnauthorizedCredentialUse"),
-            blue_observability_surfaces=telemetry,
-            remediation="require MFA and privileged-scope validation",
-        )
-    if family == "telemetry_blindspot":
-        return WeaknessSpec(
-            id=weak_id,
-            family=family,
-            target=target_service,
-            preconditions=("critical_action_exists",),
-            expected_event_signatures=("InitialAccess", "DetectionAlertRaised"),
-            blue_observability_surfaces=telemetry,
-            remediation="restore complete log shipping for the affected service",
-        )
-    return WeaknessSpec(
-        id=weak_id,
-        family=family,
+    kind, target_kind, target_ref = _mutation_kind_target(world, family, target_service)
+    return build_catalog_weakness(
+        world,
+        family,
+        kind=kind,
         target=target_service,
-        preconditions=("sensitive_material_present",),
-        expected_event_signatures=("CredentialObtained", "SensitiveAssetRead"),
-        blue_observability_surfaces=telemetry,
-        remediation="remove exposed secret material and rotate dependent credentials",
+        target_kind=target_kind,
+        target_ref=target_ref,
+        weakness_id=weak_id,
     )
+
+
+def _mutation_kind_target(world: WorldIR, family: str, target_service: str) -> tuple[str, str, str]:
+    if family == "code_web":
+        return "sql_injection", "service", target_service
+    if family == "workflow_abuse":
+        workflow = next((item for item in world.workflows if item.name == "document_sharing"), None)
+        if workflow is not None:
+            return "document_share_abuse", "workflow", workflow.id
+        workflow = next((item for item in world.workflows if item.name == "internal_email"), None)
+        if workflow is not None:
+            return "phishing_credential_capture", "workflow", workflow.id
+        workflow = world.workflows[0] if world.workflows else None
+        return "helpdesk_reset_bypass", "workflow", workflow.id if workflow is not None else "wf-generic"
+    if family == "config_identity":
+        if any(user.role == "it_admin" for user in world.users):
+            credential = next((item for item in world.credentials if item.subject.startswith("it_admin-")), None)
+            if credential is not None:
+                return "weak_password", "credential", credential.id
+        return "admin_surface_exposed", "service", target_service
+    if family == "telemetry_blindspot":
+        if target_service == "svc-email":
+            return "silent_mail_rule", "telemetry", target_service
+        if target_service == "svc-web":
+            return "missing_web_logs", "telemetry", target_service
+        return "missing_idp_logs", "telemetry", target_service
+    exposed_asset = next(
+        (asset.id for asset in world.assets if asset.owner_service == target_service),
+        _predicate_inner(world.red_objectives[0].predicate) if world.red_objectives else target_service,
+    )
+    if target_service == "svc-email":
+        return "token_in_email", "asset", exposed_asset
+    if target_service == "svc-fileshare":
+        return "backup_leak", "asset", exposed_asset
+    return "hardcoded_app_secret", "asset", exposed_asset
 
 
 def mutation_summary(world: WorldIR) -> dict[str, object]:

@@ -44,8 +44,8 @@ class WitnessSimPlane:
             snapshot,
             EpisodeConfig(
                 mode="joint_pool",
-                scheduler_mode="strict_turn",
-                episode_horizon=max(6, len(snapshot.witness_bundle.red_witnesses[0].steps) + 3),
+                scheduler_mode="strict_turns",
+                episode_horizon_minutes=max(6, len(snapshot.witness_bundle.red_witnesses[0].steps) + 3),
             ),
         )
         turns: list[SimTurn] = []

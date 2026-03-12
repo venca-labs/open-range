@@ -20,6 +20,7 @@ EventType = Literal[
     "PersistenceEstablished",
     "DetectionAlertRaised",
     "ContainmentApplied",
+    "PatchApplied",
     "RecoveryCompleted",
     "ServiceDegraded",
     "BenignUserAction",

@@ -47,12 +47,13 @@ def _manifest_payload() -> dict:
         },
         "security": {
             "allowed_weakness_families": [
-                "auth_misconfig",
+                "config_identity",
                 "workflow_abuse",
                 "secret_exposure",
-                "input_validation",
+                "code_web",
                 "telemetry_blindspot",
             ],
+            "code_flaw_kinds": ["sql_injection", "path_traversal"],
             "observability": {
                 "require_web_logs": True,
                 "require_idp_logs": True,
@@ -70,6 +71,7 @@ def _manifest_payload() -> dict:
             "max_new_services": 1,
             "max_new_users": 5,
             "max_new_weaknesses": 2,
+            "allow_patch_old_weaknesses": True,
         },
     }
 
@@ -79,6 +81,8 @@ def test_episode_config_control_flags():
     assert EpisodeConfig(mode="red_only").controls_blue is False
     assert EpisodeConfig(mode="blue_only_live").controls_red is False
     assert EpisodeConfig(mode="blue_only_live").controls_blue is True
+    assert EpisodeConfig().reward_profile == "terminal_plus_shaping"
+    assert EpisodeConfig().prompt_mode == "zero_day"
 
 
 def test_build_config_threads_through_build_and_admission(tmp_path: Path):
@@ -86,7 +90,7 @@ def test_build_config_threads_through_build_and_admission(tmp_path: Path):
     pipeline = BuildPipeline(store=store)
     build_config = BuildConfig(
         workflows_enabled=("helpdesk_ticketing",),
-        weakness_families_enabled=("input_validation",),
+        weakness_families_enabled=("code_web",),
         topology_scale="small",
         red_witness_count=2,
         blue_witness_count=2,
@@ -99,7 +103,7 @@ def test_build_config_threads_through_build_and_admission(tmp_path: Path):
     assert candidate.world.allowed_service_kinds == ("web_app", "email", "idp", "fileshare", "db", "siem")
     assert len(candidate.world.workflows) == 1
     assert len(candidate.world.users) == 4
-    assert all(weak.family == "input_validation" for weak in candidate.world.weaknesses)
+    assert all(weak.family == "code_web" for weak in candidate.world.weaknesses)
     assert len(snapshot.witness_bundle.red_witnesses) == 2
     assert len(snapshot.witness_bundle.blue_witnesses) == 2
 

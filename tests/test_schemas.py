@@ -64,12 +64,18 @@ def _manifest_payload() -> dict:
         },
         "security": {
             "allowed_weakness_families": [
-                "auth_misconfig",
+                "config_identity",
                 "workflow_abuse",
                 "secret_exposure",
-                "input_validation",
+                "code_web",
                 "telemetry_blindspot",
             ],
+            "code_flaw_kinds": [
+                "sql_injection",
+                "broken_authorization",
+                "auth_bypass",
+            ],
+            "phishing_surface_enabled": True,
             "observability": {
                 "require_web_logs": True,
                 "require_idp_logs": True,
@@ -87,6 +93,7 @@ def _manifest_payload() -> dict:
             "max_new_services": 1,
             "max_new_users": 5,
             "max_new_weaknesses": 2,
+            "allow_patch_old_weaknesses": True,
         },
     }
 
@@ -111,13 +118,48 @@ def test_manifest_rejects_unknown_fields():
         raise AssertionError("manifest unexpectedly accepted forbidden field")
 
 
+def test_manifest_accepts_pinned_weaknesses():
+    payload = _manifest_payload()
+    payload["security"]["pinned_weaknesses"] = [
+        {"family": "secret_exposure", "kind": "credential_in_share", "target": "asset:finance_docs"},
+        {"family": "workflow_abuse", "kind": "helpdesk_reset_bypass", "target": "workflow:helpdesk_ticketing"},
+    ]
+
+    manifest = validate_manifest(payload)
+
+    assert manifest.security.code_flaw_kinds == (
+        "sql_injection",
+        "broken_authorization",
+        "auth_bypass",
+    )
+    assert manifest.security.pinned_weaknesses[0].kind == "credential_in_share"
+    assert manifest.security.pinned_weaknesses[1].target == "workflow:helpdesk_ticketing"
+
+
+def test_manifest_rejects_pinned_kind_from_wrong_family():
+    payload = _manifest_payload()
+    payload["security"]["pinned_weaknesses"] = [
+        {"family": "secret_exposure", "kind": "sql_injection", "target": "asset:finance_docs"},
+    ]
+
+    try:
+        validate_manifest(payload)
+    except Exception as exc:  # noqa: BLE001
+        assert "unsupported kind" in str(exc)
+    else:
+        raise AssertionError("manifest unexpectedly accepted mismatched pinned weakness kind")
+
+
 def test_world_ir_serializes_minimal_core_objects():
     world = WorldIR(
         world_id="world-001",
         seed=1337,
         business_archetype="healthcare_saas",
         allowed_service_kinds=("web_app", "db", "siem"),
-        allowed_weakness_families=("input_validation",),
+        allowed_weakness_families=("code_web",),
+        allowed_code_flaw_kinds=("sql_injection",),
+        target_weakness_count=1,
+        phishing_surface_enabled=False,
         target_red_path_depth=4,
         target_blue_signal_points=3,
         zones=("external", "dmz", "corp", "data", "management"),
@@ -128,10 +170,7 @@ def test_world_ir_serializes_minimal_core_objects():
         credentials=(),
         assets=(),
         workflows=(),
-        network_edges=(),
-        trust_edges=(),
-        data_edges=(),
-        telemetry_edges=(),
+        edges=(),
         weaknesses=(),
         red_objectives=(ObjectiveSpec(id="o-red", owner="red", predicate="asset_read(finance_docs)"),),
         blue_objectives=(ObjectiveSpec(id="o-blue", owner="blue", predicate="intrusion_detected(initial_access)"),),
@@ -145,6 +184,9 @@ def test_world_ir_serializes_minimal_core_objects():
 
     assert payload["world_id"] == "world-001"
     assert payload["green_workload"]["noise_density"] == "medium"
+    assert payload["allowed_code_flaw_kinds"] == ("sql_injection",)
+    assert payload["target_weakness_count"] == 1
+    assert payload["phishing_surface_enabled"] is False
 
 
 def test_validator_report_and_witness_bundle_round_trip():

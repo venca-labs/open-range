@@ -162,6 +162,7 @@ class EnterpriseSaaSKindRenderer:
             "mailboxes": {mailbox: list(messages) for mailbox, messages in synth.mailboxes.items()},
             "firewallRules": _firewall_rules(world, host_by_id, service_by_id),
             "assets": [asset.model_dump(mode="json") for asset in world.assets],
+            "weaknesses": [weakness.model_dump(mode="json") for weakness in world.weaknesses],
             "telemetryEdges": [edge.model_dump(mode="json") for edge in world.telemetry_edges],
         }
 

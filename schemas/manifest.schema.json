@@ -82,6 +82,11 @@
     "MutationBounds": {
       "additionalProperties": false,
       "properties": {
+        "allow_patch_old_weaknesses": {
+          "default": true,
+          "title": "Allow Patch Old Weaknesses",
+          "type": "boolean"
+        },
         "max_new_hosts": {
           "default": 0,
           "minimum": 0,
@@ -175,16 +180,76 @@
       "title": "ObservabilityRequirements",
       "type": "object"
     },
+    "PinnedWeaknessSpec": {
+      "additionalProperties": false,
+      "properties": {
+        "family": {
+          "enum": [
+            "code_web",
+            "config_identity",
+            "secret_exposure",
+            "workflow_abuse",
+            "telemetry_blindspot"
+          ],
+          "title": "Family",
+          "type": "string"
+        },
+        "kind": {
+          "enum": [
+            "sql_injection",
+            "broken_authorization",
+            "auth_bypass",
+            "path_traversal",
+            "ssrf",
+            "command_injection",
+            "weak_password",
+            "default_credential",
+            "overbroad_service_account",
+            "admin_surface_exposed",
+            "trust_edge_misconfig",
+            "env_file_leak",
+            "credential_in_share",
+            "backup_leak",
+            "token_in_email",
+            "hardcoded_app_secret",
+            "helpdesk_reset_bypass",
+            "approval_chain_bypass",
+            "document_share_abuse",
+            "phishing_credential_capture",
+            "internal_request_impersonation",
+            "missing_web_logs",
+            "missing_idp_logs",
+            "delayed_siem_ingest",
+            "unmonitored_admin_action",
+            "silent_mail_rule"
+          ],
+          "title": "Kind",
+          "type": "string"
+        },
+        "target": {
+          "minLength": 1,
+          "title": "Target",
+          "type": "string"
+        }
+      },
+      "required": [
+        "family",
+        "kind",
+        "target"
+      ],
+      "title": "PinnedWeaknessSpec",
+      "type": "object"
+    },
     "SecuritySpec": {
       "additionalProperties": false,
       "properties": {
         "allowed_weakness_families": {
           "items": {
             "enum": [
-              "auth_misconfig",
-              "workflow_abuse",
+              "code_web",
+              "config_identity",
               "secret_exposure",
-              "input_validation",
+              "workflow_abuse",
               "telemetry_blindspot"
             ],
             "type": "string"
@@ -193,8 +258,35 @@
           "title": "Allowed Weakness Families",
           "type": "array"
         },
+        "code_flaw_kinds": {
+          "items": {
+            "enum": [
+              "sql_injection",
+              "broken_authorization",
+              "auth_bypass",
+              "path_traversal",
+              "ssrf",
+              "command_injection"
+            ],
+            "type": "string"
+          },
+          "title": "Code Flaw Kinds",
+          "type": "array"
+        },
         "observability": {
           "$ref": "#/$defs/ObservabilityRequirements"
+        },
+        "phishing_surface_enabled": {
+          "default": true,
+          "title": "Phishing Surface Enabled",
+          "type": "boolean"
+        },
+        "pinned_weaknesses": {
+          "items": {
+            "$ref": "#/$defs/PinnedWeaknessSpec"
+          },
+          "title": "Pinned Weaknesses",
+          "type": "array"
         }
       },
       "required": [
