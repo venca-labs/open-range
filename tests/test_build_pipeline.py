@@ -28,3 +28,7 @@ def test_pipeline_builds_and_admits_snapshot(tmp_path: Path):
     assert not hasattr(pipeline.store, "load_world")
     assert not hasattr(pipeline.store, "hydrate")
     assert not hasattr(pipeline.store, "load_runtime")
+    assert not hasattr(pipeline.store, "_load_world")
+    assert not hasattr(pipeline.store, "_hydrate")
+    assert not hasattr(pipeline.store, "_load_runtime")
+    assert not hasattr(pipeline.store, "_sample_runtime")

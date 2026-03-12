@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
+from open_range._runtime_store import load_runtime_snapshot, sample_runtime_snapshot
 from open_range.cluster import BootedRelease, LiveBackend
 from open_range.episode_config import DEFAULT_EPISODE_CONFIG, EpisodeConfig
 from open_range.execution import ActionBackend, PodActionBackend
@@ -40,9 +41,10 @@ class OpenRange:
         sample_seed: int | None = None,
     ) -> EpisodeState:
         snapshot = (
-            self.store._load_runtime(snapshot_id)
+            load_runtime_snapshot(self.store, snapshot_id)
             if snapshot_id is not None
-            else self.store._sample_runtime(
+            else sample_runtime_snapshot(
+                self.store,
                 split=split,
                 seed=0 if sample_seed is None else sample_seed,
                 strategy=strategy,

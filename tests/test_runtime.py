@@ -3,6 +3,7 @@ from __future__ import annotations
 from pathlib import Path
 from types import SimpleNamespace
 
+from open_range._runtime_store import hydrate_runtime_snapshot
 import pytest
 
 from open_range.admit import LocalAdmissionController
@@ -30,7 +31,7 @@ def _snapshot(tmp_path: Path):
     artifacts = EnterpriseSaaSKindRenderer().render(world, synth, tmp_path / "rendered")
     reference_bundle, report = LocalAdmissionController(mode="fail_fast").admit(world, artifacts, OFFLINE_BUILD_CONFIG)
     store = FileSnapshotStore(tmp_path / "snapshots")
-    return store._hydrate(store.create(world, artifacts, reference_bundle, report, synth=synth))
+    return hydrate_runtime_snapshot(store, store.create(world, artifacts, reference_bundle, report, synth=synth))
 
 
 def _code_web_response(snapshot, cmd: str, patched_services: set[str]) -> ExecResult | None:

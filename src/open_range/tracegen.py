@@ -7,6 +7,7 @@ from copy import deepcopy
 from pathlib import Path
 from typing import Any
 
+from open_range._runtime_store import hydrate_runtime_snapshot
 from open_range.build_config import BuildConfig, OFFLINE_BUILD_CONFIG
 from open_range.curriculum import FrontierMutationPolicy, PopulationStats
 from open_range.decision_surface import (
@@ -84,7 +85,7 @@ class TraceDatasetGenerator:
                 pipeline.build(payload, lineage_dir / "rendered-base", self.build_config),
                 split=store_split,
             )
-            base = store._hydrate(base_public)
+            base = hydrate_runtime_snapshot(store, base_public)
             lineage_root = base.world.world_id
             lineage_roots.append(lineage_root)
             dataset_split = _dataset_split(root_idx, roots)
@@ -109,7 +110,7 @@ class TraceDatasetGenerator:
                             split=store_split,
                             build_config=self.build_config,
                         )
-                        admitted_child = store._hydrate(child_public)
+                        admitted_child = hydrate_runtime_snapshot(store, child_public)
                     except ValueError:
                         continue
                     break

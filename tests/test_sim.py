@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
+from open_range._runtime_store import hydrate_runtime_snapshot
 from open_range.admit import LocalAdmissionController
 from open_range.compiler import EnterpriseSaaSManifestCompiler
 from open_range.render import EnterpriseSaaSKindRenderer
@@ -22,7 +23,7 @@ def _snapshot(tmp_path: Path):
     artifacts = EnterpriseSaaSKindRenderer().render(world, synth, tmp_path / "rendered")
     reference_bundle, report = LocalAdmissionController(mode="fail_fast").admit(world, artifacts, OFFLINE_BUILD_CONFIG)
     store = FileSnapshotStore(tmp_path / "snapshots")
-    return store._hydrate(store.create(world, artifacts, reference_bundle, report, synth=synth))
+    return hydrate_runtime_snapshot(store, store.create(world, artifacts, reference_bundle, report, synth=synth))
 
 
 def test_reference_sim_plane_generates_deterministic_bootstrap_trace(tmp_path: Path):

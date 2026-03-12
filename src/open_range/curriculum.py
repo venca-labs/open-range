@@ -8,6 +8,7 @@ from typing import Literal, Protocol
 
 from pydantic import BaseModel, ConfigDict, Field
 
+from open_range._runtime_store import load_world_ir
 from open_range.predicate_expr import predicate_inner
 from open_range.store import FileSnapshotStore
 from open_range.weaknesses import build_catalog_weakness
@@ -135,7 +136,7 @@ class FrontierMutationPolicy:
         stats_by_snapshot = {entry.snapshot_id: entry for entry in population}
         children: list[WorldIR] = []
         for rank, score in enumerate(self.score_parents(population)[:child_count], start=1):
-            world = store._load_world(score.snapshot_id)
+            world = load_world_ir(store, score.snapshot_id)
             child_seed = _stable_seed(world.world_id, score.snapshot_id, rank)
             children.append(
                 self.mutate(

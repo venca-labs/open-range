@@ -3,6 +3,7 @@ from __future__ import annotations
 from pathlib import Path
 from types import SimpleNamespace
 
+from open_range._runtime_store import hydrate_runtime_snapshot
 from open_range.cluster import ExecResult
 from open_range.episode_config import EpisodeConfig
 from open_range.pipeline import BuildPipeline
@@ -19,7 +20,8 @@ def _manifest_payload() -> dict:
 def _service_and_snapshots(tmp_path: Path):
     store = FileSnapshotStore(tmp_path / "snapshots")
     pipeline = BuildPipeline(store=store)
-    train_snapshot = store._hydrate(
+    train_snapshot = hydrate_runtime_snapshot(
+        store,
         pipeline.admit(
             pipeline.build(_manifest_payload(), tmp_path / "train-render", OFFLINE_BUILD_CONFIG),
             split="train",
@@ -28,7 +30,8 @@ def _service_and_snapshots(tmp_path: Path):
 
     eval_payload = _manifest_payload()
     eval_payload["seed"] = 2048
-    eval_snapshot = store._hydrate(
+    eval_snapshot = hydrate_runtime_snapshot(
+        store,
         pipeline.admit(
             pipeline.build(eval_payload, tmp_path / "eval-render", OFFLINE_BUILD_CONFIG),
             split="eval",
@@ -84,7 +87,8 @@ def test_service_proxies_runtime_decisions_and_actions(tmp_path: Path):
 def test_service_boots_and_tears_down_live_release(tmp_path: Path):
     store = FileSnapshotStore(tmp_path / "snapshots")
     pipeline = BuildPipeline(store=store)
-    snapshot = store._hydrate(
+    snapshot = hydrate_runtime_snapshot(
+        store,
         pipeline.admit(
             pipeline.build(_manifest_payload(), tmp_path / "rendered", OFFLINE_BUILD_CONFIG),
             split="train",

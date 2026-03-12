@@ -9,6 +9,7 @@ from pathlib import Path
 from tempfile import TemporaryDirectory
 from typing import Any
 
+from open_range._runtime_store import hydrate_runtime_snapshot
 from open_range.build_config import OFFLINE_BUILD_CONFIG
 from open_range.curriculum import FrontierMutationPolicy, PopulationStats
 from open_range.decision_surface import reference_trace_pairs, trace_actions
@@ -183,7 +184,8 @@ def evaluate_rollouts(
         pipeline = BuildPipeline(store=store)
         snapshots: list[RuntimeSnapshot] = []
 
-        base = store._hydrate(
+        base = hydrate_runtime_snapshot(
+            store,
             pipeline.admit(
                 pipeline.build(payload, root / "rendered-base", OFFLINE_BUILD_CONFIG),
                 split="train",
@@ -216,7 +218,8 @@ def evaluate_rollouts(
                 child_seed=current.seed + attempts,
             )
             try:
-                admitted_child = store._hydrate(
+                admitted_child = hydrate_runtime_snapshot(
+                    store,
                     pipeline.admit_child(
                         child_world,
                         root / f"rendered-child-{attempts}",

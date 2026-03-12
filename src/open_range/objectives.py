@@ -261,6 +261,8 @@ def evaluate_objective_grader_live(
         if not matched:
             return False
         if grader.objective_tag in {"unauthorized_admin_login", "privilege_escalation"}:
+            if _requires_effect_probe(snapshot, grader):
+                return _probe_live_objective_effect(snapshot, pods, grader)
             if _matches_effect_output(grader, combined_output):
                 return True
             return _probe_live_objective_effect(snapshot, pods, grader)
@@ -301,6 +303,8 @@ def evaluate_objective_grader_live(
     if grader.grader_kind == "outbound_request":
         if not linked_events:
             return False
+        if _requires_effect_probe(snapshot, grader):
+            return _probe_live_objective_effect(snapshot, pods, grader)
         if _matches_effect_output(grader, combined_output):
             return True
         return _probe_live_objective_effect(snapshot, pods, grader)
@@ -357,6 +361,14 @@ def _probe_live_objective_effect(snapshot: object, pods: object, grader: Objecti
         expected_ref=grader.expected_ref,
         require_nonempty=True,
     )
+
+
+def _requires_effect_probe(snapshot: object, grader: ObjectiveGraderSpec) -> bool:
+    if grader.objective_tag not in {"unauthorized_admin_login", "privilege_escalation", "outbound_service"}:
+        return False
+    if _relevant_weaknesses(snapshot, grader):
+        return True
+    return bool(_relevant_realizations(snapshot, grader))
 
 
 def _relevant_weaknesses(snapshot: object, grader: ObjectiveGraderSpec) -> tuple[object, ...]:

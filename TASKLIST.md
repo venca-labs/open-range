@@ -235,6 +235,13 @@ Rules:
 - [x] Tighten live `outbound_service` grading with stronger realized-effect checks instead of event-plus-output heuristics
 - [x] Update tests and docs so the new hidden-surface boundary and stronger live graders are explicit
 
+## Phase 27 - Private Runtime Hydration and Effect-Grader Hardening
+
+- [x] Remove runtime/world hydration helpers from the public `FileSnapshotStore` class and keep them in an internal module
+- [x] Cut service, curriculum, trace generation, demos, scripts, and tests over to the internal runtime-hydration helpers
+- [x] Make live admin/privilege/egress output grading prefer weakness-specific live effect probes over generic output-token matches
+- [x] Re-verify the hidden-surface boundary and stronger live graders with targeted and full tests
+
 ## Phase 24 - Codebase Simplification
 
 - [x] Add shared build-config presets for offline structural and offline reference workflows

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
+from open_range._runtime_store import hydrate_runtime_snapshot
 import pytest
 
 from open_range.build_config import BuildConfig
@@ -42,7 +43,7 @@ def test_build_config_threads_through_build_and_admission(tmp_path: Path):
 
     candidate = pipeline.build(_manifest_payload(), tmp_path / "rendered", build_config)
     snapshot = pipeline.admit(candidate, split="train")
-    runtime_snapshot = store._hydrate(snapshot)
+    runtime_snapshot = hydrate_runtime_snapshot(store, snapshot)
 
     assert candidate.build_config == build_config
     assert candidate.world.allowed_service_kinds == ("web_app", "email", "idp", "fileshare", "db", "siem")

@@ -13,6 +13,7 @@ from pathlib import Path
 from tempfile import TemporaryDirectory
 from typing import Any
 
+from open_range._runtime_store import hydrate_runtime_snapshot
 from open_range.build_config import OFFLINE_BUILD_CONFIG
 from open_range.decision_surface import trace_actions
 from open_range.driver import ScriptedRuntimeAgent, TandemEpisodeDriver
@@ -63,7 +64,7 @@ def run_bootstrap_demo(
         store = FileSnapshotStore(root / "snapshots")
         pipeline = BuildPipeline(store=store)
         candidate = pipeline.build(payload, root / "rendered", OFFLINE_BUILD_CONFIG)
-        snapshot = store._hydrate(pipeline.admit(candidate, split="train"))
+        snapshot = hydrate_runtime_snapshot(store, pipeline.admit(candidate, split="train"))
 
         sim_plane = ReferenceSimPlane()
         bootstrap_trace = sim_plane.generate_bootstrap_trace(snapshot, episode_seed=seed)

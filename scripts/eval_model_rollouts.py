@@ -18,6 +18,7 @@ from pathlib import Path
 from tempfile import TemporaryDirectory
 from typing import Any
 
+from open_range._runtime_store import hydrate_runtime_snapshot
 from open_range.build_config import OFFLINE_BUILD_CONFIG
 from open_range.curriculum import FrontierMutationPolicy, PopulationStats
 from open_range.decision_surface import candidate_actions, teacher_action
@@ -159,7 +160,8 @@ def evaluate_model_rollouts(
         pipeline = BuildPipeline(store=store)
 
         snapshots: list[RuntimeSnapshot] = []
-        current = store._hydrate(
+        current = hydrate_runtime_snapshot(
+            store,
             pipeline.admit(
                 pipeline.build(payload, root / "rendered-base", OFFLINE_BUILD_CONFIG),
                 split="train",
@@ -180,7 +182,8 @@ def evaluate_model_rollouts(
                 blue_signal_points=current.validator_report.blue_signal_points,
             )
             child_world = mutation_policy.mutate(current.world, parent_stats=parent_stats)
-            current = store._hydrate(
+            current = hydrate_runtime_snapshot(
+                store,
                 pipeline.admit_child(
                     child_world,
                     root / f"rendered-child-{idx}",

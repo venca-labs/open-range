@@ -3,6 +3,7 @@ from __future__ import annotations
 from pathlib import Path
 from types import SimpleNamespace
 
+from open_range._runtime_store import load_runtime_snapshot
 from open_range.cluster import ExecResult
 from open_range.admit import LocalAdmissionController
 from open_range.code_web import code_web_payload
@@ -309,7 +310,7 @@ def test_snapshot_store_persists_v1_snapshot(tmp_path: Path):
     store = FileSnapshotStore(tmp_path / "snapshots")
 
     snapshot = store.create(world, artifacts, reference_bundle, report, synth=synth)
-    loaded = store._load_runtime(snapshot.snapshot_id)
+    loaded = load_runtime_snapshot(store, snapshot.snapshot_id)
 
     assert loaded.snapshot_id == snapshot.snapshot_id
     assert loaded.world_id == world.world_id

@@ -3,6 +3,7 @@ from __future__ import annotations
 from pathlib import Path
 from types import SimpleNamespace
 
+from open_range._runtime_store import hydrate_runtime_snapshot, load_world_ir
 from open_range.admit import LocalAdmissionController
 from open_range.build_config import BuildConfig
 from open_range.code_web import code_web_payload
@@ -36,7 +37,7 @@ def test_end_to_end_pipeline_store_reset_and_tandem_episode(tmp_path: Path):
     pipeline = BuildPipeline(store=store)
 
     candidate = pipeline.build(_manifest_payload(), tmp_path / "rendered", OFFLINE_BUILD_CONFIG)
-    snapshot = store._hydrate(pipeline.admit(candidate, split="train"))
+    snapshot = hydrate_runtime_snapshot(store, pipeline.admit(candidate, split="train"))
 
     runtime_service = OpenRange(store=store)
     runtime_service.reset(snapshot.snapshot_id, EpisodeConfig(mode="joint_pool", green_enabled=True))
@@ -161,7 +162,7 @@ def test_live_backend_integration_carries_logs_from_runtime_events(tmp_path: Pat
             if built_world is not None and built_world.world_id == snapshot_id:
                 world = built_world
             else:
-                world = store._load_world(snapshot_id)
+                world = load_world_ir(store, snapshot_id)
             pod_ids = {service.id: f"ns/{service.id}-pod" for service in world.services}
             pod_ids["sandbox-red"] = "ns/sandbox-red-pod"
             pod_ids["sandbox-blue"] = "ns/sandbox-blue-pod"
@@ -179,7 +180,7 @@ def test_live_backend_integration_carries_logs_from_runtime_events(tmp_path: Pat
     pipeline = BuildPipeline(store=store, admission=admission)
     candidate = pipeline.build(_manifest_payload(), tmp_path / "rendered", BuildConfig(validation_profile="full"))
     built_world = candidate.world
-    snapshot = store._hydrate(pipeline.admit(candidate, split="train"))
+    snapshot = hydrate_runtime_snapshot(store, pipeline.admit(candidate, split="train"))
 
     service = OpenRange(store=store, live_backend=backend)
     service.reset(snapshot.snapshot_id, EpisodeConfig(mode="joint_pool", green_enabled=False))
@@ -203,7 +204,8 @@ def test_live_backend_integration_carries_logs_from_runtime_events(tmp_path: Pat
 def test_green_reactive_branches_flow_through_runtime_between_external_decisions(tmp_path: Path):
     store = FileSnapshotStore(tmp_path / "snapshots")
     pipeline = BuildPipeline(store=store)
-    snapshot = store._hydrate(
+    snapshot = hydrate_runtime_snapshot(
+        store,
         pipeline.admit(
             pipeline.build(_manifest_payload(), tmp_path / "rendered", OFFLINE_BUILD_CONFIG),
             split="train",

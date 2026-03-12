@@ -9,7 +9,7 @@ from random import Random
 from typing import Literal, Protocol
 
 from open_range.admission import ValidatorReport, ReferenceBundle
-from open_range.snapshot import KindArtifacts, RuntimeSnapshot, Snapshot, world_hash
+from open_range.snapshot import KindArtifacts, Snapshot, world_hash
 from open_range.synth import SynthArtifacts
 from open_range.world_ir import WorldIR
 
@@ -128,25 +128,6 @@ class FileSnapshotStore:
             raise FileNotFoundError(snapshot_id)
         return Snapshot.model_validate_json(path.read_text(encoding="utf-8"))
 
-    def _load_world(self, snapshot_id: str) -> WorldIR:
-        world_path = self._world_path(snapshot_id)
-        return WorldIR.model_validate_json(world_path.read_text(encoding="utf-8"))
-
-    def _hydrate(self, snapshot: Snapshot) -> RuntimeSnapshot:
-        world = self._load_world(snapshot.snapshot_id)
-        reference_path = self._reference_bundle_path(snapshot.snapshot_id)
-        reference_bundle = ReferenceBundle.model_validate_json(reference_path.read_text(encoding="utf-8"))
-        return RuntimeSnapshot.model_validate(
-            {
-                **snapshot.model_dump(mode="json"),
-                "world": world.model_dump(mode="json"),
-                "reference_bundle": reference_bundle.model_dump(mode="json"),
-            }
-        )
-
-    def _load_runtime(self, snapshot_id: str) -> RuntimeSnapshot:
-        return self._hydrate(self.load(snapshot_id))
-
     def list(self, *, split: PoolSplit | None = None) -> tuple[Snapshot, ...]:
         snapshots: list[Snapshot] = []
         for entry in sorted(self.store_dir.iterdir(), key=lambda path: path.name):
@@ -179,15 +160,6 @@ class FileSnapshotStore:
             raise ValueError("strategy must be 'random' or 'latest'")
         rng = Random(seed)
         return snapshots[rng.randrange(len(snapshots))]
-
-    def _sample_runtime(
-        self,
-        *,
-        split: PoolSplit = "train",
-        seed: int | None = None,
-        strategy: Literal["random", "latest"] = "random",
-    ) -> RuntimeSnapshot:
-        return self._hydrate(self.sample(split=split, seed=seed, strategy=strategy))
 
     def _metadata_for(self, snapshot_id: str) -> dict[str, object]:
         metadata_path = self._metadata_path(snapshot_id)
