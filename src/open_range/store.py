@@ -29,8 +29,6 @@ class SnapshotStore(Protocol):
         split: PoolSplit = "train",
     ) -> Snapshot: ...
     def load(self, snapshot_id: str) -> Snapshot: ...
-    def load_world(self, snapshot_id: str) -> WorldIR: ...
-    def load_runtime(self, snapshot_id: str) -> RuntimeSnapshot: ...
     def list(self, *, split: PoolSplit | None = None) -> tuple[Snapshot, ...]: ...
     def sample(
         self,
@@ -39,13 +37,6 @@ class SnapshotStore(Protocol):
         seed: int | None = None,
         strategy: Literal["random", "latest"] = "random",
     ) -> Snapshot: ...
-    def sample_runtime(
-        self,
-        *,
-        split: PoolSplit = "train",
-        seed: int | None = None,
-        strategy: Literal["random", "latest"] = "random",
-    ) -> RuntimeSnapshot: ...
 
 
 class FileSnapshotStore:
@@ -86,11 +77,11 @@ class FileSnapshotStore:
             }
             state_seed_dir = synth.outdir
         snapshot_id = f"{world.world_id}-{world_hash(world)[:8]}"
-        snap_dir = self.store_dir / snapshot_id
+        snap_dir = self._snapshot_dir(snapshot_id)
         snap_dir.mkdir(parents=True, exist_ok=True)
-        world_path = snap_dir / "world.json"
-        reference_bundle_path = snap_dir / "reference_bundle.json"
-        validator_report_path = snap_dir / "validator_report.json"
+        world_path = self._world_path(snapshot_id)
+        reference_bundle_path = self._reference_bundle_path(snapshot_id)
+        validator_report_path = self._validator_report_path(snapshot_id)
         world_path.write_text(world.model_dump_json(indent=2), encoding="utf-8")
         reference_bundle_path.write_text(wb.model_dump_json(indent=2), encoding="utf-8")
         validator_report_path.write_text(vr.model_dump_json(indent=2), encoding="utf-8")
@@ -101,8 +92,6 @@ class FileSnapshotStore:
             artifacts_dir=artifacts.render_dir,
             image_digests=artifacts.pinned_image_digests,
             state_seed_dir=state_seed_dir,
-            world_path=str(world_path),
-            reference_bundle_path=str(reference_bundle_path),
             validator_report_path=str(validator_report_path),
             artifacts=artifacts,
             db_seed_state=db_seed_state,
@@ -114,8 +103,8 @@ class FileSnapshotStore:
             parent_snapshot_id=None,
             parent_world_id=world.lineage.parent_world_id,
         )
-        (snap_dir / "snapshot.json").write_text(snapshot.model_dump_json(indent=2), encoding="utf-8")
-        (snap_dir / "metadata.json").write_text(
+        self._snapshot_path(snapshot_id).write_text(snapshot.model_dump_json(indent=2), encoding="utf-8")
+        self._metadata_path(snapshot_id).write_text(
             json.dumps(
                 {
                     "snapshot_id": snapshot_id,
@@ -134,20 +123,18 @@ class FileSnapshotStore:
         return snapshot
 
     def load(self, snapshot_id: str) -> Snapshot:
-        path = self.store_dir / snapshot_id / "snapshot.json"
+        path = self._snapshot_path(snapshot_id)
         if not path.exists():
             raise FileNotFoundError(snapshot_id)
         return Snapshot.model_validate_json(path.read_text(encoding="utf-8"))
 
-    def load_world(self, snapshot_id: str) -> WorldIR:
-        snapshot = self.load(snapshot_id)
-        world_path = Path(snapshot.world_path)
+    def _load_world(self, snapshot_id: str) -> WorldIR:
+        world_path = self._world_path(snapshot_id)
         return WorldIR.model_validate_json(world_path.read_text(encoding="utf-8"))
 
-    def hydrate(self, snapshot: Snapshot) -> RuntimeSnapshot:
-        world_path = Path(snapshot.world_path)
-        world = WorldIR.model_validate_json(world_path.read_text(encoding="utf-8"))
-        reference_path = Path(snapshot.reference_bundle_path)
+    def _hydrate(self, snapshot: Snapshot) -> RuntimeSnapshot:
+        world = self._load_world(snapshot.snapshot_id)
+        reference_path = self._reference_bundle_path(snapshot.snapshot_id)
         reference_bundle = ReferenceBundle.model_validate_json(reference_path.read_text(encoding="utf-8"))
         return RuntimeSnapshot.model_validate(
             {
@@ -157,8 +144,8 @@ class FileSnapshotStore:
             }
         )
 
-    def load_runtime(self, snapshot_id: str) -> RuntimeSnapshot:
-        return self.hydrate(self.load(snapshot_id))
+    def _load_runtime(self, snapshot_id: str) -> RuntimeSnapshot:
+        return self._hydrate(self.load(snapshot_id))
 
     def list(self, *, split: PoolSplit | None = None) -> tuple[Snapshot, ...]:
         snapshots: list[Snapshot] = []
@@ -168,7 +155,7 @@ class FileSnapshotStore:
             metadata = self._metadata_for(entry.name)
             if split is not None and metadata.get("split", "train") != split:
                 continue
-            snapshot_path = entry / "snapshot.json"
+            snapshot_path = self._snapshot_path(entry.name)
             if not snapshot_path.exists():
                 continue
             snapshots.append(
@@ -193,17 +180,35 @@ class FileSnapshotStore:
         rng = Random(seed)
         return snapshots[rng.randrange(len(snapshots))]
 
-    def sample_runtime(
+    def _sample_runtime(
         self,
         *,
         split: PoolSplit = "train",
         seed: int | None = None,
         strategy: Literal["random", "latest"] = "random",
     ) -> RuntimeSnapshot:
-        return self.hydrate(self.sample(split=split, seed=seed, strategy=strategy))
+        return self._hydrate(self.sample(split=split, seed=seed, strategy=strategy))
 
     def _metadata_for(self, snapshot_id: str) -> dict[str, object]:
-        metadata_path = self.store_dir / snapshot_id / "metadata.json"
+        metadata_path = self._metadata_path(snapshot_id)
         if not metadata_path.exists():
             return {"split": "train"}
         return json.loads(metadata_path.read_text(encoding="utf-8"))
+
+    def _snapshot_dir(self, snapshot_id: str) -> Path:
+        return self.store_dir / snapshot_id
+
+    def _snapshot_path(self, snapshot_id: str) -> Path:
+        return self._snapshot_dir(snapshot_id) / "snapshot.json"
+
+    def _metadata_path(self, snapshot_id: str) -> Path:
+        return self._snapshot_dir(snapshot_id) / "metadata.json"
+
+    def _world_path(self, snapshot_id: str) -> Path:
+        return self._snapshot_dir(snapshot_id) / "world.json"
+
+    def _reference_bundle_path(self, snapshot_id: str) -> Path:
+        return self._snapshot_dir(snapshot_id) / "reference_bundle.json"
+
+    def _validator_report_path(self, snapshot_id: str) -> Path:
+        return self._snapshot_dir(snapshot_id) / "validator_report.json"

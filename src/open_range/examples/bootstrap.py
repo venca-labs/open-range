@@ -63,7 +63,7 @@ def run_bootstrap_demo(
         store = FileSnapshotStore(root / "snapshots")
         pipeline = BuildPipeline(store=store)
         candidate = pipeline.build(payload, root / "rendered", OFFLINE_BUILD_CONFIG)
-        snapshot = store.hydrate(pipeline.admit(candidate, split="train"))
+        snapshot = store._hydrate(pipeline.admit(candidate, split="train"))
 
         sim_plane = ReferenceSimPlane()
         bootstrap_trace = sim_plane.generate_bootstrap_trace(snapshot, episode_seed=seed)

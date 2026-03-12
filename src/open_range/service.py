@@ -40,9 +40,9 @@ class OpenRange:
         sample_seed: int | None = None,
     ) -> EpisodeState:
         snapshot = (
-            self.store.load_runtime(snapshot_id)
+            self.store._load_runtime(snapshot_id)
             if snapshot_id is not None
-            else self.store.sample_runtime(
+            else self.store._sample_runtime(
                 split=split,
                 seed=0 if sample_seed is None else sample_seed,
                 strategy=strategy,

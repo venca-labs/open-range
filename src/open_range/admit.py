@@ -718,8 +718,6 @@ def _ephemeral_snapshot(world: WorldIR, artifacts: KindArtifacts, reference_bund
         artifacts_dir=artifacts.render_dir,
         image_digests=artifacts.pinned_image_digests,
         state_seed_dir=artifacts.render_dir,
-        world_path=f"{artifacts.render_dir}/world.json",
-        reference_bundle_path=f"{artifacts.render_dir}/reference_bundle.json",
         validator_report_path=f"{artifacts.render_dir}/validator_report.json",
         world=world,
         artifacts=artifacts,

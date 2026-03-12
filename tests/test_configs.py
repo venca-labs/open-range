@@ -42,7 +42,7 @@ def test_build_config_threads_through_build_and_admission(tmp_path: Path):
 
     candidate = pipeline.build(_manifest_payload(), tmp_path / "rendered", build_config)
     snapshot = pipeline.admit(candidate, split="train")
-    runtime_snapshot = store.hydrate(snapshot)
+    runtime_snapshot = store._hydrate(snapshot)
 
     assert candidate.build_config == build_config
     assert candidate.world.allowed_service_kinds == ("web_app", "email", "idp", "fileshare", "db", "siem")

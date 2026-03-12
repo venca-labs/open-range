@@ -183,7 +183,7 @@ def evaluate_rollouts(
         pipeline = BuildPipeline(store=store)
         snapshots: list[RuntimeSnapshot] = []
 
-        base = store.hydrate(
+        base = store._hydrate(
             pipeline.admit(
                 pipeline.build(payload, root / "rendered-base", OFFLINE_BUILD_CONFIG),
                 split="train",
@@ -216,7 +216,7 @@ def evaluate_rollouts(
                 child_seed=current.seed + attempts,
             )
             try:
-                admitted_child = store.hydrate(
+                admitted_child = store._hydrate(
                     pipeline.admit_child(
                         child_world,
                         root / f"rendered-child-{attempts}",

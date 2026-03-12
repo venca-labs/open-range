@@ -159,7 +159,7 @@ def evaluate_model_rollouts(
         pipeline = BuildPipeline(store=store)
 
         snapshots: list[RuntimeSnapshot] = []
-        current = store.hydrate(
+        current = store._hydrate(
             pipeline.admit(
                 pipeline.build(payload, root / "rendered-base", OFFLINE_BUILD_CONFIG),
                 split="train",
@@ -180,7 +180,7 @@ def evaluate_model_rollouts(
                 blue_signal_points=current.validator_report.blue_signal_points,
             )
             child_world = mutation_policy.mutate(current.world, parent_stats=parent_stats)
-            current = store.hydrate(
+            current = store._hydrate(
                 pipeline.admit_child(
                     child_world,
                     root / f"rendered-child-{idx}",

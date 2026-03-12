@@ -48,7 +48,7 @@ def run_demo(
         store = FileSnapshotStore(root / "snapshots")
         pipeline = BuildPipeline(store=store)
         candidate = pipeline.build(payload, root / "rendered", OFFLINE_BUILD_CONFIG)
-        snapshot = store.hydrate(pipeline.admit(candidate, split="train"))
+        snapshot = store._hydrate(pipeline.admit(candidate, split="train"))
 
         attack_idx = seed % max(1, len(snapshot.reference_bundle.reference_attack_traces))
         defense_idx = seed % max(1, len(snapshot.reference_bundle.reference_defense_traces))

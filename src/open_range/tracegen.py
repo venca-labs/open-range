@@ -84,7 +84,7 @@ class TraceDatasetGenerator:
                 pipeline.build(payload, lineage_dir / "rendered-base", self.build_config),
                 split=store_split,
             )
-            base = store.hydrate(base_public)
+            base = store._hydrate(base_public)
             lineage_root = base.world.world_id
             lineage_roots.append(lineage_root)
             dataset_split = _dataset_split(root_idx, roots)
@@ -109,7 +109,7 @@ class TraceDatasetGenerator:
                             split=store_split,
                             build_config=self.build_config,
                         )
-                        admitted_child = store.hydrate(child_public)
+                        admitted_child = store._hydrate(child_public)
                     except ValueError:
                         continue
                     break

@@ -309,13 +309,13 @@ def test_snapshot_store_persists_v1_snapshot(tmp_path: Path):
     store = FileSnapshotStore(tmp_path / "snapshots")
 
     snapshot = store.create(world, artifacts, reference_bundle, report, synth=synth)
-    loaded = store.load_runtime(snapshot.snapshot_id)
+    loaded = store._load_runtime(snapshot.snapshot_id)
 
     assert loaded.snapshot_id == snapshot.snapshot_id
     assert loaded.world_id == world.world_id
     assert loaded.seed == world.seed
     assert loaded.world.world_id == world.world_id
     assert loaded.validator_report.admitted is True
-    assert Path(loaded.reference_bundle_path).exists()
+    assert loaded.reference_bundle.reference_attack_traces
     assert Path(loaded.validator_report_path).exists()
     assert "mailboxes" in loaded.identity_seed

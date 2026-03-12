@@ -77,3 +77,86 @@ def test_live_event_backed_admin_grader_still_requires_the_event() -> None:
         service_health={"svc-idp": 1.0},
         outputs=("admin_surface public",),
     ) is True
+
+
+def test_live_privilege_grader_probes_realized_config_without_output_tokens() -> None:
+    payload = manifest_payload()
+    payload["security"]["pinned_weaknesses"] = [
+        {
+            "family": "config_identity",
+            "kind": "overbroad_service_account",
+            "target": "service:svc-idp",
+        }
+    ]
+    world = CatalogWeaknessSeeder().apply(EnterpriseSaaSManifestCompiler().compile(payload))
+    predicates = PredicateEngine(world)
+    grader = predicates.objective_grader("privilege_escalation(svc-idp)")
+    assert grader is not None
+
+    class _Pods:
+        async def exec(self, service: str, cmd: str, timeout: float = 10.0):
+            del timeout
+            if service == "svc-idp" and "service_account_scope" in cmd and "svc-db" in cmd and "svc-idp" in cmd:
+                return SimpleNamespace(ok=True, stdout="", stderr="")
+            return SimpleNamespace(ok=False, stdout="", stderr="miss")
+
+    snapshot = SimpleNamespace(world=world, file_assets={}, db_seed_state={})
+
+    assert evaluate_objective_grader_live(
+        "privilege_escalation(svc-idp)",
+        grader,
+        snapshot=snapshot,
+        pods=_Pods(),
+        events=(
+            SimpleNamespace(
+                event_type="PrivilegeEscalation",
+                target_entity="svc-idp",
+                linked_objective_predicates=("privilege_escalation(svc-idp)",),
+            ),
+        ),
+        service_health={"svc-idp": 1.0},
+        outputs=("",),
+    ) is True
+
+
+def test_live_outbound_grader_probes_ssrf_realizations_without_output_tokens() -> None:
+    payload = manifest_payload()
+    payload["objectives"]["red"] = [{"predicate": "outbound_service(svc-web)"}]
+    payload["security"]["pinned_weaknesses"] = [
+        {
+            "family": "code_web",
+            "kind": "ssrf",
+            "target": "service:svc-web",
+        }
+    ]
+    world = CatalogWeaknessSeeder().apply(EnterpriseSaaSManifestCompiler().compile(payload))
+    predicates = PredicateEngine(world)
+    grader = predicates.objective_grader("outbound_service(svc-web)")
+    assert grader is not None
+
+    class _Pods:
+        async def exec(self, service: str, cmd: str, timeout: float = 10.0):
+            del timeout
+            if service != "svc-web":
+                return SimpleNamespace(ok=False, stdout="", stderr="bad service")
+            if "file_get_contents($url" in cmd and "REMOTE_ADDR" in cmd and "/opt/openrange/footholds/" in cmd:
+                return SimpleNamespace(ok=True, stdout="", stderr="")
+            return SimpleNamespace(ok=False, stdout="", stderr="miss")
+
+    snapshot = SimpleNamespace(world=world, file_assets={}, db_seed_state={})
+
+    assert evaluate_objective_grader_live(
+        "outbound_service(svc-web)",
+        grader,
+        snapshot=snapshot,
+        pods=_Pods(),
+        events=(
+            SimpleNamespace(
+                event_type="PersistenceEstablished",
+                target_entity="svc-web",
+                linked_objective_predicates=("outbound_service(svc-web)",),
+            ),
+        ),
+        service_health={"svc-web": 1.0},
+        outputs=("",),
+    ) is True

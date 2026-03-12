@@ -21,6 +21,10 @@ def test_pipeline_builds_and_admits_snapshot(tmp_path: Path):
     assert snapshot.snapshot_id.startswith(candidate.world.world_id)
     assert snapshot.world_id == candidate.world.world_id
     assert snapshot.artifacts_dir == candidate.artifacts.render_dir
-    assert snapshot.world_path.endswith("/world.json")
     assert "world" not in snapshot.model_dump()
+    assert "world_path" not in snapshot.model_dump()
+    assert "reference_bundle_path" not in snapshot.model_dump()
     assert "mailboxes" in snapshot.identity_seed
+    assert not hasattr(pipeline.store, "load_world")
+    assert not hasattr(pipeline.store, "hydrate")
+    assert not hasattr(pipeline.store, "load_runtime")

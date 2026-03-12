@@ -102,7 +102,7 @@ def test_mutated_child_is_admitted_and_can_live_in_eval_pool(tmp_path: Path):
     pipeline = BuildPipeline(store=store)
     parent_candidate = pipeline.build(_manifest_payload(), tmp_path / "parent-render", OFFLINE_BUILD_CONFIG)
     parent_snapshot = pipeline.admit(parent_candidate, split="train")
-    parent_world = store.load_world(parent_snapshot.snapshot_id)
+    parent_world = store._load_world(parent_snapshot.snapshot_id)
 
     policy = FrontierMutationPolicy()
     child_world = policy.mutate(
@@ -136,7 +136,7 @@ def test_propose_mutations_loads_best_parent_from_store(tmp_path: Path):
         pipeline.build(_manifest_payload(), tmp_path / "render", OFFLINE_BUILD_CONFIG),
         split="train",
     )
-    parent_world = store.load_world(parent_snapshot.snapshot_id)
+    parent_world = store._load_world(parent_snapshot.snapshot_id)
 
     children = propose_mutations(
         [

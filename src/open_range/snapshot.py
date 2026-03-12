@@ -34,8 +34,6 @@ class Snapshot(_StrictModel):
     artifacts_dir: str
     image_digests: dict[str, str] = Field(default_factory=dict)
     state_seed_dir: str
-    world_path: str
-    reference_bundle_path: str
     validator_report_path: str
     artifacts: KindArtifacts
     db_seed_state: dict[str, Any] = Field(default_factory=dict)

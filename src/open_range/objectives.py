@@ -261,15 +261,9 @@ def evaluate_objective_grader_live(
         if not matched:
             return False
         if grader.objective_tag in {"unauthorized_admin_login", "privilege_escalation"}:
-            realizations = _relevant_realizations(snapshot, grader)
             if _matches_effect_output(grader, combined_output):
                 return True
-            return _probe_realizations(
-                pods,
-                realizations,
-                expected_ref=grader.expected_ref,
-                require_nonempty=True,
-            )
+            return _probe_live_objective_effect(snapshot, pods, grader)
         return True
     if grader.grader_kind == "service_health":
         health = service_health.get(grader.service_id or grader.target_id, 1.0)
@@ -307,15 +301,9 @@ def evaluate_objective_grader_live(
     if grader.grader_kind == "outbound_request":
         if not linked_events:
             return False
-        realizations = _relevant_realizations(snapshot, grader)
         if _matches_effect_output(grader, combined_output):
             return True
-        return _probe_realizations(
-            pods,
-            realizations,
-            expected_ref=grader.expected_ref,
-            require_nonempty=True,
-        )
+        return _probe_live_objective_effect(snapshot, pods, grader)
     return False
 
 
@@ -356,26 +344,131 @@ def _snapshot_mapping(snapshot: object, attr: str) -> dict[str, object]:
     return {}
 
 
-def _relevant_realizations(snapshot: object, grader: ObjectiveGraderSpec) -> tuple[tuple[str, str], ...]:
+def _probe_live_objective_effect(snapshot: object, pods: object, grader: ObjectiveGraderSpec) -> bool:
+    for weakness in _relevant_weaknesses(snapshot, grader):
+        for service, command in _live_effect_probe_commands(weakness, grader):
+            result = run_async(pods.exec(service, command, timeout=10.0))
+            if result.ok:
+                return True
+    realizations = _relevant_realizations(snapshot, grader)
+    return _probe_realizations(
+        pods,
+        realizations,
+        expected_ref=grader.expected_ref,
+        require_nonempty=True,
+    )
+
+
+def _relevant_weaknesses(snapshot: object, grader: ObjectiveGraderSpec) -> tuple[object, ...]:
     world = getattr(snapshot, "world", None)
     weaknesses = getattr(world, "weaknesses", ()) if world is not None else ()
-    matches: list[tuple[str, str]] = []
+    matches: list[object] = []
     for weakness in weaknesses:
-        if grader.objective_tag not in getattr(weakness, "objective_tags", ()):
+        objective_tags = tuple(getattr(weakness, "objective_tags", ()))
+        if grader.objective_tag not in objective_tags:
             continue
         weakness_target = str(getattr(weakness, "target", ""))
         weakness_ref = str(getattr(weakness, "target_ref", ""))
-        if grader.service_id and weakness_target not in {grader.service_id, grader.target_id}:
-            if grader.target_id and weakness_ref != grader.target_id:
-                continue
-            if not grader.target_id:
-                continue
+        if grader.target_id and grader.target_id in {weakness_target, weakness_ref}:
+            matches.append(weakness)
+            continue
+        if grader.service_id and grader.service_id == weakness_target:
+            matches.append(weakness)
+            continue
+        if not grader.target_id and not grader.service_id:
+            matches.append(weakness)
+    return tuple(matches)
+
+
+def _relevant_realizations(snapshot: object, grader: ObjectiveGraderSpec) -> tuple[tuple[str, str], ...]:
+    matches: list[tuple[str, str]] = []
+    for weakness in _relevant_weaknesses(snapshot, grader):
         for realization in getattr(weakness, "realization", ()):
             service = str(getattr(realization, "service", ""))
             path = str(getattr(realization, "path", ""))
             if service and path:
                 matches.append((service, path))
     return tuple(dict.fromkeys(matches))
+
+
+def _live_effect_probe_commands(
+    weakness: object,
+    grader: ObjectiveGraderSpec,
+) -> tuple[tuple[str, str], ...]:
+    family = str(getattr(weakness, "family", ""))
+    kind = str(getattr(weakness, "kind", ""))
+    target = str(getattr(weakness, "target", ""))
+    target_ref = str(getattr(weakness, "target_ref", ""))
+    realizations = tuple(getattr(weakness, "realization", ()))
+    commands: list[tuple[str, str]] = []
+
+    if family == "config_identity":
+        path = _first_realization_path(realizations, "config")
+        if path:
+            if kind == "weak_password":
+                commands.append((target, _grep_all(path, '"min_password_length": 6', '"password_reuse_allowed": true')))
+            elif kind == "default_credential":
+                commands.append((target, _grep_all(path, '"default_username": "admin"', '"default_password": "admin"')))
+            elif kind == "overbroad_service_account":
+                commands.append((target, _grep_all(path, '"service_account_scope"', "svc-db", "svc-idp")))
+            elif kind == "admin_surface_exposed":
+                commands.append((target, _grep_all(path, '"admin_surface_public": true')))
+            elif kind == "trust_edge_misconfig":
+                commands.append((target, _grep_all(path, '"trust_scope": "corp-wide"', '"peer_validation": false')))
+
+    if family == "workflow_abuse":
+        workflow_path = _first_realization_path(realizations, "workflow")
+        mailbox_path = _first_realization_path(realizations, "mailbox")
+        if workflow_path:
+            if kind == "helpdesk_reset_bypass":
+                commands.append((target, _grep_all(workflow_path, '"identity_verification": "none"', '"reset_without_ticket_owner": true')))
+            elif kind == "approval_chain_bypass":
+                commands.append((target, _grep_all(workflow_path, '"secondary_approval_skipped": true')))
+            elif kind == "document_share_abuse":
+                commands.append((target, _grep_all(workflow_path, '"share_visibility": "public_link"')))
+            elif kind == "phishing_credential_capture":
+                commands.append((target, _grep_all(workflow_path, '"credential_capture_landing": "/login"')))
+            elif kind == "internal_request_impersonation":
+                commands.append((target, _grep_all(workflow_path, '"internal_alias_trust": true')))
+        if mailbox_path:
+            commands.append((target, _grep_any(mailbox_path, f"kind={kind}", "Subject:", target_ref)))
+
+    if family == "secret_exposure":
+        for realization in realizations:
+            service = str(getattr(realization, "service", "")) or target
+            path = str(getattr(realization, "path", ""))
+            kind_name = str(getattr(realization, "kind", ""))
+            if not service or not path:
+                continue
+            if kind_name == "mailbox":
+                commands.append((service, _grep_any(path, "secret_material=", target_ref, grader.expected_ref)))
+            elif kind == "backup_leak":
+                commands.append((service, _grep_any(path, "INSERT INTO leaked_credentials", target_ref)))
+            elif kind == "env_file_leak":
+                commands.append((service, _grep_any(path, "OPENRANGE_APP_SECRET=", "OPENRANGE_WORLD_ID=")))
+            elif kind == "hardcoded_app_secret":
+                commands.append((service, _grep_any(path, "OPENRANGE_APP_SECRET", "define('OPENRANGE_WORLD_ID'")))
+            else:
+                commands.append((service, _nonempty_file(path)))
+
+    if family == "code_web":
+        code_paths = [str(getattr(realization, "path", "")) for realization in realizations if getattr(realization, "kind", "") == "code"]
+        seed_paths = [str(getattr(realization, "path", "")) for realization in realizations if getattr(realization, "kind", "") == "seed_data"]
+        if kind == "auth_bypass" and code_paths:
+            commands.append((target, _grep_all(code_paths[0], "impersonate", "$debug === '1'")))
+        elif kind == "command_injection" and code_paths:
+            commands.append((target, _grep_all(code_paths[0], "shell_exec", "printf 'scan=%s")))
+        elif kind == "ssrf" and code_paths:
+            internal_path = code_paths[1] if len(code_paths) > 1 else ""
+            seed_path = seed_paths[0] if seed_paths else ""
+            parts = [_grep_all(code_paths[0], "file_get_contents($url")]
+            if internal_path:
+                parts.append(_grep_all(internal_path, "REMOTE_ADDR", "file_get_contents"))
+            if seed_path:
+                parts.append(_nonempty_file(seed_path))
+            commands.append((target, " && ".join(parts)))
+
+    return tuple(commands)
 
 
 def _probe_realizations(
@@ -397,6 +490,35 @@ def _probe_realizations(
         if result.ok:
             return True
     return False
+
+
+def _first_realization_path(realizations: tuple[object, ...], kind: str) -> str:
+    for realization in realizations:
+        if str(getattr(realization, "kind", "")) != kind:
+            continue
+        path = str(getattr(realization, "path", ""))
+        if path:
+            return path
+    return ""
+
+
+def _grep_all(path: str, *needles: str) -> str:
+    parts = [f"test -f {shlex.quote(path)}"]
+    for needle in needles:
+        if needle:
+            parts.append(f"grep -Fq {shlex.quote(needle)} {shlex.quote(path)}")
+    return " && ".join(parts)
+
+
+def _grep_any(path: str, *needles: str) -> str:
+    clauses = [f"grep -Fq {shlex.quote(needle)} {shlex.quote(path)}" for needle in needles if needle]
+    if not clauses:
+        return _nonempty_file(path)
+    return f"test -f {shlex.quote(path)} && (" + " || ".join(clauses) + ")"
+
+
+def _nonempty_file(path: str) -> str:
+    return f"test -f {shlex.quote(path)} && test -s {shlex.quote(path)}"
 
 
 def _matches_effect_output(grader: ObjectiveGraderSpec, combined_output: str) -> bool:

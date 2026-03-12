@@ -227,6 +227,14 @@ Rules:
 - [x] Remove direct `asyncio.run(...)` call sites from sync admission/objective/live-exec code paths
 - [x] Strengthen the weaker benchmark-aligned live objective graders beyond pure event proxies
 
+## Phase 26 - Hidden Surface and Live Grader Tightening
+
+- [x] Remove private world/reference file locations from the public `Snapshot` contract and keep runtime hydration internal to the store/service path
+- [x] Stop advertising exact-world loaders as normal public store APIs; keep curriculum/runtime access on explicit internal helpers
+- [x] Tighten live `unauthorized_admin_login` and `privilege_escalation` grading with realization-aware probes instead of token-based output matching
+- [x] Tighten live `outbound_service` grading with stronger realized-effect checks instead of event-plus-output heuristics
+- [x] Update tests and docs so the new hidden-surface boundary and stronger live graders are explicit
+
 ## Phase 24 - Codebase Simplification
 
 - [x] Add shared build-config presets for offline structural and offline reference workflows

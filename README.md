@@ -187,7 +187,7 @@ manifest
 - representative service-native mitigations for exact web flaws plus bounded config/file mitigations for non-code weaknesses
 - Kind renderer with service payloads, firewall rules, and red/blue/green sandboxes
 - deterministic admission with optional live Kind checks
-- public immutable `Snapshot` records plus explicit runtime hydration into `RuntimeSnapshot` when private references are needed
+- public immutable `Snapshot` records plus explicit runtime hydration into `RuntimeSnapshot` only when internal execution needs exact world structure and private references
 - shared predicate engine used by both admission and runtime terminal/objective reasoning
 - immutable snapshot store with train/eval splits
 - simulated-time runtime with `EpisodeConfig`, actor-specific observations, and `next_decision()`
@@ -228,7 +228,7 @@ state = service.reset(snapshot.snapshot_id, EpisodeConfig(mode="joint_pool"))
 decision = service.next_decision()
 ```
 
-If library code needs private references for runtime tooling or offline analysis, hydrate explicitly through `FileSnapshotStore.load_runtime(...)` or `FileSnapshotStore.hydrate(snapshot)` rather than expecting them on the public `Snapshot` model.
+The public `Snapshot` model intentionally excludes exact world structure and private reference traces. Runtime/admission code hydrates those internally through the store/service path rather than exposing them on the public snapshot contract.
 
 ## Demo
 

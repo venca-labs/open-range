@@ -26,7 +26,7 @@ strict manifest
 ## Runtime model
 
 - one snapshot defines one admitted world
-- public `Snapshot` records stay reference-free; runtime code hydrates `RuntimeSnapshot` when it needs the private `ReferenceBundle`
+- public `Snapshot` records stay free of exact world structure and private references; runtime code hydrates `RuntimeSnapshot` when internal execution needs them
 - `reset(snapshot_id, episode_config)` selects or loads a stored snapshot and binds runtime mode
 - the env advances internal green activity until the next external decision point
 - `next_decision()` exposes only externally controlled red/blue actors
