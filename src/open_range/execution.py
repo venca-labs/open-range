@@ -118,7 +118,7 @@ class PodActionBackend:
         }
 
     def _execute_control(self, action: Action) -> ActionExecution:
-        assert self._release is not None
+        release = self._require_release()
         target = action_target(action)
         directive = str(action.payload.get("action", "contain")).lower()
         if target not in self._service_by_id:
@@ -133,9 +133,7 @@ class PodActionBackend:
             command = self._patch_command_for(target)
         else:
             command = "touch /tmp/openrange-contained"
-        result = run_async(
-            self._release.pods.exec(target, command, timeout=action.timeout_s)
-        )
+        result = run_async(release.pods.exec(target, command, timeout=action.timeout_s))
         return ActionExecution(
             stdout=result.stdout.strip(),
             stderr=result.stderr.strip(),
@@ -148,7 +146,7 @@ class PodActionBackend:
         )
 
     def _run_in_runner(self, action: Action, command: str) -> ActionExecution:
-        assert self._release is not None
+        release = self._require_release()
         if not command:
             return ActionExecution(
                 stderr="no command provided",
@@ -170,9 +168,7 @@ class PodActionBackend:
                     service_health=self.service_health(),
                 )
         runner = self._runner_for(action)
-        result = run_async(
-            self._release.pods.exec(runner, command, timeout=action.timeout_s)
-        )
+        result = run_async(release.pods.exec(runner, command, timeout=action.timeout_s))
         return ActionExecution(
             stdout=result.stdout.strip(),
             stderr=result.stderr.strip(),
@@ -181,7 +177,7 @@ class PodActionBackend:
         )
 
     def _run_on_target_service(self, action: Action, command: str) -> ActionExecution:
-        assert self._release is not None
+        release = self._require_release()
         target = action_target(action)
         if not target or target not in self._service_by_id:
             return ActionExecution(
@@ -201,9 +197,7 @@ class PodActionBackend:
                 ok=False,
                 service_health=self.service_health(),
             )
-        result = run_async(
-            self._release.pods.exec(target, command, timeout=action.timeout_s)
-        )
+        result = run_async(release.pods.exec(target, command, timeout=action.timeout_s))
         return ActionExecution(
             stdout=result.stdout.strip(),
             stderr=result.stderr.strip(),
@@ -269,36 +263,36 @@ class PodActionBackend:
         if service is None:
             return f"echo unknown mail target {target}; exit 1"
         port = service.ports[0] if service.ports else 25
-        sender = action.payload.get("from", action.actor_id)
-        recipient = action.payload.get("to", "noreply@corp.local")
-        subject = action.payload.get("subject", "routine update")
+        sender = str(action.payload.get("from", action.actor_id))
+        recipient = str(action.payload.get("to", "noreply@corp.local"))
+        subject = str(action.payload.get("subject", "routine update"))
+        payload = (
+            "HELO corp.local\n"
+            f"MAIL FROM:<{sender}>\n"
+            f"RCPT TO:<{recipient}>\n"
+            "DATA\n"
+            f"Subject: {subject}\n\n"
+            "OpenRange test mail.\n"
+            ".\n"
+            "QUIT\n"
+        )
         return (
-            "printf 'HELO corp.local\\nMAIL FROM:<{sender}>\\nRCPT TO:<{recipient}>\\nDATA\\n"
-            "Subject: {subject}\\n\\nOpenRange test mail.\\n.\\nQUIT\\n' | "
-            "nc -w 3 {target} {port}"
-        ).format(
-            sender=sender,
-            recipient=recipient,
-            subject=subject,
-            target=target,
-            port=port,
+            f"printf %s {shlex.quote(payload)} | nc -w 3 {shlex.quote(target)} {port}"
         )
 
     def _is_contained(self, target: str) -> bool:
-        assert self._release is not None
+        release = self._require_release()
         result = run_async(
-            self._release.pods.exec(
-                target, "test ! -f /tmp/openrange-contained", timeout=5.0
-            )
+            release.pods.exec(target, "test ! -f /tmp/openrange-contained", timeout=5.0)
         )
         return not result.ok
 
     def _is_patched(self, target: str) -> bool:
-        assert self._release is not None
+        release = self._require_release()
         weakness = self._weakness_for(target)
         if weakness is not None and weakness.family == "code_web":
             result = run_async(
-                self._release.pods.exec(
+                release.pods.exec(
                     target,
                     f"test ! -f {shlex.quote(code_web_guard_path(weakness))}",
                     timeout=5.0,
@@ -306,9 +300,7 @@ class PodActionBackend:
             )
             return not result.ok
         result = run_async(
-            self._release.pods.exec(
-                target, "test ! -f /tmp/openrange-patched", timeout=5.0
-            )
+            release.pods.exec(target, "test ! -f /tmp/openrange-patched", timeout=5.0)
         )
         return not result.ok
 
@@ -337,11 +329,20 @@ class PodActionBackend:
         return " && ".join(cleanup)
 
     def _weakness_for(self, target: str) -> WeaknessSpec | None:
-        assert self._snapshot is not None
+        snapshot = self._require_snapshot()
         return next(
-            (weak for weak in self._snapshot.world.weaknesses if weak.target == target),
-            None,
+            (weak for weak in snapshot.world.weaknesses if weak.target == target), None
         )
+
+    def _require_release(self) -> BootedRelease:
+        if self._release is None:
+            raise RuntimeError("no live release is bound")
+        return self._release
+
+    def _require_snapshot(self) -> RuntimeSnapshot:
+        if self._snapshot is None:
+            raise RuntimeError("no active snapshot is bound")
+        return self._snapshot
 
 
 def _green_sandbox_name(persona_id: str) -> str:

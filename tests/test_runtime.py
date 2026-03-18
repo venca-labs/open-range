@@ -276,6 +276,17 @@ def test_runtime_matching_rejects_extra_api_path_when_reference_has_no_path() ->
     assert ReferenceDrivenRuntime._matches_step(action, expected, "ok") is False
 
 
+def test_runtime_internal_snapshot_helpers_raise_clear_errors_without_reset() -> None:
+    runtime = ReferenceDrivenRuntime()
+
+    with pytest.raises(RuntimeError, match="runtime has no active snapshot"):
+        runtime._briefing_text("red")
+    with pytest.raises(RuntimeError, match="runtime has no active snapshot"):
+        runtime._reference_attack_trace()
+    with pytest.raises(RuntimeError, match="runtime has no active snapshot"):
+        runtime._reference_defense_trace()
+
+
 def test_runtime_live_containment_blocks_future_red_step(tmp_path: Path):
     snapshot = _snapshot(tmp_path)
 

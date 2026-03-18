@@ -39,7 +39,7 @@ class ExecResult:
         return not self.timed_out and self.exit_code == 0
 
 
-@dataclass(frozen=True, slots=True)
+@dataclass(slots=True)
 class PodSet:
     """Handle to live pods for one admitted release."""
 

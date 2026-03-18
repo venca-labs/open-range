@@ -3,6 +3,7 @@ from __future__ import annotations
 import importlib.util
 import sys
 from pathlib import Path
+from typing import get_type_hints
 
 from open_range._runtime_store import hydrate_runtime_snapshot
 from open_range.admit import LocalAdmissionController
@@ -90,3 +91,11 @@ def test_teacher_pick_rate_counts_teacher_labels() -> None:
     )
 
     assert rate == 2 / 3
+
+
+def test_model_rollout_score_candidates_type_hints_resolve() -> None:
+    mod = _load_module("eval_model_rollouts_hints", "scripts/eval_model_rollouts.py")
+
+    hints = get_type_hints(mod.score_candidates, globalns=vars(mod), localns=vars(mod))
+
+    assert "return" in hints
