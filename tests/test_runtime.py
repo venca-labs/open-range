@@ -276,6 +276,18 @@ def test_runtime_matching_rejects_extra_api_path_when_reference_has_no_path() ->
     assert ReferenceDrivenRuntime._matches_step(action, expected, "ok") is False
 
 
+def test_runtime_prefers_shortest_live_foothold_for_next_red_origin(
+    tmp_path: Path,
+) -> None:
+    snapshot = _snapshot(tmp_path)
+    runtime = ReferenceDrivenRuntime()
+    runtime.reset(snapshot, EpisodeConfig(mode="red_only", green_enabled=False))
+    runtime._red_footholds = {"svc-web", "svc-idp"}
+    runtime._last_red_target = "svc-idp"
+
+    assert runtime._live_red_origin("svc-fileshare") == "svc-web"
+
+
 def test_runtime_internal_snapshot_helpers_raise_clear_errors_without_reset() -> None:
     runtime = ReferenceDrivenRuntime()
 

@@ -65,3 +65,44 @@ def test_tiny_sft_limit_applies_after_role_filtering() -> None:
     assert len(filtered) == 4
     assert len(limited) == 4
     assert {row["role"] for row in limited} == {"red"}
+
+
+def test_tiny_sft_tokenize_rows_returns_trainer_ready_items() -> None:
+    module = _load_module(
+        Path(__file__).resolve().parents[1] / "scripts" / "train_tiny_sft.py",
+        "train_tiny_sft_tokenize_test",
+    )
+
+    class FakeTokenizer:
+        def __call__(
+            self,
+            text: str,
+            *,
+            truncation: bool,
+            max_length: int,
+            padding: bool,
+        ) -> dict[str, list[int]]:
+            assert truncation is True
+            assert padding is False
+            tokens = [ord(char) % 17 for char in text][:max_length]
+            return {
+                "input_ids": tokens,
+                "attention_mask": [1] * len(tokens),
+            }
+
+    rows = [
+        {
+            "messages": [
+                {"role": "system", "content": "sys"},
+                {"role": "user", "content": "hello"},
+                {"role": "assistant", "content": "ok"},
+            ]
+        }
+    ]
+
+    tokenized = module.tokenize_rows(FakeTokenizer(), rows, max_length=8)
+
+    assert len(tokenized) == 1
+    assert tokenized[0]["input_ids"]
+    assert tokenized[0]["attention_mask"]
+    assert tokenized[0]["labels"] == tokenized[0]["input_ids"]

@@ -516,13 +516,13 @@ class EnterpriseSaaSManifestCompiler:
             location = f"svc-db://main/{asset.id}"
         elif any(token in asset_id for token in ("doc", "file", "share")):
             service = "svc-fileshare"
-            location = f"svc-fileshare:/srv/{asset.id}"
+            location = f"svc-fileshare:/srv/shared/{asset.id}.txt"
         elif any(token in asset_id for token in ("cred", "password", "token", "key")):
             service = "svc-idp"
             location = f"svc-idp://secrets/{asset.id}"
         else:
             service = "svc-web"
-            location = f"svc-web://content/{asset.id}"
+            location = f"svc-web:/var/www/html/content/{asset.id}.txt"
 
         confidentiality = {
             "crown_jewel": "critical",

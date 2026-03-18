@@ -347,7 +347,7 @@ class KindBackend:
                 "-l",
                 f"app.kubernetes.io/instance={release_name}",
                 "-o",
-                "jsonpath={range .items[*]}{.metadata.namespace}{'/'}{.metadata.name}{'|'}{.metadata.labels.openrange\\.service}{'\\n'}{end}",
+                "jsonpath={range .items[*]}{.metadata.namespace}{'/'}{.metadata.name}{'|'}{.metadata.labels['openrange/service']}{'\\n'}{end}",
             ],
             timeout=30.0,
         )

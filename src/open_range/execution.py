@@ -46,6 +46,8 @@ class PodActionBackend:
         self._snapshot: RuntimeSnapshot | None = None
         self._release: BootedRelease | None = None
         self._service_by_id: dict[str, ServiceSpec] = {}
+        self._service_zone_by_id: dict[str, str] = {}
+        self._green_runner_by_zone: dict[str, str] = {}
 
     def bind(self, snapshot: RuntimeSnapshot, release: BootedRelease) -> None:
         self._snapshot = snapshot
@@ -53,11 +55,23 @@ class PodActionBackend:
         self._service_by_id = {
             service.id: service for service in snapshot.world.services
         }
+        host_zone_by_id = {host.id: host.zone for host in snapshot.world.hosts}
+        self._service_zone_by_id = {
+            service.id: host_zone_by_id.get(service.host, "")
+            for service in snapshot.world.services
+        }
+        self._green_runner_by_zone = {}
+        for persona in snapshot.world.green_personas:
+            zone = host_zone_by_id.get(persona.home_host, "")
+            if zone and zone not in self._green_runner_by_zone:
+                self._green_runner_by_zone[zone] = _green_sandbox_name(persona.id)
 
     def clear(self) -> None:
         self._snapshot = None
         self._release = None
         self._service_by_id = {}
+        self._service_zone_by_id = {}
+        self._green_runner_by_zone = {}
 
     def record_event(self, event: Any) -> None:
         if self._release is None or "svc-siem" not in self._service_by_id:
@@ -209,14 +223,25 @@ class PodActionBackend:
         if action.role == "red":
             origin = action.payload.get("origin")
             if isinstance(origin, str) and origin:
-                if origin in self._service_by_id or origin.startswith("sandbox-"):
+                if origin.startswith("sandbox-"):
                     return origin
+                if origin in self._service_by_id:
+                    return self._tool_runner_for_service(origin)
             return "sandbox-red"
         if action.role == "blue":
             return "sandbox-blue"
         if action.role == "green":
             return _green_sandbox_name(action.actor_id)
         raise ValueError(f"unsupported runner role: {action.role}")
+
+    def _tool_runner_for_service(self, service_id: str) -> str:
+        zone = self._service_zone_by_id.get(service_id, "")
+        if zone == "management":
+            return self._green_runner_by_zone.get(zone, "sandbox-blue")
+        green_runner = self._green_runner_by_zone.get(zone)
+        if green_runner:
+            return green_runner
+        return service_id
 
     def _api_command(self, action: Action) -> str:
         target = action_target(action)

@@ -63,6 +63,7 @@ class ReferenceDrivenRuntime:
         self._red_objectives_satisfied: set[str] = set()
         self._blue_objectives_satisfied: set[str] = set()
         self._detected_event_ids: set[str] = set()
+        self._red_footholds: set[str] = set()
         self._last_red_target = ""
         self._event_seq = 0
         self._decision_seq = 0
@@ -100,6 +101,7 @@ class ReferenceDrivenRuntime:
         self._red_objectives_satisfied = set()
         self._blue_objectives_satisfied = set()
         self._detected_event_ids = set()
+        self._red_footholds = set()
         self._last_red_target = ""
         self._event_seq = 0
         self._decision_seq = 0
@@ -447,7 +449,7 @@ class ReferenceDrivenRuntime:
         exec_action = action
         if self.action_backend is not None:
             payload = dict(action.payload)
-            payload.setdefault("origin", self._last_red_target or "sandbox-red")
+            payload.setdefault("origin", self._live_red_origin(target))
             if target:
                 payload.setdefault("target", target)
             exec_action = action.model_copy(update={"payload": payload})
@@ -480,6 +482,8 @@ class ReferenceDrivenRuntime:
             emitted = list(batch.events)
             self._red_objectives_satisfied.update(batch.satisfied_objectives)
             self._last_red_target = batch.last_red_target
+            if batch.last_red_target:
+                self._red_footholds.add(batch.last_red_target)
         else:
             stdout = live.stdout or f"red executed on {target or 'unknown target'}"
 
@@ -694,6 +698,60 @@ class ReferenceDrivenRuntime:
         if self._red_progress >= len(trace.steps):
             return None
         return trace.steps[self._red_progress]
+
+    def _live_red_origin(self, target: str) -> str:
+        if not target or self._snapshot is None or self._predicates is None:
+            return self._last_red_target or "sandbox-red"
+        service_ids = {service.id for service in self._snapshot.world.services}
+        candidate_ids = service_ids & self._red_footholds
+        if self._last_red_target in service_ids:
+            candidate_ids.add(self._last_red_target)
+        reachable = {
+            origin
+            for origin in candidate_ids
+            if self._foothold_can_reach_target(origin, target)
+        }
+        if not reachable:
+            return self._last_red_target or "sandbox-red"
+        return min(
+            reachable,
+            key=lambda origin: (
+                len(self._predicates.shortest_path(origin, target)),
+                origin,
+            ),
+        )
+
+    def _foothold_can_reach_target(self, origin: str, target: str) -> bool:
+        if self._snapshot is None:
+            return False
+        origin_zone = self._service_zone(origin)
+        target_zone = self._service_zone(target)
+        if not origin_zone or not target_zone:
+            return False
+        return self._zone_can_reach(origin_zone, target_zone)
+
+    def _service_zone(self, service_id: str) -> str:
+        snapshot = self._require_snapshot()
+        host_zone_by_id = {host.id: host.zone for host in snapshot.world.hosts}
+        service = next(
+            (item for item in snapshot.world.services if item.id == service_id), None
+        )
+        if service is None:
+            return ""
+        return host_zone_by_id.get(service.host, "")
+
+    def _zone_can_reach(self, from_zone: str, to_zone: str) -> bool:
+        if from_zone == to_zone:
+            return True
+        snapshot = self._require_snapshot()
+        rules = snapshot.artifacts.chart_values.get("firewallRules", ())
+        return any(
+            rule.get("action") == "allow"
+            and rule.get("fromZone") == from_zone
+            and rule.get("toZone") == to_zone
+            for rule in rules
+            if isinstance(rule, dict)
+        )
 
     def _next_blue_step(self):
         if self._snapshot is None:

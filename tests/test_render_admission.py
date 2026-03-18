@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import importlib
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -9,6 +10,7 @@ from open_range.admit import LocalAdmissionController
 from open_range.code_web import code_web_payload
 from open_range.compiler import EnterpriseSaaSManifestCompiler
 from open_range.curriculum import FrontierMutationPolicy, PopulationStats
+from open_range.predicates import PredicateEngine
 from open_range.render import EnterpriseSaaSKindRenderer
 from open_range.store import FileSnapshotStore
 from open_range.synth import EnterpriseSaaSWorldSynthesizer
@@ -18,6 +20,8 @@ from tests.support import (
     OFFLINE_REFERENCE_BUILD_CONFIG,
     manifest_payload,
 )
+
+admit_mod = importlib.import_module("open_range.admit")
 
 
 def _manifest_payload() -> dict:
@@ -80,6 +84,7 @@ def test_kind_renderer_emits_expected_files(tmp_path: Path):
     world = _build_seeded_world()
     synth = _synth(world, tmp_path)
     artifacts = EnterpriseSaaSKindRenderer().render(world, synth, tmp_path / "rendered")
+    finance_docs = next(asset for asset in world.assets if asset.id == "finance_docs")
 
     assert Path(artifacts.values_path).exists()
     assert Path(artifacts.kind_config_path).exists()
@@ -96,12 +101,29 @@ def test_kind_renderer_emits_expected_files(tmp_path: Path):
     )
     assert "sandbox-red" in artifacts.chart_values["sandboxes"]
     assert (
+        artifacts.chart_values["sandboxes"]["sandbox-red"]["image"]
+        == "wbitt/network-multitool:alpine-extra"
+    )
+    assert (
+        artifacts.chart_values["sandboxes"]["sandbox-blue"]["image"]
+        == "wbitt/network-multitool:alpine-extra"
+    )
+    assert (
         artifacts.chart_values["services"]["svc-db"]["payloads"][0]["mountPath"]
         == "/docker-entrypoint-initdb.d/01-init.sql"
+    )
+    assert finance_docs.location == "svc-fileshare:/srv/shared/finance_docs.txt"
+    assert (
+        PredicateEngine(world).objective_grader("asset_read(finance_docs)").path
+        == "/srv/shared/finance_docs.txt"
     )
     siem_command = artifacts.chart_values["services"]["svc-siem"]["command"][-1]
     assert "busybox nc -lp 9201" in siem_command
     assert "busybox httpd -f -p 9200 -h /srv/http/siem" in siem_command
+    assert all(
+        payload["mountPath"] != "/srv/http/siem/all.log"
+        for payload in artifacts.chart_values["services"]["svc-siem"]["payloads"]
+    )
     assert any(
         rule["fromZone"] == "external" and rule["toZone"] == "dmz"
         for rule in artifacts.chart_values["firewallRules"]
@@ -317,6 +339,66 @@ def test_admission_controller_can_run_optional_live_backend(tmp_path: Path):
     assert any(stage.name == "kind_live" for stage in report.stages)
     assert calls[0].startswith("boot:")
     assert calls[-1].startswith("down:")
+
+
+def test_no_necessity_profile_skips_auto_live_backend_probe(
+    tmp_path: Path, monkeypatch
+) -> None:
+    world = _build_seeded_world()
+    artifacts = EnterpriseSaaSKindRenderer().render(
+        world, _synth(world, tmp_path), tmp_path / "rendered"
+    )
+    which_calls: list[str] = []
+    run_calls: list[tuple[object, ...]] = []
+
+    def fake_which(cmd: str) -> str:
+        which_calls.append(cmd)
+        return f"/usr/bin/{cmd}"
+
+    def fake_run(*args, **kwargs):
+        del kwargs
+        run_calls.append(args)
+        return SimpleNamespace(returncode=0, stdout="openrange\n", stderr="")
+
+    monkeypatch.setattr(admit_mod.shutil, "which", fake_which)
+    monkeypatch.setattr(admit_mod.subprocess, "run", fake_run)
+
+    _bundle, report = LocalAdmissionController(mode="fail_fast").admit(
+        world, artifacts, OFFLINE_REFERENCE_BUILD_CONFIG
+    )
+
+    assert report.admitted is True
+    assert all(stage.name != "kind_live" for stage in report.stages)
+    assert which_calls == []
+    assert run_calls == []
+
+
+def test_live_service_smoke_check_uses_reachable_zone_runners() -> None:
+    world = _build_seeded_world()
+    calls: list[tuple[str, str]] = []
+
+    class FakePods:
+        async def exec(
+            self, service: str, cmd: str, timeout: float = 30.0
+        ) -> ExecResult:
+            del timeout
+            calls.append((service, cmd))
+            return ExecResult(stdout="ok", stderr="", exit_code=0)
+
+    report = admit_mod._live_service_smoke_check(
+        world, SimpleNamespace(pods=FakePods())
+    )
+    calls_by_target = {
+        service.id: runner for service, (runner, _cmd) in zip(world.services, calls)
+    }
+
+    assert report.passed is True
+    assert calls_by_target["svc-web"] == "sandbox-red"
+    assert calls_by_target["svc-email"] == "sandbox-red"
+    assert calls_by_target["svc-idp"] == "sandbox-blue"
+    assert calls_by_target["svc-siem"] == "sandbox-blue"
+    assert calls_by_target["svc-fileshare"].startswith("sandbox-green-")
+    assert calls_by_target["svc-db"].startswith("sandbox-green-")
 
 
 def test_admission_controller_rejects_world_without_telemetry(tmp_path: Path):

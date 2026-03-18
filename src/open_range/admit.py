@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import shutil
 import subprocess
+import time
 from pathlib import Path
 from typing import Callable, Protocol
 from urllib.parse import urlencode
@@ -268,7 +269,7 @@ class LocalAdmissionController:
     def _auto_live_backend(self, build_config: BuildConfig) -> LiveBackend | None:
         if not self.auto_live:
             return None
-        if build_config.validation_profile == "graph_only":
+        if not profile_requires_live(build_config):
             return None
         if not shutil.which("helm"):
             return None
@@ -848,31 +849,69 @@ def _ephemeral_snapshot(
 
 
 def _live_service_smoke_check(world: WorldIR, release) -> ValidatorCheckReport:
-    commands = {
-        "svc-web": ("sandbox-red", "wget -qO- http://svc-web:80/ | grep -q OpenRange"),
-        "svc-email": ("sandbox-red", "nc -z -w 3 svc-email 25"),
-        "svc-idp": ("sandbox-blue", "nc -z -w 3 svc-idp 389"),
-        "svc-fileshare": ("sandbox-blue", "nc -z -w 3 svc-fileshare 445"),
-        "svc-db": ("sandbox-blue", "nc -z -w 3 svc-db 3306"),
-        "svc-siem": (
-            "sandbox-blue",
-            "wget -qO- http://svc-siem:9200/all.log >/dev/null",
-        ),
-    }
     failures: list[str] = []
     for service in world.services:
-        runner, cmd = commands.get(service.id, ("sandbox-blue", "true"))
-        result = run_async(release.pods.exec(runner, cmd, timeout=10.0))
-        if not result.ok:
-            failures.append(
-                f"{service.id}:{result.stderr or result.stdout or 'smoke failed'}"
-            )
+        runner = _smoke_runner_for_service(world, service.id)
+        cmd = _smoke_probe_command(service)
+        last_error = "smoke failed"
+        ok = False
+        attempts = 10 if service.kind == "db" else 3
+        retry_delay_s = 2.0 if service.kind == "db" else 1.0
+        for attempt in range(attempts):
+            result = run_async(release.pods.exec(runner, cmd, timeout=10.0))
+            if result.ok:
+                ok = True
+                break
+            last_error = result.stderr or result.stdout or "smoke failed"
+            if attempt + 1 < attempts:
+                time.sleep(retry_delay_s)
+        if not ok:
+            failures.append(f"{service.id}:{last_error}")
     return ValidatorCheckReport(
         name="live_service_smoke",
         passed=not failures,
         details={"failures": failures},
         error="; ".join(failures),
     )
+
+
+def _smoke_runner_for_service(world: WorldIR, service_id: str) -> str:
+    service_by_id = {service.id: service for service in world.services}
+    host_zone_by_id = {host.id: host.zone for host in world.hosts}
+    service = service_by_id[service_id]
+    zone = host_zone_by_id.get(service.host, "")
+    if zone in {"dmz", "external"}:
+        return "sandbox-red"
+    if zone == "management":
+        return "sandbox-blue"
+    if zone in {"corp", "data"}:
+        runner = _first_green_sandbox_in_zones(world, ("dmz", "corp", zone))
+        if runner:
+            return runner
+    runner = _first_green_sandbox_in_zones(world, (zone,))
+    if runner:
+        return runner
+    return "sandbox-blue" if zone == "management" else "sandbox-red"
+
+
+def _first_green_sandbox_in_zones(world: WorldIR, zones: tuple[str, ...]) -> str:
+    host_zone_by_id = {host.id: host.zone for host in world.hosts}
+    allowed = set(zones)
+    for persona in world.green_personas:
+        zone = host_zone_by_id.get(persona.home_host, "")
+        if zone in allowed:
+            safe = "".join(ch.lower() if ch.isalnum() else "-" for ch in persona.id)
+            return f"sandbox-green-{safe.strip('-')}"
+    return ""
+
+
+def _smoke_probe_command(service: ServiceSpec) -> str:
+    port = service.ports[0] if service.ports else 80
+    if service.id == "svc-web":
+        return f"wget -qO- http://{service.id}:{port}/ | grep -q OpenRange"
+    if service.id == "svc-siem":
+        return "wget -qO- http://svc-siem:9200/all.log >/dev/null"
+    return f"nc -z -w 3 {service.id} {port}"
 
 
 def _live_red_reference_check(

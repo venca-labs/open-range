@@ -134,9 +134,6 @@ class EnterpriseSaaSWorldSynthesizer:
         if service_id == "svc-siem":
             payloads = [
                 SynthFile(
-                    key="all.log", mount_path="/srv/http/siem/all.log", content=""
-                ),
-                SynthFile(
                     key="index.html",
                     mount_path="/srv/http/siem/index.html",
                     content="OpenRange SIEM log sink\n",

@@ -26,9 +26,11 @@ _IMAGE_BY_KIND = {
     "siem": "busybox:1.36",
 }
 
+_DEFAULT_SANDBOX_MULTITOOL_IMAGE = "wbitt/network-multitool:alpine-extra"
+
 _SANDBOX_IMAGE_BY_ROLE = {
-    "red": "ghcr.io/wbitt/network-multitool:alpine-extra",
-    "blue": "ghcr.io/wbitt/network-multitool:alpine-extra",
+    "red": _DEFAULT_SANDBOX_MULTITOOL_IMAGE,
+    "blue": _DEFAULT_SANDBOX_MULTITOOL_IMAGE,
     "green": "busybox:1.36",
 }
 

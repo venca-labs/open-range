@@ -59,3 +59,46 @@ def test_execution_helpers_raise_clear_errors_when_unbound() -> None:
         backend._is_contained("svc-web")
     with pytest.raises(RuntimeError, match="no active snapshot is bound"):
         backend._weakness_for("svc-web")
+
+
+def test_runner_for_red_service_origin_uses_zone_tooling_runner() -> None:
+    backend = PodActionBackend()
+    backend._service_by_id = {
+        "svc-web": ServiceSpec(
+            id="svc-web",
+            kind="web_app",
+            host="web-1",
+            ports=(80,),
+            dependencies=(),
+            telemetry_surfaces=(),
+        ),
+        "svc-idp": ServiceSpec(
+            id="svc-idp",
+            kind="idp",
+            host="idp-1",
+            ports=(389,),
+            dependencies=(),
+            telemetry_surfaces=(),
+        ),
+    }
+    backend._service_zone_by_id = {"svc-web": "dmz", "svc-idp": "management"}
+    backend._green_runner_by_zone = {
+        "dmz": "sandbox-green-sales-01",
+        "management": "sandbox-green-it-admin-01",
+    }
+
+    web_origin = Action(
+        actor_id="red",
+        role="red",
+        kind="api",
+        payload={"target": "svc-idp", "origin": "svc-web"},
+    )
+    idp_origin = Action(
+        actor_id="red",
+        role="red",
+        kind="api",
+        payload={"target": "svc-idp", "origin": "svc-idp"},
+    )
+
+    assert backend._runner_for(web_origin) == "sandbox-green-sales-01"
+    assert backend._runner_for(idp_origin) == "sandbox-green-it-admin-01"

@@ -10,7 +10,7 @@ metadata:
     {{- include "openrange.labels" $ | nindent 4 }}
 data:
   {{- range $svc.payloads }}
-  {{ .key }}: |
+  {{ .key | quote }}: |2
 {{ .content | indent 4 }}
   {{- end }}
 ---

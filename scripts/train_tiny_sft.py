@@ -160,22 +160,22 @@ def tokenize_rows(
     *,
     max_length: int,
 ) -> Any:
-    from datasets import Dataset
-
-    texts = [example_to_text(row) for row in rows]
-    ds = Dataset.from_dict({"text": texts})
-
-    def _map(batch: dict[str, list[str]]) -> dict[str, Any]:
+    items: list[dict[str, list[int]]] = []
+    for row in rows:
         encoded = tokenizer(
-            batch["text"],
+            example_to_text(row),
             truncation=True,
             max_length=max_length,
             padding=False,
         )
-        encoded["labels"] = [ids[:] for ids in encoded["input_ids"]]
-        return encoded
-
-    return ds.map(_map, batched=True, remove_columns=["text"])
+        items.append(
+            {
+                "input_ids": list(encoded["input_ids"]),
+                "attention_mask": list(encoded["attention_mask"]),
+                "labels": list(encoded["input_ids"]),
+            }
+        )
+    return items
 
 
 class CausalCollator:

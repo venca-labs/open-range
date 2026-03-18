@@ -177,7 +177,7 @@ def objective_grader_for_predicate(
             grader_kind="file_exists",
             service_id=service_id,
             target_id=resolved_target,
-            path=asset_location,
+            path=_live_asset_probe_path(asset_location),
             expected_ref=resolved_target,
         )
     if tag == "file_creation":
@@ -186,7 +186,7 @@ def objective_grader_for_predicate(
             grader_kind="file_exists",
             service_id=service_id,
             target_id=resolved_target,
-            path=asset_location,
+            path=_live_asset_probe_path(asset_location),
             expected_ref=resolved_target,
         )
     if tag == "db_access":
@@ -226,6 +226,17 @@ def objective_grader_for_predicate(
         event_type=event_type,
         expected_ref=resolved_target,
     )
+
+
+def _live_asset_probe_path(asset_location: str) -> str:
+    if not asset_location:
+        return ""
+    if asset_location.startswith("/") or "://" in asset_location:
+        return asset_location if asset_location.startswith("/") else ""
+    prefix, sep, suffix = asset_location.partition(":")
+    if prefix and sep and suffix.startswith("/"):
+        return suffix
+    return asset_location
 
 
 def evaluate_objective_grader(
