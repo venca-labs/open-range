@@ -8,7 +8,9 @@ from open_range.rewards import RewardEngine
 
 def test_red_reward_keeps_tick_cost_and_milestone_bonus():
     engine = RewardEngine()
-    action = Action(actor_id="red", role="red", kind="api", payload={"target": "svc-web"})
+    action = Action(
+        actor_id="red", role="red", kind="api", payload={"target": "svc-web"}
+    )
     event = SimpleNamespace(
         event_type="InitialAccess",
         linked_objective_predicates=(),

@@ -50,6 +50,7 @@ def run_red_reference(
     health = tuple(sorted(runtime.state().service_health.items()))
     return score, events, health, outputs
 
+
 def run_blue_reference(
     snapshot: RuntimeSnapshot,
     backend: PodActionBackend | None = None,
@@ -57,7 +58,9 @@ def run_blue_reference(
     trace_index: int = 0,
 ):
     trace = snapshot.reference_bundle.reference_defense_traces[trace_index]
-    attack_index = trace_index % max(1, len(snapshot.reference_bundle.reference_attack_traces))
+    attack_index = trace_index % max(
+        1, len(snapshot.reference_bundle.reference_attack_traces)
+    )
     runtime = ReferenceDrivenRuntime(action_backend=backend)
     runtime.reset(
         snapshot,
@@ -80,7 +83,11 @@ def run_blue_reference(
                 break
             raise
         step = blue_steps[step_idx] if step_idx < len(blue_steps) else None
-        action = runtime_action("blue", step) if step is not None else Action(actor_id="blue", role="blue", kind="sleep", payload={})
+        action = (
+            runtime_action("blue", step)
+            if step is not None
+            else Action(actor_id="blue", role="blue", kind="sleep", payload={})
+        )
         result = runtime.act("blue", action)
         outputs.append(result.stdout or result.stderr)
         if decision.actor != "blue":

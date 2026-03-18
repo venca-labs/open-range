@@ -42,11 +42,15 @@ def _load_manifest(source: str | Path | None) -> dict[str, Any]:
     return load_bundled_manifest(str(source))
 
 
-def _scripted_agent(snapshot: RuntimeSnapshot, actor: str, *, trace_index: int) -> ScriptedRuntimeAgent:
+def _scripted_agent(
+    snapshot: RuntimeSnapshot, actor: str, *, trace_index: int
+) -> ScriptedRuntimeAgent:
     return ScriptedRuntimeAgent(trace_actions(snapshot, actor, trace_index=trace_index))
 
 
-def _run_mode(snapshot: RuntimeSnapshot, episode_config: EpisodeConfig) -> dict[str, Any]:
+def _run_mode(
+    snapshot: RuntimeSnapshot, episode_config: EpisodeConfig
+) -> dict[str, Any]:
     pair_reports: list[dict[str, Any]] = []
     for attack_idx, defense_idx in reference_trace_pairs(snapshot, episode_config.mode):
         runtime = ReferenceDrivenRuntime()
@@ -116,27 +120,70 @@ def _score_payload(
     }
 
 
-def _aggregate_pair_reports(pair_reports: list[dict[str, Any]], *, mode: str) -> dict[str, Any]:
+def _aggregate_pair_reports(
+    pair_reports: list[dict[str, Any]], *, mode: str
+) -> dict[str, Any]:
     total = len(pair_reports)
     return {
         "mode": mode,
         "pairs_evaluated": total,
-        "winner": "mixed" if len({entry["winner"] for entry in pair_reports}) > 1 else (pair_reports[0]["winner"] if pair_reports else ""),
+        "winner": "mixed"
+        if len({entry["winner"] for entry in pair_reports}) > 1
+        else (pair_reports[0]["winner"] if pair_reports else ""),
         "done": all(entry["done"] for entry in pair_reports),
-        "terminal_reason": "mixed" if len({entry["terminal_reason"] for entry in pair_reports}) > 1 else (pair_reports[0]["terminal_reason"] if pair_reports else ""),
-        "sim_time": sum(entry["sim_time"] for entry in pair_reports) / total if total else 0.0,
-        "turns": sum(entry["turns"] for entry in pair_reports) / total if total else 0.0,
-        "continuity": sum(entry["continuity"] for entry in pair_reports) / total if total else 0.0,
-        "red_reward": sum(entry["red_reward"] for entry in pair_reports) / total if total else 0.0,
-        "blue_reward": sum(entry["blue_reward"] for entry in pair_reports) / total if total else 0.0,
-        "red_objectives": sorted({objective for entry in pair_reports for objective in entry["red_objectives"]}),
-        "blue_objectives": sorted({objective for entry in pair_reports for objective in entry["blue_objectives"]}),
-        "event_count": sum(entry["event_count"] for entry in pair_reports) / total if total else 0.0,
-        "red_win_rate": sum(1 for entry in pair_reports if entry["winner"] == "red") / total if total else 0.0,
-        "blue_win_rate": sum(1 for entry in pair_reports if entry["winner"] == "blue") / total if total else 0.0,
+        "terminal_reason": "mixed"
+        if len({entry["terminal_reason"] for entry in pair_reports}) > 1
+        else (pair_reports[0]["terminal_reason"] if pair_reports else ""),
+        "sim_time": sum(entry["sim_time"] for entry in pair_reports) / total
+        if total
+        else 0.0,
+        "turns": sum(entry["turns"] for entry in pair_reports) / total
+        if total
+        else 0.0,
+        "continuity": sum(entry["continuity"] for entry in pair_reports) / total
+        if total
+        else 0.0,
+        "red_reward": sum(entry["red_reward"] for entry in pair_reports) / total
+        if total
+        else 0.0,
+        "blue_reward": sum(entry["blue_reward"] for entry in pair_reports) / total
+        if total
+        else 0.0,
+        "red_objectives": sorted(
+            {
+                objective
+                for entry in pair_reports
+                for objective in entry["red_objectives"]
+            }
+        ),
+        "blue_objectives": sorted(
+            {
+                objective
+                for entry in pair_reports
+                for objective in entry["blue_objectives"]
+            }
+        ),
+        "event_count": sum(entry["event_count"] for entry in pair_reports) / total
+        if total
+        else 0.0,
+        "red_win_rate": sum(1 for entry in pair_reports if entry["winner"] == "red")
+        / total
+        if total
+        else 0.0,
+        "blue_win_rate": sum(1 for entry in pair_reports if entry["winner"] == "blue")
+        / total
+        if total
+        else 0.0,
     }
 
-def _population_stats(snapshot: RuntimeSnapshot, episodes: list[dict[str, Any]], *, split: str, novelty: float) -> PopulationStats:
+
+def _population_stats(
+    snapshot: RuntimeSnapshot,
+    episodes: list[dict[str, Any]],
+    *,
+    split: str,
+    novelty: float,
+) -> PopulationStats:
     total = len(episodes)
     red_wins = sum(1 for episode in episodes if episode["winner"] == "red")
     blue_wins = sum(1 for episode in episodes if episode["winner"] == "blue")
@@ -168,8 +215,14 @@ def evaluate_rollouts(
 
     mode_plan = (
         EpisodeConfig(mode="joint_pool", scheduler_mode="strict_turns"),
-        EpisodeConfig(mode="red_only", scheduler_mode="strict_turns", opponent_blue="reference"),
-        EpisodeConfig(mode="blue_only_live", scheduler_mode="strict_turns", opponent_red="reference"),
+        EpisodeConfig(
+            mode="red_only", scheduler_mode="strict_turns", opponent_blue="reference"
+        ),
+        EpisodeConfig(
+            mode="blue_only_live",
+            scheduler_mode="strict_turns",
+            opponent_red="reference",
+        ),
         EpisodeConfig(
             mode="blue_only_from_prefix",
             scheduler_mode="strict_turns",
@@ -189,7 +242,7 @@ def evaluate_rollouts(
             pipeline.admit(
                 pipeline.build(payload, root / "rendered-base", OFFLINE_BUILD_CONFIG),
                 split="train",
-            )
+            ),
         )
         snapshots.append(base)
 
@@ -225,7 +278,7 @@ def evaluate_rollouts(
                         root / f"rendered-child-{attempts}",
                         split="eval",
                         build_config=OFFLINE_BUILD_CONFIG,
-                    )
+                    ),
                 )
             except ValueError:
                 continue
@@ -234,12 +287,16 @@ def evaluate_rollouts(
             accepted += 1
 
         if accepted < mutations:
-            raise ValueError(f"unable to admit {mutations} mutated children after {attempts} attempts")
+            raise ValueError(
+                f"unable to admit {mutations} mutated children after {attempts} attempts"
+            )
 
         snapshot_reports: list[dict[str, Any]] = []
         population: list[PopulationStats] = []
         for idx, snapshot in enumerate(snapshots):
-            bootstrap = sim_plane.generate_bootstrap_trace(snapshot, episode_seed=idx + 7)
+            bootstrap = sim_plane.generate_bootstrap_trace(
+                snapshot, episode_seed=idx + 7
+            )
             episodes = [_run_mode(snapshot, config) for config in mode_plan]
             split = "train" if idx == 0 else "eval"
             report = {
@@ -273,24 +330,60 @@ def evaluate_rollouts(
                 "episodes": episodes,
             }
             snapshot_reports.append(report)
-            population.append(_population_stats(snapshot, episodes, split=split, novelty=min(0.5 + idx * 0.1, 1.0)))
+            population.append(
+                _population_stats(
+                    snapshot, episodes, split=split, novelty=min(0.5 + idx * 0.1, 1.0)
+                )
+            )
 
         aggregate: dict[str, dict[str, Any]] = {}
-        for mode in {episode["mode"] for report in snapshot_reports for episode in report["episodes"]}:
-            matching = [episode for report in snapshot_reports for episode in report["episodes"] if episode["mode"] == mode]
+        for mode in {
+            episode["mode"]
+            for report in snapshot_reports
+            for episode in report["episodes"]
+        }:
+            matching = [
+                episode
+                for report in snapshot_reports
+                for episode in report["episodes"]
+                if episode["mode"] == mode
+            ]
             total = len(matching)
             aggregate[mode] = {
                 "episodes": total,
-                "red_win_rate": sum(1 for episode in matching if episode["winner"] == "red") / total if total else 0.0,
-                "blue_win_rate": sum(1 for episode in matching if episode["winner"] == "blue") / total if total else 0.0,
-                "avg_red_reward": sum(episode["red_reward"] for episode in matching) / total if total else 0.0,
-                "avg_blue_reward": sum(episode["blue_reward"] for episode in matching) / total if total else 0.0,
-                "avg_continuity": sum(episode["continuity"] for episode in matching) / total if total else 0.0,
-                "avg_turns": sum(episode["turns"] for episode in matching) / total if total else 0.0,
+                "red_win_rate": sum(
+                    1 for episode in matching if episode["winner"] == "red"
+                )
+                / total
+                if total
+                else 0.0,
+                "blue_win_rate": sum(
+                    1 for episode in matching if episode["winner"] == "blue"
+                )
+                / total
+                if total
+                else 0.0,
+                "avg_red_reward": sum(episode["red_reward"] for episode in matching)
+                / total
+                if total
+                else 0.0,
+                "avg_blue_reward": sum(episode["blue_reward"] for episode in matching)
+                / total
+                if total
+                else 0.0,
+                "avg_continuity": sum(episode["continuity"] for episode in matching)
+                / total
+                if total
+                else 0.0,
+                "avg_turns": sum(episode["turns"] for episode in matching) / total
+                if total
+                else 0.0,
             }
 
         result = {
-            "manifest_source": str(manifest) if manifest is not None else _default_manifest_name(),
+            "manifest_source": str(manifest)
+            if manifest is not None
+            else _default_manifest_name(),
             "snapshot_count": len(snapshot_reports),
             "population": [entry.model_dump(mode="json") for entry in population],
             "snapshots": snapshot_reports,
@@ -309,16 +402,33 @@ def evaluate_rollouts(
 
 
 def parse_args() -> argparse.Namespace:
-    parser = argparse.ArgumentParser(description="Run held-out OpenRange rollout evaluation.")
-    parser.add_argument("--manifest", default=None, help="Bundled manifest name or path to strict manifest YAML.")
-    parser.add_argument("--mutations", type=int, default=3, help="How many sequential admitted mutations to evaluate.")
-    parser.add_argument("--out", default="/tmp/openrange-rollout-eval.json", help="Where to write the JSON report.")
+    parser = argparse.ArgumentParser(
+        description="Run held-out OpenRange rollout evaluation."
+    )
+    parser.add_argument(
+        "--manifest",
+        default=None,
+        help="Bundled manifest name or path to strict manifest YAML.",
+    )
+    parser.add_argument(
+        "--mutations",
+        type=int,
+        default=3,
+        help="How many sequential admitted mutations to evaluate.",
+    )
+    parser.add_argument(
+        "--out",
+        default="/tmp/openrange-rollout-eval.json",
+        help="Where to write the JSON report.",
+    )
     return parser.parse_args()
 
 
 def main() -> None:
     args = parse_args()
-    result = evaluate_rollouts(manifest=args.manifest, mutations=args.mutations, quiet=False)
+    result = evaluate_rollouts(
+        manifest=args.manifest, mutations=args.mutations, quiet=False
+    )
     out_path = Path(args.out)
     out_path.write_text(json.dumps(result, indent=2), encoding="utf-8")
     print(f"report={out_path}")

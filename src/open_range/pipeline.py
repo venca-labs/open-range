@@ -57,17 +57,30 @@ class BuildPipeline:
         world = self._prepare_world(source, build_config)
         synth = self.synthesizer.synthesize(world, Path(outdir) / "synth")
         artifacts = self.renderer.render(world, synth, Path(outdir))
-        return CandidateWorld(world=world, synth=synth, artifacts=artifacts, build_config=build_config)
+        return CandidateWorld(
+            world=world, synth=synth, artifacts=artifacts, build_config=build_config
+        )
 
-    def admit(self, candidate: CandidateWorld, *, split: PoolSplit = "train") -> Snapshot:
+    def admit(
+        self, candidate: CandidateWorld, *, split: PoolSplit = "train"
+    ) -> Snapshot:
         reference_bundle, report = self.admission.admit(
             candidate.world,
             candidate.artifacts,
             candidate.build_config,
         )
         if not report.admitted:
-            raise ValueError(f"candidate world {candidate.world.world_id} was not admitted")
-        return self.store.create(candidate.world, candidate.artifacts, reference_bundle, report, split=split, synth=candidate.synth)
+            raise ValueError(
+                f"candidate world {candidate.world.world_id} was not admitted"
+            )
+        return self.store.create(
+            candidate.world,
+            candidate.artifacts,
+            reference_bundle,
+            report,
+            split=split,
+            synth=candidate.synth,
+        )
 
     def admit_child(
         self,
@@ -86,7 +99,11 @@ class BuildPipeline:
     ) -> WorldIR:
         if isinstance(source, WorldIR):
             return source if source.weaknesses else self.seeder.apply(source)
-        parsed = source if isinstance(source, EnterpriseSaaSManifest) else validate_manifest(source)
+        parsed = (
+            source
+            if isinstance(source, EnterpriseSaaSManifest)
+            else validate_manifest(source)
+        )
         world = self.compiler.compile(parsed, build_config)
         return self.seeder.apply(world)
 
@@ -113,4 +130,6 @@ def admit_child(
     build_config: BuildConfig = DEFAULT_BUILD_CONFIG,
 ) -> Snapshot:
     """Render, admit, and persist a mutated child world."""
-    return BuildPipeline().admit_child(world, outdir, split=split, build_config=build_config)
+    return BuildPipeline().admit_child(
+        world, outdir, split=split, build_config=build_config
+    )

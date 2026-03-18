@@ -36,8 +36,12 @@ def admission_stages(build_config: BuildConfig) -> tuple[AdmissionStagePlan, ...
         ),
     )
     reference_stages = (
-        AdmissionStagePlan("red_reference", ("red_reference",), requires_references=True),
-        AdmissionStagePlan("blue_reference", ("blue_reference",), requires_references=True),
+        AdmissionStagePlan(
+            "red_reference", ("red_reference",), requires_references=True
+        ),
+        AdmissionStagePlan(
+            "blue_reference", ("blue_reference",), requires_references=True
+        ),
     )
     advanced_stages = (
         AdmissionStagePlan("necessity", ("necessity",), requires_references=True),
@@ -54,8 +58,12 @@ def admission_stages(build_config: BuildConfig) -> tuple[AdmissionStagePlan, ...
             static_stage,
             live_stage,
             *reference_stages,
-            AdmissionStagePlan("shortcut", ("shortcut_probes",), requires_references=True),
-            AdmissionStagePlan("determinism", ("determinism",), requires_references=True),
+            AdmissionStagePlan(
+                "shortcut", ("shortcut_probes",), requires_references=True
+            ),
+            AdmissionStagePlan(
+                "determinism", ("determinism",), requires_references=True
+            ),
         )
     return (static_stage, live_stage, *reference_stages, *advanced_stages)
 

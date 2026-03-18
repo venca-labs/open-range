@@ -107,7 +107,11 @@ class EnterpriseSaaSManifestCompiler:
         manifest: dict | EnterpriseSaaSManifest,
         build_config: BuildConfig = DEFAULT_BUILD_CONFIG,
     ) -> WorldIR:
-        parsed = manifest if isinstance(manifest, EnterpriseSaaSManifest) else validate_manifest(manifest)
+        parsed = (
+            manifest
+            if isinstance(manifest, EnterpriseSaaSManifest)
+            else validate_manifest(manifest)
+        )
         if build_config.world_family != parsed.world_family:
             raise ValueError(
                 f"build_config.world_family={build_config.world_family!r} does not match manifest world_family={parsed.world_family!r}"
@@ -124,12 +128,16 @@ class EnterpriseSaaSManifestCompiler:
 
         for service_name in service_names:
             if service_name not in self._SERVICE_LAYOUT:
-                raise ValueError(f"unsupported enterprise_saas_v1 service: {service_name}")
+                raise ValueError(
+                    f"unsupported enterprise_saas_v1 service: {service_name}"
+                )
             layout = self._SERVICE_LAYOUT[service_name]
             zone = self._resolve_zone(parsed.topology.zones, layout["zone"])
             telemetry = layout["telemetry"]
             if allowed_surfaces:
-                telemetry = tuple(surface for surface in telemetry if surface in allowed_surfaces)
+                telemetry = tuple(
+                    surface for surface in telemetry if surface in allowed_surfaces
+                )
             hosts.append(
                 HostSpec(
                     id=layout["host_id"],
@@ -210,7 +218,8 @@ class EnterpriseSaaSManifestCompiler:
             allowed_code_flaw_kinds=allowed_code_flaw_kinds,
             pinned_weaknesses=parsed.security.pinned_weaknesses,
             target_weakness_count=self._target_weakness_budget(parsed, build_config),
-            phishing_surface_enabled=parsed.security.phishing_surface_enabled and build_config.phishing_surface_enabled,
+            phishing_surface_enabled=parsed.security.phishing_surface_enabled
+            and build_config.phishing_surface_enabled,
             target_red_path_depth=parsed.difficulty.target_red_path_depth,
             target_blue_signal_points=parsed.difficulty.target_blue_signal_points,
             zones=parsed.topology.zones,
@@ -441,24 +450,62 @@ class EnterpriseSaaSManifestCompiler:
     def _workflow_steps(workflow_name: str) -> tuple[WorkflowStepSpec, ...]:
         if workflow_name == "helpdesk_ticketing":
             return (
-                WorkflowStepSpec(id="open-ticket", actor_role="sales", action="open_ticket", service="svc-web"),
-                WorkflowStepSpec(id="mail-update", actor_role="sales", action="send_update", service="svc-email"),
+                WorkflowStepSpec(
+                    id="open-ticket",
+                    actor_role="sales",
+                    action="open_ticket",
+                    service="svc-web",
+                ),
+                WorkflowStepSpec(
+                    id="mail-update",
+                    actor_role="sales",
+                    action="send_update",
+                    service="svc-email",
+                ),
             )
         if workflow_name == "payroll_approval":
             return (
-                WorkflowStepSpec(id="view-payroll", actor_role="finance", action="view_payroll", service="svc-web", asset="payroll_db"),
-                WorkflowStepSpec(id="approve-payroll", actor_role="finance", action="approve_payroll", service="svc-db", asset="payroll_db"),
+                WorkflowStepSpec(
+                    id="view-payroll",
+                    actor_role="finance",
+                    action="view_payroll",
+                    service="svc-web",
+                    asset="payroll_db",
+                ),
+                WorkflowStepSpec(
+                    id="approve-payroll",
+                    actor_role="finance",
+                    action="approve_payroll",
+                    service="svc-db",
+                    asset="payroll_db",
+                ),
             )
         if workflow_name == "document_sharing":
             return (
-                WorkflowStepSpec(id="share-doc", actor_role="sales", action="share_document", service="svc-fileshare", asset="finance_docs"),
+                WorkflowStepSpec(
+                    id="share-doc",
+                    actor_role="sales",
+                    action="share_document",
+                    service="svc-fileshare",
+                    asset="finance_docs",
+                ),
             )
         if workflow_name == "internal_email":
             return (
-                WorkflowStepSpec(id="check-mail", actor_role="sales", action="check_mail", service="svc-email"),
+                WorkflowStepSpec(
+                    id="check-mail",
+                    actor_role="sales",
+                    action="check_mail",
+                    service="svc-email",
+                ),
             )
         return (
-            WorkflowStepSpec(id=f"{workflow_name}-step-1", actor_role="sales", action=workflow_name, service="svc-web"),
+            WorkflowStepSpec(
+                id=f"{workflow_name}-step-1",
+                actor_role="sales",
+                action=workflow_name,
+                service="svc-web",
+            ),
         )
 
     @staticmethod

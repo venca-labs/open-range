@@ -50,7 +50,9 @@ class PodActionBackend:
     def bind(self, snapshot: RuntimeSnapshot, release: BootedRelease) -> None:
         self._snapshot = snapshot
         self._release = release
-        self._service_by_id = {service.id: service for service in snapshot.world.services}
+        self._service_by_id = {
+            service.id: service for service in snapshot.world.services
+        }
 
     def clear(self) -> None:
         self._snapshot = None
@@ -69,8 +71,12 @@ class PodActionBackend:
                 "source_entity": getattr(event, "source_entity", ""),
                 "target_entity": getattr(event, "target_entity", ""),
                 "malicious": getattr(event, "malicious", False),
-                "observability_surfaces": list(getattr(event, "observability_surfaces", ())),
-                "linked_objective_predicates": list(getattr(event, "linked_objective_predicates", ())),
+                "observability_surfaces": list(
+                    getattr(event, "observability_surfaces", ())
+                ),
+                "linked_objective_predicates": list(
+                    getattr(event, "linked_objective_predicates", ())
+                ),
             },
             sort_keys=True,
         )
@@ -105,7 +111,9 @@ class PodActionBackend:
         if self._release is None:
             return {}
         return {
-            service_id: 1.0 if run_async(self._release.pods.is_healthy(service_id)) else 0.0
+            service_id: 1.0
+            if run_async(self._release.pods.is_healthy(service_id))
+            else 0.0
             for service_id in sorted(self._service_by_id)
         }
 
@@ -125,13 +133,16 @@ class PodActionBackend:
             command = self._patch_command_for(target)
         else:
             command = "touch /tmp/openrange-contained"
-        result = run_async(self._release.pods.exec(target, command, timeout=action.timeout_s))
+        result = run_async(
+            self._release.pods.exec(target, command, timeout=action.timeout_s)
+        )
         return ActionExecution(
             stdout=result.stdout.strip(),
             stderr=result.stderr.strip(),
             ok=result.ok,
             service_health=self.service_health(),
-            containment_applied=result.ok and directive not in {"recover", "restore", "patch", "mitigate"},
+            containment_applied=result.ok
+            and directive not in {"recover", "restore", "patch", "mitigate"},
             patch_applied=result.ok and directive in {"patch", "mitigate"},
             recovery_applied=result.ok and directive in {"recover", "restore"},
         )
@@ -159,7 +170,9 @@ class PodActionBackend:
                     service_health=self.service_health(),
                 )
         runner = self._runner_for(action)
-        result = run_async(self._release.pods.exec(runner, command, timeout=action.timeout_s))
+        result = run_async(
+            self._release.pods.exec(runner, command, timeout=action.timeout_s)
+        )
         return ActionExecution(
             stdout=result.stdout.strip(),
             stderr=result.stderr.strip(),
@@ -188,7 +201,9 @@ class PodActionBackend:
                 ok=False,
                 service_health=self.service_health(),
             )
-        result = run_async(self._release.pods.exec(target, command, timeout=action.timeout_s))
+        result = run_async(
+            self._release.pods.exec(target, command, timeout=action.timeout_s)
+        )
         return ActionExecution(
             stdout=result.stdout.strip(),
             stderr=result.stderr.strip(),
@@ -272,7 +287,9 @@ class PodActionBackend:
     def _is_contained(self, target: str) -> bool:
         assert self._release is not None
         result = run_async(
-            self._release.pods.exec(target, "test ! -f /tmp/openrange-contained", timeout=5.0)
+            self._release.pods.exec(
+                target, "test ! -f /tmp/openrange-contained", timeout=5.0
+            )
         )
         return not result.ok
 
@@ -289,13 +306,19 @@ class PodActionBackend:
             )
             return not result.ok
         result = run_async(
-            self._release.pods.exec(target, "test ! -f /tmp/openrange-patched", timeout=5.0)
+            self._release.pods.exec(
+                target, "test ! -f /tmp/openrange-patched", timeout=5.0
+            )
         )
         return not result.ok
 
     def _patch_command_for(self, target: str) -> str:
         weakness = self._weakness_for(target)
-        if weakness is not None and weakness.remediation_kind == "shell" and weakness.remediation_command:
+        if (
+            weakness is not None
+            and weakness.remediation_kind == "shell"
+            and weakness.remediation_command
+        ):
             cleanup = effect_marker_cleanup_command(weakness)
             if cleanup:
                 return f"{weakness.remediation_command}\n{cleanup}"
@@ -315,7 +338,11 @@ class PodActionBackend:
 
     def _weakness_for(self, target: str) -> WeaknessSpec | None:
         assert self._snapshot is not None
-        return next((weak for weak in self._snapshot.world.weaknesses if weak.target == target), None)
+        return next(
+            (weak for weak in self._snapshot.world.weaknesses if weak.target == target),
+            None,
+        )
+
 
 def _green_sandbox_name(persona_id: str) -> str:
     safe = "".join(ch.lower() if ch.isalnum() else "-" for ch in persona_id).strip("-")

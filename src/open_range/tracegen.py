@@ -85,7 +85,9 @@ class TraceDatasetGenerator:
             lineage_dir.mkdir(parents=True, exist_ok=True)
             store_split = "train" if root_idx == 0 else "eval"
             base_public = pipeline.admit(
-                pipeline.build(payload, lineage_dir / "rendered-base", self.build_config),
+                pipeline.build(
+                    payload, lineage_dir / "rendered-base", self.build_config
+                ),
                 split=store_split,
             )
             base = hydrate_runtime_snapshot(store, base_public)
@@ -109,7 +111,8 @@ class TraceDatasetGenerator:
                     try:
                         child_public = pipeline.admit_child(
                             child_world,
-                            lineage_dir / f"rendered-child-{mutation_idx}-attempt-{attempt_idx}",
+                            lineage_dir
+                            / f"rendered-child-{mutation_idx}-attempt-{attempt_idx}",
                             split=store_split,
                             build_config=self.build_config,
                         )
@@ -124,11 +127,15 @@ class TraceDatasetGenerator:
 
             for snapshot_idx, snapshot in enumerate(snapshots):
                 if include_sim:
-                    for attack_idx, defense_idx in reference_trace_pairs(snapshot, "joint_pool"):
+                    for attack_idx, defense_idx in reference_trace_pairs(
+                        snapshot, "joint_pool"
+                    ):
                         raw_rows.extend(
                             self._episode_rows(
                                 snapshot,
-                                EpisodeConfig(mode="joint_pool", scheduler_mode="strict_turns"),
+                                EpisodeConfig(
+                                    mode="joint_pool", scheduler_mode="strict_turns"
+                                ),
                                 trace_source="sim",
                                 teacher_source="reference_sim",
                                 split=dataset_split,
@@ -138,7 +145,9 @@ class TraceDatasetGenerator:
                             )
                         )
                 for mode in DEFAULT_RUNTIME_MODES:
-                    for attack_idx, defense_idx in reference_trace_pairs(snapshot, mode):
+                    for attack_idx, defense_idx in reference_trace_pairs(
+                        snapshot, mode
+                    ):
                         raw_rows.extend(
                             self._episode_rows(
                                 snapshot,
@@ -164,11 +173,15 @@ class TraceDatasetGenerator:
                             )
                         )
                 if include_joint_pool:
-                    for attack_idx, defense_idx in reference_trace_pairs(snapshot, "joint_pool"):
+                    for attack_idx, defense_idx in reference_trace_pairs(
+                        snapshot, "joint_pool"
+                    ):
                         raw_rows.extend(
                             self._episode_rows(
                                 snapshot,
-                                EpisodeConfig(mode="joint_pool", scheduler_mode="strict_turns"),
+                                EpisodeConfig(
+                                    mode="joint_pool", scheduler_mode="strict_turns"
+                                ),
                                 trace_source="runtime",
                                 teacher_source="reference_runtime",
                                 split=dataset_split,
@@ -180,7 +193,9 @@ class TraceDatasetGenerator:
                         raw_rows.extend(
                             self._episode_rows(
                                 snapshot,
-                                EpisodeConfig(mode="joint_pool", scheduler_mode="strict_turns"),
+                                EpisodeConfig(
+                                    mode="joint_pool", scheduler_mode="strict_turns"
+                                ),
                                 trace_source="runtime",
                                 teacher_source="scripted_runtime",
                                 split=dataset_split,
@@ -233,8 +248,16 @@ class TraceDatasetGenerator:
             reference_defense_index=defense_trace_index,
         )
         teacher_steps = {
-            "red": list(snapshot.reference_bundle.reference_attack_traces[attack_trace_index].steps),
-            "blue": list(snapshot.reference_bundle.reference_defense_traces[defense_trace_index].steps),
+            "red": list(
+                snapshot.reference_bundle.reference_attack_traces[
+                    attack_trace_index
+                ].steps
+            ),
+            "blue": list(
+                snapshot.reference_bundle.reference_defense_traces[
+                    defense_trace_index
+                ].steps
+            ),
         }
         teacher_progress = {"red": 0, "blue": 0}
         actor_decisions = {"red": 0, "blue": 0}
@@ -269,11 +292,15 @@ class TraceDatasetGenerator:
             else:
                 chosen_action = teacher_choice
             result = runtime.act(actor, chosen_action)
-            if expected is not None and runtime.matches_reference_step(chosen_action, expected, result.stdout):
+            if expected is not None and runtime.matches_reference_step(
+                chosen_action, expected, result.stdout
+            ):
                 teacher_progress[actor] += 1
             actor_decisions[actor] += 1
             public_candidates = tuple(
-                candidate.model_copy(update={"action": public_trace_action(candidate.action)})
+                candidate.model_copy(
+                    update={"action": public_trace_action(candidate.action)}
+                )
                 for candidate in candidates
             )
             public_action = public_trace_action(chosen_action)
@@ -356,7 +383,7 @@ def generate_trace_dataset(
         mutations_per_root=mutations_per_root,
         include_sim=include_sim,
         include_joint_pool=include_joint_pool,
-        )
+    )
 
 
 def _dataset_split(root_idx: int, roots: int) -> str:
@@ -375,9 +402,15 @@ def _dataset_split(root_idx: int, roots: int) -> str:
 
 def _episode_config_for(mode: str) -> EpisodeConfig:
     if mode == "red_only":
-        return EpisodeConfig(mode="red_only", scheduler_mode="strict_turns", opponent_blue="reference")
+        return EpisodeConfig(
+            mode="red_only", scheduler_mode="strict_turns", opponent_blue="reference"
+        )
     if mode == "blue_only_live":
-        return EpisodeConfig(mode="blue_only_live", scheduler_mode="strict_turns", opponent_red="reference")
+        return EpisodeConfig(
+            mode="blue_only_live",
+            scheduler_mode="strict_turns",
+            opponent_red="reference",
+        )
     if mode == "blue_only_from_prefix":
         return EpisodeConfig(
             mode="blue_only_from_prefix",
@@ -395,7 +428,9 @@ def _seed_manifest_copy(manifest: dict[str, Any], root_idx: int) -> dict[str, An
     return payload
 
 
-def _parent_stats(snapshot: RuntimeSnapshot, *, root_idx: int, mutation_idx: int, attempt_idx: int = 1) -> PopulationStats:
+def _parent_stats(
+    snapshot: RuntimeSnapshot, *, root_idx: int, mutation_idx: int, attempt_idx: int = 1
+) -> PopulationStats:
     offset = mutation_idx + attempt_idx - 1
     parity = (root_idx + offset) % 2
     return PopulationStats(
@@ -427,7 +462,9 @@ def _write_jsonl(path: Path, rows: list[dict[str, Any]]) -> None:
             handle.write(json.dumps(row, sort_keys=True) + "\n")
 
 
-def _write_role_source_shards(root_dir: Path, rows: list[TraceDecisionRow]) -> dict[str, str]:
+def _write_role_source_shards(
+    root_dir: Path, rows: list[TraceDecisionRow]
+) -> dict[str, str]:
     shards: dict[str, str] = {}
     shard_rows: dict[str, list[TraceDecisionRow]] = {}
 
@@ -439,8 +476,15 @@ def _write_role_source_shards(root_dir: Path, rows: list[TraceDecisionRow]) -> d
         role_rows = [row for row in rows if row.role == role]
         add(f"raw.{role}.all", role_rows)
         for source in ("runtime", "sim"):
-            add(f"raw.{role}.{source}", [row for row in role_rows if row.trace_source == source])
-        for teacher_source in ("reference_runtime", "scripted_runtime", "reference_sim"):
+            add(
+                f"raw.{role}.{source}",
+                [row for row in role_rows if row.trace_source == source],
+            )
+        for teacher_source in (
+            "reference_runtime",
+            "scripted_runtime",
+            "reference_sim",
+        ):
             add(
                 f"raw.{role}.teacher.{teacher_source}",
                 [row for row in role_rows if row.teacher_source == teacher_source],
@@ -460,11 +504,21 @@ def _write_role_source_shards(root_dir: Path, rows: list[TraceDecisionRow]) -> d
         for source in ("runtime", "sim"):
             selected = [row for row in role_rows if row.trace_source == source]
             if selected:
-                sft_rows[f"sft.{role}.{source}"] = [row_to_sft_record(row) for row in selected]
-        for teacher_source in ("reference_runtime", "scripted_runtime", "reference_sim"):
-            selected = [row for row in role_rows if row.teacher_source == teacher_source]
+                sft_rows[f"sft.{role}.{source}"] = [
+                    row_to_sft_record(row) for row in selected
+                ]
+        for teacher_source in (
+            "reference_runtime",
+            "scripted_runtime",
+            "reference_sim",
+        ):
+            selected = [
+                row for row in role_rows if row.teacher_source == teacher_source
+            ]
             if selected:
-                sft_rows[f"sft.{role}.teacher.{teacher_source}"] = [row_to_sft_record(row) for row in selected]
+                sft_rows[f"sft.{role}.teacher.{teacher_source}"] = [
+                    row_to_sft_record(row) for row in selected
+                ]
 
     for name, payloads in sft_rows.items():
         path = root_dir / f"{name.replace('.', '_')}.jsonl"

@@ -10,7 +10,7 @@ from open_range.episode_config import EpisodeConfig
 from open_range.manifest import validate_manifest
 from open_range.pipeline import BuildPipeline
 from open_range.store import FileSnapshotStore
-from tests.support import OFFLINE_BUILD_CONFIG, manifest_payload
+from tests.support import manifest_payload
 
 
 def _manifest_payload() -> dict:
@@ -46,7 +46,14 @@ def test_build_config_threads_through_build_and_admission(tmp_path: Path):
     runtime_snapshot = hydrate_runtime_snapshot(store, snapshot)
 
     assert candidate.build_config == build_config
-    assert candidate.world.allowed_service_kinds == ("web_app", "email", "idp", "fileshare", "db", "siem")
+    assert candidate.world.allowed_service_kinds == (
+        "web_app",
+        "email",
+        "idp",
+        "fileshare",
+        "db",
+        "siem",
+    )
     assert len(candidate.world.workflows) == 1
     assert len(candidate.world.users) == 4
     assert all(weak.family == "code_web" for weak in candidate.world.weaknesses)
@@ -54,18 +61,24 @@ def test_build_config_threads_through_build_and_admission(tmp_path: Path):
     assert 1 <= len(runtime_snapshot.reference_bundle.reference_defense_traces) <= 2
 
 
-def test_build_config_can_filter_services_without_touching_manifest_schema(tmp_path: Path):
+def test_build_config_can_filter_services_without_touching_manifest_schema(
+    tmp_path: Path,
+):
     pipeline = BuildPipeline(store=FileSnapshotStore(tmp_path / "snapshots"))
     candidate = pipeline.build(
         _manifest_payload(),
         tmp_path / "rendered-filtered",
-        BuildConfig(services_enabled=("web_app", "idp", "siem"), validation_profile="graph_only"),
+        BuildConfig(
+            services_enabled=("web_app", "idp", "siem"), validation_profile="graph_only"
+        ),
     )
 
     assert candidate.world.allowed_service_kinds == ("web_app", "idp", "siem")
 
 
-def test_manifest_accepts_standard_attack_objectives_and_rejects_unknown_predicates() -> None:
+def test_manifest_accepts_standard_attack_objectives_and_rejects_unknown_predicates() -> (
+    None
+):
     payload = _manifest_payload()
     payload["objectives"]["red"] = [
         {"predicate": "db_access(payroll_db)"},
@@ -74,7 +87,9 @@ def test_manifest_accepts_standard_attack_objectives_and_rejects_unknown_predica
     manifest = validate_manifest(payload)
 
     assert manifest.objectives.red[0].predicate == "db_access(payroll_db)"
-    assert manifest.objectives.red[1].predicate == "privilege_escalation(idp_admin_cred)"
+    assert (
+        manifest.objectives.red[1].predicate == "privilege_escalation(idp_admin_cred)"
+    )
 
     payload["objectives"]["red"] = [{"predicate": "made_up_objective(finance_docs)"}]
     with pytest.raises(Exception) as exc:

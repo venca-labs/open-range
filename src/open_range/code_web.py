@@ -25,7 +25,9 @@ class CodeWebTemplate:
     expected_contains: str
 
 
-def code_web_realizations(world: WorldIR, weakness: WeaknessSpec) -> tuple[WeaknessRealizationSpec, ...]:
+def code_web_realizations(
+    world: WorldIR, weakness: WeaknessSpec
+) -> tuple[WeaknessRealizationSpec, ...]:
     template = code_web_template(world, weakness)
     realizations = [
         WeaknessRealizationSpec(
@@ -120,7 +122,9 @@ def code_web_payload(world: WorldIR, weakness: WeaknessSpec) -> dict[str, object
     }
 
 
-def code_web_realization_content(world: WorldIR, weakness: WeaknessSpec, realization: WeaknessRealizationSpec) -> str:
+def code_web_realization_content(
+    world: WorldIR, weakness: WeaknessSpec, realization: WeaknessRealizationSpec
+) -> str:
     if realization.path == _foothold_path(weakness):
         return _foothold_token(world, weakness) + "\n"
     if realization.path == _protected_record_path(weakness):
@@ -292,6 +296,8 @@ def _route_template(world: WorldIR, weakness: WeaknessSpec) -> str:
         ?>
         """
     )
+
+
 def _preferred_asset(world: WorldIR) -> str:
     for asset in world.assets:
         if asset.confidentiality == "critical":

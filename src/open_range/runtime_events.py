@@ -172,13 +172,19 @@ def objective_events(
     if not objective and not asset_id:
         return RedEventBatch(events=(), satisfied_objectives=(), last_red_target=target)
     resolved_objective = objective or (
-        f"credential_obtained({asset_id})" if "cred" in asset_id else f"asset_read({asset_id})"
+        f"credential_obtained({asset_id})"
+        if "cred" in asset_id
+        else f"asset_read({asset_id})"
     )
     target_ref = predicate_inner(resolved_objective) or asset_id or target
     name = predicate_name(resolved_objective)
     surfaces = service_surfaces(target)
     if name in {"credential_obtained", "unauthorized_admin_login"}:
-        event_type = "CredentialObtained" if name == "credential_obtained" else "UnauthorizedCredentialUse"
+        event_type = (
+            "CredentialObtained"
+            if name == "credential_obtained"
+            else "UnauthorizedCredentialUse"
+        )
     elif name in {"asset_read", "file_access", "db_access"}:
         event_type = "SensitiveAssetRead"
     elif name in {"file_creation", "outbound_service"}:
@@ -230,7 +236,9 @@ def _secret_collection_events(
             malicious=True,
             observability_surfaces=service_surfaces(target),
         )
-        return RedEventBatch(events=(event,), satisfied_objectives=(), last_red_target=target)
+        return RedEventBatch(
+            events=(event,), satisfied_objectives=(), last_red_target=target
+        )
     if "cred" in asset_id or "token" in asset_id:
         objective = f"credential_obtained({asset_id})"
         event = emit_event(
@@ -242,7 +250,9 @@ def _secret_collection_events(
             observability_surfaces=service_surfaces(target),
             linked_objective_predicates=(objective,),
         )
-        return RedEventBatch(events=(event,), satisfied_objectives=(objective,), last_red_target=target)
+        return RedEventBatch(
+            events=(event,), satisfied_objectives=(objective,), last_red_target=target
+        )
     objective = f"asset_read({asset_id})"
     event = emit_event(
         event_type="SensitiveAssetRead",
@@ -253,7 +263,9 @@ def _secret_collection_events(
         observability_surfaces=service_surfaces(target),
         linked_objective_predicates=(objective,),
     )
-    return RedEventBatch(events=(event,), satisfied_objectives=(objective,), last_red_target=target)
+    return RedEventBatch(
+        events=(event,), satisfied_objectives=(objective,), last_red_target=target
+    )
 
 
 def _identity_abuse_events(
@@ -315,4 +327,6 @@ def _workflow_abuse_events(
         malicious=True,
         observability_surfaces=service_surfaces(target),
     )
-    return RedEventBatch(events=(event,), satisfied_objectives=(), last_red_target=target)
+    return RedEventBatch(
+        events=(event,), satisfied_objectives=(), last_red_target=target
+    )

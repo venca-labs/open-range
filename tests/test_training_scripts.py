@@ -24,7 +24,9 @@ def test_tiny_sft_helpers_are_deterministic() -> None:
         limit=12,
         seed=7,
     )
-    train_rows, eval_rows = module.split_examples(rows, eval_ratio=0.25, min_eval_rows=3)
+    train_rows, eval_rows = module.split_examples(
+        rows, eval_ratio=0.25, min_eval_rows=3
+    )
 
     assert len(rows) == 12
     assert len(train_rows) >= 3

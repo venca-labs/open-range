@@ -43,19 +43,30 @@ def _snapshot(tmp_path: Path):
         "max_new_weaknesses": 1,
         "allow_patch_old_weaknesses": True,
     }
-    world = CatalogWeaknessSeeder().apply(EnterpriseSaaSManifestCompiler().compile(manifest))
+    world = CatalogWeaknessSeeder().apply(
+        EnterpriseSaaSManifestCompiler().compile(manifest)
+    )
     synth = EnterpriseSaaSWorldSynthesizer().synthesize(world, tmp_path / "synth")
     artifacts = EnterpriseSaaSKindRenderer().render(world, synth, tmp_path / "rendered")
-    reference_bundle, report = LocalAdmissionController(mode="fail_fast").admit(world, artifacts, OFFLINE_BUILD_CONFIG)
+    reference_bundle, report = LocalAdmissionController(mode="fail_fast").admit(
+        world, artifacts, OFFLINE_BUILD_CONFIG
+    )
     store = FileSnapshotStore(tmp_path / "snapshots")
-    return hydrate_runtime_snapshot(store, store.create(world, artifacts, reference_bundle, report, synth=synth))
+    return hydrate_runtime_snapshot(
+        store, store.create(world, artifacts, reference_bundle, report, synth=synth)
+    )
 
 
 def test_model_rollout_helpers_build_prompt_and_candidates(tmp_path: Path) -> None:
     mod = _load_module("eval_model_rollouts", "scripts/eval_model_rollouts.py")
     snapshot = _snapshot(tmp_path)
     runtime = mod.ReferenceDrivenRuntime()
-    runtime.reset(snapshot, mod.EpisodeConfig(mode="red_only", scheduler_mode="strict_turns", opponent_blue="scripted"))
+    runtime.reset(
+        snapshot,
+        mod.EpisodeConfig(
+            mode="red_only", scheduler_mode="strict_turns", opponent_blue="scripted"
+        ),
+    )
     decision = runtime.next_decision()
 
     candidates = mod.red_candidates(runtime, snapshot, decision.obs)

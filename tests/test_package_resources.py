@@ -22,8 +22,14 @@ def test_bundled_resource_tree_exists():
 
 def test_bundled_schemas_match_checked_in_schemas():
     repo_dir = Path("schemas")
-    for name in ("manifest.schema.json", "validator_report.schema.json", "reference_bundle.schema.json"):
-        assert (bundled_schema_dir() / name).read_text(encoding="utf-8") == (repo_dir / name).read_text(encoding="utf-8")
+    for name in (
+        "manifest.schema.json",
+        "validator_report.schema.json",
+        "reference_bundle.schema.json",
+    ):
+        assert (bundled_schema_dir() / name).read_text(encoding="utf-8") == (
+            repo_dir / name
+        ).read_text(encoding="utf-8")
         assert isinstance(load_bundled_schema(name), dict)
 
 

@@ -4,7 +4,10 @@ from __future__ import annotations
 
 from open_range.async_utils import run_async
 from open_range.code_web import code_web_cleanup_commands
-from open_range.effect_markers import effect_marker_cleanup_command, effect_marker_service
+from open_range.effect_markers import (
+    effect_marker_cleanup_command,
+    effect_marker_service,
+)
 from open_range.world_ir import WeaknessSpec, WorldIR
 
 

@@ -343,3 +343,14 @@ docker run --rm openrange --help
 ```bash
 PYTHONPATH=src .venv/bin/python -m pytest tests -q
 ```
+
+## Development checks
+
+```bash
+uv sync
+uv run ruff format .
+uv run ruff check .
+uv run pytest
+uv run pre-commit install
+uv run pre-commit run --all-files
+```

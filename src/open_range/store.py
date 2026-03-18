@@ -56,17 +56,27 @@ class FileSnapshotStore:
         *,
         split: PoolSplit = "train",
     ) -> Snapshot:
-        db_seed_state = {"services": [svc.id for svc in world.services if svc.kind == "db"]}
-        mail_state = {"mailboxes": [persona.mailbox for persona in world.green_personas if persona.mailbox]}
+        db_seed_state = {
+            "services": [svc.id for svc in world.services if svc.kind == "db"]
+        }
+        mail_state = {
+            "mailboxes": [
+                persona.mailbox for persona in world.green_personas if persona.mailbox
+            ]
+        }
         file_assets = {asset.id: asset.location for asset in world.assets}
         identity_seed = {"users": [user.id for user in world.users]}
         state_seed_dir = artifacts.render_dir
         if synth is not None:
             db_seed_state = {
                 "services": [svc.id for svc in world.services if svc.kind == "db"],
-                "payload_files": [item.key for item in synth.service_payloads.get("svc-db", ())],
+                "payload_files": [
+                    item.key for item in synth.service_payloads.get("svc-db", ())
+                ],
             }
-            mail_state = {mailbox: list(messages) for mailbox, messages in synth.mailboxes.items()}
+            mail_state = {
+                mailbox: list(messages) for mailbox, messages in synth.mailboxes.items()
+            }
             file_assets = {
                 synth_file.key: synth_file.mount_path
                 for synth_file in synth.service_payloads.get("svc-fileshare", ())
@@ -103,7 +113,9 @@ class FileSnapshotStore:
             parent_snapshot_id=None,
             parent_world_id=world.lineage.parent_world_id,
         )
-        self._snapshot_path(snapshot_id).write_text(snapshot.model_dump_json(indent=2), encoding="utf-8")
+        self._snapshot_path(snapshot_id).write_text(
+            snapshot.model_dump_json(indent=2), encoding="utf-8"
+        )
         self._metadata_path(snapshot_id).write_text(
             json.dumps(
                 {
@@ -117,7 +129,8 @@ class FileSnapshotStore:
                 },
                 indent=2,
                 sort_keys=True,
-            ) + "\n",
+            )
+            + "\n",
             encoding="utf-8",
         )
         return snapshot

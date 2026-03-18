@@ -19,5 +19,7 @@ def test_evaluate_rollouts_builds_mutations_and_reports_modes() -> None:
 
     assert report["snapshot_count"] == 2
     assert len(report["snapshots"]) == 2
-    assert {"joint_pool", "red_only", "blue_only_live", "blue_only_from_prefix"} <= set(report["aggregate"])
+    assert {"joint_pool", "red_only", "blue_only_live", "blue_only_from_prefix"} <= set(
+        report["aggregate"]
+    )
     assert report["snapshots"][0]["validator"]["admitted"] is True

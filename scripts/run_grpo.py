@@ -64,60 +64,208 @@ _FLAG_RE = re.compile(r"flag\{[^}]+\}", re.IGNORECASE)
 # Known tools & classification (from open-trajectory-gym v9)
 # ---------------------------------------------------------------------------
 
-_FLAG_PLACEHOLDERS = frozenset({
-    "content_of_flag_here", "FLAG{...}", "", "CHECK",
-    "gctf{DUMMY_FLAG}", "flag{this_is_fake_flag}",
-})
+_FLAG_PLACEHOLDERS = frozenset(
+    {
+        "content_of_flag_here",
+        "FLAG{...}",
+        "",
+        "CHECK",
+        "gctf{DUMMY_FLAG}",
+        "flag{this_is_fake_flag}",
+    }
+)
 
-_KNOWN_TOOL_NAMES = frozenset({
-    "shell_command", "exec_command", "execute_command",
-    "python_code", "read_file", "grep", "file_search",
-    "submit_flag", "flag_found", "submit_finding",
-    "get_challenge", "get_progress", "check_services",
-    "write_stdin", "apply_patch", "web_search",
-    "list_sessions", "close_session",
-})
+_KNOWN_TOOL_NAMES = frozenset(
+    {
+        "shell_command",
+        "exec_command",
+        "execute_command",
+        "python_code",
+        "read_file",
+        "grep",
+        "file_search",
+        "submit_flag",
+        "flag_found",
+        "submit_finding",
+        "get_challenge",
+        "get_progress",
+        "check_services",
+        "write_stdin",
+        "apply_patch",
+        "web_search",
+        "list_sessions",
+        "close_session",
+    }
+)
 
-_SHELL_WRAPPERS = frozenset({
-    "shell_command", "exec_command", "execute_command",
-})
+_SHELL_WRAPPERS = frozenset(
+    {
+        "shell_command",
+        "exec_command",
+        "execute_command",
+    }
+)
 
 _FLAG_TOOLS = frozenset({"submit_flag", "flag_found"})
 
-_RECON_BINARIES = frozenset({
-    "nmap", "masscan", "ping", "traceroute", "whois", "dig",
-    "nslookup", "host", "smbclient", "smbmap", "enum4linux",
-})
-_ENUM_BINARIES = frozenset({
-    "curl", "wget", "gobuster", "ffuf", "dirb", "nikto",
-    "ls", "cat", "head", "tail", "find", "grep", "strings",
-    "file", "id", "whoami", "ps", "env", "uname", "hostname",
-    "ip", "ifconfig", "netstat", "ss", "xxd", "hexdump",
-})
-_EXPLOIT_BINARIES = frozenset({
-    "sqlmap", "hydra", "john", "hashcat", "python", "python3",
-    "ruby", "perl", "gcc", "nc", "ncat", "netcat", "ssh",
-    "msfconsole", "msfvenom", "chmod", "gdb", "bash", "php",
-})
+_RECON_BINARIES = frozenset(
+    {
+        "nmap",
+        "masscan",
+        "ping",
+        "traceroute",
+        "whois",
+        "dig",
+        "nslookup",
+        "host",
+        "smbclient",
+        "smbmap",
+        "enum4linux",
+    }
+)
+_ENUM_BINARIES = frozenset(
+    {
+        "curl",
+        "wget",
+        "gobuster",
+        "ffuf",
+        "dirb",
+        "nikto",
+        "ls",
+        "cat",
+        "head",
+        "tail",
+        "find",
+        "grep",
+        "strings",
+        "file",
+        "id",
+        "whoami",
+        "ps",
+        "env",
+        "uname",
+        "hostname",
+        "ip",
+        "ifconfig",
+        "netstat",
+        "ss",
+        "xxd",
+        "hexdump",
+    }
+)
+_EXPLOIT_BINARIES = frozenset(
+    {
+        "sqlmap",
+        "hydra",
+        "john",
+        "hashcat",
+        "python",
+        "python3",
+        "ruby",
+        "perl",
+        "gcc",
+        "nc",
+        "ncat",
+        "netcat",
+        "ssh",
+        "msfconsole",
+        "msfvenom",
+        "chmod",
+        "gdb",
+        "bash",
+        "php",
+    }
+)
 
 # OpenEnv tool definitions (activates qwen3_coder format in chat template)
 OPENENV_TOOLS = [
-    {"type": "function", "function": {"name": "shell_command", "description": "Execute a shell command",
-        "parameters": {"type": "object", "properties": {"command": {"type": "string"}}, "required": ["command"]}}},
-    {"type": "function", "function": {"name": "python_code", "description": "Execute Python code",
-        "parameters": {"type": "object", "properties": {"code": {"type": "string"}}, "required": ["code"]}}},
-    {"type": "function", "function": {"name": "submit_flag", "description": "Submit a captured flag",
-        "parameters": {"type": "object", "properties": {"flag": {"type": "string"}}, "required": ["flag"]}}},
-    {"type": "function", "function": {"name": "submit_finding", "description": "Submit a security finding",
-        "parameters": {"type": "object", "properties": {"description": {"type": "string"}}, "required": ["description"]}}},
-    {"type": "function", "function": {"name": "read_file", "description": "Read a file",
-        "parameters": {"type": "object", "properties": {"path": {"type": "string"}}, "required": ["path"]}}},
-    {"type": "function", "function": {"name": "get_challenge", "description": "Get challenge briefing",
-        "parameters": {"type": "object", "properties": {"role": {"type": "string", "default": "red"}}}}},
-    {"type": "function", "function": {"name": "get_progress", "description": "Get current progress",
-        "parameters": {"type": "object", "properties": {}}}},
-    {"type": "function", "function": {"name": "check_services", "description": "Check service health",
-        "parameters": {"type": "object", "properties": {}}}},
+    {
+        "type": "function",
+        "function": {
+            "name": "shell_command",
+            "description": "Execute a shell command",
+            "parameters": {
+                "type": "object",
+                "properties": {"command": {"type": "string"}},
+                "required": ["command"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "python_code",
+            "description": "Execute Python code",
+            "parameters": {
+                "type": "object",
+                "properties": {"code": {"type": "string"}},
+                "required": ["code"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "submit_flag",
+            "description": "Submit a captured flag",
+            "parameters": {
+                "type": "object",
+                "properties": {"flag": {"type": "string"}},
+                "required": ["flag"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "submit_finding",
+            "description": "Submit a security finding",
+            "parameters": {
+                "type": "object",
+                "properties": {"description": {"type": "string"}},
+                "required": ["description"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "read_file",
+            "description": "Read a file",
+            "parameters": {
+                "type": "object",
+                "properties": {"path": {"type": "string"}},
+                "required": ["path"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "get_challenge",
+            "description": "Get challenge briefing",
+            "parameters": {
+                "type": "object",
+                "properties": {"role": {"type": "string", "default": "red"}},
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "get_progress",
+            "description": "Get current progress",
+            "parameters": {"type": "object", "properties": {}},
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "check_services",
+            "description": "Check service health",
+            "parameters": {"type": "object", "properties": {}},
+        },
+    },
 ]
 
 _reward_rng = random.Random(3407)
@@ -144,7 +292,9 @@ def completion_to_text(c):
     if isinstance(c, str):
         return c
     if isinstance(c, list):
-        return "\n".join(m.get("content", "") if isinstance(m, dict) else str(m) for m in c)
+        return "\n".join(
+            m.get("content", "") if isinstance(m, dict) else str(m) for m in c
+        )
     return str(c)
 
 
@@ -153,8 +303,13 @@ def is_real_flag(flag):
         return False
     if flag in _FLAG_PLACEHOLDERS:
         return False
-    for poison in ("content_of_flag_here", "dummy_flag", "fake_flag",
-                    "this_is_fake", "placeholder"):
+    for poison in (
+        "content_of_flag_here",
+        "dummy_flag",
+        "fake_flag",
+        "this_is_fake",
+        "placeholder",
+    ):
         if poison in flag.lower():
             return False
     return True
@@ -164,7 +319,9 @@ def action_fingerprint(tc):
     name = tc.get("name", "")
     if name in _SHELL_WRAPPERS:
         args = tc.get("arguments", {})
-        cmd = args.get("command", args.get("code", "")) if isinstance(args, dict) else ""
+        cmd = (
+            args.get("command", args.get("code", "")) if isinstance(args, dict) else ""
+        )
         if cmd:
             binary = cmd.split()[0].rsplit("/", 1)[-1].lower()
             return f"{name}:{binary}"
@@ -195,7 +352,9 @@ def binary_reward_fn(completions, **kwargs):
                     found = True
                     break
         if not found:
-            has_flag_tool = any(tc["name"] in _FLAG_TOOLS for tc in parse_tool_calls(text))
+            has_flag_tool = any(
+                tc["name"] in _FLAG_TOOLS for tc in parse_tool_calls(text)
+            )
             if has_flag_tool:
                 found = any(f.strip() == gt.strip() for f in extract_flags(text))
         rewards.append(1.0 if found else 0.0)
@@ -236,7 +395,6 @@ def online_reward_fn(completions, **kwargs):
             urllib.request.urlopen(req, timeout=10)
 
             episode_reward = 0.0
-            done = False
 
             for tc in tcs:
                 name = tc["name"]
@@ -269,7 +427,9 @@ def online_reward_fn(completions, **kwargs):
 
                 step_req = urllib.request.Request(
                     f"{env_url}/step",
-                    data=json.dumps({"action": {"command": command, "mode": "red"}}).encode(),
+                    data=json.dumps(
+                        {"action": {"command": command, "mode": "red"}}
+                    ).encode(),
                     headers={"Content-Type": "application/json"},
                     method="POST",
                 )
@@ -280,7 +440,6 @@ def online_reward_fn(completions, **kwargs):
                 episode_reward += float(step_reward)
 
                 if data.get("done", False):
-                    done = True
                     break
 
             # Bonus noise for variance
@@ -288,7 +447,9 @@ def online_reward_fn(completions, **kwargs):
             rewards.append(max(episode_reward, -1.0))
 
         except (urllib.error.URLError, TimeoutError, OSError) as e:
-            logger.warning("Online reward failed for sample %d: %s. Falling back.", i, e)
+            logger.warning(
+                "Online reward failed for sample %d: %s. Falling back.", i, e
+            )
             # Fall back to offline progressive scoring
             fallback = progressive_reward_fn([c], ground_truth=[gt])
             rewards.append(fallback[0])
@@ -335,7 +496,9 @@ def progressive_reward_fn(completions, **kwargs):
             opt = opt_steps or 10
             step_ratio = min(opt / n_calls, 1.0)
             fingerprints = [action_fingerprint(tc) for tc in tcs]
-            novelty = len(set(fingerprints)) / len(fingerprints) if fingerprints else 1.0
+            novelty = (
+                len(set(fingerprints)) / len(fingerprints) if fingerprints else 1.0
+            )
             excess = max(0, n_calls - opt) / max(opt, 1)
             time_decay = math.exp(-0.3 * excess)
             eff_sc = step_ratio * novelty * time_decay
@@ -371,9 +534,13 @@ def progressive_reward_fn(completions, **kwargs):
                     premature_mult = 1.0 + max(0.0, 1.0 - n_calls / 5.0)
                     hall_sc *= premature_mult
                     if gt and is_real_flag(gt):
-                        submitted = tc["arguments"].get("flag", tc["arguments"].get("value", ""))
+                        submitted = tc["arguments"].get(
+                            "flag", tc["arguments"].get("value", "")
+                        )
                         if submitted:
-                            sim = difflib.SequenceMatcher(None, submitted.strip(), gt.strip()).ratio()
+                            sim = difflib.SequenceMatcher(
+                                None, submitted.strip(), gt.strip()
+                            ).ratio()
                             if sim >= 0.8:
                                 hall_sc *= 0.1
                     break
@@ -410,13 +577,22 @@ def convert_messages(messages):
                 name = func.get("name", "unknown")
                 args_raw = func.get("arguments", "{}")
                 args = json.loads(args_raw) if isinstance(args_raw, str) else args_raw
-                params = "\n".join(f"<parameter={k}>{v}</parameter>" for k, v in args.items())
-                parts.append(f"<tool_call>\n<function={name}>\n{params}\n</function>\n</tool_call>")
+                params = "\n".join(
+                    f"<parameter={k}>{v}</parameter>" for k, v in args.items()
+                )
+                parts.append(
+                    f"<tool_call>\n<function={name}>\n{params}\n</function>\n</tool_call>"
+                )
             xml = "\n".join(parts)
             full = f"{content}\n\n{xml}" if content else xml
             converted.append({"role": "assistant", "content": full})
         elif role == "tool":
-            converted.append({"role": "user", "content": f"<tool_response>\n{content}\n</tool_response>"})
+            converted.append(
+                {
+                    "role": "user",
+                    "content": f"<tool_response>\n{content}\n</tool_response>",
+                }
+            )
         elif role in ("system", "user", "assistant"):
             converted.append({"role": role, "content": content})
     return converted
@@ -432,8 +608,16 @@ def main():
     parser.add_argument("--model", default=MODEL)
     parser.add_argument("--data", default=DATA)
     parser.add_argument("--output", default=OUTPUT)
-    parser.add_argument("--reward", default="online", choices=["binary", "progressive", "online", "both"])
-    parser.add_argument("--env-url", default="http://localhost:8000", help="OpenEnv server URL for online reward")
+    parser.add_argument(
+        "--reward",
+        default="online",
+        choices=["binary", "progressive", "online", "both"],
+    )
+    parser.add_argument(
+        "--env-url",
+        default="http://localhost:8000",
+        help="OpenEnv server URL for online reward",
+    )
     parser.add_argument("--seq", type=int, default=SEQ)
     parser.add_argument("--comp-len", type=int, default=COMP_LEN)
     parser.add_argument("--num-gen", type=int, default=NUM_GEN)
@@ -540,8 +724,13 @@ def main():
         model,
         r=LORA_R,
         target_modules=[
-            "q_proj", "k_proj", "v_proj", "o_proj",
-            "gate_proj", "up_proj", "down_proj",
+            "q_proj",
+            "k_proj",
+            "v_proj",
+            "o_proj",
+            "gate_proj",
+            "up_proj",
+            "down_proj",
         ],
         lora_alpha=LORA_ALPHA,
         lora_dropout=0,
@@ -554,10 +743,12 @@ def main():
     # Create dataset
     from datasets import Dataset
 
-    ds = Dataset.from_dict({
-        "prompt": prompts,
-        "ground_truth": ground_truths,
-    })
+    ds = Dataset.from_dict(
+        {
+            "prompt": prompts,
+            "ground_truth": ground_truths,
+        }
+    )
 
     # Select reward
     if args.reward == "online":

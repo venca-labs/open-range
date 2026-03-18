@@ -16,8 +16,19 @@ from open_range.runtime_types import RuntimeEvent
 
 
 def test_decision_prompt_and_completion_are_structured() -> None:
-    action = Action(actor_id="red", role="red", kind="api", payload={"target": "svc-web", "path": "/search", "query": {"q": "admin"}})
-    candidate = TraceCandidate(label="teacher", action=action, text=render_action_text(action), selected=True, counterfactual_label="teacher")
+    action = Action(
+        actor_id="red",
+        role="red",
+        kind="api",
+        payload={"target": "svc-web", "path": "/search", "query": {"q": "admin"}},
+    )
+    candidate = TraceCandidate(
+        label="teacher",
+        action=action,
+        text=render_action_text(action),
+        selected=True,
+        counterfactual_label="teacher",
+    )
     prompt = build_decision_prompt(
         snapshot_id="snap-1",
         world_id="world-1",
@@ -50,8 +61,19 @@ def test_decision_prompt_and_completion_are_structured() -> None:
 
 
 def test_decision_prompt_can_optionally_include_hidden_context() -> None:
-    action = Action(actor_id="red", role="red", kind="api", payload={"target": "svc-web", "path": "/search"})
-    candidate = TraceCandidate(label="teacher", action=action, text=render_action_text(action), selected=True, counterfactual_label="teacher")
+    action = Action(
+        actor_id="red",
+        role="red",
+        kind="api",
+        payload={"target": "svc-web", "path": "/search"},
+    )
+    candidate = TraceCandidate(
+        label="teacher",
+        action=action,
+        text=render_action_text(action),
+        selected=True,
+        counterfactual_label="teacher",
+    )
     prompt = build_decision_prompt(
         snapshot_id="snap-1",
         world_id="world-1",
@@ -81,7 +103,11 @@ def test_public_trace_action_strips_internal_execution_payload() -> None:
         actor_id="red",
         role="red",
         kind="shell",
-        payload={"target": "svc-idp", "command": "cat /etc/openrange/admin-surface.json", "service_command": "grep -Fq admin /etc/openrange/admin-surface.json"},
+        payload={
+            "target": "svc-idp",
+            "command": "cat /etc/openrange/admin-surface.json",
+            "service_command": "grep -Fq admin /etc/openrange/admin-surface.json",
+        },
     )
 
     public = public_trace_action(action)
@@ -112,9 +138,16 @@ def test_grounded_and_mitigation_effect_helpers_extract_runtime_signals() -> Non
         ),
     )
 
-    grounded = grounded_effects_for_result(stdout="OPENRANGE-EFFECT:privilege:wk-1:svc-idp", emitted_events=events)
+    grounded = grounded_effects_for_result(
+        stdout="OPENRANGE-EFFECT:privilege:wk-1:svc-idp", emitted_events=events
+    )
     mitigations = mitigation_effects_for_result(
-        action=Action(actor_id="blue", role="blue", kind="control", payload={"target": "svc-idp", "action": "mitigate"}),
+        action=Action(
+            actor_id="blue",
+            role="blue",
+            kind="control",
+            payload={"target": "svc-idp", "action": "mitigate"},
+        ),
         stdout="mitigation applied to svc-idp",
         emitted_events=events,
     )

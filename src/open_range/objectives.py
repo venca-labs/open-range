@@ -6,10 +6,14 @@ from collections.abc import Iterable, Mapping
 import shlex
 from typing import Literal
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict
 
 from open_range.async_utils import run_async
-from open_range.effect_markers import effect_marker_path, effect_marker_service, effect_marker_token
+from open_range.effect_markers import (
+    effect_marker_path,
+    effect_marker_service,
+    effect_marker_token,
+)
 from open_range.predicate_expr import parse_predicate
 
 
@@ -66,7 +70,9 @@ class ObjectiveGraderSpec(_StrictModel):
     expected_ref: str = ""
 
 
-def weakness_objective_tags(family: str, kind: str) -> tuple[StandardAttackObjective, ...]:
+def weakness_objective_tags(
+    family: str, kind: str
+) -> tuple[StandardAttackObjective, ...]:
     catalog: dict[tuple[str, str], tuple[StandardAttackObjective, ...]] = {
         ("code_web", "sql_injection"): ("db_access",),
         ("code_web", "broken_authorization"): ("file_access",),
@@ -87,8 +93,12 @@ def weakness_objective_tags(family: str, kind: str) -> tuple[StandardAttackObjec
         ("workflow_abuse", "helpdesk_reset_bypass"): ("unauthorized_admin_login",),
         ("workflow_abuse", "approval_chain_bypass"): ("privilege_escalation",),
         ("workflow_abuse", "document_share_abuse"): ("file_access",),
-        ("workflow_abuse", "phishing_credential_capture"): ("unauthorized_admin_login",),
-        ("workflow_abuse", "internal_request_impersonation"): ("unauthorized_admin_login",),
+        ("workflow_abuse", "phishing_credential_capture"): (
+            "unauthorized_admin_login",
+        ),
+        ("workflow_abuse", "internal_request_impersonation"): (
+            "unauthorized_admin_login",
+        ),
     }
     return catalog.get((family, kind), ())
 
@@ -114,7 +124,11 @@ def objective_tags_for_predicate(
     }:
         return (expr.name,)  # type: ignore[return-value]
     if expr.name == "asset_read":
-        is_db = owner_service == "svc-db" or "db" in target.lower() or "mysql" in asset_location.lower()
+        is_db = (
+            owner_service == "svc-db"
+            or "db" in target.lower()
+            or "mysql" in asset_location.lower()
+        )
         return ("db_access",) if is_db else ("file_access",)
     if expr.name == "credential_obtained":
         return ("privilege_escalation",)
@@ -199,7 +213,11 @@ def objective_grader_for_predicate(
             target_id=resolved_target,
             expected_ref=resolved_target,
         )
-    event_type = "UnauthorizedCredentialUse" if tag == "unauthorized_admin_login" else "PrivilegeEscalation"
+    event_type = (
+        "UnauthorizedCredentialUse"
+        if tag == "unauthorized_admin_login"
+        else "PrivilegeEscalation"
+    )
     return ObjectiveGraderSpec(
         objective_tag=tag,
         grader_kind="event_present",
@@ -218,7 +236,9 @@ def evaluate_objective_grader(
     events: Iterable[object],
     service_health: Mapping[str, float],
 ) -> bool:
-    linked_events = [event for event in events if predicate in _event_linked_predicates(event)]
+    linked_events = [
+        event for event in events if predicate in _event_linked_predicates(event)
+    ]
     if grader.grader_kind == "event_present":
         return any(
             _event_type(event) == grader.event_type
@@ -227,10 +247,14 @@ def evaluate_objective_grader(
         )
     if grader.grader_kind == "service_health":
         health = service_health.get(grader.service_id or grader.target_id, 1.0)
-        return health < 0.9 or any(_event_type(event) == "ServiceDegraded" for event in linked_events)
+        return health < 0.9 or any(
+            _event_type(event) == "ServiceDegraded" for event in linked_events
+        )
     if grader.grader_kind == "file_exists":
         file_assets = _snapshot_mapping(snapshot, "file_assets")
-        has_target = grader.target_id in file_assets or grader.path in file_assets.values()
+        has_target = (
+            grader.target_id in file_assets or grader.path in file_assets.values()
+        )
         return has_target and bool(linked_events)
     if grader.grader_kind in {"db_row_read", "db_row_write"}:
         db_seed_state = _snapshot_mapping(snapshot, "db_seed_state")
@@ -251,7 +275,9 @@ def evaluate_objective_grader_live(
     service_health: Mapping[str, float],
     outputs: Iterable[str],
 ) -> bool:
-    linked_events = [event for event in events if predicate in _event_linked_predicates(event)]
+    linked_events = [
+        event for event in events if predicate in _event_linked_predicates(event)
+    ]
     combined_output = "\n".join(output for output in outputs if output)
     if grader.grader_kind == "event_present":
         matched = any(
@@ -270,7 +296,9 @@ def evaluate_objective_grader_live(
         return True
     if grader.grader_kind == "service_health":
         health = service_health.get(grader.service_id or grader.target_id, 1.0)
-        return health < 0.9 or any(_event_type(event) == "ServiceDegraded" for event in linked_events)
+        return health < 0.9 or any(
+            _event_type(event) == "ServiceDegraded" for event in linked_events
+        )
     if not getattr(pods, "exec", None):
         return False
     if grader.grader_kind == "file_exists":
@@ -278,28 +306,35 @@ def evaluate_objective_grader_live(
         if grader.expected_ref:
             command += f" && grep -q {shlex.quote(grader.expected_ref)} {shlex.quote(grader.path)}"
         result = run_async(pods.exec(grader.service_id, command, timeout=10.0))
-        return result.ok and (grader.expected_ref in combined_output or bool(linked_events))
+        return result.ok and (
+            grader.expected_ref in combined_output or bool(linked_events)
+        )
     if grader.grader_kind == "db_row_read":
-        query = (
-            "mysql -uapp -papp-pass app -Nse "
-            + shlex.quote(
-                "SELECT contents FROM assets "
-                f"WHERE asset_id = '{grader.target_id}' "
-                "LIMIT 1;"
+        query = "mysql -uapp -papp-pass app -Nse " + shlex.quote(
+            "SELECT contents FROM assets "
+            f"WHERE asset_id = '{grader.target_id}' "
+            "LIMIT 1;"
+        )
+        result = run_async(
+            pods.exec(grader.service_id or "svc-db", query, timeout=10.0)
+        )
+        return (
+            result.ok
+            and bool(result.stdout.strip())
+            and (
+                grader.target_id in result.stdout
+                or grader.expected_ref in result.stdout
             )
         )
-        result = run_async(pods.exec(grader.service_id or "svc-db", query, timeout=10.0))
-        return result.ok and bool(result.stdout.strip()) and (grader.target_id in result.stdout or grader.expected_ref in result.stdout)
     if grader.grader_kind == "db_row_write":
-        query = (
-            "mysql -uapp -papp-pass app -Nse "
-            + shlex.quote(
-                "SELECT COUNT(*) FROM assets "
-                f"WHERE asset_id = '{grader.target_id}' "
-                "LIMIT 1;"
-            )
+        query = "mysql -uapp -papp-pass app -Nse " + shlex.quote(
+            "SELECT COUNT(*) FROM assets "
+            f"WHERE asset_id = '{grader.target_id}' "
+            "LIMIT 1;"
         )
-        result = run_async(pods.exec(grader.service_id or "svc-db", query, timeout=10.0))
+        result = run_async(
+            pods.exec(grader.service_id or "svc-db", query, timeout=10.0)
+        )
         return result.ok and result.stdout.strip() not in {"", "0"}
     if grader.grader_kind == "outbound_request":
         if not linked_events:
@@ -328,7 +363,9 @@ def evaluate_red_objectives(
             continue
         grader = graders.get(predicate)
         if grader is None:
-            if any(predicate in _event_linked_predicates(event) for event in event_list):
+            if any(
+                predicate in _event_linked_predicates(event) for event in event_list
+            ):
                 satisfied.add(predicate)
             continue
         if evaluate_objective_grader(
@@ -349,7 +386,9 @@ def _snapshot_mapping(snapshot: object, attr: str) -> dict[str, object]:
     return {}
 
 
-def _probe_live_objective_effect(snapshot: object, pods: object, grader: ObjectiveGraderSpec) -> bool:
+def _probe_live_objective_effect(
+    snapshot: object, pods: object, grader: ObjectiveGraderSpec
+) -> bool:
     effect_paths = _effect_marker_specs(snapshot, grader)
     if effect_paths and _probe_effect_paths(pods, effect_paths):
         return True
@@ -368,14 +407,20 @@ def _probe_live_objective_effect(snapshot: object, pods: object, grader: Objecti
 
 
 def _requires_effect_probe(snapshot: object, grader: ObjectiveGraderSpec) -> bool:
-    if grader.objective_tag not in {"unauthorized_admin_login", "privilege_escalation", "outbound_service"}:
+    if grader.objective_tag not in {
+        "unauthorized_admin_login",
+        "privilege_escalation",
+        "outbound_service",
+    }:
         return False
     if _relevant_weaknesses(snapshot, grader):
         return True
     return bool(_relevant_realizations(snapshot, grader))
 
 
-def _effect_marker_specs(snapshot: object, grader: ObjectiveGraderSpec) -> tuple[tuple[str, str, str], ...]:
+def _effect_marker_specs(
+    snapshot: object, grader: ObjectiveGraderSpec
+) -> tuple[tuple[str, str, str], ...]:
     matches: list[tuple[str, str, str]] = []
     for weakness in _relevant_weaknesses(snapshot, grader):
         service = effect_marker_service(weakness)
@@ -386,7 +431,9 @@ def _effect_marker_specs(snapshot: object, grader: ObjectiveGraderSpec) -> tuple
     return tuple(dict.fromkeys(matches))
 
 
-def _relevant_weaknesses(snapshot: object, grader: ObjectiveGraderSpec) -> tuple[object, ...]:
+def _relevant_weaknesses(
+    snapshot: object, grader: ObjectiveGraderSpec
+) -> tuple[object, ...]:
     world = getattr(snapshot, "world", None)
     weaknesses = getattr(world, "weaknesses", ()) if world is not None else ()
     matches: list[object] = []
@@ -407,7 +454,9 @@ def _relevant_weaknesses(snapshot: object, grader: ObjectiveGraderSpec) -> tuple
     return tuple(matches)
 
 
-def _relevant_realizations(snapshot: object, grader: ObjectiveGraderSpec) -> tuple[tuple[str, str], ...]:
+def _relevant_realizations(
+    snapshot: object, grader: ObjectiveGraderSpec
+) -> tuple[tuple[str, str], ...]:
     matches: list[tuple[str, str]] = []
     for weakness in _relevant_weaknesses(snapshot, grader):
         for realization in getattr(weakness, "realization", ()):
@@ -433,32 +482,99 @@ def _live_effect_probe_commands(
         path = _first_realization_path(realizations, "config")
         if path:
             if kind == "weak_password":
-                commands.append((target, _grep_all(path, '"min_password_length": 6', '"password_reuse_allowed": true')))
+                commands.append(
+                    (
+                        target,
+                        _grep_all(
+                            path,
+                            '"min_password_length": 6',
+                            '"password_reuse_allowed": true',
+                        ),
+                    )
+                )
             elif kind == "default_credential":
-                commands.append((target, _grep_all(path, '"default_username": "admin"', '"default_password": "admin"')))
+                commands.append(
+                    (
+                        target,
+                        _grep_all(
+                            path,
+                            '"default_username": "admin"',
+                            '"default_password": "admin"',
+                        ),
+                    )
+                )
             elif kind == "overbroad_service_account":
-                commands.append((target, _grep_all(path, '"service_account_scope"', "svc-db", "svc-idp")))
+                commands.append(
+                    (
+                        target,
+                        _grep_all(path, '"service_account_scope"', "svc-db", "svc-idp"),
+                    )
+                )
             elif kind == "admin_surface_exposed":
-                commands.append((target, _grep_all(path, '"admin_surface_public": true')))
+                commands.append(
+                    (target, _grep_all(path, '"admin_surface_public": true'))
+                )
             elif kind == "trust_edge_misconfig":
-                commands.append((target, _grep_all(path, '"trust_scope": "corp-wide"', '"peer_validation": false')))
+                commands.append(
+                    (
+                        target,
+                        _grep_all(
+                            path,
+                            '"trust_scope": "corp-wide"',
+                            '"peer_validation": false',
+                        ),
+                    )
+                )
 
     if family == "workflow_abuse":
         workflow_path = _first_realization_path(realizations, "workflow")
         mailbox_path = _first_realization_path(realizations, "mailbox")
         if workflow_path:
             if kind == "helpdesk_reset_bypass":
-                commands.append((target, _grep_all(workflow_path, '"identity_verification": "none"', '"reset_without_ticket_owner": true')))
+                commands.append(
+                    (
+                        target,
+                        _grep_all(
+                            workflow_path,
+                            '"identity_verification": "none"',
+                            '"reset_without_ticket_owner": true',
+                        ),
+                    )
+                )
             elif kind == "approval_chain_bypass":
-                commands.append((target, _grep_all(workflow_path, '"secondary_approval_skipped": true')))
+                commands.append(
+                    (
+                        target,
+                        _grep_all(workflow_path, '"secondary_approval_skipped": true'),
+                    )
+                )
             elif kind == "document_share_abuse":
-                commands.append((target, _grep_all(workflow_path, '"share_visibility": "public_link"')))
+                commands.append(
+                    (
+                        target,
+                        _grep_all(workflow_path, '"share_visibility": "public_link"'),
+                    )
+                )
             elif kind == "phishing_credential_capture":
-                commands.append((target, _grep_all(workflow_path, '"credential_capture_landing": "/login"')))
+                commands.append(
+                    (
+                        target,
+                        _grep_all(
+                            workflow_path, '"credential_capture_landing": "/login"'
+                        ),
+                    )
+                )
             elif kind == "internal_request_impersonation":
-                commands.append((target, _grep_all(workflow_path, '"internal_alias_trust": true')))
+                commands.append(
+                    (target, _grep_all(workflow_path, '"internal_alias_trust": true'))
+                )
         if mailbox_path:
-            commands.append((target, _grep_any(mailbox_path, f"kind={kind}", "Subject:", target_ref)))
+            commands.append(
+                (
+                    target,
+                    _grep_any(mailbox_path, f"kind={kind}", "Subject:", target_ref),
+                )
+            )
 
     if family == "secret_exposure":
         for realization in realizations:
@@ -468,27 +584,70 @@ def _live_effect_probe_commands(
             if not service or not path:
                 continue
             if kind_name == "mailbox":
-                commands.append((service, _grep_any(path, "secret_material=", target_ref, grader.expected_ref)))
+                commands.append(
+                    (
+                        service,
+                        _grep_any(
+                            path, "secret_material=", target_ref, grader.expected_ref
+                        ),
+                    )
+                )
             elif kind == "backup_leak":
-                commands.append((service, _grep_any(path, "INSERT INTO leaked_credentials", target_ref)))
+                commands.append(
+                    (
+                        service,
+                        _grep_any(path, "INSERT INTO leaked_credentials", target_ref),
+                    )
+                )
             elif kind == "env_file_leak":
-                commands.append((service, _grep_any(path, "OPENRANGE_APP_SECRET=", "OPENRANGE_WORLD_ID=")))
+                commands.append(
+                    (
+                        service,
+                        _grep_any(path, "OPENRANGE_APP_SECRET=", "OPENRANGE_WORLD_ID="),
+                    )
+                )
             elif kind == "hardcoded_app_secret":
-                commands.append((service, _grep_any(path, "OPENRANGE_APP_SECRET", "define('OPENRANGE_WORLD_ID'")))
+                commands.append(
+                    (
+                        service,
+                        _grep_any(
+                            path, "OPENRANGE_APP_SECRET", "define('OPENRANGE_WORLD_ID'"
+                        ),
+                    )
+                )
             else:
                 commands.append((service, _nonempty_file(path)))
 
     if family == "code_web":
-        code_paths = [str(getattr(realization, "path", "")) for realization in realizations if getattr(realization, "kind", "") == "code"]
-        seed_paths = [str(getattr(realization, "path", "")) for realization in realizations if getattr(realization, "kind", "") == "seed_data"]
+        code_paths = [
+            str(getattr(realization, "path", ""))
+            for realization in realizations
+            if getattr(realization, "kind", "") == "code"
+        ]
+        seed_paths = [
+            str(getattr(realization, "path", ""))
+            for realization in realizations
+            if getattr(realization, "kind", "") == "seed_data"
+        ]
         if kind == "auth_bypass" and code_paths:
-            commands.append((target, _grep_all(code_paths[0], "impersonate", "$debug === '1'")))
+            commands.append(
+                (target, _grep_all(code_paths[0], "impersonate", "$debug === '1'"))
+            )
         elif kind == "command_injection" and code_paths:
-            commands.append((target, _grep_all(code_paths[0], "shell_exec", "printf 'scan=%s")))
+            commands.append(
+                (target, _grep_all(code_paths[0], "shell_exec", "printf 'scan=%s"))
+            )
         elif kind == "ssrf" and code_paths:
             parts = [_grep_all(code_paths[0], "file_get_contents($url")]
             if seed_paths:
-                commands.append((effect_marker_service(weakness), _grep_any(seed_paths[0], effect_marker_token(weakness), weakness.id)))
+                commands.append(
+                    (
+                        effect_marker_service(weakness),
+                        _grep_any(
+                            seed_paths[0], effect_marker_token(weakness), weakness.id
+                        ),
+                    )
+                )
             commands.append((target, " && ".join(parts)))
 
     return tuple(commands)
@@ -550,7 +709,11 @@ def _grep_all(path: str, *needles: str) -> str:
 
 
 def _grep_any(path: str, *needles: str) -> str:
-    clauses = [f"grep -Fq {shlex.quote(needle)} {shlex.quote(path)}" for needle in needles if needle]
+    clauses = [
+        f"grep -Fq {shlex.quote(needle)} {shlex.quote(path)}"
+        for needle in needles
+        if needle
+    ]
     if not clauses:
         return _nonempty_file(path)
     return f"test -f {shlex.quote(path)} && (" + " || ".join(clauses) + ")"

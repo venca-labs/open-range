@@ -46,12 +46,16 @@ def _load_manifest(path: str) -> dict[str, Any]:
 
 def _write_json(payload: dict[str, Any], dest: Path) -> Path:
     dest.parent.mkdir(parents=True, exist_ok=True)
-    dest.write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+    dest.write_text(
+        json.dumps(payload, indent=2, sort_keys=True) + "\n", encoding="utf-8"
+    )
     return dest
 
 
 @click.group()
-@click.option("-v", "--verbose", is_flag=True, default=False, help="Enable debug logging.")
+@click.option(
+    "-v", "--verbose", is_flag=True, default=False, help="Enable debug logging."
+)
 @click.version_option(package_name="openenv-open-range", prog_name="openrange")
 def cli(verbose: bool) -> None:
     """Build, admit, and run immutable OpenRange snapshots."""
@@ -59,13 +63,27 @@ def cli(verbose: bool) -> None:
 
 
 @cli.command("build")
-@click.option("-m", "--manifest", required=True, type=click.Path(exists=True), help="Path to manifest YAML.")
-@click.option("-o", "--output", required=True, type=click.Path(), help="Output directory for rendered candidate artifacts.")
+@click.option(
+    "-m",
+    "--manifest",
+    required=True,
+    type=click.Path(exists=True),
+    help="Path to manifest YAML.",
+)
+@click.option(
+    "-o",
+    "--output",
+    required=True,
+    type=click.Path(),
+    help="Output directory for rendered candidate artifacts.",
+)
 def build_cmd(manifest: str, output: str) -> None:
     """Compile and render a candidate world from a manifest."""
     output_dir = Path(output)
     candidate = BuildPipeline().build(_load_manifest(manifest), output_dir)
-    world_path = _write_json(candidate.world.model_dump(mode="json"), output_dir / "candidate-world.json")
+    world_path = _write_json(
+        candidate.world.model_dump(mode="json"), output_dir / "candidate-world.json"
+    )
 
     click.echo(f"Candidate world written to {world_path}")
     click.echo(f"  World ID: {candidate.world.world_id}")
@@ -75,17 +93,41 @@ def build_cmd(manifest: str, output: str) -> None:
 
 
 @cli.command("admit")
-@click.option("-m", "--manifest", required=True, type=click.Path(exists=True), help="Path to manifest YAML.")
-@click.option("-o", "--output", required=True, type=click.Path(), help="Render directory for candidate artifacts.")
-@click.option("--store-dir", default="snapshots", type=click.Path(), help="Snapshot store directory.")
-@click.option("--split", default="train", type=click.Choice(["train", "eval"]), help="Pool split for the admitted snapshot.")
+@click.option(
+    "-m",
+    "--manifest",
+    required=True,
+    type=click.Path(exists=True),
+    help="Path to manifest YAML.",
+)
+@click.option(
+    "-o",
+    "--output",
+    required=True,
+    type=click.Path(),
+    help="Render directory for candidate artifacts.",
+)
+@click.option(
+    "--store-dir",
+    default="snapshots",
+    type=click.Path(),
+    help="Snapshot store directory.",
+)
+@click.option(
+    "--split",
+    default="train",
+    type=click.Choice(["train", "eval"]),
+    help="Pool split for the admitted snapshot.",
+)
 @click.option(
     "--validation-profile",
     default="full",
     type=click.Choice(["full", "no_necessity", "graph_plus_live", "graph_only"]),
     help="Admission strictness. Use graph_only for explicit offline admission.",
 )
-def admit_cmd(manifest: str, output: str, store_dir: str, split: str, validation_profile: str) -> None:
+def admit_cmd(
+    manifest: str, output: str, store_dir: str, split: str, validation_profile: str
+) -> None:
     """Build and admit a snapshot into the snapshot store."""
     pipeline = BuildPipeline(store=FileSnapshotStore(store_dir))
     candidate = pipeline.build(
@@ -104,13 +146,46 @@ def admit_cmd(manifest: str, output: str, store_dir: str, split: str, validation
 
 
 @cli.command("reset")
-@click.option("--store-dir", default="snapshots", type=click.Path(), help="Snapshot store directory.")
-@click.option("--snapshot-id", default=None, help="Snapshot id to restore. If omitted, sample from the requested split.")
-@click.option("--split", default="train", type=click.Choice(["train", "eval"]), help="Pool split to sample from when --snapshot-id is omitted.")
-@click.option("--strategy", default="random", type=click.Choice(["random", "latest"]), help="Sampling strategy when --snapshot-id is omitted.")
-@click.option("--sample-seed", default=0, type=int, help="Sampling seed when --snapshot-id is omitted.")
-@click.option("--mode", default="joint_pool", type=click.Choice(["red_only", "blue_only_live", "blue_only_from_prefix", "joint_pool"]), help="Episode runtime mode.")
-@click.option("--horizon", default=25.0, type=float, help="Simulated-time episode horizon.")
+@click.option(
+    "--store-dir",
+    default="snapshots",
+    type=click.Path(),
+    help="Snapshot store directory.",
+)
+@click.option(
+    "--snapshot-id",
+    default=None,
+    help="Snapshot id to restore. If omitted, sample from the requested split.",
+)
+@click.option(
+    "--split",
+    default="train",
+    type=click.Choice(["train", "eval"]),
+    help="Pool split to sample from when --snapshot-id is omitted.",
+)
+@click.option(
+    "--strategy",
+    default="random",
+    type=click.Choice(["random", "latest"]),
+    help="Sampling strategy when --snapshot-id is omitted.",
+)
+@click.option(
+    "--sample-seed",
+    default=0,
+    type=int,
+    help="Sampling seed when --snapshot-id is omitted.",
+)
+@click.option(
+    "--mode",
+    default="joint_pool",
+    type=click.Choice(
+        ["red_only", "blue_only_live", "blue_only_from_prefix", "joint_pool"]
+    ),
+    help="Episode runtime mode.",
+)
+@click.option(
+    "--horizon", default=25.0, type=float, help="Simulated-time episode horizon."
+)
 def reset_cmd(
     store_dir: str,
     snapshot_id: str | None,
@@ -139,12 +214,41 @@ def reset_cmd(
 
 
 @cli.command("traces")
-@click.option("-m", "--manifest", required=True, type=click.Path(exists=True), help="Path to manifest YAML.")
-@click.option("-o", "--output", required=True, type=click.Path(), help="Output directory for generated trace data.")
-@click.option("--roots", default=1, type=int, help="How many independent root lineages to generate.")
-@click.option("--mutations", default=3, type=int, help="How many admitted child mutations per lineage.")
-@click.option("--include-joint-pool", is_flag=True, default=False, help="Also export runtime joint_pool traces.")
-@click.option("--no-sim", is_flag=True, default=False, help="Skip sim-plane bootstrap traces.")
+@click.option(
+    "-m",
+    "--manifest",
+    required=True,
+    type=click.Path(exists=True),
+    help="Path to manifest YAML.",
+)
+@click.option(
+    "-o",
+    "--output",
+    required=True,
+    type=click.Path(),
+    help="Output directory for generated trace data.",
+)
+@click.option(
+    "--roots",
+    default=1,
+    type=int,
+    help="How many independent root lineages to generate.",
+)
+@click.option(
+    "--mutations",
+    default=3,
+    type=int,
+    help="How many admitted child mutations per lineage.",
+)
+@click.option(
+    "--include-joint-pool",
+    is_flag=True,
+    default=False,
+    help="Also export runtime joint_pool traces.",
+)
+@click.option(
+    "--no-sim", is_flag=True, default=False, help="Skip sim-plane bootstrap traces."
+)
 def traces_cmd(
     manifest: str,
     output: str,
@@ -164,7 +268,9 @@ def traces_cmd(
         include_sim=not no_sim,
         include_joint_pool=include_joint_pool,
     )
-    report_path = _write_json(report.model_dump(mode="json"), output_dir / "report.json")
+    report_path = _write_json(
+        report.model_dump(mode="json"), output_dir / "report.json"
+    )
 
     click.echo(f"Trace dataset written to {output_dir}")
     click.echo(f"  Rows: {report.rows}")

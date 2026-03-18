@@ -13,7 +13,11 @@ from open_range.render import EnterpriseSaaSKindRenderer
 from open_range.store import FileSnapshotStore
 from open_range.synth import EnterpriseSaaSWorldSynthesizer
 from open_range.weaknesses import CatalogWeaknessSeeder
-from tests.support import OFFLINE_BUILD_CONFIG, OFFLINE_REFERENCE_BUILD_CONFIG, manifest_payload
+from tests.support import (
+    OFFLINE_BUILD_CONFIG,
+    OFFLINE_REFERENCE_BUILD_CONFIG,
+    manifest_payload,
+)
 
 
 def _manifest_payload() -> dict:
@@ -34,15 +38,21 @@ def _synth(world, tmp_path: Path):
     return EnterpriseSaaSWorldSynthesizer().synthesize(world, tmp_path / "synth")
 
 
-def _code_web_response(world, cmd: str, patched_services: set[str]) -> ExecResult | None:
-    weakness = next((weak for weak in world.weaknesses if weak.family == "code_web"), None)
+def _code_web_response(
+    world, cmd: str, patched_services: set[str]
+) -> ExecResult | None:
+    weakness = next(
+        (weak for weak in world.weaknesses if weak.family == "code_web"), None
+    )
     if weakness is None or weakness.target in patched_services:
         return None
     payload = code_web_payload(world, weakness)
     path = str(payload.get("path", ""))
     if "http://svc-web:80" not in cmd or path not in cmd:
         return None
-    return ExecResult(stdout=str(payload.get("expect_contains", "")), stderr="", exit_code=0)
+    return ExecResult(
+        stdout=str(payload.get("expect_contains", "")), stderr="", exit_code=0
+    )
 
 
 def test_weakness_seeder_is_deterministic():
@@ -51,7 +61,9 @@ def test_weakness_seeder_is_deterministic():
 
     assert world_a.weaknesses == world_b.weaknesses
     assert len(world_a.weaknesses) == 2
-    assert any(weak.objective_tags for weak in world_a.weaknesses if weak.family == "code_web")
+    assert any(
+        weak.objective_tags for weak in world_a.weaknesses if weak.family == "code_web"
+    )
 
 
 def test_weakness_seeder_respects_allowed_families():
@@ -75,33 +87,56 @@ def test_kind_renderer_emits_expected_files(tmp_path: Path):
     assert Path(synth.summary_path).exists()
     assert "svc-web" in artifacts.chart_values["services"]
     assert artifacts.chart_values["services"]["svc-web"]["enabled"] is True
-    assert artifacts.chart_values["services"]["svc-web"]["payloads"][0]["mountPath"] == "/var/www/html/index.html"
-    assert artifacts.chart_values["global"]["namePrefix"].startswith("enterprise-saas-v1-")
+    assert (
+        artifacts.chart_values["services"]["svc-web"]["payloads"][0]["mountPath"]
+        == "/var/www/html/index.html"
+    )
+    assert artifacts.chart_values["global"]["namePrefix"].startswith(
+        "enterprise-saas-v1-"
+    )
     assert "sandbox-red" in artifacts.chart_values["sandboxes"]
-    assert artifacts.chart_values["services"]["svc-db"]["payloads"][0]["mountPath"] == "/docker-entrypoint-initdb.d/01-init.sql"
+    assert (
+        artifacts.chart_values["services"]["svc-db"]["payloads"][0]["mountPath"]
+        == "/docker-entrypoint-initdb.d/01-init.sql"
+    )
     siem_command = artifacts.chart_values["services"]["svc-siem"]["command"][-1]
     assert "busybox nc -lp 9201" in siem_command
     assert "busybox httpd -f -p 9200 -h /srv/http/siem" in siem_command
-    assert any(rule["fromZone"] == "external" and rule["toZone"] == "dmz" for rule in artifacts.chart_values["firewallRules"])
-    assert artifacts.pinned_image_digests["svc-web"].startswith("php:8.1-apache@sha256:")
+    assert any(
+        rule["fromZone"] == "external" and rule["toZone"] == "dmz"
+        for rule in artifacts.chart_values["firewallRules"]
+    )
+    assert artifacts.pinned_image_digests["svc-web"].startswith(
+        "php:8.1-apache@sha256:"
+    )
 
 
 def test_admission_controller_admits_seeded_world(tmp_path: Path):
     world = _build_seeded_world()
-    artifacts = EnterpriseSaaSKindRenderer().render(world, _synth(world, tmp_path), tmp_path / "rendered")
+    artifacts = EnterpriseSaaSKindRenderer().render(
+        world, _synth(world, tmp_path), tmp_path / "rendered"
+    )
 
-    reference_bundle, report = LocalAdmissionController(mode="fail_fast").admit(world, artifacts, OFFLINE_REFERENCE_BUILD_CONFIG)
+    reference_bundle, report = LocalAdmissionController(mode="fail_fast").admit(
+        world, artifacts, OFFLINE_REFERENCE_BUILD_CONFIG
+    )
 
     assert report.admitted is True
     assert report.graph_ok is True
     assert report.reference_attack_ok is True
-    assert report.blue_signal_points == len({edge.source for edge in world.telemetry_edges})
+    assert report.blue_signal_points == len(
+        {edge.source for edge in world.telemetry_edges}
+    )
     assert report.benchmark_tags_covered
     assert report.stages[-1].name == "determinism"
-    objective_grounding = next(stage for stage in report.stages if stage.name == "static").checks[3]
+    objective_grounding = next(
+        stage for stage in report.stages if stage.name == "static"
+    ).checks[3]
     assert objective_grounding.name == "objective_grounding"
     assert objective_grounding.details["graders"]
-    red_reference = next(stage for stage in report.stages if stage.name == "red_reference").checks[0]
+    red_reference = next(
+        stage for stage in report.stages if stage.name == "red_reference"
+    ).checks[0]
     assert sorted(red_reference.details["satisfied_predicates"]) == sorted(
         objective.predicate for objective in world.red_objectives if objective.terminal
     )
@@ -109,21 +144,35 @@ def test_admission_controller_admits_seeded_world(tmp_path: Path):
     assert reference_bundle.reference_defense_traces
 
 
-def test_admission_controller_offline_witness_can_ground_pinned_non_code_weakness(tmp_path: Path):
+def test_admission_controller_offline_witness_can_ground_pinned_non_code_weakness(
+    tmp_path: Path,
+):
     payload = _manifest_payload()
     payload["security"]["allowed_weakness_families"] = ["secret_exposure"]
     payload["security"]["pinned_weaknesses"] = [
-        {"family": "secret_exposure", "kind": "credential_in_share", "target": "asset:idp_admin_cred"},
+        {
+            "family": "secret_exposure",
+            "kind": "credential_in_share",
+            "target": "asset:idp_admin_cred",
+        },
     ]
-    world = CatalogWeaknessSeeder().apply(EnterpriseSaaSManifestCompiler().compile(payload))
-    artifacts = EnterpriseSaaSKindRenderer().render(world, _synth(world, tmp_path), tmp_path / "rendered-non-code")
+    world = CatalogWeaknessSeeder().apply(
+        EnterpriseSaaSManifestCompiler().compile(payload)
+    )
+    artifacts = EnterpriseSaaSKindRenderer().render(
+        world, _synth(world, tmp_path), tmp_path / "rendered-non-code"
+    )
 
-    reference_bundle, report = LocalAdmissionController(mode="fail_fast").admit(world, artifacts, OFFLINE_REFERENCE_BUILD_CONFIG)
+    reference_bundle, report = LocalAdmissionController(mode="fail_fast").admit(
+        world, artifacts, OFFLINE_REFERENCE_BUILD_CONFIG
+    )
 
     assert report.admitted is True
 
 
-def test_mutated_world_blue_reference_skips_blindspot_only_detection_targets(tmp_path: Path) -> None:
+def test_mutated_world_blue_reference_skips_blindspot_only_detection_targets(
+    tmp_path: Path,
+) -> None:
     base_world = _build_seeded_world()
     mutation = FrontierMutationPolicy().mutate(
         base_world,
@@ -141,13 +190,19 @@ def test_mutated_world_blue_reference_skips_blindspot_only_detection_targets(tmp
         ),
         child_seed=1102,
     )
-    artifacts = EnterpriseSaaSKindRenderer().render(mutation, _synth(mutation, tmp_path), tmp_path / "rendered-mutation")
+    artifacts = EnterpriseSaaSKindRenderer().render(
+        mutation, _synth(mutation, tmp_path), tmp_path / "rendered-mutation"
+    )
 
-    reference_bundle, report = LocalAdmissionController(mode="fail_fast").admit(mutation, artifacts, OFFLINE_REFERENCE_BUILD_CONFIG)
+    reference_bundle, report = LocalAdmissionController(mode="fail_fast").admit(
+        mutation, artifacts, OFFLINE_REFERENCE_BUILD_CONFIG
+    )
 
     assert report.admitted is True
     defense_trace = reference_bundle.reference_defense_traces[0]
-    finding_step = next(step for step in defense_trace.steps if step.kind == "submit_finding")
+    finding_step = next(
+        step for step in defense_trace.steps if step.kind == "submit_finding"
+    )
     assert finding_step.target != "svc-email"
     assert report.reference_attack_ok is True
     assert report.necessity_ok is True
@@ -155,7 +210,9 @@ def test_mutated_world_blue_reference_skips_blindspot_only_detection_targets(tmp
 
 def test_admission_controller_can_run_optional_live_backend(tmp_path: Path):
     world = _build_seeded_world()
-    artifacts = EnterpriseSaaSKindRenderer().render(world, _synth(world, tmp_path), tmp_path / "rendered")
+    artifacts = EnterpriseSaaSKindRenderer().render(
+        world, _synth(world, tmp_path), tmp_path / "rendered"
+    )
     calls: list[str] = []
 
     class FakePods:
@@ -169,7 +226,9 @@ def test_admission_controller_can_run_optional_live_backend(tmp_path: Path):
         async def is_healthy(self, service: str) -> bool:
             return service in self.pod_ids
 
-        async def exec(self, service: str, cmd: str, timeout: float = 30.0) -> ExecResult:
+        async def exec(
+            self, service: str, cmd: str, timeout: float = 30.0
+        ) -> ExecResult:
             del timeout
             if cmd == "touch /tmp/openrange-contained":
                 self.contained.add(service)
@@ -191,25 +250,41 @@ def test_admission_controller_can_run_optional_live_backend(tmp_path: Path):
                 self.web_guards.discard(service)
                 return ExecResult(stdout="unguarded", stderr="", exit_code=0)
             if cmd == "test ! -f /tmp/openrange-contained":
-                return ExecResult(stdout="", stderr="", exit_code=1 if service in self.contained else 0)
+                return ExecResult(
+                    stdout="",
+                    stderr="",
+                    exit_code=1 if service in self.contained else 0,
+                )
             if cmd == "test ! -f /tmp/openrange-patched":
-                return ExecResult(stdout="", stderr="", exit_code=1 if service in self.patched else 0)
+                return ExecResult(
+                    stdout="", stderr="", exit_code=1 if service in self.patched else 0
+                )
             if "test ! -f /var/www/html/.openrange/guards/" in cmd:
-                return ExecResult(stdout="", stderr="", exit_code=1 if service in self.web_guards else 0)
+                return ExecResult(
+                    stdout="",
+                    stderr="",
+                    exit_code=1 if service in self.web_guards else 0,
+                )
             if ">> /srv/http/siem/all.log" in cmd:
-                line = cmd.split("printf '%s\\n' ", 1)[1].split(" >> /srv/http/siem/all.log", 1)[0]
+                line = cmd.split("printf '%s\\n' ", 1)[1].split(
+                    " >> /srv/http/siem/all.log", 1
+                )[0]
                 self.logs.append(line.strip("'"))
                 return ExecResult(stdout="", stderr="", exit_code=0)
             if "grep -q 'InitialAccess' /srv/http/siem/all.log" in cmd:
                 present = any("InitialAccess" in line for line in self.logs)
                 return ExecResult(stdout="", stderr="", exit_code=0 if present else 1)
-            if service.startswith("sandbox-") and ("wget -qO- http://svc-siem:9200/all.log" in cmd):
+            if service.startswith("sandbox-") and (
+                "wget -qO- http://svc-siem:9200/all.log" in cmd
+            ):
                 return ExecResult(stdout="\n".join(self.logs), stderr="", exit_code=0)
             if service == "sandbox-red":
                 seeded = _code_web_response(world, cmd, self.web_guards)
                 if seeded is not None:
                     return seeded
-            if service == "sandbox-red" and any(target in cmd for target in ("svc-fileshare", "svc-db", "svc-idp")):
+            if service == "sandbox-red" and any(
+                target in cmd for target in ("svc-fileshare", "svc-db", "svc-idp")
+            ):
                 return ExecResult(stdout="", stderr="blocked", exit_code=1)
             return ExecResult(stdout=f"{service}:{cmd}", stderr="", exit_code=0)
 
@@ -220,7 +295,9 @@ def test_admission_controller_can_run_optional_live_backend(tmp_path: Path):
             pod_ids["sandbox-red"] = "ns/sandbox-red-pod"
             pod_ids["sandbox-blue"] = "ns/sandbox-blue-pod"
             for persona in world.green_personas:
-                pod_ids[f"sandbox-green-{persona.id.replace('_', '-').lower()}"] = f"ns/{persona.id}-pod"
+                pod_ids[f"sandbox-green-{persona.id.replace('_', '-').lower()}"] = (
+                    f"ns/{persona.id}-pod"
+                )
             return SimpleNamespace(
                 release_name=f"or-{snapshot_id}",
                 artifacts_dir=artifacts_dir,
@@ -245,9 +322,13 @@ def test_admission_controller_can_run_optional_live_backend(tmp_path: Path):
 def test_admission_controller_rejects_world_without_telemetry(tmp_path: Path):
     world = _build_seeded_world()
     broken = world.replace_edges(telemetry=())
-    artifacts = EnterpriseSaaSKindRenderer().render(broken, _synth(broken, tmp_path), tmp_path / "rendered")
+    artifacts = EnterpriseSaaSKindRenderer().render(
+        broken, _synth(broken, tmp_path), tmp_path / "rendered"
+    )
 
-    _bundle, report = LocalAdmissionController(mode="analysis").admit(broken, artifacts, OFFLINE_REFERENCE_BUILD_CONFIG)
+    _bundle, report = LocalAdmissionController(mode="analysis").admit(
+        broken, artifacts, OFFLINE_REFERENCE_BUILD_CONFIG
+    )
 
     assert report.admitted is False
     failed = {
@@ -262,14 +343,21 @@ def test_admission_controller_rejects_world_without_telemetry(tmp_path: Path):
 def test_admission_controller_rejects_public_secret_leak_in_artifacts(tmp_path: Path):
     world = _build_seeded_world()
     synth = _synth(world, tmp_path)
-    leak_path = next(file for file in synth.generated_files if "/svc-web/" in file and file.endswith("index.html"))
+    leak_path = next(
+        file
+        for file in synth.generated_files
+        if "/svc-web/" in file and file.endswith("index.html")
+    )
     Path(leak_path).write_text(
-        Path(leak_path).read_text(encoding="utf-8") + "\nseeded-sensitive-idp_admin_cred\n",
+        Path(leak_path).read_text(encoding="utf-8")
+        + "\nseeded-sensitive-idp_admin_cred\n",
         encoding="utf-8",
     )
     artifacts = EnterpriseSaaSKindRenderer().render(world, synth, tmp_path / "rendered")
 
-    _bundle, report = LocalAdmissionController(mode="analysis").admit(world, artifacts, OFFLINE_REFERENCE_BUILD_CONFIG)
+    _bundle, report = LocalAdmissionController(mode="analysis").admit(
+        world, artifacts, OFFLINE_REFERENCE_BUILD_CONFIG
+    )
 
     assert report.admitted is False
     failed = {
@@ -286,13 +374,19 @@ def test_admission_controller_rejects_unlogged_critical_action_targets(tmp_path:
     weakened_services = []
     for service in world.services:
         if service.id == "svc-web":
-            weakened_services.append(service.model_copy(update={"telemetry_surfaces": ()}))
+            weakened_services.append(
+                service.model_copy(update={"telemetry_surfaces": ()})
+            )
         else:
             weakened_services.append(service)
     broken = world.model_copy(update={"services": tuple(weakened_services)})
-    artifacts = EnterpriseSaaSKindRenderer().render(broken, _synth(broken, tmp_path), tmp_path / "rendered")
+    artifacts = EnterpriseSaaSKindRenderer().render(
+        broken, _synth(broken, tmp_path), tmp_path / "rendered"
+    )
 
-    _bundle, report = LocalAdmissionController(mode="analysis").admit(broken, artifacts, OFFLINE_REFERENCE_BUILD_CONFIG)
+    _bundle, report = LocalAdmissionController(mode="analysis").admit(
+        broken, artifacts, OFFLINE_REFERENCE_BUILD_CONFIG
+    )
 
     assert report.admitted is False
     failed = {
@@ -308,7 +402,9 @@ def test_snapshot_store_persists_v1_snapshot(tmp_path: Path):
     world = _build_seeded_world()
     synth = _synth(world, tmp_path)
     artifacts = EnterpriseSaaSKindRenderer().render(world, synth, tmp_path / "rendered")
-    reference_bundle, report = LocalAdmissionController(mode="fail_fast").admit(world, artifacts, OFFLINE_BUILD_CONFIG)
+    reference_bundle, report = LocalAdmissionController(mode="fail_fast").admit(
+        world, artifacts, OFFLINE_BUILD_CONFIG
+    )
     store = FileSnapshotStore(tmp_path / "snapshots")
 
     snapshot = store.create(world, artifacts, reference_bundle, report, synth=synth)

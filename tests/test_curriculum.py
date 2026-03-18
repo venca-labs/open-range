@@ -4,7 +4,11 @@ from pathlib import Path
 
 from open_range._runtime_store import load_world_ir
 from open_range.compiler import EnterpriseSaaSManifestCompiler
-from open_range.curriculum import FrontierMutationPolicy, PopulationStats, propose_mutations
+from open_range.curriculum import (
+    FrontierMutationPolicy,
+    PopulationStats,
+    propose_mutations,
+)
 from open_range.pipeline import BuildPipeline
 from open_range.store import FileSnapshotStore
 from open_range.weaknesses import CatalogWeaknessSeeder
@@ -89,9 +93,15 @@ def test_policy_mutate_is_deterministic_and_tracks_lineage():
     assert child_a.lineage.parent_world_id == world.world_id
     assert child_a.seed == 2026
     assert len(child_a.hosts) <= len(world.hosts) + world.mutation_bounds.max_new_hosts
-    assert len(child_a.services) <= len(world.services) + world.mutation_bounds.max_new_services
+    assert (
+        len(child_a.services)
+        <= len(world.services) + world.mutation_bounds.max_new_services
+    )
     assert len(child_a.users) <= len(world.users) + world.mutation_bounds.max_new_users
-    assert len(child_a.weaknesses) <= len(world.weaknesses) + world.mutation_bounds.max_new_weaknesses
+    assert (
+        len(child_a.weaknesses)
+        <= len(world.weaknesses) + world.mutation_bounds.max_new_weaknesses
+    )
     assert child_a.lineage.mutation_ops != world.lineage.mutation_ops
     assert all(weak.realization for weak in child_a.weaknesses)
     assert all(weak.remediation_kind == "shell" for weak in child_a.weaknesses)
@@ -101,7 +111,9 @@ def test_policy_mutate_is_deterministic_and_tracks_lineage():
 def test_mutated_child_is_admitted_and_can_live_in_eval_pool(tmp_path: Path):
     store = FileSnapshotStore(tmp_path / "snapshots")
     pipeline = BuildPipeline(store=store)
-    parent_candidate = pipeline.build(_manifest_payload(), tmp_path / "parent-render", OFFLINE_BUILD_CONFIG)
+    parent_candidate = pipeline.build(
+        _manifest_payload(), tmp_path / "parent-render", OFFLINE_BUILD_CONFIG
+    )
     parent_snapshot = pipeline.admit(parent_candidate, split="train")
     parent_world = load_world_ir(store, parent_snapshot.snapshot_id)
 
@@ -121,13 +133,21 @@ def test_mutated_child_is_admitted_and_can_live_in_eval_pool(tmp_path: Path):
         ),
         child_seed=3030,
     )
-    child_snapshot = pipeline.admit_child(child_world, tmp_path / "child-render", split="eval", build_config=OFFLINE_BUILD_CONFIG)
+    child_snapshot = pipeline.admit_child(
+        child_world,
+        tmp_path / "child-render",
+        split="eval",
+        build_config=OFFLINE_BUILD_CONFIG,
+    )
 
     assert child_snapshot.parent_world_id == parent_world.world_id
     assert child_snapshot.validator_report.admitted is True
     assert len(store.list(split="train")) == 1
     assert len(store.list(split="eval")) == 1
-    assert store.sample(split="eval", strategy="latest").snapshot_id == child_snapshot.snapshot_id
+    assert (
+        store.sample(split="eval", strategy="latest").snapshot_id
+        == child_snapshot.snapshot_id
+    )
 
 
 def test_propose_mutations_loads_best_parent_from_store(tmp_path: Path):
@@ -179,7 +199,10 @@ def test_mutation_added_weakness_carries_target_metadata():
         child_seed=4040,
     )
 
-    assert any(weak.target_kind in {"service", "workflow", "asset", "telemetry"} for weak in child.weaknesses)
+    assert any(
+        weak.target_kind in {"service", "workflow", "asset", "telemetry"}
+        for weak in child.weaknesses
+    )
     assert all(weak.target_ref for weak in child.weaknesses)
 
 
@@ -203,7 +226,9 @@ def test_mutation_can_persistently_patch_parent_weakness_and_replace_it():
         child_seed=5050,
     )
 
-    assert any(token.startswith("patch_weakness") for token in child.lineage.mutation_ops)
+    assert any(
+        token.startswith("patch_weakness") for token in child.lineage.mutation_ops
+    )
     assert parent_ids - {weak.id for weak in child.weaknesses}
     assert child.weaknesses
 
@@ -227,6 +252,15 @@ def test_mutation_can_harden_direct_route_and_expose_alternate_one():
         child_seed=6060,
     )
 
-    assert any(token.startswith("harden_route_expose_alternate") for token in child.lineage.mutation_ops)
-    assert not any(edge.source == "svc-web" and edge.target == "svc-fileshare" for edge in child.network_edges)
-    assert any(edge.source == "svc-email" and edge.target.startswith("svc-fileshare") for edge in child.network_edges)
+    assert any(
+        token.startswith("harden_route_expose_alternate")
+        for token in child.lineage.mutation_ops
+    )
+    assert not any(
+        edge.source == "svc-web" and edge.target == "svc-fileshare"
+        for edge in child.network_edges
+    )
+    assert any(
+        edge.source == "svc-email" and edge.target.startswith("svc-fileshare")
+        for edge in child.network_edges
+    )

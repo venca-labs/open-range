@@ -13,7 +13,9 @@ from open_range.snapshot import RuntimeSnapshot
 
 
 class GreenScheduler(Protocol):
-    def reset(self, snapshot: RuntimeSnapshot, episode_config: EpisodeConfig) -> None: ...
+    def reset(
+        self, snapshot: RuntimeSnapshot, episode_config: EpisodeConfig
+    ) -> None: ...
     def advance_until(self, sim_time: float) -> None: ...
     def pop_ready_actions(self) -> tuple[Action, ...]: ...
     def record_event(self, event: RuntimeEvent) -> None: ...
@@ -63,7 +65,10 @@ class ScriptedGreenScheduler:
             or not event.malicious
         ):
             return
-        personas = sorted(self._snapshot.world.green_personas, key=lambda persona: (-persona.awareness, persona.id))
+        personas = sorted(
+            self._snapshot.world.green_personas,
+            key=lambda persona: (-persona.awareness, persona.id),
+        )
         if not personas:
             return
         backend = self._episode_config.green_branch_backend
@@ -97,13 +102,23 @@ class ScriptedGreenScheduler:
 
         rng = random.Random(self._seed + slot)
         personas.sort(key=lambda persona: persona.id)
-        max_parallel = min(self._parallel_budget(workload.max_parallel_actions), len(personas))
-        chosen = personas if max_parallel == len(personas) else rng.sample(personas, k=max_parallel)
+        max_parallel = min(
+            self._parallel_budget(workload.max_parallel_actions), len(personas)
+        )
+        chosen = (
+            personas
+            if max_parallel == len(personas)
+            else rng.sample(personas, k=max_parallel)
+        )
         chosen.sort(key=lambda persona: persona.id)
 
         actions = []
         for persona in chosen:
-            routine = persona.routine[slot % len(persona.routine)] if persona.routine else "browse_app"
+            routine = (
+                persona.routine[slot % len(persona.routine)]
+                if persona.routine
+                else "browse_app"
+            )
             service = _routine_service(routine)
             kind = "mail" if "mail" in routine else "api"
             actions.append(
@@ -158,13 +173,21 @@ class ScriptedGreenScheduler:
             return base_budget + 1
         return base_budget
 
-    def _schedule_scripted_reaction(self, event: RuntimeEvent, personas: list[Any], slot: int) -> None:
+    def _schedule_scripted_reaction(
+        self, event: RuntimeEvent, personas: list[Any], slot: int
+    ) -> None:
         reporter = personas[0]
-        self._reactive_queue[slot].append(self._report_action(reporter.id, event.target_entity, event.event_type))
+        self._reactive_queue[slot].append(
+            self._report_action(reporter.id, event.target_entity, event.event_type)
+        )
         if event.event_type in {"CredentialObtained", "UnauthorizedCredentialUse"}:
-            self._reactive_queue[slot].append(self._recover_action(reporter.id, event.target_entity))
+            self._reactive_queue[slot].append(
+                self._recover_action(reporter.id, event.target_entity)
+            )
 
-    def _schedule_small_llm_reaction(self, event: RuntimeEvent, personas: list[Any], slot: int) -> None:
+    def _schedule_small_llm_reaction(
+        self, event: RuntimeEvent, personas: list[Any], slot: int
+    ) -> None:
         reporter = max(
             personas,
             key=lambda persona: (
@@ -175,17 +198,25 @@ class ScriptedGreenScheduler:
         delay = 2 if event.event_type == "InitialAccess" else 1
         llm_slot = slot + delay - 1
         self._reactive_queue[llm_slot].append(
-            self._report_action(reporter.id, event.target_entity, event.event_type, depth=40)
+            self._report_action(
+                reporter.id, event.target_entity, event.event_type, depth=40
+            )
         )
-        if (
-            event.event_type in {"CredentialObtained", "UnauthorizedCredentialUse"}
-            and reporter.awareness >= (reporter.susceptibility * 0.8)
-        ):
-            self._reactive_queue[llm_slot].append(self._recover_action(reporter.id, event.target_entity))
+        if event.event_type in {
+            "CredentialObtained",
+            "UnauthorizedCredentialUse",
+        } and reporter.awareness >= (reporter.susceptibility * 0.8):
+            self._reactive_queue[llm_slot].append(
+                self._recover_action(reporter.id, event.target_entity)
+            )
 
-    def _schedule_workflow_orchestrator_reaction(self, event: RuntimeEvent, personas: list[Any], slot: int) -> None:
+    def _schedule_workflow_orchestrator_reaction(
+        self, event: RuntimeEvent, personas: list[Any], slot: int
+    ) -> None:
         reporter = personas[0]
-        self._reactive_queue[slot].append(self._report_action(reporter.id, event.target_entity, event.event_type))
+        self._reactive_queue[slot].append(
+            self._report_action(reporter.id, event.target_entity, event.event_type)
+        )
         self._reactive_queue[slot].append(
             Action(
                 actor_id=reporter.id,
@@ -200,11 +231,19 @@ class ScriptedGreenScheduler:
                 },
             )
         )
-        if event.event_type in {"CredentialObtained", "UnauthorizedCredentialUse", "InitialAccess"}:
-            self._reactive_queue[slot].append(self._recover_action(reporter.id, event.target_entity))
+        if event.event_type in {
+            "CredentialObtained",
+            "UnauthorizedCredentialUse",
+            "InitialAccess",
+        }:
+            self._reactive_queue[slot].append(
+                self._recover_action(reporter.id, event.target_entity)
+            )
 
     @staticmethod
-    def _report_action(actor_id: str, target: str, event_type: str, *, depth: int = 20) -> Action:
+    def _report_action(
+        actor_id: str, target: str, event_type: str, *, depth: int = 20
+    ) -> Action:
         return Action(
             actor_id=actor_id,
             role="green",

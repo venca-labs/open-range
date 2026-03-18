@@ -16,7 +16,9 @@ def _manifest_payload() -> dict:
 
 def _write_manifest(tmp_path: Path) -> Path:
     manifest_path = tmp_path / "manifest.yaml"
-    manifest_path.write_text(yaml.safe_dump(_manifest_payload(), sort_keys=False), encoding="utf-8")
+    manifest_path.write_text(
+        yaml.safe_dump(_manifest_payload(), sort_keys=False), encoding="utf-8"
+    )
     return manifest_path
 
 
@@ -24,7 +26,9 @@ def test_build_command_writes_candidate_world(tmp_path: Path):
     manifest_path = _write_manifest(tmp_path)
     output_dir = tmp_path / "rendered"
 
-    result = CliRunner().invoke(cli, ["build", "--manifest", str(manifest_path), "--output", str(output_dir)])
+    result = CliRunner().invoke(
+        cli, ["build", "--manifest", str(manifest_path), "--output", str(output_dir)]
+    )
 
     assert result.exit_code == 0, result.output
     world_path = output_dir / "candidate-world.json"
@@ -59,7 +63,9 @@ def test_admit_command_persists_snapshot(tmp_path: Path):
     assert result.exit_code == 0, result.output
     snapshot_dirs = [path for path in store_dir.iterdir() if path.is_dir()]
     assert len(snapshot_dirs) == 1
-    metadata = json.loads((snapshot_dirs[0] / "metadata.json").read_text(encoding="utf-8"))
+    metadata = json.loads(
+        (snapshot_dirs[0] / "metadata.json").read_text(encoding="utf-8")
+    )
     assert metadata["split"] == "eval"
     assert "Admitted snapshot written to" in result.output
 

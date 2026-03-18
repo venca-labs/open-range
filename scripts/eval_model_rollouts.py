@@ -29,6 +29,7 @@ from open_range.runtime import ReferenceDrivenRuntime
 from open_range.snapshot import RuntimeSnapshot
 from open_range.store import FileSnapshotStore
 from open_range.training_data import (
+    TraceCandidate,
     TraceLineage,
     build_decision_prompt,
     render_candidate_completion,
@@ -60,10 +61,14 @@ def _load_manifest(source: str | Path | None) -> dict[str, Any]:
 def teacher_pick_rate(picks: list[dict[str, Any]]) -> float:
     if not picks:
         return 0.0
-    return sum(1 for pick in picks if pick.get("chosen_label") == "teacher") / len(picks)
+    return sum(1 for pick in picks if pick.get("chosen_label") == "teacher") / len(
+        picks
+    )
 
 
-def build_prompt(snapshot: RuntimeSnapshot, observation, candidates, decision_index: int) -> str:
+def build_prompt(
+    snapshot: RuntimeSnapshot, observation, candidates, decision_index: int
+) -> str:
     return (
         "<system>\n"
         "You are the red operator in OpenRange. "
@@ -97,7 +102,9 @@ def build_prompt(snapshot: RuntimeSnapshot, observation, candidates, decision_in
     )
 
 
-def red_candidates(runtime: ReferenceDrivenRuntime, snapshot: RuntimeSnapshot, observation):
+def red_candidates(
+    runtime: ReferenceDrivenRuntime, snapshot: RuntimeSnapshot, observation
+):
     expected = runtime.reference_step("red")
     return candidate_actions(
         snapshot,
@@ -108,14 +115,18 @@ def red_candidates(runtime: ReferenceDrivenRuntime, snapshot: RuntimeSnapshot, o
     )
 
 
-def score_candidates(model: Any, tokenizer: Any, prompt: str, candidates) -> list[tuple[object, float]]:
+def score_candidates(
+    model: Any, tokenizer: Any, prompt: str, candidates
+) -> list[tuple[TraceCandidate, float]]:
     import torch
 
     prompt_ids = tokenizer(prompt, return_tensors="pt").input_ids.to(model.device)
     scored: list[tuple[TraceCandidate, float]] = []
     for candidate in candidates:
         completion = render_candidate_completion(candidate)
-        full_ids = tokenizer(prompt + completion, return_tensors="pt").input_ids.to(model.device)
+        full_ids = tokenizer(prompt + completion, return_tensors="pt").input_ids.to(
+            model.device
+        )
         labels = full_ids.clone()
         labels[:, : prompt_ids.shape[1]] = -100
         with torch.no_grad():
@@ -142,8 +153,10 @@ def evaluate_model_rollouts(
     tokenizer = AutoTokenizer.from_pretrained(str(adapter), use_fast=True)
     if tokenizer.pad_token is None:
         tokenizer.pad_token = tokenizer.eos_token
-    dtype = torch.bfloat16 if torch.cuda.is_available() and torch.cuda.is_bf16_supported() else (
-        torch.float16 if torch.cuda.is_available() else torch.float32
+    dtype = (
+        torch.bfloat16
+        if torch.cuda.is_available() and torch.cuda.is_bf16_supported()
+        else (torch.float16 if torch.cuda.is_available() else torch.float32)
     )
     base = AutoModelForCausalLM.from_pretrained(
         base_model,
@@ -165,7 +178,7 @@ def evaluate_model_rollouts(
             pipeline.admit(
                 pipeline.build(payload, root / "rendered-base", OFFLINE_BUILD_CONFIG),
                 split="train",
-            )
+            ),
         )
         snapshots.append(current)
         for idx in range(1, mutations + 1):
@@ -181,7 +194,9 @@ def evaluate_model_rollouts(
                 novelty=min(0.5 + idx * 0.1, 1.0),
                 blue_signal_points=current.validator_report.blue_signal_points,
             )
-            child_world = mutation_policy.mutate(current.world, parent_stats=parent_stats)
+            child_world = mutation_policy.mutate(
+                current.world, parent_stats=parent_stats
+            )
             current = hydrate_runtime_snapshot(
                 store,
                 pipeline.admit_child(
@@ -189,7 +204,7 @@ def evaluate_model_rollouts(
                     root / f"rendered-child-{idx}",
                     split="eval",
                     build_config=OFFLINE_BUILD_CONFIG,
-                )
+                ),
             )
             snapshots.append(current)
 
@@ -201,12 +216,18 @@ def evaluate_model_rollouts(
 
         for snapshot in snapshots:
             pair_reports: list[dict[str, Any]] = []
-            for attack_trace_index in range(max(1, len(snapshot.reference_bundle.reference_attack_traces))):
+            for attack_trace_index in range(
+                max(1, len(snapshot.reference_bundle.reference_attack_traces))
+            ):
                 total_pairs += 1
                 runtime = ReferenceDrivenRuntime()
                 runtime.reset(
                     snapshot,
-                    EpisodeConfig(mode="red_only", scheduler_mode="strict_turns", opponent_blue="scripted"),
+                    EpisodeConfig(
+                        mode="red_only",
+                        scheduler_mode="strict_turns",
+                        opponent_blue="scripted",
+                    ),
                     reference_attack_index=attack_trace_index,
                 )
                 picks: list[dict[str, Any]] = []
@@ -239,7 +260,10 @@ def evaluate_model_rollouts(
                             "chosen_label": chosen.label,
                             "chosen_text": chosen.text,
                             "chosen_loss": loss,
-                            "candidates": [{"label": cand.label, "loss": cand_loss} for cand, cand_loss in ranked],
+                            "candidates": [
+                                {"label": cand.label, "loss": cand_loss}
+                                for cand, cand_loss in ranked
+                            ],
                         }
                     )
 
@@ -253,7 +277,8 @@ def evaluate_model_rollouts(
                         "done": score.done,
                         "truncated": truncated,
                         "winner": score.winner,
-                        "terminal_reason": score.terminal_reason or ("max_turns_reached" if truncated else ""),
+                        "terminal_reason": score.terminal_reason
+                        or ("max_turns_reached" if truncated else ""),
                         "red_reward": score.red_reward,
                         "blue_reward": score.blue_reward,
                         "turns": turns,
@@ -265,15 +290,30 @@ def evaluate_model_rollouts(
                 {
                     "snapshot_id": snapshot.snapshot_id,
                     "world_id": snapshot.world.world_id,
-                    "red_win_rate": sum(1 for report in pair_reports if report["winner"] == "red") / len(pair_reports) if pair_reports else 0.0,
-                    "exact_pick_rate": sum(report["exact_pick_rate"] for report in pair_reports) / len(pair_reports) if pair_reports else 0.0,
+                    "red_win_rate": sum(
+                        1 for report in pair_reports if report["winner"] == "red"
+                    )
+                    / len(pair_reports)
+                    if pair_reports
+                    else 0.0,
+                    "exact_pick_rate": sum(
+                        report["exact_pick_rate"] for report in pair_reports
+                    )
+                    / len(pair_reports)
+                    if pair_reports
+                    else 0.0,
                     "pairs": pair_reports,
-                    "weaknesses": [f"{weak.family}:{weak.kind}@{weak.target}" for weak in snapshot.world.weaknesses],
+                    "weaknesses": [
+                        f"{weak.family}:{weak.kind}@{weak.target}"
+                        for weak in snapshot.world.weaknesses
+                    ],
                 }
             )
 
         result = {
-            "manifest_source": str(manifest) if manifest is not None else _default_manifest_name(),
+            "manifest_source": str(manifest)
+            if manifest is not None
+            else _default_manifest_name(),
             "adapter": str(adapter),
             "base_model": base_model,
             "snapshot_count": len(reports),
@@ -290,10 +330,20 @@ def evaluate_model_rollouts(
 
 
 def parse_args() -> argparse.Namespace:
-    parser = argparse.ArgumentParser(description="Run a bounded model-in-the-loop OpenRange rollout probe.")
-    parser.add_argument("--adapter", default=DEFAULT_ADAPTER, help="Path to a saved LoRA adapter.")
-    parser.add_argument("--base-model", default=DEFAULT_BASE_MODEL, help="Base model id or local path.")
-    parser.add_argument("--manifest", default=None, help="Bundled manifest name or path to strict manifest YAML.")
+    parser = argparse.ArgumentParser(
+        description="Run a bounded model-in-the-loop OpenRange rollout probe."
+    )
+    parser.add_argument(
+        "--adapter", default=DEFAULT_ADAPTER, help="Path to a saved LoRA adapter."
+    )
+    parser.add_argument(
+        "--base-model", default=DEFAULT_BASE_MODEL, help="Base model id or local path."
+    )
+    parser.add_argument(
+        "--manifest",
+        default=None,
+        help="Bundled manifest name or path to strict manifest YAML.",
+    )
     parser.add_argument("--mutations", type=int, default=3)
     parser.add_argument("--max-turns", type=int, default=8)
     parser.add_argument("--out", default="/tmp/openrange-model-rollout.json")

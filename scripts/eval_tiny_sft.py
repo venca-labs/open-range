@@ -40,33 +40,64 @@ def _assistant_prefix(example: dict[str, Any]) -> str:
 
 
 def parse_args() -> argparse.Namespace:
-    parser = argparse.ArgumentParser(description="Evaluate a tiny OpenRange LoRA adapter.")
-    parser.add_argument("--data", default=None, help="Path to JSONL chat data. If omitted, generate branch-native decision traces.")
-    parser.add_argument("--base-model", default=DEFAULT_MODEL, help="Base model id or local path.")
-    parser.add_argument("--adapter", required=True, help="Path to a saved LoRA adapter directory.")
+    parser = argparse.ArgumentParser(
+        description="Evaluate a tiny OpenRange LoRA adapter."
+    )
+    parser.add_argument(
+        "--data",
+        default=None,
+        help="Path to JSONL chat data. If omitted, generate branch-native decision traces.",
+    )
+    parser.add_argument(
+        "--base-model", default=DEFAULT_MODEL, help="Base model id or local path."
+    )
+    parser.add_argument(
+        "--adapter", required=True, help="Path to a saved LoRA adapter directory."
+    )
     parser.add_argument("--seed", type=int, default=7)
     parser.add_argument("--max-samples", type=int, default=96)
     parser.add_argument("--eval-ratio", type=float, default=0.2)
     parser.add_argument("--min-eval-samples", type=int, default=8)
-    parser.add_argument("--roles", default="red", help="Comma-separated role filter for branch-native datasets.")
-    parser.add_argument("--modes", default="", help="Optional comma-separated runtime-mode filter.")
-    parser.add_argument("--trace-sources", default="runtime", help="Comma-separated trace-source filter.")
+    parser.add_argument(
+        "--roles",
+        default="red",
+        help="Comma-separated role filter for branch-native datasets.",
+    )
+    parser.add_argument(
+        "--modes", default="", help="Optional comma-separated runtime-mode filter."
+    )
+    parser.add_argument(
+        "--trace-sources",
+        default="runtime",
+        help="Comma-separated trace-source filter.",
+    )
     parser.add_argument("--max-length", type=int, default=2048)
     parser.add_argument("--max-new-tokens", type=int, default=96)
-    parser.add_argument("--out", default="/tmp/openrange-sft-eval.json", help="Where to write eval metrics.")
+    parser.add_argument(
+        "--out",
+        default="/tmp/openrange-sft-eval.json",
+        help="Where to write eval metrics.",
+    )
     return parser.parse_args()
 
 
 def main() -> None:
     import torch
     from peft import PeftModel
-    from transformers import AutoModelForCausalLM, AutoTokenizer, Trainer, TrainingArguments
+    from transformers import (
+        AutoModelForCausalLM,
+        AutoTokenizer,
+        Trainer,
+        TrainingArguments,
+    )
 
     args = parse_args()
     random.seed(args.seed)
     torch.manual_seed(args.seed)
 
-    rows = load_examples(resolve_data_path(args.data, seed=args.seed), limit=None, seed=args.seed)
+    rows = load_examples(
+        resolve_data_path(args.data, seed=args.seed), limit=None, seed=args.seed
+    )
     rows = filter_examples(
         rows,
         roles=parse_filter(args.roles),
@@ -135,7 +166,9 @@ def main() -> None:
             do_sample=False,
             pad_token_id=tokenizer.pad_token_id,
         )
-        generated = tokenizer.decode(output[0][inputs["input_ids"].shape[1] :], skip_special_tokens=True)
+        generated = tokenizer.decode(
+            output[0][inputs["input_ids"].shape[1] :], skip_special_tokens=True
+        )
         if "<tool_call>" in generated or generated.strip():
             formatted += 1
         previews.append(

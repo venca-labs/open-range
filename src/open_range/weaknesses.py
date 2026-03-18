@@ -7,7 +7,11 @@ import shlex
 from typing import Protocol
 
 from open_range.code_web import code_web_realizations, code_web_remediation_command
-from open_range.manifest import PinnedWeaknessSpec, WEAKNESS_KIND_CATALOG, WeaknessFamily
+from open_range.manifest import (
+    PinnedWeaknessSpec,
+    WEAKNESS_KIND_CATALOG,
+    WeaknessFamily,
+)
 from open_range.objectives import weakness_objective_tags
 from open_range.world_ir import WeaknessRealizationSpec, WeaknessSpec, WorldIR
 
@@ -22,7 +26,9 @@ class CatalogWeaknessSeeder:
     def apply(self, world: WorldIR, seed: int | None = None) -> WorldIR:
         rng = random.Random(world.seed if seed is None else seed)
         if world.pinned_weaknesses:
-            weaknesses = tuple(self._seed_pinned(world, pinned) for pinned in world.pinned_weaknesses)
+            weaknesses = tuple(
+                self._seed_pinned(world, pinned) for pinned in world.pinned_weaknesses
+            )
         else:
             available = sorted(self._available_families(world))
             if not available:
@@ -34,14 +40,17 @@ class CatalogWeaknessSeeder:
                 selected_families.append("code_web")
                 remaining.remove("code_web")
             if len(selected_families) < weakness_count:
-                selected_families.extend(sorted(rng.sample(remaining, k=weakness_count - len(selected_families))))
+                selected_families.extend(
+                    sorted(
+                        rng.sample(remaining, k=weakness_count - len(selected_families))
+                    )
+                )
             selected = tuple(selected_families)
             weaknesses = tuple(self._seed_family(world, family) for family in selected)
         lineage = world.lineage.model_copy(
             update={
-                "mutation_ops": tuple(world.lineage.mutation_ops) + tuple(
-                    f"seed:{weak.family}:{weak.target}" for weak in weaknesses
-                )
+                "mutation_ops": tuple(world.lineage.mutation_ops)
+                + tuple(f"seed:{weak.family}:{weak.target}" for weak in weaknesses)
             }
         )
         return world.model_copy(update={"weaknesses": weaknesses, "lineage": lineage})
@@ -83,9 +92,17 @@ class CatalogWeaknessSeeder:
             target = "svc-web"
             target_ref = world.workflows[0].id if world.workflows else "wf-generic"
         elif family == "secret_exposure":
-            target = "svc-fileshare" if any(service.id == "svc-fileshare" for service in world.services) else "svc-idp"
+            target = (
+                "svc-fileshare"
+                if any(service.id == "svc-fileshare" for service in world.services)
+                else "svc-idp"
+            )
             sensitive_asset = next(
-                (asset.id for asset in world.assets if asset.asset_class == "sensitive"),
+                (
+                    asset.id
+                    for asset in world.assets
+                    if asset.asset_class == "sensitive"
+                ),
                 world.assets[0].id if world.assets else target,
             )
             target_ref = sensitive_asset
@@ -93,7 +110,11 @@ class CatalogWeaknessSeeder:
             target = "svc-idp"
             target_ref = "svc-idp"
         else:
-            target = "svc-email" if any(service.id == "svc-email" for service in world.services) else "svc-web"
+            target = (
+                "svc-email"
+                if any(service.id == "svc-email" for service in world.services)
+                else "svc-web"
+            )
             target_ref = target
         return CatalogWeaknessSeeder._build_weakness(
             world,
@@ -140,7 +161,9 @@ def build_catalog_weakness(
 ) -> WeaknessSpec:
     if kind not in WEAKNESS_KIND_CATALOG[family]:
         raise ValueError(f"unsupported kind {kind!r} for family {family!r}")
-    target, target_kind, target_ref = _normalize_target_for_kind(world, family, kind, target, target_kind, target_ref)
+    target, target_kind, target_ref = _normalize_target_for_kind(
+        world, family, kind, target, target_kind, target_ref
+    )
     weak_id = weakness_id or _weakness_id(family, kind, target, target_ref)
     if family == "code_web":
         base = WeaknessSpec(
@@ -171,7 +194,9 @@ def build_catalog_weakness(
             ),
             instantiation_mode="exact_code",
         )
-        return base.model_copy(update={"realization": code_web_realizations(world, base)})
+        return base.model_copy(
+            update={"realization": code_web_realizations(world, base)}
+        )
     if family == "workflow_abuse":
         realizations = _workflow_realizations(world, kind, target, target_ref)
         return WeaknessSpec(
@@ -211,7 +236,9 @@ def build_catalog_weakness(
             remediation=_remediation_text(kind),
             remediation_id=f"remediate-{kind}",
             remediation_kind="shell",
-            remediation_command=_secret_exposure_remediation_command(kind, realizations),
+            remediation_command=_secret_exposure_remediation_command(
+                kind, realizations
+            ),
             instantiation_mode="exact_config",
         )
     if family == "config_identity":
@@ -232,7 +259,9 @@ def build_catalog_weakness(
             remediation=_remediation_text(kind),
             remediation_id=f"remediate-{kind}",
             remediation_kind="shell",
-            remediation_command=_config_identity_remediation_command(kind, realizations),
+            remediation_command=_config_identity_remediation_command(
+                kind, realizations
+            ),
             instantiation_mode="exact_config",
         )
     realizations = _telemetry_realizations(kind, target)
@@ -267,14 +296,22 @@ def _default_target_kind(family: WeaknessFamily) -> str:
     return "service"
 
 
-def _default_kind(world: WorldIR, family: WeaknessFamily, target: str, target_ref: str) -> str:
+def _default_kind(
+    world: WorldIR, family: WeaknessFamily, target: str, target_ref: str
+) -> str:
     del target_ref
     if family == "code_web":
-        return world.allowed_code_flaw_kinds[0] if world.allowed_code_flaw_kinds else "sql_injection"
+        return (
+            world.allowed_code_flaw_kinds[0]
+            if world.allowed_code_flaw_kinds
+            else "sql_injection"
+        )
     if family == "config_identity":
         if any(user.role == "it_admin" for user in world.users):
             return "weak_password"
-        return "admin_surface_exposed" if target == "svc-idp" else "trust_edge_misconfig"
+        return (
+            "admin_surface_exposed" if target == "svc-idp" else "trust_edge_misconfig"
+        )
     if family == "secret_exposure":
         if target == "svc-email":
             return "token_in_email"
@@ -304,7 +341,10 @@ def _resolve_pinned_target(world: WorldIR, pinned_target: str) -> tuple[str, str
     if target_kind == "service":
         if any(service.id == target_value for service in world.services):
             return target_value, target_kind, target_value
-        match = next((service.id for service in world.services if service.kind == target_value), None)
+        match = next(
+            (service.id for service in world.services if service.kind == target_value),
+            None,
+        )
         if match:
             return match, target_kind, match
         raise ValueError(f"unknown pinned service target: {target_value}")
@@ -321,10 +361,14 @@ def _resolve_pinned_target(world: WorldIR, pinned_target: str) -> tuple[str, str
         )
         if workflow is None:
             raise ValueError(f"unknown pinned workflow target: {target_value}")
-        target = next((step.service for step in workflow.steps if step.service), "svc-web")
+        target = next(
+            (step.service for step in workflow.steps if step.service), "svc-web"
+        )
         return target, target_kind, workflow.id
     if target_kind == "asset":
-        asset = next((asset for asset in world.assets if asset.id == target_value), None)
+        asset = next(
+            (asset for asset in world.assets if asset.id == target_value), None
+        )
         if asset is None:
             raise ValueError(f"unknown pinned asset target: {target_value}")
         return asset.owner_service, target_kind, asset.id
@@ -342,7 +386,14 @@ def _resolve_pinned_target(world: WorldIR, pinned_target: str) -> tuple[str, str
         service = credential.scope[0] if credential.scope else "svc-idp"
         return service, target_kind, credential.id
     if target_kind == "telemetry":
-        service = next((edge.source for edge in world.telemetry_edges if edge.source == target_value), None)
+        service = next(
+            (
+                edge.source
+                for edge in world.telemetry_edges
+                if edge.source == target_value
+            ),
+            None,
+        )
         if service is None:
             raise ValueError(f"unknown pinned telemetry target: {target_value}")
         return service, target_kind, service
@@ -361,35 +412,54 @@ def _normalize_target_for_kind(
     if family == "secret_exposure":
         if kind == "token_in_email" and "svc-email" in service_ids:
             return "svc-email", target_kind, target_ref
-        if kind in {"env_file_leak", "hardcoded_app_secret"} and "svc-web" in service_ids:
+        if (
+            kind in {"env_file_leak", "hardcoded_app_secret"}
+            and "svc-web" in service_ids
+        ):
             return "svc-web", target_kind, target_ref
-        if kind in {"credential_in_share", "backup_leak"} and "svc-fileshare" in service_ids:
+        if (
+            kind in {"credential_in_share", "backup_leak"}
+            and "svc-fileshare" in service_ids
+        ):
             return "svc-fileshare", target_kind, target_ref
     if family == "workflow_abuse":
-        if kind in {"phishing_credential_capture", "internal_request_impersonation"} and "svc-email" in service_ids:
+        if (
+            kind in {"phishing_credential_capture", "internal_request_impersonation"}
+            and "svc-email" in service_ids
+        ):
             return "svc-email", target_kind, target_ref
         if kind == "document_share_abuse" and "svc-fileshare" in service_ids:
             return "svc-fileshare", target_kind, target_ref
-        if kind in {"helpdesk_reset_bypass", "approval_chain_bypass"} and "svc-web" in service_ids:
+        if (
+            kind in {"helpdesk_reset_bypass", "approval_chain_bypass"}
+            and "svc-web" in service_ids
+        ):
             return "svc-web", target_kind, target_ref
     if family == "config_identity" and "svc-idp" in service_ids:
         return "svc-idp", target_kind, target_ref
     if family == "telemetry_blindspot":
         if kind == "missing_web_logs" and "svc-web" in service_ids:
             return "svc-web", "telemetry", "svc-web"
-        if kind in {"missing_idp_logs", "unmonitored_admin_action"} and "svc-idp" in service_ids:
+        if (
+            kind in {"missing_idp_logs", "unmonitored_admin_action"}
+            and "svc-idp" in service_ids
+        ):
             return "svc-idp", "telemetry", "svc-idp"
         if kind == "silent_mail_rule" and "svc-email" in service_ids:
             return "svc-email", "telemetry", "svc-email"
     return target, target_kind, target_ref
 
 
-def _weakness_id(family: WeaknessFamily, kind: str, target: str, target_ref: str) -> str:
+def _weakness_id(
+    family: WeaknessFamily, kind: str, target: str, target_ref: str
+) -> str:
     suffix = target_ref or target
     return f"wk-{kind.replace('_', '-')}-{suffix}"
 
 
-def _preconditions(family: WeaknessFamily, kind: str, target_ref: str) -> tuple[str, ...]:
+def _preconditions(
+    family: WeaknessFamily, kind: str, target_ref: str
+) -> tuple[str, ...]:
     if family == "code_web":
         return ("public_reachability", "user_input_surface", kind)
     if family == "config_identity":
@@ -418,7 +488,9 @@ def _expected_events(family: WeaknessFamily, kind: str) -> tuple[str, ...]:
 
 
 def _realization_summary(family: WeaknessFamily, kind: str) -> str:
-    return f"{family}::{kind} realized for deterministic admission and runtime validation"
+    return (
+        f"{family}::{kind} realized for deterministic admission and runtime validation"
+    )
 
 
 def _remediation_text(kind: str) -> str:
@@ -428,7 +500,10 @@ def _remediation_text(kind: str) -> str:
 def _workflow_surfaces(kind: str, target: str) -> tuple[str, ...]:
     if kind == "document_share_abuse" or target == "svc-fileshare":
         return ("share_access", "audit", "ingest")
-    if kind in {"phishing_credential_capture", "internal_request_impersonation"} or target == "svc-email":
+    if (
+        kind in {"phishing_credential_capture", "internal_request_impersonation"}
+        or target == "svc-email"
+    ):
         return ("smtp", "imap", "audit", "ingest")
     return ("web_access", "audit", "ingest")
 
@@ -502,7 +577,12 @@ def _secret_exposure_realizations(
     if kind == "env_file_leak":
         path = "/var/www/html/.env" if target == "svc-web" else "/etc/openrange/.env"
         return (
-            WeaknessRealizationSpec(kind="config", service=target, path=path, summary=_realization_summary("secret_exposure", kind)),
+            WeaknessRealizationSpec(
+                kind="config",
+                service=target,
+                path=path,
+                summary=_realization_summary("secret_exposure", kind),
+            ),
         )
     if kind == "credential_in_share":
         return (
@@ -520,7 +600,12 @@ def _secret_exposure_realizations(
             else f"/var/backups/openrange-{target_ref}.sql"
         )
         return (
-            WeaknessRealizationSpec(kind="seed_data", service=target, path=path, summary=_realization_summary("secret_exposure", kind)),
+            WeaknessRealizationSpec(
+                kind="seed_data",
+                service=target,
+                path=path,
+                summary=_realization_summary("secret_exposure", kind),
+            ),
         )
     if kind == "token_in_email":
         mailbox = _mailbox_for_ref(world, target_ref)
@@ -532,13 +617,24 @@ def _secret_exposure_realizations(
                 summary=_realization_summary("secret_exposure", kind),
             ),
         )
-    path = "/var/www/html/.openrange/app-secret.php" if target == "svc-web" else "/etc/openrange/app-secret.txt"
+    path = (
+        "/var/www/html/.openrange/app-secret.php"
+        if target == "svc-web"
+        else "/etc/openrange/app-secret.txt"
+    )
     return (
-        WeaknessRealizationSpec(kind="config", service=target, path=path, summary=_realization_summary("secret_exposure", kind)),
+        WeaknessRealizationSpec(
+            kind="config",
+            service=target,
+            path=path,
+            summary=_realization_summary("secret_exposure", kind),
+        ),
     )
 
 
-def _config_identity_realizations(kind: str, target: str) -> tuple[WeaknessRealizationSpec, ...]:
+def _config_identity_realizations(
+    kind: str, target: str
+) -> tuple[WeaknessRealizationSpec, ...]:
     filename = {
         "weak_password": "password-policy.json",
         "default_credential": "default-credential.json",
@@ -556,7 +652,9 @@ def _config_identity_realizations(kind: str, target: str) -> tuple[WeaknessReali
     )
 
 
-def _telemetry_realizations(kind: str, target: str) -> tuple[WeaknessRealizationSpec, ...]:
+def _telemetry_realizations(
+    kind: str, target: str
+) -> tuple[WeaknessRealizationSpec, ...]:
     return (
         WeaknessRealizationSpec(
             kind="telemetry",
@@ -567,7 +665,9 @@ def _telemetry_realizations(kind: str, target: str) -> tuple[WeaknessRealization
     )
 
 
-def _workflow_remediation_command(kind: str, realizations: tuple[WeaknessRealizationSpec, ...]) -> str:
+def _workflow_remediation_command(
+    kind: str, realizations: tuple[WeaknessRealizationSpec, ...]
+) -> str:
     payload = _workflow_remediation_payload(kind)
     commands = [
         _write_text_command(realization.path, payload)
@@ -576,32 +676,46 @@ def _workflow_remediation_command(kind: str, realizations: tuple[WeaknessRealiza
     ]
     for realization in realizations:
         if realization.kind == "mailbox":
-            commands.append(_write_text_command(realization.path, _mailbox_remediated_message(kind)))
+            commands.append(
+                _write_text_command(realization.path, _mailbox_remediated_message(kind))
+            )
     commands.append("touch /tmp/openrange-patched")
     return "\n".join(commands)
 
 
-def _secret_exposure_remediation_command(kind: str, realizations: tuple[WeaknessRealizationSpec, ...]) -> str:
+def _secret_exposure_remediation_command(
+    kind: str, realizations: tuple[WeaknessRealizationSpec, ...]
+) -> str:
     commands = []
     for realization in realizations:
         if realization.kind == "mailbox":
-            commands.append(_write_text_command(realization.path, _mailbox_remediated_message(kind)))
+            commands.append(
+                _write_text_command(realization.path, _mailbox_remediated_message(kind))
+            )
         else:
             commands.append(_write_text_command(realization.path, "access revoked\n"))
     commands.append("touch /tmp/openrange-patched")
     return "\n".join(commands)
 
 
-def _config_identity_remediation_command(kind: str, realizations: tuple[WeaknessRealizationSpec, ...]) -> str:
+def _config_identity_remediation_command(
+    kind: str, realizations: tuple[WeaknessRealizationSpec, ...]
+) -> str:
     payload = _config_identity_remediation_payload(kind)
-    commands = [_write_text_command(realization.path, payload) for realization in realizations]
+    commands = [
+        _write_text_command(realization.path, payload) for realization in realizations
+    ]
     commands.append("touch /tmp/openrange-patched")
     return "\n".join(commands)
 
 
-def _telemetry_remediation_command(kind: str, realizations: tuple[WeaknessRealizationSpec, ...]) -> str:
+def _telemetry_remediation_command(
+    kind: str, realizations: tuple[WeaknessRealizationSpec, ...]
+) -> str:
     payload = _telemetry_remediation_payload(kind)
-    commands = [_write_text_command(realization.path, payload) for realization in realizations]
+    commands = [
+        _write_text_command(realization.path, payload) for realization in realizations
+    ]
     commands.append("touch /tmp/openrange-patched")
     return "\n".join(commands)
 
@@ -656,21 +770,49 @@ def _mailbox_for_ref(world: WorldIR, target_ref: str) -> str:
     user = next((item for item in world.users if item.id == target_ref), None)
     if user is not None and user.email:
         return user.email
-    credential = next((item for item in world.credentials if item.id == target_ref or item.subject == target_ref), None)
+    credential = next(
+        (
+            item
+            for item in world.credentials
+            if item.id == target_ref or item.subject == target_ref
+        ),
+        None,
+    )
     if credential is not None:
-        subject = next((item for item in world.users if item.id == credential.subject), None)
+        subject = next(
+            (item for item in world.users if item.id == credential.subject), None
+        )
         if subject is not None and subject.email:
             return subject.email
-    workflow = next((item for item in world.workflows if item.id == target_ref or item.name == target_ref), None)
+    workflow = next(
+        (
+            item
+            for item in world.workflows
+            if item.id == target_ref or item.name == target_ref
+        ),
+        None,
+    )
     if workflow is not None:
         for step in workflow.steps:
-            subject = next((item for item in world.users if item.role == step.actor_role and item.email), None)
+            subject = next(
+                (
+                    item
+                    for item in world.users
+                    if item.role == step.actor_role and item.email
+                ),
+                None,
+            )
             if subject is not None:
                 return subject.email
-    fallback = next((item.email for item in world.users if item.email and item.role != "it_admin"), "")
+    fallback = next(
+        (item.email for item in world.users if item.email and item.role != "it_admin"),
+        "",
+    )
     if fallback:
         return fallback
-    return next((item.email for item in world.users if item.email), "openrange@corp.local")
+    return next(
+        (item.email for item in world.users if item.email), "openrange@corp.local"
+    )
 
 
 def _mailbox_slug(mailbox: str) -> str:

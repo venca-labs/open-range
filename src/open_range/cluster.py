@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import shutil
 import subprocess
@@ -65,7 +66,9 @@ class PodSet:
             stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout=timeout)
         except asyncio.TimeoutError:
             proc.kill()
-            return ExecResult(stdout="", stderr="<timeout>", exit_code=124, timed_out=True)
+            return ExecResult(
+                stdout="", stderr="<timeout>", exit_code=124, timed_out=True
+            )
         return ExecResult(
             stdout=(stdout or b"").decode(errors="replace"),
             stderr=(stderr or b"").decode(errors="replace"),
@@ -119,7 +122,9 @@ class PodSet:
         except asyncio.TimeoutError:
             proc.kill()
 
-    async def scale(self, service: str, replicas: int, timeout: float = 30.0) -> ExecResult:
+    async def scale(
+        self, service: str, replicas: int, timeout: float = 30.0
+    ) -> ExecResult:
         namespace, _pod = self._resolve(service)
         proc = await asyncio.create_subprocess_exec(
             *self.kubectl_cmd,
@@ -136,7 +141,9 @@ class PodSet:
             stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout=timeout)
         except asyncio.TimeoutError:
             proc.kill()
-            return ExecResult(stdout="", stderr="<timeout>", exit_code=124, timed_out=True)
+            return ExecResult(
+                stdout="", stderr="<timeout>", exit_code=124, timed_out=True
+            )
         result = ExecResult(
             stdout=(stdout or b"").decode(errors="replace"),
             stderr=(stderr or b"").decode(errors="replace"),
@@ -157,7 +164,9 @@ class PodSet:
             stderr=asyncio.subprocess.PIPE,
         )
         try:
-            rollout_stdout, rollout_stderr = await asyncio.wait_for(rollout.communicate(), timeout=timeout)
+            rollout_stdout, rollout_stderr = await asyncio.wait_for(
+                rollout.communicate(), timeout=timeout
+            )
         except asyncio.TimeoutError:
             rollout.kill()
             return ExecResult(
@@ -167,8 +176,18 @@ class PodSet:
                 timed_out=True,
             )
         return ExecResult(
-            stdout="\n".join(filter(None, [result.stdout, (rollout_stdout or b'').decode(errors='replace')])).strip(),
-            stderr="\n".join(filter(None, [result.stderr, (rollout_stderr or b'').decode(errors='replace')])).strip(),
+            stdout="\n".join(
+                filter(
+                    None,
+                    [result.stdout, (rollout_stdout or b"").decode(errors="replace")],
+                )
+            ).strip(),
+            stderr="\n".join(
+                filter(
+                    None,
+                    [result.stderr, (rollout_stderr or b"").decode(errors="replace")],
+                )
+            ).strip(),
             exit_code=rollout.returncode or result.exit_code,
         )
 
@@ -247,7 +266,9 @@ class KindBackend:
         self._helm_install(release_name, chart_dir)
         pod_map = self._discover_pods(release_name)
         if not pod_map:
-            raise RuntimeError(f"installed release {release_name} but discovered no pods")
+            raise RuntimeError(
+                f"installed release {release_name} but discovered no pods"
+            )
         release = BootedRelease(
             release_name=release_name,
             chart_dir=chart_dir,
@@ -284,7 +305,9 @@ class KindBackend:
             pending = still_pending
             time.sleep(self.health_poll_interval_s)
         if pending:
-            raise RuntimeError("timed out waiting for healthy services: " + ", ".join(pending))
+            raise RuntimeError(
+                "timed out waiting for healthy services: " + ", ".join(pending)
+            )
 
     def prepare_images(self, chart_dir: Path) -> None:
         for image in self._chart_images(chart_dir):
@@ -292,7 +315,9 @@ class KindBackend:
 
     @staticmethod
     def release_name_for(snapshot_id: str) -> str:
-        safe = "".join(ch.lower() if ch.isalnum() else "-" for ch in snapshot_id).strip("-")
+        safe = "".join(ch.lower() if ch.isalnum() else "-" for ch in snapshot_id).strip(
+            "-"
+        )
         return f"or-{safe}"[:53]
 
     def _helm_install(self, release_name: str, chart_dir: Path) -> None:
@@ -362,7 +387,9 @@ class KindBackend:
         if not image:
             return
         if not self._docker_image_present(image):
-            self._run(["docker", "pull", image], timeout=max(self.install_timeout_s, 300.0))
+            self._run(
+                ["docker", "pull", image], timeout=max(self.install_timeout_s, 300.0)
+            )
         self._run(
             ["kind", "load", "docker-image", image, "--name", self.kind_cluster],
             timeout=max(self.install_timeout_s, 300.0),
@@ -379,7 +406,9 @@ class KindBackend:
         return result.returncode == 0
 
     @staticmethod
-    def _run(args: list[str] | tuple[str, ...], *, timeout: float) -> subprocess.CompletedProcess[str]:
+    def _run(
+        args: list[str] | tuple[str, ...], *, timeout: float
+    ) -> subprocess.CompletedProcess[str]:
         result = subprocess.run(
             list(args),
             capture_output=True,
@@ -389,5 +418,7 @@ class KindBackend:
         )
         if result.returncode != 0:
             detail = result.stderr.strip() or result.stdout.strip() or "unknown failure"
-            raise RuntimeError(f"{' '.join(args)} failed with exit code {result.returncode}: {detail}")
+            raise RuntimeError(
+                f"{' '.join(args)} failed with exit code {result.returncode}: {detail}"
+            )
         return result

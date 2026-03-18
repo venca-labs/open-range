@@ -8,12 +8,14 @@ from typing import Any
 from open_range.runtime_types import Action
 
 
-_RED_MILESTONES = frozenset({
-    "InitialAccess",
-    "CredentialObtained",
-    "CrossZoneTraversal",
-    "SensitiveAssetRead",
-})
+_RED_MILESTONES = frozenset(
+    {
+        "InitialAccess",
+        "CredentialObtained",
+        "CrossZoneTraversal",
+        "SensitiveAssetRead",
+    }
+)
 
 
 @dataclass
@@ -42,7 +44,9 @@ class RewardEngine:
         reward = self.red_tick_cost if shaping_enabled else 0.0
         claim = str(action.payload.get("claim_objective", ""))
         if claim and hallucination_penalty_enabled:
-            objective_hit = any(claim in event.linked_objective_predicates for event in emitted)
+            objective_hit = any(
+                claim in event.linked_objective_predicates for event in emitted
+            )
             if not objective_hit:
                 reward -= 0.3
         for event in emitted:
@@ -82,7 +86,11 @@ class RewardEngine:
         shaping_enabled: bool = True,
     ) -> float:
         reward = 0.0
-        if shaping_enabled and path_broken and target not in self.blue_contained_targets:
+        if (
+            shaping_enabled
+            and path_broken
+            and target not in self.blue_contained_targets
+        ):
             self.blue_contained_targets.add(target)
             reward += 0.2
         continuity_drop = max(0.0, continuity_before - continuity_after)

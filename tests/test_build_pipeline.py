@@ -12,7 +12,9 @@ def _manifest_payload() -> dict:
 
 def test_pipeline_builds_and_admits_snapshot(tmp_path: Path):
     pipeline = BuildPipeline()
-    candidate = pipeline.build(_manifest_payload(), tmp_path / "rendered", OFFLINE_BUILD_CONFIG)
+    candidate = pipeline.build(
+        _manifest_payload(), tmp_path / "rendered", OFFLINE_BUILD_CONFIG
+    )
     snapshot = pipeline.admit(candidate)
 
     assert candidate.world.weaknesses

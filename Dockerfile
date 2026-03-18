@@ -18,7 +18,7 @@ RUN uv venv --python python3.11 /app/.venv \
     fi
 
 ENV PATH="/app/.venv/bin:$PATH"
-ENV PYTHONPATH="/app/src:$PYTHONPATH"
+ENV PYTHONPATH="/app/src"
 
 ENTRYPOINT ["openrange"]
 CMD ["--help"]

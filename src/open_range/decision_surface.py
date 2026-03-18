@@ -7,7 +7,11 @@ import json
 from open_range.probe_planner import runtime_action
 from open_range.runtime_types import Action, Observation
 from open_range.snapshot import RuntimeSnapshot
-from open_range.training_data import TraceCandidate, normalize_trace_action, render_action_text
+from open_range.training_data import (
+    TraceCandidate,
+    normalize_trace_action,
+    render_action_text,
+)
 
 
 def expected_step(steps, index: int):
@@ -42,16 +46,24 @@ def candidate_actions(
     if actor == "red":
         candidates.extend(_red_alternatives(expected_action))
     else:
-        candidates.extend(_blue_alternatives(snapshot, observation, expected_action, remaining_targets))
+        candidates.extend(
+            _blue_alternatives(
+                snapshot, observation, expected_action, remaining_targets
+            )
+        )
     return dedupe_candidates(candidates)
 
 
-def select_candidate(candidates: tuple[TraceCandidate, ...], chosen_action: Action) -> tuple[TraceCandidate, ...]:
+def select_candidate(
+    candidates: tuple[TraceCandidate, ...], chosen_action: Action
+) -> tuple[TraceCandidate, ...]:
     token = json.dumps(chosen_action.model_dump(mode="json"), sort_keys=True)
     selected = []
     matched = False
     for candidate in candidates:
-        candidate_token = json.dumps(candidate.action.model_dump(mode="json"), sort_keys=True)
+        candidate_token = json.dumps(
+            candidate.action.model_dump(mode="json"), sort_keys=True
+        )
         is_match = candidate_token == token and not matched
         matched = matched or is_match
         selected.append(candidate.model_copy(update={"selected": is_match}))
@@ -98,7 +110,9 @@ def scripted_choice(
     return by_label.get("teacher", candidates[0]).action
 
 
-def reference_trace_pairs(snapshot: RuntimeSnapshot, mode: str) -> tuple[tuple[int, int], ...]:
+def reference_trace_pairs(
+    snapshot: RuntimeSnapshot, mode: str
+) -> tuple[tuple[int, int], ...]:
     attack_count = max(1, len(snapshot.reference_bundle.reference_attack_traces))
     defense_count = max(1, len(snapshot.reference_bundle.reference_defense_traces))
     if mode == "red_only":
@@ -109,7 +123,9 @@ def reference_trace_pairs(snapshot: RuntimeSnapshot, mode: str) -> tuple[tuple[i
     return tuple((idx % attack_count, idx % defense_count) for idx in range(count))
 
 
-def trace_actions(snapshot: RuntimeSnapshot, actor: str, *, trace_index: int) -> list[Action]:
+def trace_actions(
+    snapshot: RuntimeSnapshot, actor: str, *, trace_index: int
+) -> list[Action]:
     trace = (
         snapshot.reference_bundle.reference_attack_traces[trace_index]
         if actor == "red"
@@ -126,7 +142,10 @@ def dedupe_candidates(candidates: list[TraceCandidate]) -> tuple[TraceCandidate,
     deduped: list[TraceCandidate] = []
     selected_seen = False
     for candidate in candidates:
-        token = (candidate.text, json.dumps(candidate.action.model_dump(mode="json"), sort_keys=True))
+        token = (
+            candidate.text,
+            json.dumps(candidate.action.model_dump(mode="json"), sort_keys=True),
+        )
         if token in seen:
             continue
         seen.add(token)
@@ -142,7 +161,12 @@ def _red_alternatives(expected_action: Action) -> list[TraceCandidate]:
     target = str(expected_action.payload.get("target", ""))
     alternatives: list[TraceCandidate] = []
     if expected_action.kind == "api":
-        root_probe = Action(actor_id="red", role="red", kind="api", payload={"target": target, "path": "/"})
+        root_probe = Action(
+            actor_id="red",
+            role="red",
+            kind="api",
+            payload={"target": target, "path": "/"},
+        )
         alternatives.append(
             TraceCandidate(
                 label="root_probe",
@@ -152,7 +176,12 @@ def _red_alternatives(expected_action: Action) -> list[TraceCandidate]:
             )
         )
         if target != "svc-web":
-            web_probe = Action(actor_id="red", role="red", kind="api", payload={"target": "svc-web", "path": "/"})
+            web_probe = Action(
+                actor_id="red",
+                role="red",
+                kind="api",
+                payload={"target": "svc-web", "path": "/"},
+            )
             alternatives.append(
                 TraceCandidate(
                     label="web_probe",
@@ -162,8 +191,18 @@ def _red_alternatives(expected_action: Action) -> list[TraceCandidate]:
                 )
             )
     else:
-        recon_hosts = Action(actor_id="red", role="red", kind="shell", payload={"target": target, "command": "cat /etc/hosts"})
-        recon_net = Action(actor_id="red", role="red", kind="shell", payload={"target": target, "command": "ip -br a"})
+        recon_hosts = Action(
+            actor_id="red",
+            role="red",
+            kind="shell",
+            payload={"target": target, "command": "cat /etc/hosts"},
+        )
+        recon_net = Action(
+            actor_id="red",
+            role="red",
+            kind="shell",
+            payload={"target": target, "command": "ip -br a"},
+        )
         alternatives.extend(
             [
                 TraceCandidate(
@@ -202,7 +241,14 @@ def _blue_alternatives(
     alternatives: list[TraceCandidate] = []
     wrong_target = _service_not_in(
         snapshot,
-        excluded={target, *{event.target_entity for event in observation.visible_events if event.malicious}},
+        excluded={
+            target,
+            *{
+                event.target_entity
+                for event in observation.visible_events
+                if event.malicious
+            },
+        },
     )
     if expected_action.kind == "submit_finding":
         false_positive = Action(
@@ -210,7 +256,9 @@ def _blue_alternatives(
             role="blue",
             kind="submit_finding",
             payload={
-                "event_type": str(expected_action.payload.get("event_type", "InitialAccess")),
+                "event_type": str(
+                    expected_action.payload.get("event_type", "InitialAccess")
+                ),
                 "target": wrong_target or "svc-email",
             },
         )
@@ -223,7 +271,11 @@ def _blue_alternatives(
             )
         )
     if expected_action.kind == "control":
-        disruptive_target = _service_not_in(snapshot, excluded={target, *remaining_targets}) or wrong_target or target
+        disruptive_target = (
+            _service_not_in(snapshot, excluded={target, *remaining_targets})
+            or wrong_target
+            or target
+        )
         disruptive = normalize_trace_action(
             snapshot,
             Action(
@@ -245,7 +297,10 @@ def _blue_alternatives(
             )
         )
     if expected_action.kind != "submit_finding" and observation.visible_events:
-        visible = next((event for event in observation.visible_events if event.malicious), observation.visible_events[0])
+        visible = next(
+            (event for event in observation.visible_events if event.malicious),
+            observation.visible_events[0],
+        )
         opportunistic = Action(
             actor_id="blue",
             role="blue",
@@ -273,8 +328,17 @@ def _blue_alternatives(
 
 
 def _service_not_in(snapshot: RuntimeSnapshot, *, excluded: set[str]) -> str:
-    for preferred in ("svc-email", "svc-web", "svc-idp", "svc-fileshare", "svc-db", "svc-siem"):
-        if preferred not in excluded and any(service.id == preferred for service in snapshot.world.services):
+    for preferred in (
+        "svc-email",
+        "svc-web",
+        "svc-idp",
+        "svc-fileshare",
+        "svc-db",
+        "svc-siem",
+    ):
+        if preferred not in excluded and any(
+            service.id == preferred for service in snapshot.world.services
+        ):
             return preferred
     for service in snapshot.world.services:
         if service.id not in excluded:

@@ -21,7 +21,11 @@ from open_range.compiler import EnterpriseSaaSManifestCompiler
 from open_range.curriculum import FrontierMutationPolicy, PopulationStats
 from open_range.driver import ScriptedRuntimeAgent, TandemEpisodeDriver
 from open_range.episode_config import DEFAULT_EPISODE_CONFIG, EpisodeConfig
-from open_range.manifest import EnterpriseSaaSManifest, manifest_schema, validate_manifest
+from open_range.manifest import (
+    EnterpriseSaaSManifest,
+    manifest_schema,
+    validate_manifest,
+)
 from open_range.objectives import ObjectiveGraderSpec, StandardAttackObjective
 from open_range.pipeline import BuildPipeline, CandidateWorld, admit, admit_child, build
 from open_range.resources import (

@@ -28,7 +28,9 @@ def test_checked_in_manifests_validate_and_compile(tmp_path: Path):
 
 
 def test_manifest_registry_points_to_existing_examples():
-    payload = yaml.safe_load(Path("manifests/registry.yaml").read_text(encoding="utf-8"))
+    payload = yaml.safe_load(
+        Path("manifests/registry.yaml").read_text(encoding="utf-8")
+    )
 
     manifests_dir = Path("manifests")
     families = payload["families"]
@@ -39,7 +41,10 @@ def test_manifest_registry_points_to_existing_examples():
 
 
 def test_bundled_manifests_match_repo_examples():
-    repo_manifests = {path.name: path.read_text(encoding="utf-8") for path in Path("manifests").glob("tier*.yaml")}
+    repo_manifests = {
+        path.name: path.read_text(encoding="utf-8")
+        for path in Path("manifests").glob("tier*.yaml")
+    }
 
     assert tuple(sorted(repo_manifests)) == bundled_manifest_names()
     for name, content in repo_manifests.items():
@@ -48,5 +53,7 @@ def test_bundled_manifests_match_repo_examples():
 
 
 def test_bundled_registry_matches_repo_registry():
-    repo_registry = yaml.safe_load(Path("manifests/registry.yaml").read_text(encoding="utf-8"))
+    repo_registry = yaml.safe_load(
+        Path("manifests/registry.yaml").read_text(encoding="utf-8")
+    )
     assert load_bundled_manifest_registry() == repo_registry

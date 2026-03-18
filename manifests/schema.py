@@ -6,7 +6,11 @@ from pathlib import Path
 
 import yaml
 
-from open_range.manifest import EnterpriseSaaSManifest, manifest_schema, validate_manifest
+from open_range.manifest import (
+    EnterpriseSaaSManifest,
+    manifest_schema,
+    validate_manifest,
+)
 
 
 def load_manifest(path: str | Path) -> EnterpriseSaaSManifest:
@@ -18,4 +22,9 @@ def load_manifest(path: str | Path) -> EnterpriseSaaSManifest:
     return validate_manifest(payload)
 
 
-__all__ = ["EnterpriseSaaSManifest", "load_manifest", "manifest_schema", "validate_manifest"]
+__all__ = [
+    "EnterpriseSaaSManifest",
+    "load_manifest",
+    "manifest_schema",
+    "validate_manifest",
+]

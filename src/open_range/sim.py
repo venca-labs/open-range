@@ -32,17 +32,27 @@ class SimTrace(_StrictModel):
 
 
 class SimPlane(Protocol):
-    def generate_bootstrap_trace(self, snapshot: RuntimeSnapshot, *, episode_seed: int) -> SimTrace: ...
+    def generate_bootstrap_trace(
+        self, snapshot: RuntimeSnapshot, *, episode_seed: int
+    ) -> SimTrace: ...
 
 
 class ReferenceSimPlane:
     """Replay hidden reference traces through the public decision loop."""
 
-    def generate_bootstrap_trace(self, snapshot: RuntimeSnapshot, *, episode_seed: int) -> SimTrace:
-        attack_index = episode_seed % max(1, len(snapshot.reference_bundle.reference_attack_traces))
-        defense_index = episode_seed % max(1, len(snapshot.reference_bundle.reference_defense_traces))
+    def generate_bootstrap_trace(
+        self, snapshot: RuntimeSnapshot, *, episode_seed: int
+    ) -> SimTrace:
+        attack_index = episode_seed % max(
+            1, len(snapshot.reference_bundle.reference_attack_traces)
+        )
+        defense_index = episode_seed % max(
+            1, len(snapshot.reference_bundle.reference_defense_traces)
+        )
         attack_trace = snapshot.reference_bundle.reference_attack_traces[attack_index]
-        defense_trace = snapshot.reference_bundle.reference_defense_traces[defense_index]
+        defense_trace = snapshot.reference_bundle.reference_defense_traces[
+            defense_index
+        ]
         runtime = ReferenceDrivenRuntime()
         runtime.reset(
             snapshot,
@@ -102,5 +112,7 @@ class ReferenceSimPlane:
         if step.target:
             payload.setdefault("target", step.target)
         if step.kind == "submit_finding":
-            payload["event_type"] = str(payload.get("event", payload.get("event_type", "InitialAccess")))
+            payload["event_type"] = str(
+                payload.get("event", payload.get("event_type", "InitialAccess"))
+            )
         return Action(actor_id="blue", role="blue", kind=step.kind, payload=payload)

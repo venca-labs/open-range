@@ -49,12 +49,22 @@ def run_demo(
         store = FileSnapshotStore(root / "snapshots")
         pipeline = BuildPipeline(store=store)
         candidate = pipeline.build(payload, root / "rendered", OFFLINE_BUILD_CONFIG)
-        snapshot = hydrate_runtime_snapshot(store, pipeline.admit(candidate, split="train"))
+        snapshot = hydrate_runtime_snapshot(
+            store, pipeline.admit(candidate, split="train")
+        )
 
-        attack_idx = seed % max(1, len(snapshot.reference_bundle.reference_attack_traces))
-        defense_idx = seed % max(1, len(snapshot.reference_bundle.reference_defense_traces))
-        red_agent = ScriptedRuntimeAgent(trace_actions(snapshot, "red", trace_index=attack_idx)[:2])
-        blue_agent = ScriptedRuntimeAgent(trace_actions(snapshot, "blue", trace_index=defense_idx)[1:3])
+        attack_idx = seed % max(
+            1, len(snapshot.reference_bundle.reference_attack_traces)
+        )
+        defense_idx = seed % max(
+            1, len(snapshot.reference_bundle.reference_defense_traces)
+        )
+        red_agent = ScriptedRuntimeAgent(
+            trace_actions(snapshot, "red", trace_index=attack_idx)[:2]
+        )
+        blue_agent = ScriptedRuntimeAgent(
+            trace_actions(snapshot, "blue", trace_index=defense_idx)[1:3]
+        )
 
         service = OpenRange(store=store)
         driver = TandemEpisodeDriver(service.runtime)
@@ -62,7 +72,9 @@ def run_demo(
             snapshot,
             red_agent=red_agent,
             blue_agent=blue_agent,
-            episode_config=EpisodeConfig(mode="joint_pool", scheduler_mode="strict_turns"),
+            episode_config=EpisodeConfig(
+                mode="joint_pool", scheduler_mode="strict_turns"
+            ),
         )
         score = service.score()
         events = service.runtime.export_events()
@@ -81,13 +93,19 @@ def run_demo(
         if not quiet:
             print(f"world={result['world_id']}")
             print(f"snapshot={result['snapshot_id']}")
-            print(f"winner={result['winner']} done={result['done']} turns={result['turn_count']}")
-            print(f"red_reward={result['red_reward']} blue_reward={result['blue_reward']}")
+            print(
+                f"winner={result['winner']} done={result['done']} turns={result['turn_count']}"
+            )
+            print(
+                f"red_reward={result['red_reward']} blue_reward={result['blue_reward']}"
+            )
         return result
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="Run a deterministic OpenRange demo episode.")
+    parser = argparse.ArgumentParser(
+        description="Run a deterministic OpenRange demo episode."
+    )
     parser.add_argument(
         "--manifest",
         default=None,

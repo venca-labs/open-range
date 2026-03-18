@@ -44,7 +44,9 @@ def load_bundled_manifest(name: str) -> dict[str, Any]:
 
 
 def load_bundled_manifest_registry() -> dict[str, Any]:
-    payload = yaml.safe_load((bundled_manifest_dir() / "registry.yaml").read_text(encoding="utf-8"))
+    payload = yaml.safe_load(
+        (bundled_manifest_dir() / "registry.yaml").read_text(encoding="utf-8")
+    )
     if not isinstance(payload, dict):
         raise ValueError("expected a YAML mapping in bundled registry")
     return payload

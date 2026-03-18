@@ -56,7 +56,9 @@ class TandemEpisodeDriver:
         if state.controls_blue:
             blue_agent.reset(briefing, "blue")
 
-        trace = EpisodeTrace(snapshot_id=snapshot.snapshot_id, episode_id=state.episode_id)
+        trace = EpisodeTrace(
+            snapshot_id=snapshot.snapshot_id, episode_id=state.episode_id
+        )
 
         while not self.runtime.state().done:
             decision = self.runtime.next_decision()

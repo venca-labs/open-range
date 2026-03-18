@@ -10,7 +10,12 @@ from typing import Protocol
 from pydantic import BaseModel, ConfigDict, Field
 
 from open_range.code_web import code_web_realization_content
-from open_range.world_ir import AssetSpec, WeaknessRealizationSpec, WeaknessSpec, WorldIR
+from open_range.world_ir import (
+    AssetSpec,
+    WeaknessRealizationSpec,
+    WeaknessSpec,
+    WorldIR,
+)
 
 
 class _StrictModel(BaseModel):
@@ -63,11 +68,17 @@ class EnterpriseSaaSWorldSynthesizer:
         }
         summary = {
             "world_id": world.world_id,
-            "service_payload_counts": {service_id: len(files) for service_id, files in payloads.items()},
-            "mailboxes": {mailbox: list(messages) for mailbox, messages in mailboxes.items()},
+            "service_payload_counts": {
+                service_id: len(files) for service_id, files in payloads.items()
+            },
+            "mailboxes": {
+                mailbox: list(messages) for mailbox, messages in mailboxes.items()
+            },
         }
         summary_path = outdir / "synth-summary.json"
-        summary_path.write_text(json.dumps(summary, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+        summary_path.write_text(
+            json.dumps(summary, indent=2, sort_keys=True) + "\n", encoding="utf-8"
+        )
         generated.append(str(summary_path))
 
         return SynthArtifacts(
@@ -122,8 +133,14 @@ class EnterpriseSaaSWorldSynthesizer:
             return payloads
         if service_id == "svc-siem":
             payloads = [
-                SynthFile(key="all.log", mount_path="/srv/http/siem/all.log", content=""),
-                SynthFile(key="index.html", mount_path="/srv/http/siem/index.html", content="OpenRange SIEM log sink\n"),
+                SynthFile(
+                    key="all.log", mount_path="/srv/http/siem/all.log", content=""
+                ),
+                SynthFile(
+                    key="index.html",
+                    mount_path="/srv/http/siem/index.html",
+                    content="OpenRange SIEM log sink\n",
+                ),
             ]
             payloads.extend(self._weakness_payloads(world, service_id))
             return payloads
@@ -153,18 +170,23 @@ class EnterpriseSaaSWorldSynthesizer:
                     SynthFile(
                         key=key,
                         mount_path=realization.path,
-                        content=_weakness_realization_content(world, weakness, realization),
+                        content=_weakness_realization_content(
+                            world, weakness, realization
+                        ),
                     )
                 )
         return payloads
 
 
 def _web_index_html(world: WorldIR) -> str:
-    asset_links = "\n".join(
-        f"<li><a href=\"/content/{asset.id}.txt\">{asset.id}</a></li>"
-        for asset in world.assets
-        if asset.owner_service == "svc-web"
-    ) or "<li>No web-hosted assets</li>"
+    asset_links = (
+        "\n".join(
+            f'<li><a href="/content/{asset.id}.txt">{asset.id}</a></li>'
+            for asset in world.assets
+            if asset.owner_service == "svc-web"
+        )
+        or "<li>No web-hosted assets</li>"
+    )
     return textwrap.dedent(
         f"""\
         <html>
@@ -268,7 +290,14 @@ def _secret_material(world: WorldIR, exposed_ref: str) -> str:
     user = next((user for user in world.users if user.id == exposed_ref), None)
     if user is not None:
         return _default_password(user.id)
-    credential = next((credential for credential in world.credentials if credential.id == exposed_ref), None)
+    credential = next(
+        (
+            credential
+            for credential in world.credentials
+            if credential.id == exposed_ref
+        ),
+        None,
+    )
     if credential is not None:
         return f"seeded-secret-{credential.id}"
     if exposed_ref.endswith("_cred") or exposed_ref.endswith("_token"):
@@ -291,7 +320,9 @@ def _config_identity_content(world: WorldIR, weakness: WeaknessSpec) -> str:
     elif weakness.kind == "default_credential":
         payload.update({"default_username": "admin", "default_password": "admin"})
     elif weakness.kind == "overbroad_service_account":
-        payload.update({"service_account_scope": ["svc-db", "svc-fileshare", "svc-idp"]})
+        payload.update(
+            {"service_account_scope": ["svc-db", "svc-fileshare", "svc-idp"]}
+        )
     elif weakness.kind == "admin_surface_exposed":
         payload.update({"admin_surface_public": True, "debug_toggle": True})
     elif weakness.kind == "trust_edge_misconfig":
@@ -308,19 +339,29 @@ def _workflow_content(world: WorldIR, weakness: WeaknessSpec) -> str:
         "approval_guard": "disabled",
     }
     if weakness.kind == "helpdesk_reset_bypass":
-        payload.update({"identity_verification": "none", "reset_without_ticket_owner": True})
+        payload.update(
+            {"identity_verification": "none", "reset_without_ticket_owner": True}
+        )
     elif weakness.kind == "approval_chain_bypass":
         payload.update({"required_approvals": 1, "secondary_approval_skipped": True})
     elif weakness.kind == "document_share_abuse":
-        payload.update({"share_visibility": "public_link", "expiration_required": False})
+        payload.update(
+            {"share_visibility": "public_link", "expiration_required": False}
+        )
     elif weakness.kind == "phishing_credential_capture":
-        payload.update({"mail_filtering": "allow", "credential_capture_landing": "/login"})
+        payload.update(
+            {"mail_filtering": "allow", "credential_capture_landing": "/login"}
+        )
     elif weakness.kind == "internal_request_impersonation":
-        payload.update({"sender_verification": "disabled", "internal_alias_trust": True})
+        payload.update(
+            {"sender_verification": "disabled", "internal_alias_trust": True}
+        )
     return json.dumps(payload, indent=2, sort_keys=True) + "\n"
 
 
-def _workflow_mailbox_content(world: WorldIR, weakness: WeaknessSpec, realization: WeaknessRealizationSpec) -> str:
+def _workflow_mailbox_content(
+    world: WorldIR, weakness: WeaknessSpec, realization: WeaknessRealizationSpec
+) -> str:
     subject = "Password reset verification"
     body = "Confirm your account details to complete the request."
     if weakness.kind == "internal_request_impersonation":
@@ -356,11 +397,15 @@ def _telemetry_content(world: WorldIR, weakness: WeaknessSpec) -> str:
     elif weakness.kind == "unmonitored_admin_action":
         payload.update({"admin_actions_logged": False})
     elif weakness.kind == "silent_mail_rule":
-        payload.update({"mail_rule_logging": False, "mailbox_auto_forward_alerting": False})
+        payload.update(
+            {"mail_rule_logging": False, "mailbox_auto_forward_alerting": False}
+        )
     return json.dumps(payload, indent=2, sort_keys=True) + "\n"
 
 
-def _secret_mailbox_content(world: WorldIR, weakness: WeaknessSpec, realization: WeaknessRealizationSpec) -> str:
+def _secret_mailbox_content(
+    world: WorldIR, weakness: WeaknessSpec, realization: WeaknessRealizationSpec
+) -> str:
     secret_material = _secret_material(world, weakness.target_ref or weakness.target)
     return textwrap.dedent(
         f"""\

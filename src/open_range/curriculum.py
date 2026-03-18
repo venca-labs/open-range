@@ -21,7 +21,6 @@ from open_range.world_ir import (
     ServiceSpec,
     UserSpec,
     WeaknessSpec,
-    WorkflowSpec,
     WorkflowStepSpec,
     WorldIR,
 )
@@ -86,7 +85,9 @@ class MutationPolicy(Protocol):
 class FrontierMutationPolicy:
     """Heuristic deterministic curriculum policy for admitted worlds."""
 
-    def score_parents(self, population: list[PopulationStats]) -> tuple[ParentScore, ...]:
+    def score_parents(
+        self, population: list[PopulationStats]
+    ) -> tuple[ParentScore, ...]:
         ranked: list[ParentScore] = []
         for entry in population:
             if entry.split != "train":
@@ -135,7 +136,9 @@ class FrontierMutationPolicy:
             return ()
         stats_by_snapshot = {entry.snapshot_id: entry for entry in population}
         children: list[WorldIR] = []
-        for rank, score in enumerate(self.score_parents(population)[:child_count], start=1):
+        for rank, score in enumerate(
+            self.score_parents(population)[:child_count], start=1
+        ):
             world = load_world_ir(store, score.snapshot_id)
             child_seed = _stable_seed(world.world_id, score.snapshot_id, rank)
             children.append(
@@ -164,10 +167,18 @@ class FrontierMutationPolicy:
             child = updated
             applied.append(op)
 
-        effective_seed = child_seed if child_seed is not None else _stable_seed(parent.world_id, "child", len(applied))
+        effective_seed = (
+            child_seed
+            if child_seed is not None
+            else _stable_seed(parent.world_id, "child", len(applied))
+        )
         child_generation = parent.lineage.generation + 1
         op_tokens = tuple(_op_token(op) for op in applied)
-        suffix = hashlib.sha256("|".join(op_tokens).encode("utf-8")).hexdigest()[:8] if op_tokens else "noop0000"
+        suffix = (
+            hashlib.sha256("|".join(op_tokens).encode("utf-8")).hexdigest()[:8]
+            if op_tokens
+            else "noop0000"
+        )
         lineage = parent.lineage.model_copy(
             update={
                 "generation": child_generation,
@@ -189,10 +200,15 @@ class FrontierMutationPolicy:
         parent: WorldIR,
         parent_stats: PopulationStats | None,
     ) -> tuple[MutationOp, ...]:
-        stats = parent_stats or PopulationStats(snapshot_id="synthetic", world_id=parent.world_id)
+        stats = parent_stats or PopulationStats(
+            snapshot_id="synthetic", world_id=parent.world_id
+        )
         ops: list[MutationOp] = []
 
-        if parent.mutation_bounds.max_new_hosts > 0 and parent.mutation_bounds.max_new_services > 0:
+        if (
+            parent.mutation_bounds.max_new_hosts > 0
+            and parent.mutation_bounds.max_new_services > 0
+        ):
             objective_service = _first_objective_service(parent)
             if objective_service:
                 ops.append(MutationOp(kind="add_service", target=objective_service))
@@ -200,7 +216,9 @@ class FrontierMutationPolicy:
             ops.append(MutationOp(kind="add_host", target="corp"))
 
         if parent.mutation_bounds.max_new_users > 0:
-            ops.append(MutationOp(kind="add_user", target=_least_populated_role(parent)))
+            ops.append(
+                MutationOp(kind="add_user", target=_least_populated_role(parent))
+            )
 
         if stats.red_win_rate >= 0.65:
             ops.append(MutationOp(kind="add_noise_source"))
@@ -258,7 +276,9 @@ def propose_mutations(
     policy: FrontierMutationPolicy | None = None,
 ) -> tuple[WorldIR, ...]:
     """Generate deterministic child worlds from the train split."""
-    return (policy or FrontierMutationPolicy()).propose(store, population, child_count=child_count)
+    return (policy or FrontierMutationPolicy()).propose(
+        store, population, child_count=child_count
+    )
 
 
 def _op_token(op: MutationOp) -> str:
@@ -300,18 +320,29 @@ def _add_host(world: WorldIR) -> WorldIR | None:
         return None
     host_ids = {host.id for host in world.hosts}
     host_id = _next_host_id("workstation", host_ids)
-    hosts = world.hosts + (HostSpec(id=host_id, zone="corp", exposure="corp", services=()),)
+    hosts = world.hosts + (
+        HostSpec(id=host_id, zone="corp", exposure="corp", services=()),
+    )
     users = list(world.users)
     personas = list(world.green_personas)
     if users:
         users[0] = users[0].model_copy(update={"primary_host": host_id})
     if personas:
         personas[0] = personas[0].model_copy(update={"home_host": host_id})
-    return world.model_copy(update={"hosts": tuple(hosts), "users": tuple(users), "green_personas": tuple(personas)})
+    return world.model_copy(
+        update={
+            "hosts": tuple(hosts),
+            "users": tuple(users),
+            "green_personas": tuple(personas),
+        }
+    )
 
 
 def _add_service(world: WorldIR, *, objective_service_id: str) -> WorldIR | None:
-    if world.mutation_bounds.max_new_hosts < 1 or world.mutation_bounds.max_new_services < 1:
+    if (
+        world.mutation_bounds.max_new_hosts < 1
+        or world.mutation_bounds.max_new_services < 1
+    ):
         return None
     service_by_id = {service.id: service for service in world.services}
     source_service = service_by_id.get(objective_service_id)
@@ -321,8 +352,12 @@ def _add_service(world: WorldIR, *, objective_service_id: str) -> WorldIR | None
     source_host = host_by_id[source_service.host]
 
     new_host_id = _next_host_id(source_service.kind, set(host_by_id))
-    new_service_id = _next_service_id(source_service.id, {service.id for service in world.services})
-    dependency_ids = tuple(dict.fromkeys((source_service.id,) + source_service.dependencies))
+    new_service_id = _next_service_id(
+        source_service.id, {service.id for service in world.services}
+    )
+    dependency_ids = tuple(
+        dict.fromkeys((source_service.id,) + source_service.dependencies)
+    )
     new_host = HostSpec(
         id=new_host_id,
         zone=source_host.zone,
@@ -369,12 +404,18 @@ def _add_service(world: WorldIR, *, objective_service_id: str) -> WorldIR | None
     )
 
     assets = list(world.assets)
-    first_asset_id = predicate_inner(world.red_objectives[0].predicate) if world.red_objectives else ""
+    first_asset_id = (
+        predicate_inner(world.red_objectives[0].predicate)
+        if world.red_objectives
+        else ""
+    )
     for idx, asset in enumerate(assets):
         if asset.id != first_asset_id or asset.owner_service != source_service.id:
             continue
         location = _moved_asset_location(asset.location, new_service_id)
-        assets[idx] = asset.model_copy(update={"owner_service": new_service_id, "location": location})
+        assets[idx] = asset.model_copy(
+            update={"owner_service": new_service_id, "location": location}
+        )
         break
 
     return world.replace_edges(
@@ -394,13 +435,21 @@ def _add_user(world: WorldIR, *, role: str) -> WorldIR | None:
     if world.mutation_bounds.max_new_users < 1:
         return None
     existing_role_users = [user for user in world.users if user.role == role]
-    template_user = existing_role_users[0] if existing_role_users else (world.users[0] if world.users else None)
-    template_persona = next((persona for persona in world.green_personas if persona.role == role), None)
+    template_user = (
+        existing_role_users[0]
+        if existing_role_users
+        else (world.users[0] if world.users else None)
+    )
+    template_persona = next(
+        (persona for persona in world.green_personas if persona.role == role), None
+    )
     if template_user is None:
         return None
 
     user_id = _next_user_id(role, {user.id for user in world.users})
-    home_host = template_user.primary_host or (world.hosts[0].id if world.hosts else "web-1")
+    home_host = template_user.primary_host or (
+        world.hosts[0].id if world.hosts else "web-1"
+    )
     group_id = f"group-{role}"
 
     new_user = UserSpec(
@@ -425,7 +474,9 @@ def _add_user(world: WorldIR, *, role: str) -> WorldIR | None:
         mailbox=f"{user_id}@corp.local",
         awareness=template_persona.awareness if template_persona else 0.5,
         susceptibility=template_persona.susceptibility if template_persona else {},
-        routine=template_persona.routine if template_persona else ("check_mail", "browse_app"),
+        routine=template_persona.routine
+        if template_persona
+        else ("check_mail", "browse_app"),
     )
 
     groups = list(world.groups)
@@ -435,7 +486,9 @@ def _add_user(world: WorldIR, *, role: str) -> WorldIR | None:
         groups[idx] = group.model_copy(update={"members": group.members + (user_id,)})
         break
     else:
-        groups.append(GroupSpec(id=group_id, members=(user_id,), privileges=("svc-web",)))
+        groups.append(
+            GroupSpec(id=group_id, members=(user_id,), privileges=("svc-web",))
+        )
 
     return world.model_copy(
         update={
@@ -451,7 +504,10 @@ def _add_workflow_branch(world: WorldIR) -> WorldIR | None:
     if not world.workflows:
         return None
     workflow = world.workflows[0]
-    asset = next((item for item in world.assets if item.confidentiality in {"critical", "high"}), None)
+    asset = next(
+        (item for item in world.assets if item.confidentiality in {"critical", "high"}),
+        None,
+    )
     service_id = _first_objective_service(world)
     new_step = WorkflowStepSpec(
         id=f"{workflow.id}-branch-{len(workflow.steps) + 1}",
@@ -483,15 +539,26 @@ def _add_workflow_branch(world: WorldIR) -> WorldIR | None:
                 label=new_step.action,
             )
         )
-    return world.replace_edges(data=tuple(data_edges), workflow=tuple(workflow_edges)).model_copy(
-        update={"workflows": tuple(workflows)}
-    )
+    return world.replace_edges(
+        data=tuple(data_edges), workflow=tuple(workflow_edges)
+    ).model_copy(update={"workflows": tuple(workflows)})
 
 
 def _add_trust_edge(world: WorldIR) -> WorldIR | None:
     objective_service = _first_objective_service(world)
-    public_service = next((service.id for service in world.services if service.kind in {"web_app", "email"}), "")
-    if not public_service or not objective_service or public_service == objective_service:
+    public_service = next(
+        (
+            service.id
+            for service in world.services
+            if service.kind in {"web_app", "email"}
+        ),
+        "",
+    )
+    if (
+        not public_service
+        or not objective_service
+        or public_service == objective_service
+    ):
         return None
     edge_id = f"trust-{public_service}-to-{objective_service}-mut"
     if any(edge.id == edge_id for edge in world.trust_edges):
@@ -513,16 +580,26 @@ def _add_trust_edge(world: WorldIR) -> WorldIR | None:
 def _add_noise_source(world: WorldIR) -> WorldIR | None:
     workload = world.green_workload.model_copy(
         update={
-            "max_parallel_actions": min(world.green_workload.max_parallel_actions + 1, 8),
-            "reactive_branch_budget": min(world.green_workload.reactive_branch_budget + 1, 4),
+            "max_parallel_actions": min(
+                world.green_workload.max_parallel_actions + 1, 8
+            ),
+            "reactive_branch_budget": min(
+                world.green_workload.reactive_branch_budget + 1, 4
+            ),
         }
     )
     personas = list(world.green_personas)
     if personas:
         persona = personas[0]
-        routine = persona.routine if "send_update" in persona.routine else persona.routine + ("send_update",)
+        routine = (
+            persona.routine
+            if "send_update" in persona.routine
+            else persona.routine + ("send_update",)
+        )
         personas[0] = persona.model_copy(update={"routine": routine})
-    return world.model_copy(update={"green_workload": workload, "green_personas": tuple(personas)})
+    return world.model_copy(
+        update={"green_workload": workload, "green_personas": tuple(personas)}
+    )
 
 
 def _seed_additional_weakness(world: WorldIR) -> WorldIR | None:
@@ -575,20 +652,42 @@ def _patch_weakness(world: WorldIR) -> WorldIR | None:
 def _harden_route_expose_alternate(world: WorldIR) -> WorldIR | None:
     if not world.mutation_bounds.allow_patch_old_weaknesses:
         return None
-    start = next((service.id for service in world.services if service.kind == "web_app"), "")
+    start = next(
+        (service.id for service in world.services if service.kind == "web_app"), ""
+    )
     alternate = next(
-        (service.id for service in world.services if service.kind == "email" and service.id != start),
+        (
+            service.id
+            for service in world.services
+            if service.kind == "email" and service.id != start
+        ),
         "",
     )
     objective = _first_objective_service(world)
     route_target = _route_hardening_target(world, start, objective)
-    if not start or not objective or not route_target or start == objective or not alternate:
+    if (
+        not start
+        or not objective
+        or not route_target
+        or start == objective
+        or not alternate
+    ):
         return None
 
     direct_pairs = {(start, route_target), (route_target, start)}
-    network_edges = tuple(edge for edge in world.network_edges if (edge.source, edge.target) not in direct_pairs)
-    trust_edges = tuple(edge for edge in world.trust_edges if (edge.source, edge.target) not in direct_pairs)
-    if len(network_edges) == len(world.network_edges) and len(trust_edges) == len(world.trust_edges):
+    network_edges = tuple(
+        edge
+        for edge in world.network_edges
+        if (edge.source, edge.target) not in direct_pairs
+    )
+    trust_edges = tuple(
+        edge
+        for edge in world.trust_edges
+        if (edge.source, edge.target) not in direct_pairs
+    )
+    if len(network_edges) == len(world.network_edges) and len(trust_edges) == len(
+        world.trust_edges
+    ):
         return None
 
     alt_net_id = f"net-{alternate}-to-{objective}-alt"
@@ -617,12 +716,20 @@ def _harden_route_expose_alternate(world: WorldIR) -> WorldIR | None:
 
 
 def _route_hardening_target(world: WorldIR, start: str, objective: str) -> str:
-    if any(edge.source == start and edge.target == objective for edge in world.network_edges):
+    if any(
+        edge.source == start and edge.target == objective
+        for edge in world.network_edges
+    ):
         return objective
-    objective_service = next((service for service in world.services if service.id == objective), None)
+    objective_service = next(
+        (service for service in world.services if service.id == objective), None
+    )
     if objective_service is not None:
         for dependency in objective_service.dependencies:
-            if any(edge.source == start and edge.target == dependency for edge in world.network_edges):
+            if any(
+                edge.source == start and edge.target == dependency
+                for edge in world.network_edges
+            ):
                 return dependency
     for edge in world.network_edges:
         if edge.source == start and edge.target not in {"svc-db"}:
@@ -683,7 +790,11 @@ def _weakness_target(world: WorldIR, family: str) -> str | None:
         return service_by_kind.get("email") or service_by_kind.get("web_app")
     if objective_service:
         return objective_service
-    return service_by_kind.get("fileshare") or service_by_kind.get("db") or service_by_kind.get("idp")
+    return (
+        service_by_kind.get("fileshare")
+        or service_by_kind.get("db")
+        or service_by_kind.get("idp")
+    )
 
 
 def _make_weakness(
@@ -710,21 +821,38 @@ def _make_weakness(
     )
 
 
-def _mutation_kind_target(world: WorldIR, family: str, target_service: str) -> tuple[str, str, str]:
+def _mutation_kind_target(
+    world: WorldIR, family: str, target_service: str
+) -> tuple[str, str, str]:
     if family == "code_web":
         return "sql_injection", "service", target_service
     if family == "workflow_abuse":
-        workflow = next((item for item in world.workflows if item.name == "document_sharing"), None)
+        workflow = next(
+            (item for item in world.workflows if item.name == "document_sharing"), None
+        )
         if workflow is not None:
             return "document_share_abuse", "workflow", workflow.id
-        workflow = next((item for item in world.workflows if item.name == "internal_email"), None)
+        workflow = next(
+            (item for item in world.workflows if item.name == "internal_email"), None
+        )
         if workflow is not None:
             return "phishing_credential_capture", "workflow", workflow.id
         workflow = world.workflows[0] if world.workflows else None
-        return "helpdesk_reset_bypass", "workflow", workflow.id if workflow is not None else "wf-generic"
+        return (
+            "helpdesk_reset_bypass",
+            "workflow",
+            workflow.id if workflow is not None else "wf-generic",
+        )
     if family == "config_identity":
         if any(user.role == "it_admin" for user in world.users):
-            credential = next((item for item in world.credentials if item.subject.startswith("it_admin-")), None)
+            credential = next(
+                (
+                    item
+                    for item in world.credentials
+                    if item.subject.startswith("it_admin-")
+                ),
+                None,
+            )
             if credential is not None:
                 return "weak_password", "credential", credential.id
         return "admin_surface_exposed", "service", target_service
@@ -736,7 +864,9 @@ def _mutation_kind_target(world: WorldIR, family: str, target_service: str) -> t
         return "missing_idp_logs", "telemetry", target_service
     exposed_asset = next(
         (asset.id for asset in world.assets if asset.owner_service == target_service),
-        predicate_inner(world.red_objectives[0].predicate) if world.red_objectives else target_service,
+        predicate_inner(world.red_objectives[0].predicate)
+        if world.red_objectives
+        else target_service,
     )
     if target_service == "svc-email":
         return "token_in_email", "asset", exposed_asset
@@ -756,5 +886,7 @@ def mutation_summary(world: WorldIR) -> dict[str, object]:
         "user_count": len(world.users),
         "weakness_count": len(world.weaknesses),
         "telemetry_sources": sorted(edge.source for edge in world.telemetry_edges),
-        "workflows": json.loads(json.dumps([wf.model_dump(mode="json") for wf in world.workflows])),
+        "workflows": json.loads(
+            json.dumps([wf.model_dump(mode="json") for wf in world.workflows])
+        ),
     }

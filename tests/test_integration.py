@@ -21,26 +21,36 @@ def _manifest_payload() -> dict:
     return manifest_payload()
 
 
-def _code_web_response(world, cmd: str, patched_services: set[str]) -> ExecResult | None:
-    weakness = next((weak for weak in world.weaknesses if weak.family == "code_web"), None)
+def _code_web_response(
+    world, cmd: str, patched_services: set[str]
+) -> ExecResult | None:
+    weakness = next(
+        (weak for weak in world.weaknesses if weak.family == "code_web"), None
+    )
     if weakness is None or weakness.target in patched_services:
         return None
     payload = code_web_payload(world, weakness)
     path = str(payload.get("path", ""))
     if "http://svc-web:80" not in cmd or path not in cmd:
         return None
-    return ExecResult(stdout=str(payload.get("expect_contains", "")), stderr="", exit_code=0)
+    return ExecResult(
+        stdout=str(payload.get("expect_contains", "")), stderr="", exit_code=0
+    )
 
 
 def test_end_to_end_pipeline_store_reset_and_tandem_episode(tmp_path: Path):
     store = FileSnapshotStore(tmp_path / "snapshots")
     pipeline = BuildPipeline(store=store)
 
-    candidate = pipeline.build(_manifest_payload(), tmp_path / "rendered", OFFLINE_BUILD_CONFIG)
+    candidate = pipeline.build(
+        _manifest_payload(), tmp_path / "rendered", OFFLINE_BUILD_CONFIG
+    )
     snapshot = hydrate_runtime_snapshot(store, pipeline.admit(candidate, split="train"))
 
     runtime_service = OpenRange(store=store)
-    runtime_service.reset(snapshot.snapshot_id, EpisodeConfig(mode="joint_pool", green_enabled=True))
+    runtime_service.reset(
+        snapshot.snapshot_id, EpisodeConfig(mode="joint_pool", green_enabled=True)
+    )
     runtime_service.close()
 
     red_steps = snapshot.reference_bundle.reference_attack_traces[0].steps
@@ -90,7 +100,9 @@ def test_end_to_end_pipeline_store_reset_and_tandem_episode(tmp_path: Path):
     assert score.winner == "blue"
     assert any(turn.role == "red" for turn in episode.turns)
     assert any(turn.role == "blue" for turn in episode.turns)
-    assert any(event.actor == "green" for event in runtime_service.runtime.export_events())
+    assert any(
+        event.actor == "green" for event in runtime_service.runtime.export_events()
+    )
 
 
 def test_live_backend_integration_carries_logs_from_runtime_events(tmp_path: Path):
@@ -112,7 +124,9 @@ def test_live_backend_integration_carries_logs_from_runtime_events(tmp_path: Pat
         async def is_healthy(self, service: str) -> bool:
             return service in self.pod_ids
 
-        async def exec(self, service: str, cmd: str, timeout: float = 30.0) -> ExecResult:
+        async def exec(
+            self, service: str, cmd: str, timeout: float = 30.0
+        ) -> ExecResult:
             del timeout
             if cmd == "touch /tmp/openrange-contained":
                 self.contained.add(service)
@@ -134,13 +148,25 @@ def test_live_backend_integration_carries_logs_from_runtime_events(tmp_path: Pat
                 self.web_guards.discard(service)
                 return ExecResult(stdout="unguarded", stderr="", exit_code=0)
             if cmd == "test ! -f /tmp/openrange-contained":
-                return ExecResult(stdout="", stderr="", exit_code=1 if service in self.contained else 0)
+                return ExecResult(
+                    stdout="",
+                    stderr="",
+                    exit_code=1 if service in self.contained else 0,
+                )
             if cmd == "test ! -f /tmp/openrange-patched":
-                return ExecResult(stdout="", stderr="", exit_code=1 if service in self.patched else 0)
+                return ExecResult(
+                    stdout="", stderr="", exit_code=1 if service in self.patched else 0
+                )
             if "test ! -f /var/www/html/.openrange/guards/" in cmd:
-                return ExecResult(stdout="", stderr="", exit_code=1 if service in self.web_guards else 0)
+                return ExecResult(
+                    stdout="",
+                    stderr="",
+                    exit_code=1 if service in self.web_guards else 0,
+                )
             if ">> /srv/http/siem/all.log" in cmd:
-                line = cmd.split("printf '%s\\n' ", 1)[1].split(" >> /srv/http/siem/all.log", 1)[0]
+                line = cmd.split("printf '%s\\n' ", 1)[1].split(
+                    " >> /srv/http/siem/all.log", 1
+                )[0]
                 self.logs.append(line.strip("'"))
                 return ExecResult(stdout="", stderr="", exit_code=0)
             if "grep -q 'InitialAccess' /srv/http/siem/all.log" in cmd:
@@ -150,9 +176,14 @@ def test_live_backend_integration_carries_logs_from_runtime_events(tmp_path: Pat
                 seeded = _code_web_response(self.world, cmd, self.web_guards)
                 if seeded is not None:
                     return seeded
-            if service == "sandbox-red" and any(target in cmd for target in ("svc-fileshare", "svc-db", "svc-idp")):
+            if service == "sandbox-red" and any(
+                target in cmd for target in ("svc-fileshare", "svc-db", "svc-idp")
+            ):
                 return ExecResult(stdout="", stderr="blocked", exit_code=1)
-            if service.startswith("sandbox-") and "wget -qO- http://svc-siem:9200/all.log" in cmd:
+            if (
+                service.startswith("sandbox-")
+                and "wget -qO- http://svc-siem:9200/all.log" in cmd
+            ):
                 return ExecResult(stdout="\n".join(self.logs), stderr="", exit_code=0)
             return ExecResult(stdout=f"{service}:{cmd}", stderr="", exit_code=0)
 
@@ -167,10 +198,14 @@ def test_live_backend_integration_carries_logs_from_runtime_events(tmp_path: Pat
             pod_ids["sandbox-red"] = "ns/sandbox-red-pod"
             pod_ids["sandbox-blue"] = "ns/sandbox-blue-pod"
             for persona in world.green_personas:
-                pod_ids[f"sandbox-green-{persona.id.replace('_', '-').lower()}"] = f"ns/{persona.id}-pod"
+                pod_ids[f"sandbox-green-{persona.id.replace('_', '-').lower()}"] = (
+                    f"ns/{persona.id}-pod"
+                )
             pods = FakePods(world, pod_ids)
             pod_registry[snapshot_id] = pods
-            return SimpleNamespace(release_name=f"or-{snapshot_id}", artifacts_dir=artifacts_dir, pods=pods)
+            return SimpleNamespace(
+                release_name=f"or-{snapshot_id}", artifacts_dir=artifacts_dir, pods=pods
+            )
 
         def teardown(self, release) -> None:
             teardowns.append(release.release_name)
@@ -178,19 +213,30 @@ def test_live_backend_integration_carries_logs_from_runtime_events(tmp_path: Pat
     backend = FakeBackend()
     admission = LocalAdmissionController(mode="fail_fast", live_backend=backend)
     pipeline = BuildPipeline(store=store, admission=admission)
-    candidate = pipeline.build(_manifest_payload(), tmp_path / "rendered", BuildConfig(validation_profile="full"))
+    candidate = pipeline.build(
+        _manifest_payload(),
+        tmp_path / "rendered",
+        BuildConfig(validation_profile="full"),
+    )
     built_world = candidate.world
     snapshot = hydrate_runtime_snapshot(store, pipeline.admit(candidate, split="train"))
 
     service = OpenRange(store=store, live_backend=backend)
-    service.reset(snapshot.snapshot_id, EpisodeConfig(mode="joint_pool", green_enabled=False))
+    service.reset(
+        snapshot.snapshot_id, EpisodeConfig(mode="joint_pool", green_enabled=False)
+    )
 
     red_first = snapshot.reference_bundle.reference_attack_traces[0].steps[0]
     decision = service.next_decision()
     assert decision.actor == "red"
     service.act(
         "red",
-        Action(actor_id="red", role="red", kind=red_first.kind, payload={"target": red_first.target, **red_first.payload}),
+        Action(
+            actor_id="red",
+            role="red",
+            kind=red_first.kind,
+            payload={"target": red_first.target, **red_first.payload},
+        ),
     )
 
     live_pods = pod_registry[snapshot.snapshot_id]
@@ -201,18 +247,24 @@ def test_live_backend_integration_carries_logs_from_runtime_events(tmp_path: Pat
     assert teardowns
 
 
-def test_green_reactive_branches_flow_through_runtime_between_external_decisions(tmp_path: Path):
+def test_green_reactive_branches_flow_through_runtime_between_external_decisions(
+    tmp_path: Path,
+):
     store = FileSnapshotStore(tmp_path / "snapshots")
     pipeline = BuildPipeline(store=store)
     snapshot = hydrate_runtime_snapshot(
         store,
         pipeline.admit(
-            pipeline.build(_manifest_payload(), tmp_path / "rendered", OFFLINE_BUILD_CONFIG),
+            pipeline.build(
+                _manifest_payload(), tmp_path / "rendered", OFFLINE_BUILD_CONFIG
+            ),
             split="train",
-        )
+        ),
     )
     service = OpenRange(store=store)
-    service.reset(snapshot.snapshot_id, EpisodeConfig(mode="joint_pool", green_enabled=True))
+    service.reset(
+        snapshot.snapshot_id, EpisodeConfig(mode="joint_pool", green_enabled=True)
+    )
 
     red_steps = snapshot.reference_bundle.reference_attack_traces[0].steps
     credential_index = next(
@@ -226,11 +278,18 @@ def test_green_reactive_branches_flow_through_runtime_between_external_decisions
         assert decision.actor == "red"
         service.act(
             "red",
-            Action(actor_id="red", role="red", kind=step.kind, payload={"target": step.target, **step.payload}),
+            Action(
+                actor_id="red",
+                role="red",
+                kind=step.kind,
+                payload={"target": step.target, **step.payload},
+            ),
         )
         decision = service.next_decision()
         assert decision.actor == "blue"
-        service.act("blue", Action(actor_id="blue", role="blue", kind="sleep", payload={}))
+        service.act(
+            "blue", Action(actor_id="blue", role="blue", kind="sleep", payload={})
+        )
 
     decision = service.next_decision()
     assert decision.actor == "red"
@@ -249,10 +308,18 @@ def test_green_reactive_branches_flow_through_runtime_between_external_decisions
         ):
             break
         decision = service.next_decision()
-        service.act(decision.actor, Action(actor_id=decision.actor, role=decision.actor, kind="sleep", payload={}))
+        service.act(
+            decision.actor,
+            Action(
+                actor_id=decision.actor, role=decision.actor, kind="sleep", payload={}
+            ),
+        )
 
     events = service.runtime.export_events()
-    assert any(event.actor == "green" and event.event_type == "DetectionAlertRaised" for event in events)
+    assert any(
+        event.actor == "green" and event.event_type == "DetectionAlertRaised"
+        for event in events
+    )
     assert any(
         event.actor == "green"
         and event.event_type == "RecoveryCompleted"

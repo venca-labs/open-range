@@ -84,14 +84,20 @@ def load_examples(path: Path, *, limit: int | None, seed: int) -> list[dict[str,
     return rows
 
 
-def limit_examples(rows: list[dict[str, Any]], *, limit: int | None, seed: int) -> list[dict[str, Any]]:
+def limit_examples(
+    rows: list[dict[str, Any]], *, limit: int | None, seed: int
+) -> list[dict[str, Any]]:
     if limit is None or len(rows) <= limit:
         return list(rows)
     limited = list(rows)
     random.Random(seed).shuffle(limited)
     if len(limited) > limit:
-        split_values = {str(row.get("split", "")).strip() for row in rows if isinstance(row, dict)}
-        explicit_splits = {value for value in split_values if value in {"train", "val", "test"}}
+        split_values = {
+            str(row.get("split", "")).strip() for row in rows if isinstance(row, dict)
+        }
+        explicit_splits = {
+            value for value in split_values if value in {"train", "val", "test"}
+        }
         if "train" in explicit_splits and ({"val", "test"} & explicit_splits):
             train_rows = [row for row in limited if row.get("split") == "train"]
             eval_rows = [row for row in limited if row.get("split") in {"val", "test"}]
@@ -132,8 +138,12 @@ def split_examples(
 ) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
     if not rows:
         return [], []
-    split_values = {str(row.get("split", "")).strip() for row in rows if isinstance(row, dict)}
-    explicit_splits = {value for value in split_values if value in {"train", "val", "test"}}
+    split_values = {
+        str(row.get("split", "")).strip() for row in rows if isinstance(row, dict)
+    }
+    explicit_splits = {
+        value for value in split_values if value in {"train", "val", "test"}
+    }
     if "train" in explicit_splits and ({"val", "test"} & explicit_splits):
         train_rows = [row for row in rows if row.get("split") == "train"]
         eval_rows = [row for row in rows if row.get("split") in {"val", "test"}]
@@ -197,17 +207,37 @@ class CausalCollator:
 
 
 def parse_args() -> argparse.Namespace:
-    parser = argparse.ArgumentParser(description="Tiny LoRA SFT for OpenRange chat data.")
-    parser.add_argument("--data", default=None, help="Path to JSONL chat data. If omitted, generate branch-native decision traces.")
-    parser.add_argument("--model", default=DEFAULT_MODEL, help="Hugging Face model id or local path.")
-    parser.add_argument("--outdir", default="/tmp/openrange-sft-tiny", help="Output directory.")
+    parser = argparse.ArgumentParser(
+        description="Tiny LoRA SFT for OpenRange chat data."
+    )
+    parser.add_argument(
+        "--data",
+        default=None,
+        help="Path to JSONL chat data. If omitted, generate branch-native decision traces.",
+    )
+    parser.add_argument(
+        "--model", default=DEFAULT_MODEL, help="Hugging Face model id or local path."
+    )
+    parser.add_argument(
+        "--outdir", default="/tmp/openrange-sft-tiny", help="Output directory."
+    )
     parser.add_argument("--seed", type=int, default=7)
     parser.add_argument("--max-samples", type=int, default=96)
     parser.add_argument("--eval-ratio", type=float, default=0.2)
     parser.add_argument("--min-eval-samples", type=int, default=8)
-    parser.add_argument("--roles", default="red", help="Comma-separated role filter for branch-native datasets.")
-    parser.add_argument("--modes", default="", help="Optional comma-separated runtime-mode filter.")
-    parser.add_argument("--trace-sources", default="runtime", help="Comma-separated trace-source filter.")
+    parser.add_argument(
+        "--roles",
+        default="red",
+        help="Comma-separated role filter for branch-native datasets.",
+    )
+    parser.add_argument(
+        "--modes", default="", help="Optional comma-separated runtime-mode filter."
+    )
+    parser.add_argument(
+        "--trace-sources",
+        default="runtime",
+        help="Comma-separated trace-source filter.",
+    )
     parser.add_argument("--max-length", type=int, default=2048)
     parser.add_argument("--epochs", type=float, default=1.0)
     parser.add_argument("--max-steps", type=int, default=24)
@@ -246,7 +276,12 @@ def parse_filter(value: str) -> set[str] | None:
 def main() -> None:
     import torch
     from peft import LoraConfig, get_peft_model
-    from transformers import AutoModelForCausalLM, AutoTokenizer, Trainer, TrainingArguments
+    from transformers import (
+        AutoModelForCausalLM,
+        AutoTokenizer,
+        Trainer,
+        TrainingArguments,
+    )
 
     args = parse_args()
     random.seed(args.seed)
@@ -357,7 +392,9 @@ def main() -> None:
         "model": args.model,
         "output_dir": str(outdir / "adapter"),
     }
-    (outdir / "metrics.json").write_text(json.dumps(metrics, indent=2), encoding="utf-8")
+    (outdir / "metrics.json").write_text(
+        json.dumps(metrics, indent=2), encoding="utf-8"
+    )
 
     print(f"train_loss={metrics['train_loss']:.4f}")
     print(f"eval_loss={metrics['eval_loss']:.4f}")

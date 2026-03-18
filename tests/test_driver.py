@@ -21,12 +21,18 @@ def _manifest_payload() -> dict:
 
 
 def _snapshot(tmp_path: Path):
-    world = CatalogWeaknessSeeder().apply(EnterpriseSaaSManifestCompiler().compile(_manifest_payload()))
+    world = CatalogWeaknessSeeder().apply(
+        EnterpriseSaaSManifestCompiler().compile(_manifest_payload())
+    )
     synth = EnterpriseSaaSWorldSynthesizer().synthesize(world, tmp_path / "synth")
     artifacts = EnterpriseSaaSKindRenderer().render(world, synth, tmp_path / "rendered")
-    reference_bundle, report = LocalAdmissionController(mode="fail_fast").admit(world, artifacts, OFFLINE_BUILD_CONFIG)
+    reference_bundle, report = LocalAdmissionController(mode="fail_fast").admit(
+        world, artifacts, OFFLINE_BUILD_CONFIG
+    )
     store = FileSnapshotStore(tmp_path / "snapshots")
-    return hydrate_runtime_snapshot(store, store.create(world, artifacts, reference_bundle, report, synth=synth))
+    return hydrate_runtime_snapshot(
+        store, store.create(world, artifacts, reference_bundle, report, synth=synth)
+    )
 
 
 def test_tandem_driver_runs_joint_pool_episode(tmp_path: Path):
@@ -49,8 +55,18 @@ def test_tandem_driver_runs_joint_pool_episode(tmp_path: Path):
     )
     blue_agent = ScriptedRuntimeAgent(
         [
-            Action(actor_id="blue", role="blue", kind="submit_finding", payload={"event_type": "InitialAccess", "target": red_trace[0].target}),
-            Action(actor_id="blue", role="blue", kind="control", payload={"target": blue_target, "action": "contain"}),
+            Action(
+                actor_id="blue",
+                role="blue",
+                kind="submit_finding",
+                payload={"event_type": "InitialAccess", "target": red_trace[0].target},
+            ),
+            Action(
+                actor_id="blue",
+                role="blue",
+                kind="control",
+                payload={"target": blue_target, "action": "contain"},
+            ),
         ]
     )
 
@@ -73,15 +89,27 @@ def test_driver_can_run_blue_only_prefix_episode(tmp_path: Path):
     driver = TandemEpisodeDriver(runtime)
 
     red_trace = snapshot.reference_bundle.reference_attack_traces[0].steps
-    red_agent = ScriptedRuntimeAgent([Action(actor_id="red", role="red", kind="sleep", payload={})])
+    red_agent = ScriptedRuntimeAgent(
+        [Action(actor_id="red", role="red", kind="sleep", payload={})]
+    )
     blue_agent = ScriptedRuntimeAgent(
         [
-            Action(actor_id="blue", role="blue", kind="submit_finding", payload={"event_type": "InitialAccess", "target": red_trace[0].target}),
+            Action(
+                actor_id="blue",
+                role="blue",
+                kind="submit_finding",
+                payload={"event_type": "InitialAccess", "target": red_trace[0].target},
+            ),
             Action(
                 actor_id="blue",
                 role="blue",
                 kind="control",
-                payload={"target": snapshot.reference_bundle.reference_defense_traces[0].steps[2].target, "action": "contain"},
+                payload={
+                    "target": snapshot.reference_bundle.reference_defense_traces[0]
+                    .steps[2]
+                    .target,
+                    "action": "contain",
+                },
             ),
         ]
     )
@@ -90,7 +118,11 @@ def test_driver_can_run_blue_only_prefix_episode(tmp_path: Path):
         snapshot,
         red_agent=red_agent,
         blue_agent=blue_agent,
-        episode_config=EpisodeConfig(mode="blue_only_from_prefix", start_state="prefix_foothold", green_enabled=False),
+        episode_config=EpisodeConfig(
+            mode="blue_only_from_prefix",
+            start_state="prefix_foothold",
+            green_enabled=False,
+        ),
     )
 
     assert episode.done is True

@@ -25,7 +25,14 @@ def test_compiler_builds_hand_checkable_world_ir():
     world = EnterpriseSaaSManifestCompiler().compile(_manifest_payload())
 
     assert world.world_id == "enterprise_saas_v1-1337"
-    assert world.allowed_service_kinds == ("web_app", "email", "idp", "fileshare", "db", "siem")
+    assert world.allowed_service_kinds == (
+        "web_app",
+        "email",
+        "idp",
+        "fileshare",
+        "db",
+        "siem",
+    )
     assert world.allowed_weakness_families == (
         "config_identity",
         "workflow_abuse",
@@ -58,7 +65,10 @@ def test_compiler_builds_hand_checkable_world_ir():
     }
     assert world.red_objectives[0].objective_tags == ("file_access",)
     assert world.red_objectives[1].objective_tags == ("privilege_escalation",)
-    assert any(edge.kind == "telemetry" and edge.target == "svc-siem" for edge in world.telemetry_edges)
+    assert any(
+        edge.kind == "telemetry" and edge.target == "svc-siem"
+        for edge in world.telemetry_edges
+    )
 
 
 def test_compiler_creates_role_groups_and_identity_credentials():
@@ -71,13 +81,19 @@ def test_compiler_creates_role_groups_and_identity_credentials():
         "group-it_admin",
     }
     assert len(world.credentials) == len(world.users)
-    assert all(cred.secret_ref.startswith("secret://idp/") for cred in world.credentials)
+    assert all(
+        cred.secret_ref.startswith("secret://idp/") for cred in world.credentials
+    )
 
 
 def test_compiler_threads_pinned_weaknesses_into_world():
     payload = _manifest_payload()
     payload["security"]["pinned_weaknesses"] = [
-        {"family": "secret_exposure", "kind": "credential_in_share", "target": "asset:finance_docs"},
+        {
+            "family": "secret_exposure",
+            "kind": "credential_in_share",
+            "target": "asset:finance_docs",
+        },
     ]
 
     world = EnterpriseSaaSManifestCompiler().compile(payload)

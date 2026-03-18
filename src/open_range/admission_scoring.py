@@ -2,7 +2,11 @@
 
 from __future__ import annotations
 
-from open_range.admission import ValidatorCheckReport, ValidatorStageReport, ReferenceBundle
+from open_range.admission import (
+    ValidatorCheckReport,
+    ValidatorStageReport,
+    ReferenceBundle,
+)
 from open_range.predicates import PredicateEngine
 from open_range.world_ir import WorldIR
 
@@ -45,7 +49,10 @@ def report_summary(
         shortcut_risk = "medium"
     else:
         shortcut_risk = "high"
-    live_service_count = float(health_info.get("live_service_count", len(world.services)) or len(world.services))
+    live_service_count = float(
+        health_info.get("live_service_count", len(world.services))
+        or len(world.services)
+    )
     continuity = min(1.0, live_service_count / max(1.0, float(len(world.services))))
     return {
         "graph_ok": all(
@@ -60,7 +67,8 @@ def report_summary(
         "boot_ok": all(
             checks.get(name, ValidatorCheckReport(name=name, passed=False)).passed
             for name in ("render_outputs", "service_health")
-        ) and all(
+        )
+        and all(
             checks.get(name, ValidatorCheckReport(name=name, passed=True)).passed
             for name in ("kind_boot", "kind_health")
         ),

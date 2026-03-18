@@ -6,10 +6,19 @@ from dataclasses import dataclass
 import json
 import shlex
 
-from open_range.admission import ProbeSpec, ReferenceAction, ReferenceBundle, ReferenceTrace
+from open_range.admission import (
+    ProbeSpec,
+    ReferenceAction,
+    ReferenceBundle,
+    ReferenceTrace,
+)
 from open_range.build_config import BuildConfig, DEFAULT_BUILD_CONFIG
 from open_range.code_web import code_web_payload
-from open_range.effect_markers import effect_marker_content, effect_marker_path, effect_marker_token
+from open_range.effect_markers import (
+    effect_marker_content,
+    effect_marker_path,
+    effect_marker_token,
+)
 from open_range.predicates import PredicateEngine
 from open_range.runtime_types import Action
 from open_range.world_ir import WorldIR
@@ -35,14 +44,34 @@ class ProbePlanner:
             for service in self.world.services
         )
         shortcut_probes = (
-            ProbeSpec(id="shortcut-direct-asset", kind="shortcut", description="direct external crown-jewel access"),
-            ProbeSpec(id="shortcut-admin", kind="shortcut", description="direct admin access"),
-            ProbeSpec(id="shortcut-cross-zone", kind="shortcut", description="unintended cross-zone reachability"),
-            ProbeSpec(id="shortcut-secret", kind="shortcut", description="leaked secrets"),
-            ProbeSpec(id="shortcut-unlogged", kind="shortcut", description="unlogged critical actions"),
+            ProbeSpec(
+                id="shortcut-direct-asset",
+                kind="shortcut",
+                description="direct external crown-jewel access",
+            ),
+            ProbeSpec(
+                id="shortcut-admin", kind="shortcut", description="direct admin access"
+            ),
+            ProbeSpec(
+                id="shortcut-cross-zone",
+                kind="shortcut",
+                description="unintended cross-zone reachability",
+            ),
+            ProbeSpec(
+                id="shortcut-secret", kind="shortcut", description="leaked secrets"
+            ),
+            ProbeSpec(
+                id="shortcut-unlogged",
+                kind="shortcut",
+                description="unlogged critical actions",
+            ),
         )
         determinism_probes = (
-            ProbeSpec(id="determinism-red", kind="determinism", description="replay red reference"),
+            ProbeSpec(
+                id="determinism-red",
+                kind="determinism",
+                description="replay red reference",
+            ),
         )
         engine = PredicateEngine(self.world)
         necessity_probes = tuple(
@@ -65,7 +94,9 @@ class ProbePlanner:
     def build_red_references(self) -> tuple[ReferenceTrace, ...]:
         engine = PredicateEngine(self.world)
         starts = tuple(
-            service.id for service in self.world.services if engine.is_public_service(service)
+            service.id
+            for service in self.world.services
+            if engine.is_public_service(service)
         ) or (self.world.services[0].id,)
         weaknesses = engine.active_weaknesses()
         ranked = sorted(
@@ -76,14 +107,22 @@ class ProbePlanner:
                 weak.id,
             ),
         )
-        candidates = [(start, weak) for weak in ranked for start in _starts_for_weakness(starts, weak.target)]
+        candidates = [
+            (start, weak)
+            for weak in ranked
+            for start in _starts_for_weakness(starts, weak.target)
+        ]
         if not candidates:
             candidates = [(starts[0], None)]
         traces: list[ReferenceTrace] = []
         seen: set[str] = set()
         for start, exploit in candidates:
-            trace = self.build_red_reference(start=start, exploit=exploit, ordinal=len(traces) + 1)
-            token = json.dumps(trace.model_dump(mode="json", exclude={"id"}), sort_keys=True)
+            trace = self.build_red_reference(
+                start=start, exploit=exploit, ordinal=len(traces) + 1
+            )
+            token = json.dumps(
+                trace.model_dump(mode="json", exclude={"id"}), sort_keys=True
+            )
             if token in seen:
                 continue
             seen.add(token)
@@ -91,15 +130,21 @@ class ProbePlanner:
             if len(traces) >= self.build_config.red_reference_count:
                 break
         if not traces:
-            traces.append(self.build_red_reference(start=starts[0], exploit=None, ordinal=1))
+            traces.append(
+                self.build_red_reference(start=starts[0], exploit=None, ordinal=1)
+            )
         return tuple(traces)
 
-    def build_blue_references(self, attack_traces: tuple[ReferenceTrace, ...]) -> tuple[ReferenceTrace, ...]:
+    def build_blue_references(
+        self, attack_traces: tuple[ReferenceTrace, ...]
+    ) -> tuple[ReferenceTrace, ...]:
         if not attack_traces:
             attack_traces = (self.build_red_reference(ordinal=1),)
         count = max(1, self.build_config.blue_reference_count)
         return tuple(
-            self.build_blue_reference(attack_traces[idx % len(attack_traces)], ordinal=idx + 1)
+            self.build_blue_reference(
+                attack_traces[idx % len(attack_traces)], ordinal=idx + 1
+            )
             for idx in range(count)
         )
 
@@ -112,7 +157,11 @@ class ProbePlanner:
     ) -> ReferenceTrace:
         engine = PredicateEngine(self.world)
         start = start or next(
-            (service.id for service in self.world.services if engine.is_public_service(service)),
+            (
+                service.id
+                for service in self.world.services
+                if engine.is_public_service(service)
+            ),
             self.world.services[0].id,
         )
         weaknesses = engine.active_weaknesses()
@@ -121,7 +170,9 @@ class ProbePlanner:
         steps: list[ReferenceAction] = []
         current = start
         if exploit is not None:
-            exploit_steps, current, satisfied_predicates = _weakness_red_steps(self.world, engine, start, exploit)
+            exploit_steps, current, satisfied_predicates = _weakness_red_steps(
+                self.world, engine, start, exploit
+            )
             steps.extend(exploit_steps)
         if not steps:
             steps.append(
@@ -162,19 +213,23 @@ class ProbePlanner:
             current = target
 
         events: list[str] = []
-        for weak in ((exploit,) if exploit is not None else weaknesses):
+        for weak in (exploit,) if exploit is not None else weaknesses:
             if weak is None:
                 continue
             events.extend(weak.expected_event_signatures)
         return ReferenceTrace(
             id=f"red-{self.world.world_id}-{ordinal}",
             role="red",
-            objective_ids=tuple(objective.id for objective in self.world.red_objectives),
+            objective_ids=tuple(
+                objective.id for objective in self.world.red_objectives
+            ),
             expected_events=tuple(dict.fromkeys(events + ["SensitiveAssetRead"])),
             steps=tuple(steps),
         )
 
-    def build_blue_reference(self, red_trace: ReferenceTrace, *, ordinal: int = 1) -> ReferenceTrace:
+    def build_blue_reference(
+        self, red_trace: ReferenceTrace, *, ordinal: int = 1
+    ) -> ReferenceTrace:
         blindspot_targets = {
             weak.target
             for weak in PredicateEngine(self.world).active_weaknesses()
@@ -192,23 +247,42 @@ class ProbePlanner:
         detect_event, detect_target = _detection_for_red_step(detect_step)
         contain_target = red_trace.steps[-1].target if red_trace.steps else "svc-siem"
         observe_steps = tuple(
-            ReferenceAction(actor="blue", kind="shell", target="svc-siem", payload={"action": "observe_events"})
+            ReferenceAction(
+                actor="blue",
+                kind="shell",
+                target="svc-siem",
+                payload={"action": "observe_events"},
+            )
             for _ in range(max(1, detect_index + 1))
         )
         return ReferenceTrace(
             id=f"blue-{self.world.world_id}-{ordinal}",
             role="blue",
-            objective_ids=tuple(objective.id for objective in self.world.blue_objectives),
+            objective_ids=tuple(
+                objective.id for objective in self.world.blue_objectives
+            ),
             expected_events=("DetectionAlertRaised", "ContainmentApplied"),
             steps=observe_steps
             + (
-                ReferenceAction(actor="blue", kind="submit_finding", target=detect_target, payload={"event": detect_event}),
-                ReferenceAction(actor="blue", kind="control", target=contain_target, payload={"action": "contain"}),
+                ReferenceAction(
+                    actor="blue",
+                    kind="submit_finding",
+                    target=detect_target,
+                    payload={"event": detect_event},
+                ),
+                ReferenceAction(
+                    actor="blue",
+                    kind="control",
+                    target=contain_target,
+                    payload={"action": "contain"},
+                ),
             ),
         )
 
 
-def build_reference_bundle(world: WorldIR, build_config: BuildConfig = DEFAULT_BUILD_CONFIG) -> ReferenceBundle:
+def build_reference_bundle(
+    world: WorldIR, build_config: BuildConfig = DEFAULT_BUILD_CONFIG
+) -> ReferenceBundle:
     return ProbePlanner(world=world, build_config=build_config).build()
 
 
@@ -217,17 +291,15 @@ def runtime_action(actor: str, step: ReferenceAction) -> Action:
     if step.target:
         payload.setdefault("target", step.target)
     if actor == "blue" and step.kind == "submit_finding":
-        event_type = str(payload.get("event", payload.get("event_type", "InitialAccess")))
+        event_type = str(
+            payload.get("event", payload.get("event_type", "InitialAccess"))
+        )
         payload["event_type"] = event_type
     return Action(actor_id=actor, role=actor, kind=step.kind, payload=payload)
 
 
 def _primary_red_weakness(start: str, weaknesses):
-    ranked = [
-        weak
-        for weak in weaknesses
-        if weak.family != "telemetry_blindspot"
-    ]
+    ranked = [weak for weak in weaknesses if weak.family != "telemetry_blindspot"]
     if not ranked:
         return next(iter(weaknesses), None)
     ranked.sort(
@@ -252,10 +324,20 @@ def _detection_for_red_step(step: ReferenceAction | None) -> tuple[str, str]:
         return ("CrossZoneTraversal", step.target)
     if action in {"collect_secret", "abuse_identity"}:
         target = asset or step.target
-        return ("CredentialObtained" if (asset and ("cred" in asset or "token" in asset)) else "SensitiveAssetRead", target)
+        return (
+            "CredentialObtained"
+            if (asset and ("cred" in asset or "token" in asset))
+            else "SensitiveAssetRead",
+            target,
+        )
     if action == "abuse_workflow":
         target = asset or step.target
-        return ("CredentialObtained" if (asset and ("cred" in asset or "token" in asset)) else "SensitiveAssetRead", target)
+        return (
+            "CredentialObtained"
+            if (asset and ("cred" in asset or "token" in asset))
+            else "SensitiveAssetRead",
+            target,
+        )
     if action == "satisfy_objective" and objective.startswith("credential_obtained("):
         return ("CredentialObtained", asset or step.target)
     if action == "satisfy_objective":
@@ -278,7 +360,10 @@ def _step_is_blue_detectable(
     if action in {"initial_access", "click_lure"}:
         return step.target not in blindspot_targets
     if action == "traverse":
-        return step.target not in blindspot_targets and source_target not in blindspot_targets
+        return (
+            step.target not in blindspot_targets
+            and source_target not in blindspot_targets
+        )
     return step.target not in blindspot_targets
 
 
@@ -298,14 +383,27 @@ def _weakness_red_steps(
     satisfied: set[str] = set()
     current = start
     if weakness.family == "code_web":
-        payload = {"action": "initial_access", "weakness_id": weakness.id, "weakness": weakness.id}
+        payload = {
+            "action": "initial_access",
+            "weakness_id": weakness.id,
+            "weakness": weakness.id,
+        }
         payload.update(code_web_payload(world, weakness))
-        steps.append(ReferenceAction(actor="red", kind="api", target=weakness.target, payload=payload))
+        steps.append(
+            ReferenceAction(
+                actor="red", kind="api", target=weakness.target, payload=payload
+            )
+        )
         return steps, weakness.target, satisfied
 
-    if weakness.family == "workflow_abuse" and weakness.kind in {"phishing_credential_capture", "internal_request_impersonation"}:
+    if weakness.family == "workflow_abuse" and weakness.kind in {
+        "phishing_credential_capture",
+        "internal_request_impersonation",
+    }:
         mailbox_path = _first_realization_path(weakness, kind="mailbox")
-        mailbox = _mailbox_from_path(mailbox_path) if mailbox_path else "user@corp.local"
+        mailbox = (
+            _mailbox_from_path(mailbox_path) if mailbox_path else "user@corp.local"
+        )
         steps.append(
             ReferenceAction(
                 actor="red",
@@ -373,7 +471,11 @@ def _weakness_red_steps(
             payload["asset"] = weakness.target_ref
             payload["objective"] = _target_ref_objective(world, weakness.target_ref)
             satisfied.add(_target_ref_objective(world, weakness.target_ref))
-        steps.append(ReferenceAction(actor="red", kind="shell", target=weakness.target, payload=payload))
+        steps.append(
+            ReferenceAction(
+                actor="red", kind="shell", target=weakness.target, payload=payload
+            )
+        )
         return steps, weakness.target, satisfied
 
     if weakness.family == "config_identity":
@@ -392,11 +494,17 @@ def _weakness_red_steps(
         if objective is not None:
             payload["objective"] = objective
             satisfied.add(objective)
-        steps.append(ReferenceAction(actor="red", kind="shell", target=weakness.target, payload=payload))
+        steps.append(
+            ReferenceAction(
+                actor="red", kind="shell", target=weakness.target, payload=payload
+            )
+        )
         return steps, weakness.target, satisfied
 
     if weakness.family == "workflow_abuse":
-        realization_path = _first_realization_path(weakness, kind="workflow") or _first_realization_path(weakness)
+        realization_path = _first_realization_path(
+            weakness, kind="workflow"
+        ) or _first_realization_path(weakness)
         effect_token = effect_marker_token(weakness)
         payload = _shell_payload(
             action="abuse_workflow",
@@ -413,7 +521,11 @@ def _weakness_red_steps(
         if objective is not None:
             payload["objective"] = objective
             satisfied.add(objective)
-        steps.append(ReferenceAction(actor="red", kind="shell", target=weakness.target, payload=payload))
+        steps.append(
+            ReferenceAction(
+                actor="red", kind="shell", target=weakness.target, payload=payload
+            )
+        )
         return steps, weakness.target, satisfied
 
     steps.append(
@@ -475,7 +587,9 @@ def _secret_material(world, target_ref: str) -> str:
     user = next((item for item in world.users if item.id == target_ref), None)
     if user is not None:
         return f"{user.id}-pass"
-    credential = next((item for item in world.credentials if item.id == target_ref), None)
+    credential = next(
+        (item for item in world.credentials if item.id == target_ref), None
+    )
     if credential is not None:
         return f"seeded-secret-{credential.id}"
     return target_ref
@@ -498,14 +612,23 @@ def _identity_effect_command(weakness, realization_path: str) -> str:
     effect_content = effect_marker_content(weakness)
     markers = {
         "weak_password": ('"min_password_length": 6', '"password_reuse_allowed": true'),
-        "default_credential": ('"default_username": "admin"', '"default_password": "admin"'),
+        "default_credential": (
+            '"default_username": "admin"',
+            '"default_password": "admin"',
+        ),
         "overbroad_service_account": ('"service_account_scope"', "svc-db", "svc-idp"),
         "admin_surface_exposed": ('"admin_surface_public": true',),
-        "trust_edge_misconfig": ('"trust_scope": "corp-wide"', '"peer_validation": false'),
+        "trust_edge_misconfig": (
+            '"trust_scope": "corp-wide"',
+            '"peer_validation": false',
+        ),
     }[weakness.kind]
     tests = " && ".join(
         [f"test -f {shlex.quote(realization_path)}"]
-        + [f"grep -Fq {shlex.quote(marker)} {shlex.quote(realization_path)}" for marker in markers]
+        + [
+            f"grep -Fq {shlex.quote(marker)} {shlex.quote(realization_path)}"
+            for marker in markers
+        ]
     )
     return (
         f"{tests} && mkdir -p {shlex.quote(effect_path.rsplit('/', 1)[0])} && "
@@ -518,7 +641,10 @@ def _workflow_effect_command(weakness, realization_path: str) -> str:
     effect_path = effect_marker_path(weakness)
     effect_content = effect_marker_content(weakness)
     markers = {
-        "helpdesk_reset_bypass": ('"identity_verification": "none"', '"reset_without_ticket_owner": true'),
+        "helpdesk_reset_bypass": (
+            '"identity_verification": "none"',
+            '"reset_without_ticket_owner": true',
+        ),
         "approval_chain_bypass": ('"secondary_approval_skipped": true',),
         "document_share_abuse": ('"share_visibility": "public_link"',),
         "phishing_credential_capture": ('"credential_capture_landing": "/login"',),
@@ -526,7 +652,10 @@ def _workflow_effect_command(weakness, realization_path: str) -> str:
     }[weakness.kind]
     tests = " && ".join(
         [f"test -f {shlex.quote(realization_path)}"]
-        + [f"grep -Fq {shlex.quote(marker)} {shlex.quote(realization_path)}" for marker in markers]
+        + [
+            f"grep -Fq {shlex.quote(marker)} {shlex.quote(realization_path)}"
+            for marker in markers
+        ]
     )
     return (
         f"{tests} && mkdir -p {shlex.quote(effect_path.rsplit('/', 1)[0])} && "

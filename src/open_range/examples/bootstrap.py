@@ -44,10 +44,18 @@ def _load_manifest(source: str | Path | None) -> dict[str, Any]:
 
 
 def _scripted_agents(snapshot):
-    attack_idx = snapshot.seed % max(1, len(snapshot.reference_bundle.reference_attack_traces))
-    defense_idx = snapshot.seed % max(1, len(snapshot.reference_bundle.reference_defense_traces))
-    red_agent = ScriptedRuntimeAgent(trace_actions(snapshot, "red", trace_index=attack_idx)[:2])
-    blue_agent = ScriptedRuntimeAgent(trace_actions(snapshot, "blue", trace_index=defense_idx)[1:3])
+    attack_idx = snapshot.seed % max(
+        1, len(snapshot.reference_bundle.reference_attack_traces)
+    )
+    defense_idx = snapshot.seed % max(
+        1, len(snapshot.reference_bundle.reference_defense_traces)
+    )
+    red_agent = ScriptedRuntimeAgent(
+        trace_actions(snapshot, "red", trace_index=attack_idx)[:2]
+    )
+    blue_agent = ScriptedRuntimeAgent(
+        trace_actions(snapshot, "blue", trace_index=defense_idx)[1:3]
+    )
     return red_agent, blue_agent
 
 
@@ -64,10 +72,14 @@ def run_bootstrap_demo(
         store = FileSnapshotStore(root / "snapshots")
         pipeline = BuildPipeline(store=store)
         candidate = pipeline.build(payload, root / "rendered", OFFLINE_BUILD_CONFIG)
-        snapshot = hydrate_runtime_snapshot(store, pipeline.admit(candidate, split="train"))
+        snapshot = hydrate_runtime_snapshot(
+            store, pipeline.admit(candidate, split="train")
+        )
 
         sim_plane = ReferenceSimPlane()
-        bootstrap_trace = sim_plane.generate_bootstrap_trace(snapshot, episode_seed=seed)
+        bootstrap_trace = sim_plane.generate_bootstrap_trace(
+            snapshot, episode_seed=seed
+        )
 
         runtime = ReferenceDrivenRuntime()
         driver = TandemEpisodeDriver(runtime)
@@ -76,7 +88,9 @@ def run_bootstrap_demo(
             snapshot,
             red_agent=red_agent,
             blue_agent=blue_agent,
-            episode_config=EpisodeConfig(mode="joint_pool", scheduler_mode="strict_turns"),
+            episode_config=EpisodeConfig(
+                mode="joint_pool", scheduler_mode="strict_turns"
+            ),
         )
         score = runtime.score()
 

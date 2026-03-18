@@ -70,8 +70,16 @@ def test_manifest_rejects_unknown_fields():
 def test_manifest_accepts_pinned_weaknesses():
     payload = _manifest_payload()
     payload["security"]["pinned_weaknesses"] = [
-        {"family": "secret_exposure", "kind": "credential_in_share", "target": "asset:finance_docs"},
-        {"family": "workflow_abuse", "kind": "helpdesk_reset_bypass", "target": "workflow:helpdesk_ticketing"},
+        {
+            "family": "secret_exposure",
+            "kind": "credential_in_share",
+            "target": "asset:finance_docs",
+        },
+        {
+            "family": "workflow_abuse",
+            "kind": "helpdesk_reset_bypass",
+            "target": "workflow:helpdesk_ticketing",
+        },
     ]
 
     manifest = validate_manifest(payload)
@@ -82,13 +90,19 @@ def test_manifest_accepts_pinned_weaknesses():
         "auth_bypass",
     )
     assert manifest.security.pinned_weaknesses[0].kind == "credential_in_share"
-    assert manifest.security.pinned_weaknesses[1].target == "workflow:helpdesk_ticketing"
+    assert (
+        manifest.security.pinned_weaknesses[1].target == "workflow:helpdesk_ticketing"
+    )
 
 
 def test_manifest_rejects_pinned_kind_from_wrong_family():
     payload = _manifest_payload()
     payload["security"]["pinned_weaknesses"] = [
-        {"family": "secret_exposure", "kind": "sql_injection", "target": "asset:finance_docs"},
+        {
+            "family": "secret_exposure",
+            "kind": "sql_injection",
+            "target": "asset:finance_docs",
+        },
     ]
 
     try:
@@ -96,7 +110,9 @@ def test_manifest_rejects_pinned_kind_from_wrong_family():
     except Exception as exc:  # noqa: BLE001
         assert "unsupported kind" in str(exc)
     else:
-        raise AssertionError("manifest unexpectedly accepted mismatched pinned weakness kind")
+        raise AssertionError(
+            "manifest unexpectedly accepted mismatched pinned weakness kind"
+        )
 
 
 def test_world_ir_serializes_minimal_core_objects():
@@ -121,11 +137,23 @@ def test_world_ir_serializes_minimal_core_objects():
         workflows=(),
         edges=(),
         weaknesses=(),
-        red_objectives=(ObjectiveSpec(id="o-red", owner="red", predicate="asset_read(finance_docs)"),),
-        blue_objectives=(ObjectiveSpec(id="o-blue", owner="blue", predicate="intrusion_detected(initial_access)"),),
+        red_objectives=(
+            ObjectiveSpec(
+                id="o-red", owner="red", predicate="asset_read(finance_docs)"
+            ),
+        ),
+        blue_objectives=(
+            ObjectiveSpec(
+                id="o-blue",
+                owner="blue",
+                predicate="intrusion_detected(initial_access)",
+            ),
+        ),
         green_personas=(),
         green_workload=GreenWorkloadSpec(noise_density="medium"),
-        mutation_bounds=MutationBoundsSpec(max_new_hosts=1, max_new_services=1, max_new_users=1, max_new_weaknesses=1),
+        mutation_bounds=MutationBoundsSpec(
+            max_new_hosts=1, max_new_services=1, max_new_users=1, max_new_weaknesses=1
+        ),
         lineage=LineageSpec(seed=1337),
     )
 
@@ -172,9 +200,15 @@ def test_validator_report_and_reference_bundle_round_trip():
 
 def test_generated_schema_files_exist_and_match_titles():
     root = Path(__file__).resolve().parent.parent
-    manifest_schema = json.loads((root / "schemas" / "manifest.schema.json").read_text(encoding="utf-8"))
-    report_schema = json.loads((root / "schemas" / "validator_report.schema.json").read_text(encoding="utf-8"))
-    bundle_schema = json.loads((root / "schemas" / "reference_bundle.schema.json").read_text(encoding="utf-8"))
+    manifest_schema = json.loads(
+        (root / "schemas" / "manifest.schema.json").read_text(encoding="utf-8")
+    )
+    report_schema = json.loads(
+        (root / "schemas" / "validator_report.schema.json").read_text(encoding="utf-8")
+    )
+    bundle_schema = json.loads(
+        (root / "schemas" / "reference_bundle.schema.json").read_text(encoding="utf-8")
+    )
 
     assert manifest_schema["title"] == "EnterpriseSaaSManifest"
     assert report_schema["title"] == "ValidatorReport"

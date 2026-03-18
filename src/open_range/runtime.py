@@ -12,7 +12,11 @@ from open_range.green import GreenScheduler, ScriptedGreenScheduler
 from open_range.predicates import PredicateEngine
 from open_range.probe_planner import runtime_action as reference_runtime_action
 from open_range.rewards import RewardEngine
-from open_range.runtime_events import action_target, green_events_for_action, red_events_for_step
+from open_range.runtime_events import (
+    action_target,
+    green_events_for_action,
+    red_events_for_step,
+)
 from open_range.runtime_types import (
     Action,
     ActionResult,
@@ -116,7 +120,11 @@ class ReferenceDrivenRuntime:
             live_health = self.action_backend.service_health()
             if live_health:
                 service_health.update(live_health)
-        continuity = sum(service_health.values()) / len(service_health) if service_health else 1.0
+        continuity = (
+            sum(service_health.values()) / len(service_health)
+            if service_health
+            else 1.0
+        )
         self._state = EpisodeState(
             snapshot_id=snapshot.snapshot_id,
             episode_id=f"ep-{uuid4()}",
@@ -130,8 +138,12 @@ class ReferenceDrivenRuntime:
             controls_blue=episode_config.controls_blue,
             next_actor="",
             decision_count=0,
-            red_session=ActorSessionState(session_id=f"red-{uuid4()}", actor_id="red", role="red"),
-            blue_session=ActorSessionState(session_id=f"blue-{uuid4()}", actor_id="blue", role="blue"),
+            red_session=ActorSessionState(
+                session_id=f"red-{uuid4()}", actor_id="red", role="red"
+            ),
+            blue_session=ActorSessionState(
+                session_id=f"blue-{uuid4()}", actor_id="blue", role="blue"
+            ),
         )
         self.green_scheduler.reset(snapshot, episode_config)
         self._apply_prefix_start()
@@ -145,11 +157,15 @@ class ReferenceDrivenRuntime:
         if self._snapshot is None:
             raise RuntimeError("runtime must be reset before next_decision()")
         if self._state.done:
-            raise RuntimeError("episode is done; reset() is required before more decisions")
+            raise RuntimeError(
+                "episode is done; reset() is required before more decisions"
+            )
         if not self._pending_actor:
             self._advance_until_external_decision()
         if self._state.done:
-            raise RuntimeError("episode is done; reset() is required before more decisions")
+            raise RuntimeError(
+                "episode is done; reset() is required before more decisions"
+            )
         if not self._pending_actor:
             raise RuntimeError("no external decision is available")
 
@@ -164,11 +180,15 @@ class ReferenceDrivenRuntime:
         if self._snapshot is None:
             raise RuntimeError("runtime must be reset before act()")
         if self._state.done:
-            raise RuntimeError("episode is done; reset() is required before more actions")
+            raise RuntimeError(
+                "episode is done; reset() is required before more actions"
+            )
         if actor not in {"red", "blue"}:
             raise ValueError("public act() only supports red and blue")
         if self._pending_actor != actor:
-            raise RuntimeError(f"cannot act as {actor!r}; next actor is {self._pending_actor!r}")
+            raise RuntimeError(
+                f"cannot act as {actor!r}; next actor is {self._pending_actor!r}"
+            )
         if action.role != actor:
             raise ValueError("action.role must match the acting external role")
 
@@ -177,7 +197,12 @@ class ReferenceDrivenRuntime:
         self._state.next_actor = ""
         self._advance_due_time(actor)
         self._check_terminal_conditions()
-        return result.model_copy(update={"done": self._state.done, "sim_time": round(self._state.sim_time, 4)})
+        return result.model_copy(
+            update={
+                "done": self._state.done,
+                "sim_time": round(self._state.sim_time, 4),
+            }
+        )
 
     def score(self) -> EpisodeScore:
         red_terminal, blue_terminal = self.reward_engine.terminal_rewards(
@@ -200,8 +225,12 @@ class ReferenceDrivenRuntime:
         )
 
     def state(self) -> EpisodeState:
-        self._state.red_objectives_satisfied = tuple(sorted(self._red_objectives_satisfied))
-        self._state.blue_objectives_satisfied = tuple(sorted(self._blue_objectives_satisfied))
+        self._state.red_objectives_satisfied = tuple(
+            sorted(self._red_objectives_satisfied)
+        )
+        self._state.blue_objectives_satisfied = tuple(
+            sorted(self._blue_objectives_satisfied)
+        )
         self._state.next_actor = self._pending_actor
         return self._state.model_copy(deep=True)
 
@@ -230,7 +259,10 @@ class ReferenceDrivenRuntime:
     def _apply_prefix_start(self) -> None:
         if self._snapshot is None:
             return
-        if self._episode_config.mode != "blue_only_from_prefix" or self._episode_config.start_state == "clean":
+        if (
+            self._episode_config.mode != "blue_only_from_prefix"
+            or self._episode_config.start_state == "clean"
+        ):
             return
         attack_trace = self._reference_attack_trace()
         if self._episode_config.start_state == "prefix_delivery":
@@ -251,7 +283,9 @@ class ReferenceDrivenRuntime:
                 break
             due = max(self._state.sim_time, self._next_due_time["red"])
             self._advance_time(due)
-            emitted = self._act_red(reference_runtime_action("red", step), internal=True).emitted_events
+            emitted = self._act_red(
+                reference_runtime_action("red", step), internal=True
+            ).emitted_events
             self._advance_due_time("red")
             self._check_terminal_conditions()
             if self._prefix_satisfied(
@@ -309,7 +343,10 @@ class ReferenceDrivenRuntime:
             (
                 (role, due_time)
                 for role, due_time in self._next_due_time.items()
-                if not (self._episode_config.mode == "blue_only_from_prefix" and role == "red")
+                if not (
+                    self._episode_config.mode == "blue_only_from_prefix"
+                    and role == "red"
+                )
             ),
             key=lambda item: (item[1], 0 if item[0] == "red" else 1),
         )
@@ -345,12 +382,20 @@ class ReferenceDrivenRuntime:
             event
             for event in visible
             if event.malicious
-            or event.event_type in {"DetectionAlertRaised", "ContainmentApplied", "PatchApplied", "ServiceDegraded"}
+            or event.event_type
+            in {
+                "DetectionAlertRaised",
+                "ContainmentApplied",
+                "PatchApplied",
+                "ServiceDegraded",
+            }
         )
         reward_delta = self._last_reward_delta[actor]
         self._last_reward_delta[actor] = 0.0
         self._observed_event_ids[actor].update(event.id for event in visible)
-        session = self._state.red_session if actor == "red" else self._state.blue_session
+        session = (
+            self._state.red_session if actor == "red" else self._state.blue_session
+        )
         first_observation = session is not None and session.observation_count == 0
         if session is not None:
             session.observation_count += 1
@@ -380,7 +425,9 @@ class ReferenceDrivenRuntime:
             if live.ok
             else ()
         )
-        self._state.sim_time = round(min(self._state.sim_time + 0.01, self._episode_config.episode_horizon), 4)
+        self._state.sim_time = round(
+            min(self._state.sim_time + 0.01, self._episode_config.episode_horizon), 4
+        )
         return ActionResult(
             action=action,
             sim_time=self._state.sim_time,
@@ -412,9 +459,15 @@ class ReferenceDrivenRuntime:
         blocked_reason = self._path_block_reason(target)
         if blocked_reason:
             blocked_msg = f"target {target} is {blocked_reason}"
-            if blocked_msg not in {line.strip() for line in stderr.splitlines() if line.strip()}:
+            if blocked_msg not in {
+                line.strip() for line in stderr.splitlines() if line.strip()
+            }:
                 stderr = "\n".join(filter(None, [stderr, blocked_msg])).strip()
-        elif expected is not None and live.ok and self._matches_step(action, expected, live.stdout):
+        elif (
+            expected is not None
+            and live.ok
+            and self._matches_step(action, expected, live.stdout)
+        ):
             self._red_progress += 1
             stdout = f"red advanced on {target}"
             batch = red_events_for_step(
@@ -464,7 +517,9 @@ class ReferenceDrivenRuntime:
         stderr = live.stderr
 
         if action.kind == "submit_finding":
-            event_type = str(action.payload.get("event_type", action.payload.get("event", "")))
+            event_type = str(
+                action.payload.get("event_type", action.payload.get("event", ""))
+            )
             target = str(action.payload.get("target", ""))
             matched = self._find_detectable_event(event_type, target, visible_only=True)
             if matched is not None:
@@ -476,11 +531,15 @@ class ReferenceDrivenRuntime:
                         target_entity=matched.target_entity,
                         malicious=False,
                         observability_surfaces=("svc-siem",),
-                        linked_objective_predicates=("intrusion_detected(initial_access)",),
+                        linked_objective_predicates=(
+                            "intrusion_detected(initial_access)",
+                        ),
                     )
                 )
                 self._blue_detected = True
-                self._blue_objectives_satisfied.add("intrusion_detected(initial_access)")
+                self._blue_objectives_satisfied.add(
+                    "intrusion_detected(initial_access)"
+                )
                 self._detected_event_ids.add(matched.id)
                 reward_delta += self.reward_engine.on_blue_detection(
                     matched,
@@ -500,7 +559,11 @@ class ReferenceDrivenRuntime:
             directive = str(action.payload.get("action", "contain")).lower()
             remaining_targets = self._remaining_red_targets()
             continuity_before = self._state.continuity
-            path_broken = bool(target and target in remaining_targets and (live.containment_applied or live.patch_applied))
+            path_broken = bool(
+                target
+                and target in remaining_targets
+                and (live.containment_applied or live.patch_applied)
+            )
             if target and live.containment_applied:
                 self._contained_targets.add(target)
                 self._patched_targets.discard(target)
@@ -512,7 +575,11 @@ class ReferenceDrivenRuntime:
                         target_entity=target,
                         malicious=False,
                         observability_surfaces=("svc-siem",),
-                        linked_objective_predicates=("intrusion_contained(before_asset_read)",) if path_broken else (),
+                        linked_objective_predicates=(
+                            "intrusion_contained(before_asset_read)",
+                        )
+                        if path_broken
+                        else (),
                     )
                 )
             elif target and live.patch_applied:
@@ -526,7 +593,11 @@ class ReferenceDrivenRuntime:
                         target_entity=target,
                         malicious=False,
                         observability_surfaces=("svc-siem",),
-                        linked_objective_predicates=("intrusion_contained(before_asset_read)",) if path_broken else (),
+                        linked_objective_predicates=(
+                            "intrusion_contained(before_asset_read)",
+                        )
+                        if path_broken
+                        else (),
                     )
                 )
             elif target and live.recovery_applied:
@@ -545,7 +616,9 @@ class ReferenceDrivenRuntime:
 
             if path_broken:
                 self._blue_contained = True
-                self._blue_objectives_satisfied.add("intrusion_contained(before_asset_read)")
+                self._blue_objectives_satisfied.add(
+                    "intrusion_contained(before_asset_read)"
+                )
                 if live.patch_applied:
                     if directive == "mitigate":
                         stdout = f"mitigation applied to {target}"
@@ -563,14 +636,26 @@ class ReferenceDrivenRuntime:
                 )
             else:
                 if live.recovery_applied:
-                    stdout = live.stdout or f"recovery applied to {target or 'unknown target'}"
+                    stdout = (
+                        live.stdout
+                        or f"recovery applied to {target or 'unknown target'}"
+                    )
                 elif live.patch_applied:
                     noun = "mitigation" if directive == "mitigate" else "patch"
-                    stdout = live.stdout or f"{noun} on {target or 'unknown target'} did not break the remaining path"
+                    stdout = (
+                        live.stdout
+                        or f"{noun} on {target or 'unknown target'} did not break the remaining path"
+                    )
                 elif directive == "contain":
-                    stdout = live.stdout or f"control action on {target or 'unknown target'} had no path-breaking effect"
+                    stdout = (
+                        live.stdout
+                        or f"control action on {target or 'unknown target'} had no path-breaking effect"
+                    )
                 else:
-                    stdout = live.stdout or f"{directive} on {target or 'unknown target'} had no path-breaking effect"
+                    stdout = (
+                        live.stdout
+                        or f"{directive} on {target or 'unknown target'} had no path-breaking effect"
+                    )
                 self._update_continuity()
                 reward_delta += self.reward_engine.on_blue_containment(
                     target=target,
@@ -587,7 +672,9 @@ class ReferenceDrivenRuntime:
         self._blue_reward_shaping += reward_delta
         if not internal:
             self._last_reward_delta["blue"] += reward_delta
-        elif expected_internal is not None and self._matches_step(action, expected_internal, live.stdout):
+        elif expected_internal is not None and self._matches_step(
+            action, expected_internal, live.stdout
+        ):
             self._blue_internal_progress += 1
 
         return ActionResult(
@@ -642,10 +729,15 @@ class ReferenceDrivenRuntime:
                 return False
         if action.kind == "control":
             expected_directive = expected.payload.get("action")
-            if expected_directive and action.payload.get("action") != expected_directive:
+            if (
+                expected_directive
+                and action.payload.get("action") != expected_directive
+            ):
                 return False
         if action.kind == "submit_finding":
-            expected_event = expected.payload.get("event_type", expected.payload.get("event"))
+            expected_event = expected.payload.get(
+                "event_type", expected.payload.get("event")
+            )
             actual_event = action.payload.get("event_type", action.payload.get("event"))
             if expected_event and actual_event != expected_event:
                 return False
@@ -674,7 +766,7 @@ class ReferenceDrivenRuntime:
         if self._snapshot is None:
             return set()
         trace = self._reference_attack_trace()
-        return {step.target for step in trace.steps[self._red_progress:]}
+        return {step.target for step in trace.steps[self._red_progress :]}
 
     def _path_block_reason(self, target: str) -> str:
         if not target:
@@ -728,8 +820,13 @@ class ReferenceDrivenRuntime:
         if not self._state.service_health:
             self._state.continuity = 1.0
             return
-        self._state.continuity = sum(self._state.service_health.values()) / len(self._state.service_health)
-        if self._episode_config.continuity_enforced and self._state.continuity < self._episode_config.continuity_threshold:
+        self._state.continuity = sum(self._state.service_health.values()) / len(
+            self._state.service_health
+        )
+        if (
+            self._episode_config.continuity_enforced
+            and self._state.continuity < self._episode_config.continuity_threshold
+        ):
             self._blue_objectives_satisfied.discard("service_health_above(0.9)")
         elif self._episode_config.continuity_enforced:
             self._blue_objectives_satisfied.add("service_health_above(0.9)")
@@ -838,7 +935,9 @@ class ReferenceDrivenRuntime:
             service_health=self._state.service_health,
         )
 
-    def _observation_stdout(self, actor: ExternalRole, *, first_observation: bool) -> str:
+    def _observation_stdout(
+        self, actor: ExternalRole, *, first_observation: bool
+    ) -> str:
         base = f"sim_time={self._state.sim_time:.2f}"
         if not first_observation or self._snapshot is None:
             return base
@@ -848,7 +947,11 @@ class ReferenceDrivenRuntime:
         assert self._snapshot is not None
         world = self._snapshot.world
         objectives = world.red_objectives if actor == "red" else world.blue_objectives
-        public_services = ",".join(service.id for service in world.services if self._predicates and self._predicates.is_public_service(service))
+        public_services = ",".join(
+            service.id
+            for service in world.services
+            if self._predicates and self._predicates.is_public_service(service)
+        )
         lines = [
             f"briefing_mode={self._episode_config.prompt_mode}",
             f"business={world.business_archetype}",
@@ -866,7 +969,9 @@ class ReferenceDrivenRuntime:
 
     @staticmethod
     def _briefing_surface_summary(world, weak) -> str:
-        service = next((service for service in world.services if service.id == weak.target), None)
+        service = next(
+            (service for service in world.services if service.id == weak.target), None
+        )
         service_label = service.kind if service is not None else weak.target_kind
         family_label = {
             "code_web": "web surface",
@@ -880,19 +985,28 @@ class ReferenceDrivenRuntime:
     def _execute_live_action(self, action: Action) -> ActionExecution:
         if self.action_backend is None:
             directive = str(action.payload.get("action", "contain")).lower()
-            weakness_id = str(action.payload.get("weakness_id", action.payload.get("weakness", ""))).strip()
+            weakness_id = str(
+                action.payload.get("weakness_id", action.payload.get("weakness", ""))
+            ).strip()
             if action.kind in {"api", "shell", "mail"} and weakness_id:
                 weakness = self._active_weakness(weakness_id)
                 if weakness is None:
-                    return ActionExecution(stderr=f"weakness {weakness_id} unavailable", ok=False)
+                    return ActionExecution(
+                        stderr=f"weakness {weakness_id} unavailable", ok=False
+                    )
                 return ActionExecution(
-                    stdout=str(action.payload.get("expect_contains", "")) or f"exercised {weakness.kind}",
+                    stdout=str(action.payload.get("expect_contains", ""))
+                    or f"exercised {weakness.kind}",
                 )
             return ActionExecution(
-                stdout=str(action.payload.get("expect_contains", "")) if action.kind in {"api", "shell", "mail"} else "",
+                stdout=str(action.payload.get("expect_contains", ""))
+                if action.kind in {"api", "shell", "mail"}
+                else "",
                 containment_applied=action.kind == "control" and directive == "contain",
-                patch_applied=action.kind == "control" and directive in {"patch", "mitigate"},
-                recovery_applied=action.kind == "control" and directive in {"recover", "restore"},
+                patch_applied=action.kind == "control"
+                and directive in {"patch", "mitigate"},
+                recovery_applied=action.kind == "control"
+                and directive in {"recover", "restore"},
             )
         result = self.action_backend.execute(action)
         if result.service_health:
@@ -902,7 +1016,9 @@ class ReferenceDrivenRuntime:
 
     def _advance_due_time(self, actor: ExternalRole) -> None:
         cadence = 1.0 if self._is_controlled(actor) else self._opponent_cadence(actor)
-        self._next_due_time[actor] = round(max(self._next_due_time[actor], self._state.sim_time) + cadence, 4)
+        self._next_due_time[actor] = round(
+            max(self._next_due_time[actor], self._state.sim_time) + cadence, 4
+        )
 
     def _is_controlled(self, actor: ExternalRole) -> bool:
         return self._state.controls_red if actor == "red" else self._state.controls_blue
@@ -935,15 +1051,27 @@ class ReferenceDrivenRuntime:
                     actor_id="blue",
                     role="blue",
                     kind="submit_finding",
-                    payload={"event_type": event.event_type, "target": event.target_entity},
+                    payload={
+                        "event_type": event.event_type,
+                        "target": event.target_entity,
+                    },
                 )
         remaining = sorted(self._remaining_red_targets() - self._contained_targets)
         if remaining and self._blue_detected:
-            return Action(actor_id="blue", role="blue", kind="control", payload={"target": remaining[0], "action": "contain"})
+            return Action(
+                actor_id="blue",
+                role="blue",
+                kind="control",
+                payload={"target": remaining[0], "action": "contain"},
+            )
         return Action(actor_id="blue", role="blue", kind="sleep", payload={})
 
     def _resolved_opponent_mode(self, actor: ExternalRole) -> str:
-        mode = self._episode_config.opponent_red if actor == "red" else self._episode_config.opponent_blue
+        mode = (
+            self._episode_config.opponent_red
+            if actor == "red"
+            else self._episode_config.opponent_blue
+        )
         if mode != "checkpoint_pool":
             return mode
         if self._snapshot is None:
@@ -973,7 +1101,14 @@ class ReferenceDrivenRuntime:
     def _active_weakness(self, weakness_id: str):
         if self._predicates is None:
             return None
-        return next((weakness for weakness in self._predicates.active_weaknesses() if weakness.id == weakness_id), None)
+        return next(
+            (
+                weakness
+                for weakness in self._predicates.active_weaknesses()
+                if weakness.id == weakness_id
+            ),
+            None,
+        )
 
     def _reference_attack_trace(self):
         assert self._snapshot is not None

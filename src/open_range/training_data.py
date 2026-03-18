@@ -139,7 +139,9 @@ def render_action_text(action: Action) -> str:
         query = action.payload.get("query")
         query_text = ""
         if isinstance(query, dict) and query:
-            query_text = "?" + urlencode([(str(key), str(value)) for key, value in query.items()], doseq=True)
+            query_text = "?" + urlencode(
+                [(str(key), str(value)) for key, value in query.items()], doseq=True
+            )
         return f"curl -s http://{target}{path}{query_text}"
     if action.kind == "shell":
         command = str(action.payload.get("command", "")).strip()
@@ -155,7 +157,11 @@ def render_action_text(action: Action) -> str:
         directive = str(action.payload.get("action", "contain")).lower()
         return f"{directive} {target}".strip()
     if action.kind == "submit_finding":
-        event_type = str(action.payload.get("event_type", action.payload.get("event", "InitialAccess")))
+        event_type = str(
+            action.payload.get(
+                "event_type", action.payload.get("event", "InitialAccess")
+            )
+        )
         return f"submit_finding event={event_type} target={target}".strip()
     if action.kind == "sleep":
         return "sleep 1"
@@ -172,7 +178,9 @@ def render_candidate_completion(candidate: TraceCandidate) -> str:
 
 
 def row_to_sft_record(row: TraceDecisionRow) -> dict[str, Any]:
-    selected = next((candidate for candidate in row.candidate_actions if candidate.selected), None)
+    selected = next(
+        (candidate for candidate in row.candidate_actions if candidate.selected), None
+    )
     if selected is None:
         raise ValueError("trace row must contain exactly one selected candidate")
     return {
@@ -248,7 +256,9 @@ def build_decision_prompt(
     include_hidden_context: bool = False,
 ) -> str:
     visible = _visible_event_lines(observation.visible_events)
-    candidates = "\n".join(f"- [{candidate.label}] {candidate.text}" for candidate in candidate_actions)
+    candidates = "\n".join(
+        f"- [{candidate.label}] {candidate.text}" for candidate in candidate_actions
+    )
     lines = [
         f"sim_time={observation.sim_time:.2f}\n"
         f"last_stdout={observation.stdout or 'none'}\n"
@@ -300,7 +310,9 @@ def system_prompt_for_role(role: Literal["red", "blue"]) -> str:
 def _service_health_text(observation: Observation) -> str:
     if not observation.service_health:
         return "unknown"
-    return ", ".join(f"{entry.service_id}={entry.health:.2f}" for entry in observation.service_health)
+    return ", ".join(
+        f"{entry.service_id}={entry.health:.2f}" for entry in observation.service_health
+    )
 
 
 def _visible_event_lines(events: tuple[RuntimeEvent, ...]) -> str:
@@ -327,7 +339,9 @@ def trace_weaknesses(snapshot: RuntimeSnapshot) -> tuple[TraceWeakness, ...]:
 
 
 def trace_benchmark_tags(snapshot: RuntimeSnapshot) -> tuple[str, ...]:
-    tags = {tag for weakness in snapshot.world.weaknesses for tag in weakness.benchmark_tags}
+    tags = {
+        tag for weakness in snapshot.world.weaknesses for tag in weakness.benchmark_tags
+    }
     return tuple(sorted(tags))
 
 
@@ -339,7 +353,8 @@ def grounded_effects_for_result(
     labels = {
         event.event_type
         for event in emitted_events
-        if event.event_type in {
+        if event.event_type
+        in {
             "CredentialObtained",
             "UnauthorizedCredentialUse",
             "PrivilegeEscalation",
@@ -351,7 +366,8 @@ def grounded_effects_for_result(
     labels.update(
         token
         for token in stdout.split()
-        if token.startswith("OPENRANGE-EFFECT:") or token.startswith("OPENRANGE-FOOTHOLD:")
+        if token.startswith("OPENRANGE-EFFECT:")
+        or token.startswith("OPENRANGE-FOOTHOLD:")
     )
     return tuple(sorted(labels))
 
@@ -365,12 +381,16 @@ def mitigation_effects_for_result(
     labels = {
         event.event_type
         for event in emitted_events
-        if event.event_type in {"ContainmentApplied", "PatchApplied", "RecoveryCompleted"}
+        if event.event_type
+        in {"ContainmentApplied", "PatchApplied", "RecoveryCompleted"}
     }
     if action.kind == "control":
         directive = str(action.payload.get("action", "")).lower()
         target = str(action.payload.get("target", ""))
-        if directive in {"contain", "patch", "mitigate", "recover", "restore"} and target:
+        if (
+            directive in {"contain", "patch", "mitigate", "recover", "restore"}
+            and target
+        ):
             labels.add(f"{directive}:{target}")
     if "mitigation applied to " in stdout:
         labels.add("mitigation_applied")

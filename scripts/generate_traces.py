@@ -31,14 +31,40 @@ def _load_manifest(source: str | Path | None) -> tuple[dict[str, Any], str]:
 
 
 def parse_args() -> argparse.Namespace:
-    parser = argparse.ArgumentParser(description="Generate branch-native OpenRange trace datasets.")
-    parser.add_argument("--manifest", default=None, help="Bundled manifest name or path to strict manifest YAML.")
-    parser.add_argument("--roots", type=int, default=1, help="How many independent root lineages to generate.")
-    parser.add_argument("--mutations", type=int, default=3, help="How many sequential admitted mutations per lineage.")
-    parser.add_argument("--outdir", default="/tmp/openrange-traces", help="Dataset output directory.")
-    parser.add_argument("--include-joint-pool", action="store_true", help="Also export runtime joint_pool traces.")
-    parser.add_argument("--no-sim", action="store_true", help="Skip sim-plane bootstrap traces.")
-    parser.add_argument("--report", default=None, help="Optional explicit JSON report path.")
+    parser = argparse.ArgumentParser(
+        description="Generate branch-native OpenRange trace datasets."
+    )
+    parser.add_argument(
+        "--manifest",
+        default=None,
+        help="Bundled manifest name or path to strict manifest YAML.",
+    )
+    parser.add_argument(
+        "--roots",
+        type=int,
+        default=1,
+        help="How many independent root lineages to generate.",
+    )
+    parser.add_argument(
+        "--mutations",
+        type=int,
+        default=3,
+        help="How many sequential admitted mutations per lineage.",
+    )
+    parser.add_argument(
+        "--outdir", default="/tmp/openrange-traces", help="Dataset output directory."
+    )
+    parser.add_argument(
+        "--include-joint-pool",
+        action="store_true",
+        help="Also export runtime joint_pool traces.",
+    )
+    parser.add_argument(
+        "--no-sim", action="store_true", help="Skip sim-plane bootstrap traces."
+    )
+    parser.add_argument(
+        "--report", default=None, help="Optional explicit JSON report path."
+    )
     return parser.parse_args()
 
 
@@ -56,7 +82,9 @@ def main() -> None:
         include_joint_pool=args.include_joint_pool,
     )
     report_path = Path(args.report) if args.report else outdir / "report.json"
-    report_path.write_text(json.dumps(report.model_dump(mode="json"), indent=2), encoding="utf-8")
+    report_path.write_text(
+        json.dumps(report.model_dump(mode="json"), indent=2), encoding="utf-8"
+    )
 
     print(f"manifest={report.manifest_source}")
     print(f"roots={report.roots}")

@@ -8,7 +8,13 @@ from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
-from open_range.manifest import CodeFlawKind, NoiseDensity, PinnedWeaknessSpec, WeaknessFamily, WeaknessTargetKind
+from open_range.manifest import (
+    CodeFlawKind,
+    NoiseDensity,
+    PinnedWeaknessSpec,
+    WeaknessFamily,
+    WeaknessTargetKind,
+)
 from open_range.objectives import StandardAttackObjective
 
 
@@ -21,7 +27,9 @@ EdgeKind = Literal["network", "trust", "data", "workflow", "telemetry"]
 ExposureKind = Literal["public", "corp", "data", "management", "sandbox"]
 WeaknessStatus = Literal["seeded", "mitigated", "disabled"]
 ObjectiveOwner = Literal["red", "blue"]
-WeaknessRealizationKind = Literal["code", "config", "seed_data", "workflow", "mailbox", "telemetry"]
+WeaknessRealizationKind = Literal[
+    "code", "config", "seed_data", "workflow", "mailbox", "telemetry"
+]
 WeaknessRemediationKind = Literal["shell", "manual"]
 WeaknessInstantiationMode = Literal["exact_code", "exact_config", "exact_workflow"]
 

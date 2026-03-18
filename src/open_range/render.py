@@ -34,7 +34,9 @@ _SANDBOX_IMAGE_BY_ROLE = {
 
 
 class KindRenderer(Protocol):
-    def render(self, world: WorldIR, synth: SynthArtifacts, outdir: Path) -> KindArtifacts: ...
+    def render(
+        self, world: WorldIR, synth: SynthArtifacts, outdir: Path
+    ) -> KindArtifacts: ...
 
 
 class EnterpriseSaaSKindRenderer:
@@ -43,7 +45,9 @@ class EnterpriseSaaSKindRenderer:
     def __init__(self, chart_dir: Path | None = None) -> None:
         self.chart_dir = chart_dir or _CHART_DIR
 
-    def render(self, world: WorldIR, synth: SynthArtifacts, outdir: Path) -> KindArtifacts:
+    def render(
+        self, world: WorldIR, synth: SynthArtifacts, outdir: Path
+    ) -> KindArtifacts:
         outdir = Path(outdir)
         outdir.mkdir(parents=True, exist_ok=True)
 
@@ -57,9 +61,13 @@ class EnterpriseSaaSKindRenderer:
         summary = self._build_summary(world, values)
 
         values_path = chart_out / "values.yaml"
-        values_path.write_text(yaml.safe_dump(values, sort_keys=False), encoding="utf-8")
+        values_path.write_text(
+            yaml.safe_dump(values, sort_keys=False), encoding="utf-8"
+        )
         kind_config_path = outdir / "kind-config.yaml"
-        kind_config_path.write_text(yaml.safe_dump(kind_config, sort_keys=False), encoding="utf-8")
+        kind_config_path.write_text(
+            yaml.safe_dump(kind_config, sort_keys=False), encoding="utf-8"
+        )
         summary_path = outdir / "manifest-summary.json"
         summary_path.write_text(
             json.dumps(summary, indent=2, sort_keys=True) + "\n",
@@ -76,7 +84,14 @@ class EnterpriseSaaSKindRenderer:
             values_path=str(values_path),
             kind_config_path=str(kind_config_path),
             manifest_summary_path=str(summary_path),
-            rendered_files=tuple([str(values_path), str(kind_config_path), str(summary_path), *synth.generated_files]),
+            rendered_files=tuple(
+                [
+                    str(values_path),
+                    str(kind_config_path),
+                    str(summary_path),
+                    *synth.generated_files,
+                ]
+            ),
             chart_values=values,
             pinned_image_digests=pinned,
         )
@@ -125,7 +140,9 @@ class EnterpriseSaaSKindRenderer:
             },
             "sandbox-blue": {
                 "enabled": True,
-                "zone": "management" if "management" in world.zones else world.zones[-1],
+                "zone": "management"
+                if "management" in world.zones
+                else world.zones[-1],
                 "image": _SANDBOX_IMAGE_BY_ROLE["blue"],
                 "role": "blue",
                 "command": ["/bin/sh", "-lc", "sleep infinity"],
@@ -159,11 +176,17 @@ class EnterpriseSaaSKindRenderer:
             "services": services,
             "sandboxes": sandboxes,
             "users": users,
-            "mailboxes": {mailbox: list(messages) for mailbox, messages in synth.mailboxes.items()},
+            "mailboxes": {
+                mailbox: list(messages) for mailbox, messages in synth.mailboxes.items()
+            },
             "firewallRules": _firewall_rules(world, host_by_id, service_by_id),
             "assets": [asset.model_dump(mode="json") for asset in world.assets],
-            "weaknesses": [weakness.model_dump(mode="json") for weakness in world.weaknesses],
-            "telemetryEdges": [edge.model_dump(mode="json") for edge in world.telemetry_edges],
+            "weaknesses": [
+                weakness.model_dump(mode="json") for weakness in world.weaknesses
+            ],
+            "telemetryEdges": [
+                edge.model_dump(mode="json") for edge in world.telemetry_edges
+            ],
         }
 
     @staticmethod
@@ -193,7 +216,9 @@ class EnterpriseSaaSKindRenderer:
             "asset_count": len(world.assets),
             "weakness_count": len(world.weaknesses),
             "values_hash": hashlib.sha256(
-                json.dumps(values, sort_keys=True, separators=(",", ":")).encode("utf-8")
+                json.dumps(values, sort_keys=True, separators=(",", ":")).encode(
+                    "utf-8"
+                )
             ).hexdigest(),
         }
 
@@ -244,8 +269,8 @@ def _service_command(service: ServiceSpec) -> list[str]:
                 "printf '%s\\n' \"$request_line\" >> /srv/http/siem/egress-canary.log; "
                 "path=$(printf '%s' \"$request_line\" | awk '{print $2}'); "
                 "slug=${path##*/}; slug=${slug%%\\?*}; "
-                "body=\"OPENRANGE-EFFECT:egress:${slug}\"; "
-                "printf 'HTTP/1.1 200 OK\\r\\nContent-Type: text/plain\\r\\nContent-Length: %s\\r\\n\\r\\n%s' \"${#body}\" \"$body\"; "
+                'body="OPENRANGE-EFFECT:egress:${slug}"; '
+                'printf \'HTTP/1.1 200 OK\\r\\nContent-Type: text/plain\\r\\nContent-Length: %s\\r\\n\\r\\n%s\' "${#body}" "$body"; '
                 "} | busybox nc -lp 9201 -q 1; "
                 "done"
                 ") & "
@@ -303,7 +328,11 @@ def _firewall_rules(
             service = service_by_id.get(step.service)
             if service is None:
                 continue
-            allow(role_zone_map[step.actor_role], host_by_id[service.host].zone, service.ports)
+            allow(
+                role_zone_map[step.actor_role],
+                host_by_id[service.host].zone,
+                service.ports,
+            )
 
     return [
         {
@@ -317,7 +346,11 @@ def _firewall_rules(
 
 
 def _green_sandbox(persona: GreenPersona, host_by_id: dict[str, Any]) -> dict[str, Any]:
-    zone = host_by_id[persona.home_host].zone if persona.home_host in host_by_id else "corp"
+    zone = (
+        host_by_id[persona.home_host].zone
+        if persona.home_host in host_by_id
+        else "corp"
+    )
     return {
         "enabled": True,
         "zone": zone,

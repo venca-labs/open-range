@@ -13,6 +13,7 @@ from pydantic import BaseModel, ConfigDict, Field, PositiveInt, model_validator
 from open_range.objectives import PUBLIC_OBJECTIVE_PREDICATE_NAMES
 from open_range.predicate_expr import parse_predicate
 
+
 class _StrictModel(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True, populate_by_name=True)
 
@@ -162,7 +163,9 @@ class ObjectivePredicate(_StrictModel):
         if expr.name not in PUBLIC_OBJECTIVE_PREDICATE_NAMES:
             raise ValueError(f"unsupported objective predicate {expr.name!r}")
         if "(" in self.predicate and not self.predicate.endswith(")"):
-            raise ValueError("objective predicate must end with ')' when using arguments")
+            raise ValueError(
+                "objective predicate must end with ')' when using arguments"
+            )
         return self
 
 
@@ -186,7 +189,9 @@ class PinnedWeaknessSpec(_StrictModel):
     @model_validator(mode="after")
     def _validate_family_kind_pair(self) -> "PinnedWeaknessSpec":
         if self.kind not in WEAKNESS_KIND_CATALOG[self.family]:
-            raise ValueError(f"unsupported kind {self.kind!r} for family {self.family!r}")
+            raise ValueError(
+                f"unsupported kind {self.kind!r} for family {self.family!r}"
+            )
         return self
 
 
@@ -204,13 +209,19 @@ class SecuritySpec(_StrictModel):
     def _validate_security_catalog(self) -> "SecuritySpec":
         allowed = set(self.allowed_weakness_families)
         if self.code_flaw_kinds and "code_web" not in allowed:
-            raise ValueError("code_flaw_kinds requires code_web in allowed_weakness_families")
+            raise ValueError(
+                "code_flaw_kinds requires code_web in allowed_weakness_families"
+            )
         for pinned in self.pinned_weaknesses:
             if pinned.family not in allowed:
                 raise ValueError(
                     f"pinned weakness family {pinned.family!r} is not enabled in allowed_weakness_families"
                 )
-            if pinned.family == "code_web" and self.code_flaw_kinds and pinned.kind not in self.code_flaw_kinds:
+            if (
+                pinned.family == "code_web"
+                and self.code_flaw_kinds
+                and pinned.kind not in self.code_flaw_kinds
+            ):
                 raise ValueError(
                     f"pinned code_web kind {pinned.kind!r} must be present in code_flaw_kinds when that list is set"
                 )

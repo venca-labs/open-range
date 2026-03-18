@@ -26,23 +26,35 @@ def _manifest_payload() -> dict:
 
 
 def _snapshot(tmp_path: Path):
-    world = CatalogWeaknessSeeder().apply(EnterpriseSaaSManifestCompiler().compile(_manifest_payload()))
+    world = CatalogWeaknessSeeder().apply(
+        EnterpriseSaaSManifestCompiler().compile(_manifest_payload())
+    )
     synth = EnterpriseSaaSWorldSynthesizer().synthesize(world, tmp_path / "synth")
     artifacts = EnterpriseSaaSKindRenderer().render(world, synth, tmp_path / "rendered")
-    reference_bundle, report = LocalAdmissionController(mode="fail_fast").admit(world, artifacts, OFFLINE_BUILD_CONFIG)
+    reference_bundle, report = LocalAdmissionController(mode="fail_fast").admit(
+        world, artifacts, OFFLINE_BUILD_CONFIG
+    )
     store = FileSnapshotStore(tmp_path / "snapshots")
-    return hydrate_runtime_snapshot(store, store.create(world, artifacts, reference_bundle, report, synth=synth))
+    return hydrate_runtime_snapshot(
+        store, store.create(world, artifacts, reference_bundle, report, synth=synth)
+    )
 
 
-def _code_web_response(snapshot, cmd: str, patched_services: set[str]) -> ExecResult | None:
-    weakness = next((weak for weak in snapshot.world.weaknesses if weak.family == "code_web"), None)
+def _code_web_response(
+    snapshot, cmd: str, patched_services: set[str]
+) -> ExecResult | None:
+    weakness = next(
+        (weak for weak in snapshot.world.weaknesses if weak.family == "code_web"), None
+    )
     if weakness is None or weakness.target in patched_services:
         return None
     payload = code_web_payload(snapshot.world, weakness)
     path = str(payload.get("path", ""))
     if "http://svc-web:80" not in cmd or path not in cmd:
         return None
-    return ExecResult(stdout=str(payload.get("expect_contains", "")), stderr="", exit_code=0)
+    return ExecResult(
+        stdout=str(payload.get("expect_contains", "")), stderr="", exit_code=0
+    )
 
 
 def test_joint_pool_next_decision_returns_actor_specific_observations(tmp_path: Path):
@@ -67,7 +79,12 @@ def test_joint_pool_next_decision_returns_actor_specific_observations(tmp_path: 
 
     runtime.act(
         "red",
-        Action(actor_id="red", role="red", kind=first_red.kind, payload={"target": first_red.target, **first_red.payload}),
+        Action(
+            actor_id="red",
+            role="red",
+            kind=first_red.kind,
+            payload={"target": first_red.target, **first_red.payload},
+        ),
     )
 
     blue_decision = runtime.next_decision()
@@ -75,7 +92,9 @@ def test_joint_pool_next_decision_returns_actor_specific_observations(tmp_path: 
     assert blue_decision.obs.actor_id == "blue"
     assert blue_decision.obs.sim_time >= 0.5
     assert any(event.malicious for event in blue_decision.obs.visible_events)
-    assert any(event.event_type == "InitialAccess" for event in blue_decision.obs.alerts_delta)
+    assert any(
+        event.event_type == "InitialAccess" for event in blue_decision.obs.alerts_delta
+    )
 
 
 def test_runtime_keeps_green_internal_and_never_exposes_green_decisions(tmp_path: Path):
@@ -91,7 +110,12 @@ def test_runtime_keeps_green_internal_and_never_exposes_green_decisions(tmp_path
     assert decision.actor == "red"
     runtime.act(
         "red",
-        Action(actor_id="red", role="red", kind=red_step.kind, payload={"target": red_step.target, **red_step.payload}),
+        Action(
+            actor_id="red",
+            role="red",
+            kind=red_step.kind,
+            payload={"target": red_step.target, **red_step.payload},
+        ),
     )
     decision = runtime.next_decision()
     assert decision.actor == "blue"
@@ -131,10 +155,14 @@ def test_blue_only_from_prefix_starts_blue_after_compromise_prefix(tmp_path: Pat
     assert state.controls_blue is True
     decision = runtime.next_decision()
     assert decision.actor == "blue"
-    assert any(event.event_type == "InitialAccess" for event in decision.obs.visible_events)
+    assert any(
+        event.event_type == "InitialAccess" for event in decision.obs.visible_events
+    )
 
 
-def test_blue_only_from_prefix_delivery_and_click_do_not_collapse_without_matching_reference_steps(tmp_path: Path):
+def test_blue_only_from_prefix_delivery_and_click_do_not_collapse_without_matching_reference_steps(
+    tmp_path: Path,
+):
     snapshot = _snapshot(tmp_path)
 
     delivery_runtime = ReferenceDrivenRuntime()
@@ -148,7 +176,10 @@ def test_blue_only_from_prefix_delivery_and_click_do_not_collapse_without_matchi
     )
     delivery_decision = delivery_runtime.next_decision()
     assert delivery_decision.actor == "blue"
-    assert not any(event.event_type == "InitialAccess" for event in delivery_decision.obs.visible_events)
+    assert not any(
+        event.event_type == "InitialAccess"
+        for event in delivery_decision.obs.visible_events
+    )
 
     click_runtime = ReferenceDrivenRuntime()
     click_runtime.reset(
@@ -161,7 +192,10 @@ def test_blue_only_from_prefix_delivery_and_click_do_not_collapse_without_matchi
     )
     click_decision = click_runtime.next_decision()
     assert click_decision.actor == "blue"
-    assert not any(event.event_type == "InitialAccess" for event in click_decision.obs.visible_events)
+    assert not any(
+        event.event_type == "InitialAccess"
+        for event in click_decision.obs.visible_events
+    )
 
 
 def test_blue_only_live_can_win_by_detect_and_contain(tmp_path: Path):
@@ -183,7 +217,10 @@ def test_blue_only_live_can_win_by_detect_and_contain(tmp_path: Path):
             actor_id="blue",
             role="blue",
             kind=detect_step.kind,
-            payload={"event_type": str(detect_step.payload["event"]), "target": detect_step.target},
+            payload={
+                "event_type": str(detect_step.payload["event"]),
+                "target": detect_step.target,
+            },
         ),
     )
     assert "validated finding" in detect.stdout
@@ -209,11 +246,15 @@ def test_runtime_hard_done_rejects_more_decisions_and_actions(tmp_path: Path):
     runtime = ReferenceDrivenRuntime()
     runtime.reset(
         snapshot,
-        EpisodeConfig(mode="joint_pool", green_enabled=False, episode_horizon_minutes=0.1),
+        EpisodeConfig(
+            mode="joint_pool", green_enabled=False, episode_horizon_minutes=0.1
+        ),
     )
 
     decision = runtime.next_decision()
-    runtime.act(decision.actor, Action(actor_id="red", role="red", kind="sleep", payload={}))
+    runtime.act(
+        decision.actor, Action(actor_id="red", role="red", kind="sleep", payload={})
+    )
 
     with pytest.raises(RuntimeError):
         runtime.next_decision()
@@ -222,8 +263,15 @@ def test_runtime_hard_done_rejects_more_decisions_and_actions(tmp_path: Path):
 
 
 def test_runtime_matching_rejects_extra_api_path_when_reference_has_no_path() -> None:
-    expected = SimpleNamespace(kind="api", target="svc-web", payload={"action": "traverse"})
-    action = Action(actor_id="red", role="red", kind="api", payload={"target": "svc-web", "path": "/"})
+    expected = SimpleNamespace(
+        kind="api", target="svc-web", payload={"action": "traverse"}
+    )
+    action = Action(
+        actor_id="red",
+        role="red",
+        kind="api",
+        payload={"target": "svc-web", "path": "/"},
+    )
 
     assert ReferenceDrivenRuntime._matches_step(action, expected, "ok") is False
 
@@ -237,7 +285,9 @@ def test_runtime_live_containment_blocks_future_red_step(tmp_path: Path):
             self.contained: set[str] = set()
             self.patched: set[str] = set()
 
-        async def exec(self, service: str, cmd: str, timeout: float = 30.0) -> ExecResult:
+        async def exec(
+            self, service: str, cmd: str, timeout: float = 30.0
+        ) -> ExecResult:
             del timeout
             if cmd == "touch /tmp/openrange-contained":
                 self.contained.add(service)
@@ -253,22 +303,34 @@ def test_runtime_live_containment_blocks_future_red_step(tmp_path: Path):
                 self.patched.discard(service)
                 return ExecResult(stdout="recovered", stderr="", exit_code=0)
             if cmd == "test ! -f /tmp/openrange-contained":
-                return ExecResult(stdout="", stderr="", exit_code=1 if service in self.contained else 0)
+                return ExecResult(
+                    stdout="",
+                    stderr="",
+                    exit_code=1 if service in self.contained else 0,
+                )
             if cmd == "test ! -f /tmp/openrange-patched":
-                return ExecResult(stdout="", stderr="", exit_code=1 if service in self.patched else 0)
+                return ExecResult(
+                    stdout="", stderr="", exit_code=1 if service in self.patched else 0
+                )
             return ExecResult(stdout=f"{service}:{cmd}", stderr="", exit_code=0)
 
         async def is_healthy(self, service: str) -> bool:
             return service in self.pod_ids
 
-    pod_ids = {service.id: f"ns/{service.id}-pod" for service in snapshot.world.services}
+    pod_ids = {
+        service.id: f"ns/{service.id}-pod" for service in snapshot.world.services
+    }
     pod_ids["sandbox-red"] = "ns/sandbox-red-pod"
     pod_ids["sandbox-blue"] = "ns/sandbox-blue-pod"
     for persona in snapshot.world.green_personas:
-        pod_ids[f"sandbox-green-{persona.id.replace('_', '-').lower()}"] = f"ns/{persona.id}-pod"
+        pod_ids[f"sandbox-green-{persona.id.replace('_', '-').lower()}"] = (
+            f"ns/{persona.id}-pod"
+        )
 
     backend = PodActionBackend()
-    backend.bind(snapshot, SimpleNamespace(release_name="or-test", pods=FakePods(pod_ids)))
+    backend.bind(
+        snapshot, SimpleNamespace(release_name="or-test", pods=FakePods(pod_ids))
+    )
     runtime = ReferenceDrivenRuntime(action_backend=backend)
     runtime.reset(
         snapshot,
@@ -282,26 +344,43 @@ def test_runtime_live_containment_blocks_future_red_step(tmp_path: Path):
     assert red_decision.actor == "red"
     runtime.act(
         "red",
-        Action(actor_id="red", role="red", kind=first_step.kind, payload={"target": first_step.target, **first_step.payload}),
+        Action(
+            actor_id="red",
+            role="red",
+            kind=first_step.kind,
+            payload={"target": first_step.target, **first_step.payload},
+        ),
     )
 
     blue_decision = runtime.next_decision()
     assert blue_decision.actor == "blue"
     runtime.act(
         "blue",
-        Action(actor_id="blue", role="blue", kind="control", payload={"target": second_step.target, "action": "contain"}),
+        Action(
+            actor_id="blue",
+            role="blue",
+            kind="control",
+            payload={"target": second_step.target, "action": "contain"},
+        ),
     )
 
     red_decision = runtime.next_decision()
     blocked = runtime.act(
         "red",
-        Action(actor_id="red", role="red", kind=second_step.kind, payload={"target": second_step.target}),
+        Action(
+            actor_id="red",
+            role="red",
+            kind=second_step.kind,
+            payload={"target": second_step.target},
+        ),
     )
 
     assert "contained" in blocked.stderr
 
 
-def test_runtime_live_patch_blocks_future_red_step_and_emits_patch_event(tmp_path: Path):
+def test_runtime_live_patch_blocks_future_red_step_and_emits_patch_event(
+    tmp_path: Path,
+):
     snapshot = _snapshot(tmp_path)
 
     class FakePods:
@@ -310,7 +389,9 @@ def test_runtime_live_patch_blocks_future_red_step_and_emits_patch_event(tmp_pat
             self.contained: set[str] = set()
             self.patched: set[str] = set()
 
-        async def exec(self, service: str, cmd: str, timeout: float = 30.0) -> ExecResult:
+        async def exec(
+            self, service: str, cmd: str, timeout: float = 30.0
+        ) -> ExecResult:
             del timeout
             if cmd == "touch /tmp/openrange-contained":
                 self.contained.add(service)
@@ -323,22 +404,34 @@ def test_runtime_live_patch_blocks_future_red_step_and_emits_patch_event(tmp_pat
                 self.patched.discard(service)
                 return ExecResult(stdout="recovered", stderr="", exit_code=0)
             if cmd == "test ! -f /tmp/openrange-contained":
-                return ExecResult(stdout="", stderr="", exit_code=1 if service in self.contained else 0)
+                return ExecResult(
+                    stdout="",
+                    stderr="",
+                    exit_code=1 if service in self.contained else 0,
+                )
             if cmd == "test ! -f /tmp/openrange-patched":
-                return ExecResult(stdout="", stderr="", exit_code=1 if service in self.patched else 0)
+                return ExecResult(
+                    stdout="", stderr="", exit_code=1 if service in self.patched else 0
+                )
             return ExecResult(stdout=f"{service}:{cmd}", stderr="", exit_code=0)
 
         async def is_healthy(self, service: str) -> bool:
             return service in self.pod_ids
 
-    pod_ids = {service.id: f"ns/{service.id}-pod" for service in snapshot.world.services}
+    pod_ids = {
+        service.id: f"ns/{service.id}-pod" for service in snapshot.world.services
+    }
     pod_ids["sandbox-red"] = "ns/sandbox-red-pod"
     pod_ids["sandbox-blue"] = "ns/sandbox-blue-pod"
     for persona in snapshot.world.green_personas:
-        pod_ids[f"sandbox-green-{persona.id.replace('_', '-').lower()}"] = f"ns/{persona.id}-pod"
+        pod_ids[f"sandbox-green-{persona.id.replace('_', '-').lower()}"] = (
+            f"ns/{persona.id}-pod"
+        )
 
     backend = PodActionBackend()
-    backend.bind(snapshot, SimpleNamespace(release_name="or-test", pods=FakePods(pod_ids)))
+    backend.bind(
+        snapshot, SimpleNamespace(release_name="or-test", pods=FakePods(pod_ids))
+    )
     runtime = ReferenceDrivenRuntime(action_backend=backend)
     runtime.reset(
         snapshot,
@@ -351,14 +444,24 @@ def test_runtime_live_patch_blocks_future_red_step_and_emits_patch_event(tmp_pat
     assert runtime.next_decision().actor == "red"
     runtime.act(
         "red",
-        Action(actor_id="red", role="red", kind=first_step.kind, payload={"target": first_step.target, **first_step.payload}),
+        Action(
+            actor_id="red",
+            role="red",
+            kind=first_step.kind,
+            payload={"target": first_step.target, **first_step.payload},
+        ),
     )
 
     patch_decision = runtime.next_decision()
     assert patch_decision.actor == "blue"
     patched = runtime.act(
         "blue",
-        Action(actor_id="blue", role="blue", kind="control", payload={"target": second_step.target, "action": "patch"}),
+        Action(
+            actor_id="blue",
+            role="blue",
+            kind="control",
+            payload={"target": second_step.target, "action": "patch"},
+        ),
     )
 
     assert "patch applied" in patched.stdout
@@ -367,7 +470,12 @@ def test_runtime_live_patch_blocks_future_red_step_and_emits_patch_event(tmp_pat
     assert runtime.next_decision().actor == "red"
     blocked = runtime.act(
         "red",
-        Action(actor_id="red", role="red", kind=second_step.kind, payload={"target": second_step.target}),
+        Action(
+            actor_id="red",
+            role="red",
+            kind=second_step.kind,
+            payload={"target": second_step.target},
+        ),
     )
 
     assert "patched" in blocked.stderr
@@ -383,7 +491,9 @@ def test_runtime_live_patch_can_disable_exact_web_handler(tmp_path: Path):
             self.patched: set[str] = set()
             self.web_guards: set[str] = set()
 
-        async def exec(self, service: str, cmd: str, timeout: float = 30.0) -> ExecResult:
+        async def exec(
+            self, service: str, cmd: str, timeout: float = 30.0
+        ) -> ExecResult:
             del timeout
             if cmd == "touch /tmp/openrange-contained":
                 self.contained.add(service)
@@ -402,11 +512,21 @@ def test_runtime_live_patch_can_disable_exact_web_handler(tmp_path: Path):
                 self.web_guards.discard(service)
                 return ExecResult(stdout="unguarded", stderr="", exit_code=0)
             if cmd == "test ! -f /tmp/openrange-contained":
-                return ExecResult(stdout="", stderr="", exit_code=1 if service in self.contained else 0)
+                return ExecResult(
+                    stdout="",
+                    stderr="",
+                    exit_code=1 if service in self.contained else 0,
+                )
             if cmd == "test ! -f /tmp/openrange-patched":
-                return ExecResult(stdout="", stderr="", exit_code=1 if service in self.patched else 0)
+                return ExecResult(
+                    stdout="", stderr="", exit_code=1 if service in self.patched else 0
+                )
             if "test ! -f /var/www/html/.openrange/guards/" in cmd:
-                return ExecResult(stdout="", stderr="", exit_code=1 if service in self.web_guards else 0)
+                return ExecResult(
+                    stdout="",
+                    stderr="",
+                    exit_code=1 if service in self.web_guards else 0,
+                )
             if service == "sandbox-red":
                 seeded = _code_web_response(snapshot, cmd, self.web_guards)
                 if seeded is not None:
@@ -416,14 +536,20 @@ def test_runtime_live_patch_can_disable_exact_web_handler(tmp_path: Path):
         async def is_healthy(self, service: str) -> bool:
             return service in self.pod_ids
 
-    pod_ids = {service.id: f"ns/{service.id}-pod" for service in snapshot.world.services}
+    pod_ids = {
+        service.id: f"ns/{service.id}-pod" for service in snapshot.world.services
+    }
     pod_ids["sandbox-red"] = "ns/sandbox-red-pod"
     pod_ids["sandbox-blue"] = "ns/sandbox-blue-pod"
     for persona in snapshot.world.green_personas:
-        pod_ids[f"sandbox-green-{persona.id.replace('_', '-').lower()}"] = f"ns/{persona.id}-pod"
+        pod_ids[f"sandbox-green-{persona.id.replace('_', '-').lower()}"] = (
+            f"ns/{persona.id}-pod"
+        )
 
     backend = PodActionBackend()
-    backend.bind(snapshot, SimpleNamespace(release_name="or-test", pods=FakePods(pod_ids)))
+    backend.bind(
+        snapshot, SimpleNamespace(release_name="or-test", pods=FakePods(pod_ids))
+    )
     runtime = ReferenceDrivenRuntime(action_backend=backend)
     runtime.reset(
         snapshot,
@@ -441,7 +567,12 @@ def test_runtime_live_patch_can_disable_exact_web_handler(tmp_path: Path):
     assert runtime.next_decision().actor == "blue"
     patched = runtime.act(
         "blue",
-        Action(actor_id="blue", role="blue", kind="control", payload={"target": first_step.target, "action": "patch"}),
+        Action(
+            actor_id="blue",
+            role="blue",
+            kind="control",
+            payload={"target": first_step.target, "action": "patch"},
+        ),
     )
     assert "patch applied" in patched.stdout
 
@@ -473,13 +604,23 @@ def test_runtime_accepts_mitigate_as_patch_alias(tmp_path: Path):
     assert runtime.next_decision().actor == "red"
     runtime.act(
         "red",
-        Action(actor_id="red", role="red", kind=first_step.kind, payload={"target": first_step.target, **first_step.payload}),
+        Action(
+            actor_id="red",
+            role="red",
+            kind=first_step.kind,
+            payload={"target": first_step.target, **first_step.payload},
+        ),
     )
 
     assert runtime.next_decision().actor == "blue"
     mitigated = runtime.act(
         "blue",
-        Action(actor_id="blue", role="blue", kind="control", payload={"target": second_step.target, "action": "mitigate"}),
+        Action(
+            actor_id="blue",
+            role="blue",
+            kind="control",
+            payload={"target": second_step.target, "action": "mitigate"},
+        ),
     )
 
     assert "mitigation applied" in mitigated.stdout
@@ -504,7 +645,12 @@ def test_internal_blue_controller_modes_are_not_aliases(tmp_path: Path):
     assert reference_runtime.next_decision().actor == "red"
     reference_runtime.act(
         "red",
-        Action(actor_id="red", role="red", kind=first_step.kind, payload={"target": first_step.target, **first_step.payload}),
+        Action(
+            actor_id="red",
+            role="red",
+            kind=first_step.kind,
+            payload={"target": first_step.target, **first_step.payload},
+        ),
     )
     reference_action = reference_runtime._internal_blue_action()
     assert reference_action.kind == "shell"
@@ -524,7 +670,12 @@ def test_internal_blue_controller_modes_are_not_aliases(tmp_path: Path):
     assert scripted_runtime.next_decision().actor == "red"
     scripted_runtime.act(
         "red",
-        Action(actor_id="red", role="red", kind=first_step.kind, payload={"target": first_step.target, **first_step.payload}),
+        Action(
+            actor_id="red",
+            role="red",
+            kind=first_step.kind,
+            payload={"target": first_step.target, **first_step.payload},
+        ),
     )
     scripted_action = scripted_runtime._internal_blue_action()
     assert scripted_action.kind == "submit_finding"
@@ -568,12 +719,21 @@ def test_green_branch_backends_are_not_aliases(tmp_path: Path):
     assert scripted_runtime.next_decision().actor == "red"
     scripted_runtime.act(
         "red",
-        Action(actor_id="red", role="red", kind=first_step.kind, payload={"target": first_step.target, **first_step.payload}),
+        Action(
+            actor_id="red",
+            role="red",
+            kind=first_step.kind,
+            payload={"target": first_step.target, **first_step.payload},
+        ),
     )
     assert scripted_runtime.next_decision().actor == "blue"
-    scripted_runtime.act("blue", Action(actor_id="blue", role="blue", kind="sleep", payload={}))
+    scripted_runtime.act(
+        "blue", Action(actor_id="blue", role="blue", kind="sleep", payload={})
+    )
     assert scripted_runtime.next_decision().actor == "red"
-    scripted_green_events = [event for event in scripted_runtime.export_events() if event.actor == "green"]
+    scripted_green_events = [
+        event for event in scripted_runtime.export_events() if event.actor == "green"
+    ]
 
     orchestrated_runtime = ReferenceDrivenRuntime()
     orchestrated_runtime.reset(
@@ -588,12 +748,25 @@ def test_green_branch_backends_are_not_aliases(tmp_path: Path):
     assert orchestrated_runtime.next_decision().actor == "red"
     orchestrated_runtime.act(
         "red",
-        Action(actor_id="red", role="red", kind=first_step.kind, payload={"target": first_step.target, **first_step.payload}),
+        Action(
+            actor_id="red",
+            role="red",
+            kind=first_step.kind,
+            payload={"target": first_step.target, **first_step.payload},
+        ),
     )
     assert orchestrated_runtime.next_decision().actor == "blue"
-    orchestrated_runtime.act("blue", Action(actor_id="blue", role="blue", kind="sleep", payload={}))
+    orchestrated_runtime.act(
+        "blue", Action(actor_id="blue", role="blue", kind="sleep", payload={})
+    )
     assert orchestrated_runtime.next_decision().actor == "red"
-    orchestrated_green_events = [event for event in orchestrated_runtime.export_events() if event.actor == "green"]
+    orchestrated_green_events = [
+        event
+        for event in orchestrated_runtime.export_events()
+        if event.actor == "green"
+    ]
 
     assert len(orchestrated_green_events) > len(scripted_green_events)
-    assert any(event.event_type == "RecoveryCompleted" for event in orchestrated_green_events)
+    assert any(
+        event.event_type == "RecoveryCompleted" for event in orchestrated_green_events
+    )

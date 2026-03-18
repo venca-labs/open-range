@@ -7,12 +7,16 @@ from typing import Any, Literal
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 
-TrainingMode = Literal["red_only", "blue_only_live", "blue_only_from_prefix", "joint_pool"]
+TrainingMode = Literal[
+    "red_only", "blue_only_live", "blue_only_from_prefix", "joint_pool"
+]
 SchedulerMode = Literal["async", "strict_turns"]
 GreenProfile = Literal["off", "low", "medium", "high"]
 GreenBranchBackend = Literal["none", "scripted", "small_llm", "workflow_orchestrator"]
 TelemetryDelayProfile = Literal["none", "low", "medium", "high"]
-OpponentController = Literal["none", "scripted", "reference", "frozen_policy", "checkpoint_pool", "replay"]
+OpponentController = Literal[
+    "none", "scripted", "reference", "frozen_policy", "checkpoint_pool", "replay"
+]
 PromptMode = Literal["zero_day", "one_day"]
 StartState = Literal[
     "clean",
@@ -72,15 +76,24 @@ class EpisodeConfig(BaseModel):
 
     @property
     def red_shaping_enabled(self) -> bool:
-        return self.reward_profile == "terminal_plus_shaping" and self.red_milestone_shaping_enabled
+        return (
+            self.reward_profile == "terminal_plus_shaping"
+            and self.red_milestone_shaping_enabled
+        )
 
     @property
     def blue_detection_shaping(self) -> bool:
-        return self.reward_profile == "terminal_plus_shaping" and self.blue_detection_shaping_enabled
+        return (
+            self.reward_profile == "terminal_plus_shaping"
+            and self.blue_detection_shaping_enabled
+        )
 
     @property
     def blue_containment_shaping(self) -> bool:
-        return self.reward_profile == "terminal_plus_shaping" and self.blue_containment_shaping_enabled
+        return (
+            self.reward_profile == "terminal_plus_shaping"
+            and self.blue_containment_shaping_enabled
+        )
 
 
 DEFAULT_EPISODE_CONFIG = EpisodeConfig()
