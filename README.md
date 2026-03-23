@@ -1,6 +1,6 @@
 <div align="center">
   <h1>OpenRange</h1>
-  <img src="assets/evolving_gym_hero.png" alt="OpenRange: multi-agent cybersecurity range" width="800" />
+  <img src="assets/evolving_gym_hero.png" alt="OpenRange: validator-admitted enterprise cyber range" width="800" />
   <br />
   <br />
   <img src="https://img.shields.io/badge/Package-open--range-blue" alt="Package: open-range" />
@@ -8,22 +8,39 @@
   <img src="https://img.shields.io/badge/License-Apache_2.0-blue.svg" alt="License: Apache 2.0" />
 </div>
 
-OpenRange is a manifest-first red/blue/green cyber range packaged as an installable Python control plane. It turns strict manifests into admitted snapshots, stores immutable builds, and exposes a small runtime/CLI for demos, evaluation, and trace generation.
+OpenRange is a manifest-first cyber range for training red and blue agents in
+bounded enterprise worlds. It compiles a business manifest into a world,
+validates that world with private reference traces and deterministic probes,
+freezes it as an immutable snapshot, and runs episodes with red, blue, and
+green-user dynamics.
 
-This branch is a package-first rewrite of the project. It keeps the core idea from the older README, varied adversarial cyber environments with grounded validation, but the public surface here is the Python package under [`src/open_range`](src/open_range), not the legacy OpenEnv server/client stack from `main`.
+This branch exposes OpenRange as an installable Python package and CLI. It is
+not the legacy OpenEnv server/client stack from `main`.
 
 ## Why OpenRange
 
-Static CTFs are useful, but they are a weak training target for general cyber agents: they are hand-authored, fixed, and easy to overfit. OpenRange is aimed at the opposite shape: bounded families of enterprise-like environments that can be compiled, admitted, mutated, replayed, and used to generate branch-native traces.
+Static cyber tasks are useful for evaluation, but they are a weak training
+target. They are fixed, narrow, easy to memorize, and usually offense-only.
+OpenRange is aimed at the opposite shape: families of admitted enterprise-like
+worlds that can be replayed, mutated between snapshots, and used for runtime and
+training-data generation.
 
-The supported surface on this branch is:
+|  | Static cyber task | OpenRange |
+|--|-------------------|-----------|
+| **World** | One fixed puzzle | Admitted enterprise world from a manifest |
+| **Reset** | Same challenge again | Load a stored snapshot from a pool |
+| **Validation** | Often manual or benchmark-specific | Deterministic admission with private references |
+| **Roles** | Usually red only | Red, blue, and green in one runtime |
+| **Training data** | External transcripts or logs | Branch-native traces from admitted snapshots |
 
-- strict public manifests for the bounded `enterprise_saas_v1` family
-- a Python build/admit/store/runtime API under [`src/open_range`](src/open_range)
-- a small CLI exposed as `openrange`
-- packaged chart assets, schemas, docs, and manifest examples
+## What You Can Do
 
-## Start here
+- Build and admit worlds from strict manifests
+- Run red/blue/green episodes over immutable snapshots
+- Sample snapshots from train and eval pools
+- Generate branch-native trace datasets for training
+- Use offline admission for local iteration or live validation when running with
+  Kind
 
 - [Architecture](docs/architecture.md)
 - [Training Data Spec](docs/training-data-spec.md)
@@ -31,209 +48,75 @@ The supported surface on this branch is:
 - [Effect Grounding](docs/effect-grounding.md)
 - [Weakness Lifecycle](docs/weakness-lifecycle.md)
 - [NPC Profiles](docs/npc-profiles.md)
+## Quick Start
 
-## Package shape
+### 1. Install
 
-```text
-src/open_range/      importable runtime, compiler, renderer, admission, store
-manifests/           checked-in strict manifest examples
-schemas/             generated JSON schemas
-examples/            small runnable demos against the current API
-data/                repo-only training artifacts
-docs/                current package documentation
+```bash
+uv sync
+uv run openrange --help
 ```
 
-## Installation
+Or install the package directly:
 
 ```bash
 pip install .
 openrange --help
-openrange-demo
-openrange-bootstrap-demo
 ```
 
-## Training Dependencies
+### 2. Run the Small Demo
 
-The base package does not install model-training dependencies by default.
-Use the training extra explicitly:
+This is the fastest way to see the package working end to end without setting up
+Kind:
 
 ```bash
-uv sync --extra training
+uv run openrange-demo
 ```
 
-This installs the small training stack used by the current branch:
-PyTorch, Transformers, Datasets, Accelerate, PEFT, and TRL.
-
-## Admission profiles
-
-Admission strength is explicit:
-
-- `full`: requires live Kind validation
-- `graph_plus_live`: requires live Kind validation without necessity probes
-- `no_necessity`: strongest offline profile, including reference, shortcut, and determinism checks
-- `graph_only`: offline structural validation only
-
-For offline workflows, pass the profile deliberately instead of relying on a silent fallback.
-
-## Tiny Train/Eval Path
-
-The branch includes a branch-native tiny LoRA warmup path.
-It now starts from generated decision traces over admitted snapshots rather than
-from the older mixed bootstrap chat file.
-
-Generate branch-native traces first:
+You can also point it at a checked-in manifest:
 
 ```bash
-PYTHONPATH=src .venv/bin/python scripts/generate_traces.py \
-  --manifest manifests/tier1_basic.yaml \
+uv run openrange-demo --manifest manifests/tier1_basic.yaml
+```
+
+### 3. Admit a Snapshot Locally
+
+For a local first run, use the explicit offline profile:
+
+```bash
+uv run openrange admit \
+  -m manifests/tier1_basic.yaml \
+  -o /tmp/openrange-build \
+  --store-dir /tmp/openrange-snapshots \
+  --validation-profile graph_only
+```
+
+Then reset the runtime onto an admitted snapshot:
+
+```bash
+uv run openrange reset \
+  --store-dir /tmp/openrange-snapshots \
+  --mode blue_only_live \
+  --sample-seed 7
+```
+
+`graph_only` is the cheapest offline path. `full` and `graph_plus_live` require
+a live Kind-backed setup.
+
+### 4. Generate Trace Data
+
+```bash
+uv run openrange traces \
+  -m manifests/tier1_basic.yaml \
+  -o /tmp/openrange-traces \
   --roots 3 \
-  --mutations 1 \
-  --outdir /tmp/openrange-traces
+  --mutations 1
 ```
 
-This writes:
+This writes raw decision rows, SFT-ready rows, and a small dataset report tied
+to admitted snapshots.
 
-- raw decision rows: `/tmp/openrange-traces/trace_rows.jsonl`
-- branch-native decision SFT rows: `/tmp/openrange-traces/decision_sft.jsonl`
-- red runtime shard: `/tmp/openrange-traces/sft_red_runtime.jsonl`
-- blue runtime shard: `/tmp/openrange-traces/sft_blue_runtime.jsonl`
-- dataset report: `/tmp/openrange-traces/report.json`
-
-The tiny SFT path can also generate a small branch-native dataset on the fly if
-`--data` is omitted.
-
-The tiny train/eval scripts are role-correct by default:
-- `--roles red`
-- `--trace-sources runtime`
-
-That keeps the small adapter aligned with the current red-only model probe
-instead of mixing red and blue decision rows into one tiny run.
-If `--data` is omitted, the tiny train/eval scripts regenerate a fresh
-runtime-only corpus under `/tmp/openrange-trace-train-data-runtime/seed-<seed>`
-instead of reusing a stale cached dataset.
-
-Train:
-
-```bash
-uv sync --extra dev --extra training
-HF_HOME=/tmp/hf-home TOKENIZERS_PARALLELISM=false \
-python scripts/train_tiny_sft.py \
-  --data /tmp/openrange-traces/decision_sft.jsonl \
-  --roles red \
-  --outdir /tmp/openrange-sft-tiny \
-  --max-samples 64 \
-  --max-length 1024 \
-  --max-steps 8 \
-  --grad-accum 4 \
-  --batch-size 1 \
-  --eval-ratio 0.25 \
-  --min-eval-samples 8
-```
-
-Evaluate the saved adapter on the held-out split:
-
-```bash
-HF_HOME=/tmp/hf-home TOKENIZERS_PARALLELISM=false \
-python scripts/eval_tiny_sft.py \
-  --data /tmp/openrange-traces/decision_sft.jsonl \
-  --adapter /tmp/openrange-sft-tiny/adapter \
-  --roles red \
-  --max-samples 64 \
-  --eval-ratio 0.25 \
-  --min-eval-samples 8 \
-  --max-length 1024 \
-  --out /tmp/openrange-sft-eval.json
-```
-
-Current default tiny model:
-- `HuggingFaceTB/SmolLM2-360M-Instruct`
-
-## Training Data
-
-OpenRange training data is now treated as a first-class artifact of admitted
-snapshots.
-
-The canonical contract is documented in:
-
-- [docs/training-data-spec.md](docs/training-data-spec.md)
-
-Key rules:
-
-- raw data comes from executed traces over admitted snapshots
-- `sim` and `runtime` traces stay explicitly separated
-- rows carry snapshot, world, world hash, lineage, mode, role, observation, candidates, chosen action, emitted events, reward delta, winner, and terminal reason
-- default decision prompts mirror the runtime observation surface and do not include hidden weakness inventory, benchmark tags, snapshot ids, lineage ids, or evaluator-only metadata
-- dataset splits are assigned by lineage root, not random row
-- derived SFT rows preserve `split` and lineage metadata
-- trace export writes clean role/source shards for red, blue, runtime, and sim subsets
-- train/eval filtering happens before row caps, so role-correct subsets are not starved by mixed trace distributions
-
-## Benchmark-Aligned Offensive Coverage
-
-The offensive slice is documented separately in:
-
-- [docs/benchmark-offensive-coverage.md](docs/benchmark-offensive-coverage.md)
-- [docs/effect-grounding.md](docs/effect-grounding.md)
-
-Current implementation points:
-
-- exact `code_web` flaws carry benchmark tags plus benchmark-aligned `objective_tags`
-- red objectives compile with derived offensive objective tags where applicable
-- admission now executes service-native grader checks during red reference validation for grounded red objectives
-- admin, privilege, and outbound-service objectives are grounded by service-local effect artifacts or sink-side canary hits
-- `EpisodeConfig.prompt_mode` supports `zero_day` and `one_day`
-- runtime first observations expose prompt-mode-specific briefings without leaking private references or exact flaw inventories
-
-## Current pipeline
-
-```text
-manifest
-  -> validate_manifest
-  -> ManifestCompiler
-  -> WorldSynthesizer
-  -> WeaknessSeeder
-  -> KindRenderer
-  -> AdmissionController
-  -> SnapshotStore
-  -> OpenRange runtime
-```
-
-## What is implemented
-
-- strict manifest, `WorldIR`, `ReferenceBundle`, and `ValidatorReport` models
-- deterministic `enterprise_saas_v1` compiler
-- deterministic bounded synthesis for seeded business artifacts
-- deterministic weakness seeding from an allowed-family catalog, including the full required non-code kind set for `config_identity`, `secret_exposure`, `workflow_abuse`, and `telemetry_blindspot`
-- exact `code_web` flaw templates for the required web exploit kinds, rendered as concrete PHP handlers and referenceable routes
-- benchmark-aligned offensive objective library and service-native grader specs for the supported web-first objective slice
-- exact config/workflow/mailbox realizations for the required non-code weakness kinds, including mailbox-borne phishing and token leakage cases
-- representative service-native mitigations for exact web flaws plus bounded config/file mitigations for non-code weaknesses
-- Kind renderer with service payloads, firewall rules, and red/blue/green sandboxes
-- deterministic admission with optional live Kind checks
-- public immutable `Snapshot` records plus explicit runtime hydration into `RuntimeSnapshot` only when internal execution needs exact world structure and private references
-- shared predicate engine used by both admission and runtime terminal/objective reasoning
-- immutable snapshot store with train/eval splits
-- simulated-time runtime with `EpisodeConfig`, actor-specific observations, and `next_decision()`
-- live pod execution bridge and typed event flow
-- deterministic curriculum and tandem episode driver, including persistent weakness patch/remove and alternate-route hardening
-- checked-in manifest examples that validate and compile against the rewritten package
-
-## Current gaps
-
-- there is no production OpenEnv HTTP/WebSocket layer on this branch
-- live remediation is a hybrid: exact web flaws use service-native route guards and some config/file weaknesses use direct artifact rewrites, but full remediation engineering is still out of scope
-- admission now checks for public-surface secret leakage, obvious unguarded web routes, and missing service-local telemetry on critical weakness targets, but shortcut discovery is still intentionally non-exhaustive
-- green reactive behavior is deterministic and bounded, not policy-rich
-
-## CLI
-
-```bash
-openrange build  -m manifests/tier1_basic.yaml -o /tmp/openrange-build
-openrange admit  -m manifests/tier1_basic.yaml -o /tmp/openrange-build --store-dir snapshots --validation-profile graph_only
-openrange reset  --store-dir snapshots --sample-seed 7 --mode joint_pool
-```
-
-## Python usage
+## Python API
 
 ```python
 from open_range import BuildConfig, BuildPipeline, EpisodeConfig, OpenRange, load_bundled_manifest
@@ -246,33 +129,54 @@ candidate = pipeline.build(
 )
 snapshot = pipeline.admit(candidate)
 
-service = OpenRange()
-state = service.reset(snapshot.snapshot_id, EpisodeConfig(mode="joint_pool"))
-decision = service.next_decision()
+env = OpenRange()
+state = env.reset(snapshot.snapshot_id, EpisodeConfig(mode="blue_only_live"))
+decision = env.next_decision()
+
+print(state.snapshot_id)
+print(decision.actor, decision.obs.sim_time)
 ```
 
-The public `Snapshot` model intentionally excludes exact world structure and private reference traces. Runtime/admission code hydrates those internally through the store/service path rather than exposing them on the public snapshot contract.
+## Start Here
 
-## Demo
+- [How an Episode Works](docs/how-an-episode-works.md): practical runtime walkthrough
+- [Architecture](docs/architecture.md): package layers and runtime boundaries
+- [V1 Scope](docs/v1-paper-scope.md): product and claim boundary
+- [Training Data Spec](docs/training-data-spec.md): canonical trace/export contract
+- [Weakness Lifecycle](docs/weakness-lifecycle.md): weakness realization, admission, and mutation
+- [Benchmark Offensive Coverage](docs/benchmark-offensive-coverage.md): web-offensive slice and objective grounding
+- [Effect Grounding](docs/effect-grounding.md): grounded effect and mitigation semantics
+
+## Scope
+
+The current branch focuses on a validator-admitted enterprise web-security
+training slice:
+
+- exact web flaws plus config, secret, workflow, and telemetry weaknesses
+- private reference attack and defense traces
+- immutable snapshots and mutation between snapshots
+- red exploit-to-objective behavior
+- blue detection, containment, and continuity under green-user noise
+
+It does not expose the old public golden-path architecture or the legacy
+OpenEnv HTTP server surface from `main`.
+
+## Extras
+
+Training dependencies are optional:
 
 ```bash
-PYTHONPATH=src .venv/bin/python examples/demo.py --manifest manifests/tier1_basic.yaml
-PYTHONPATH=src .venv/bin/python -m open_range.examples.demo
-openrange-demo
+uv sync --extra training
 ```
 
-## Bootstrap Example
-
-The package also includes an explicit warmup/bootstrap example. This keeps the
-old synthetic warm-start idea separate from the environment contract by using
-the optional sim plane rather than modifying the runtime itself.
+The package also ships a bootstrap example that compares a cheap sim-plane trace
+with a runtime episode:
 
 ```bash
-PYTHONPATH=src .venv/bin/python -m open_range.examples.bootstrap
-openrange-bootstrap-demo
+uv run openrange-bootstrap-demo
 ```
 
-## Rollout Evaluation
+## License
 
 For environment-side evaluation over admitted snapshots and sequential mutations:
 
@@ -355,3 +259,4 @@ uv run pytest
 uv run pre-commit install
 uv run pre-commit run --all-files
 ```
+Apache 2.0

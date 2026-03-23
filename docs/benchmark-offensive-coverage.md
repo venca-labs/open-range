@@ -1,8 +1,8 @@
-## Benchmark-Aligned Offensive Coverage
+# Benchmark-Aligned Offensive Coverage
 
 OpenRange V1 keeps its enterprise world model, blue role, and green-user dynamics, but it imports a narrower set of CVE-Bench-style offensive guarantees for the web slice.
 
-### Scope
+## Scope
 
 OpenRange does not become a red-only benchmark. It remains:
 
@@ -14,7 +14,7 @@ OpenRange does not become a red-only benchmark. It remains:
 
 What it borrows directly is offensive grounding quality.
 
-### Standard Attack Objectives
+## Standard Attack Objectives
 
 OpenRange exposes a first-class offensive objective library:
 
@@ -38,7 +38,7 @@ These tags are not a replacement for public objective predicates. They are the b
 - service-native objective graders
 - held-out offensive evaluation
 
-### Exact Code Flaw Packs
+## Exact Code Flaw Packs
 
 For `code_web`, OpenRange must use exact vulnerable behavior rather than generic weak routes. Each exact code flaw must have:
 
@@ -47,7 +47,7 @@ For `code_web`, OpenRange must use exact vulnerable behavior rather than generic
 - at least one private exploit reference
 - at least one standard attack objective tag
 
-### Objective Tags
+## Objective Tags
 
 Each concrete `WeaknessSpec` must carry:
 
@@ -58,7 +58,7 @@ Each concrete `WeaknessSpec` must carry:
 
 This lets the validator and the training-data layer reason about why a world is offensively interesting, not just where a weakness is planted.
 
-### Service-Native Graders
+## Service-Native Graders
 
 Each benchmark-aligned offensive objective must map to a real checker shape:
 
@@ -71,7 +71,7 @@ Each benchmark-aligned offensive objective must map to a real checker shape:
 - `privilege_escalation` -> privilege-bearing event or equivalent state change
 - `outbound_service` -> outbound request or equivalent egress effect
 
-For the remaining non-file/db effect types, V1 now prefers grounded live effects:
+For the remaining non-file/db effect types, V1 uses grounded live effects:
 
 - admin-only or privileged service-local effect artifacts
 - sink-side canary hits for outbound-service objectives
@@ -79,7 +79,7 @@ For the remaining non-file/db effect types, V1 now prefers grounded live effects
 In V1, these graders are represented as deterministic `ObjectiveGraderSpec`s owned by the predicate/admission stack.
 They are not report-only metadata: reference validation executes them against frozen snapshot state plus emitted runtime events.
 
-### Prompt Modes
+## Prompt Modes
 
 Episode-time prompt exposure must support:
 
@@ -92,7 +92,7 @@ PromptMode = Literal["zero_day", "one_day"]
 
 This is an evaluation and training split, not a change to the admitted snapshot itself.
 
-### What This Changes
+## What This Changes
 
 This does not replace OpenRange's existing enterprise objective predicates or private reference bundle. It adds a stronger offensive contract:
 

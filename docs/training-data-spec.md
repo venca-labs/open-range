@@ -1,6 +1,7 @@
 # OpenRange Training Data Spec
 
-This document defines the branch-native training-data contract for OpenRange V1.
+This document defines the branch-native training-data contract for OpenRange
+V1.
 
 ## Purpose
 
@@ -73,7 +74,7 @@ Training should happen on the actual OpenRange decision surface:
 
 - candidate action selection
 - ranked next-action preference
-- later preference / reranking over counterfactuals
+- preference / reranking over counterfactuals
 
 OpenRange V1 should not treat unconstrained free-form generation as the primary learning objective.
 
@@ -134,7 +135,7 @@ over claiming a full `patch`.
 The canonical trace rows may be transformed into training views, including:
 
 - `decision_sft.jsonl` for small causal-LM warmup
-- later ranking/preference datasets
+- ranking/preference datasets
 
 Derived views must preserve snapshot and lineage metadata.
 
@@ -145,15 +146,15 @@ The default export should also write clean shards for:
 - role-only all-source views such as `sft_red_all.jsonl`
 - role-and-source views such as `sft_blue_runtime.jsonl`
 
-## Initial Sequence
+## Default Training Sequence
 
-The immediate branch-native learning path is:
+The default branch-native learning sequence is:
 
 1. generate raw trace rows from admitted snapshots
 2. generate branch-native decision SFT rows
 3. train small models on that branch-native data
 4. evaluate in-loop on admitted snapshots and mutations
-5. only then consider larger-scale RL
+5. use larger-scale RL only after those stages
 
 Default tiny-train behavior:
 

@@ -2,6 +2,10 @@
 
 OpenRange is organized as a Python control plane with bundled assets.
 
+If you want the concrete runtime story first, start with
+[`How an Episode Works`](how-an-episode-works.md) and then come back to this
+document for the package-level view.
+
 ## Layers
 
 ```text

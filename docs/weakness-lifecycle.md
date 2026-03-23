@@ -1,13 +1,16 @@
 # Weakness Lifecycle Spec
 
-This document defines how OpenRange represents, realizes, validates, and mutates security weaknesses under the `spec_final.md` contract.
+This document defines how OpenRange represents, realizes, validates, and
+mutates security weaknesses under the OpenRange V1 contract.
 
 ## Goals
 
 - The public manifest defines the allowed compromise space.
 - The built `WorldIR` defines the exact exploitable weakness instances.
 - Admission proves that at least one red path exists and that blue has enough observability and control to respond.
-- Runtime blue `contain` and blue `patch` are distinct actions.
+- Runtime blue `contain` and blue `patch` are distinct actions, even when
+  exported training views may rename non-service-native patching as
+  `mitigate`.
 - Mutation may add, move, or remove weaknesses, but every child must still pass admission.
 
 ## Public Manifest Contract

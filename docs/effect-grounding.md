@@ -1,11 +1,13 @@
 # Effect Grounding
 
-This note tightens the V1 realism contract for the remaining benchmark-aligned objective types.
+This document defines the V1 grounding contract for the remaining
+benchmark-aligned objective types.
 
 ## Goal
 
-OpenRange V1 already grounds file and database effects against concrete seeded state.
-The remaining objective types must now be grounded with equally concrete live effects:
+OpenRange V1 already grounds file and database effects against concrete seeded
+state. The remaining objective types are grounded through equally concrete live
+effects:
 
 - `unauthorized_admin_login`
 - `privilege_escalation`
@@ -13,7 +15,7 @@ The remaining objective types must now be grounded with equally concrete live ef
 
 ## Acceptance Bar
 
-For this phase, V1 requires:
+V1 requires:
 
 - admin login only scores if an admin-only effect artifact is observed
 - privilege escalation only scores if a privileged effect artifact is observed
@@ -42,7 +44,7 @@ Live grading prefers:
 
 `outbound_service` is grounded by a sink-side SIEM canary hit.
 
-The exact-code SSRF slice now uses:
+The exact-code SSRF slice uses:
 
 - a real outbound HTTP request from the vulnerable web handler
 - a dedicated canary listener on `svc-siem`
@@ -52,7 +54,7 @@ Live grading only passes when the sink-side artifact shows the canary hit.
 
 ## Mitigation Semantics
 
-V1 still uses bounded mitigation rather than full repair engineering.
+V1 uses bounded mitigation rather than full repair engineering.
 But for these effect types, mitigation must break the grounded effect for the right reason:
 
 - disable a vulnerable route or admin surface
@@ -64,7 +66,7 @@ Only truly service-native behavior changes should be described as `patch`.
 
 ## Training Data
 
-Branch-native trace rows now include:
+Branch-native trace rows include:
 
 - `grounded_effects`
 - `mitigation_effects`
