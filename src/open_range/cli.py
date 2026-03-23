@@ -289,7 +289,6 @@ def traces_cmd(
     click.echo(f"  Decision SFT: {report.decision_sft_path}")
     click.echo(f"  Report: {report_path}")
 
-
 @cli.command("grpo")
 @click.option(
     "--model",
@@ -388,7 +387,6 @@ def grpo_cmd(
     result = subprocess.run(command, check=False)
     if result.returncode != 0:
         raise SystemExit(result.returncode)
-
 
 if __name__ == "__main__":
     cli()

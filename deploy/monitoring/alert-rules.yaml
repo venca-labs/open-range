@@ -1,0 +1,153 @@
+# alert-rules.yaml -- PrometheusRule for OpenRange cybersecurity training
+#
+# These alerts feed into the Blue agent's detection capabilities and provide
+# observability over training-range health.
+apiVersion: monitoring.coreos.io/v1
+kind: PrometheusRule
+metadata:
+  name: openrange-alerts
+  namespace: monitoring
+  labels:
+    app.kubernetes.io/part-of: openrange
+    app.kubernetes.io/managed-by: helm
+    # Ensure Prometheus picks up these rules
+    release: kube-prometheus-stack
+spec:
+  groups:
+    # -----------------------------------------------------------------
+    # Range health
+    # -----------------------------------------------------------------
+    - name: openrange.health
+      rules:
+        - alert: OpenRangeServiceDown
+          expr: |
+            kube_pod_status_ready{
+              namespace=~"openrange-.*",
+              condition="true"
+            } == 0
+          for: 2m
+          labels:
+            severity: critical
+            team: openrange
+          annotations:
+            summary: "OpenRange service pod is not ready"
+            description: >-
+              Pod {{ $labels.pod }} in namespace {{ $labels.namespace }}
+              has been unready for more than 2 minutes.  This may indicate
+              a crashed range service or a failed deployment.
+
+        - alert: OpenRangeHighErrorRate
+          expr: |
+            (
+              sum by (namespace, service) (
+                rate(http_requests_total{
+                  namespace=~"openrange-.*",
+                  status=~"5.."
+                }[5m])
+              )
+              /
+              sum by (namespace, service) (
+                rate(http_requests_total{
+                  namespace=~"openrange-.*"
+                }[5m])
+              )
+            ) > 0.10
+          for: 3m
+          labels:
+            severity: warning
+            team: openrange
+          annotations:
+            summary: "High HTTP error rate on OpenRange service"
+            description: >-
+              Service {{ $labels.service }} in {{ $labels.namespace }}
+              is returning >10% HTTP 5xx errors over the last 5 minutes
+              (current value: {{ $value | humanizePercentage }}).
+
+    # -----------------------------------------------------------------
+    # Security signals -- inputs for Blue agent reward
+    # -----------------------------------------------------------------
+    - name: openrange.security
+      rules:
+        - alert: OpenRangeUnauthorizedAccess
+          expr: |
+            (
+              sum by (namespace, pod) (
+                increase(http_requests_total{
+                  namespace=~"openrange-.*",
+                  status=~"401|403"
+                }[5m])
+              )
+            ) > 20
+          for: 1m
+          labels:
+            severity: warning
+            team: openrange
+            signal: unauthorized_access
+          annotations:
+            summary: "Unusual unauthorized access pattern detected"
+            description: >-
+              Pod {{ $labels.pod }} in {{ $labels.namespace }} received
+              {{ $value }} unauthorized (401/403) requests in 5 minutes.
+              This may indicate credential brute-forcing or privilege
+              escalation attempts.
+
+        - alert: OpenRangeSuspiciousProcess
+          expr: |
+            (
+              sum by (namespace, pod, container) (
+                increase(container_processes_total{
+                  namespace=~"openrange-.*"
+                }[5m])
+              )
+            ) > 50
+          for: 2m
+          labels:
+            severity: warning
+            team: openrange
+            signal: suspicious_process
+          annotations:
+            summary: "Unexpected process activity in container"
+            description: >-
+              Container {{ $labels.container }} in pod {{ $labels.pod }}
+              ({{ $labels.namespace }}) spawned {{ $value }} processes
+              in 5 minutes, which exceeds the expected baseline.  This
+              may indicate reverse-shell activity or enumeration scripts.
+
+        - alert: OpenRangeHighNetworkEgress
+          expr: |
+            (
+              sum by (namespace, pod) (
+                rate(container_network_transmit_bytes_total{
+                  namespace=~"openrange-.*"
+                }[5m])
+              )
+            ) > 1048576
+          for: 3m
+          labels:
+            severity: info
+            team: openrange
+            signal: data_exfiltration
+          annotations:
+            summary: "Elevated network egress from range pod"
+            description: >-
+              Pod {{ $labels.pod }} in {{ $labels.namespace }} is
+              transmitting more than 1 MiB/s sustained for 3 minutes.
+              This may indicate data exfiltration during a Red team exercise.
+
+        - alert: OpenRangePodRestart
+          expr: |
+            increase(kube_pod_container_status_restarts_total{
+              namespace=~"openrange-.*"
+            }[15m]) > 3
+          for: 1m
+          labels:
+            severity: warning
+            team: openrange
+            signal: instability
+          annotations:
+            summary: "OpenRange pod restarting frequently"
+            description: >-
+              Container {{ $labels.container }} in pod {{ $labels.pod }}
+              ({{ $labels.namespace }}) restarted {{ $value }} times
+              in 15 minutes.  May indicate a crash loop caused by
+              exploitation or misconfiguration.
