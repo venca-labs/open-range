@@ -149,7 +149,7 @@ print(decision.actor, decision.obs.sim_time)
 
 ## Scope
 
-The current branch focuses on a validator-admitted enterprise web-security
+OpenRange currently focuses on a validator-admitted enterprise web-security
 training slice:
 
 - exact web flaws plus config, secret, workflow, and telemetry weaknesses
@@ -159,7 +159,7 @@ training slice:
 - blue detection, containment, and continuity under green-user noise
 
 It does not expose the old public golden-path architecture or the legacy
-OpenEnv HTTP server surface from `main`.
+OpenEnv HTTP server surface.
 
 ## Optional extras
 

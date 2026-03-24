@@ -1,4 +1,4 @@
-"""Standalone OpenRange CLI for the rewritten branch."""
+"""Standalone OpenRange CLI."""
 
 from __future__ import annotations
 
