@@ -1,6 +1,6 @@
 # AGENTS.md
 
-Guidance for coding agents working on the current `v1` OpenRange branch.
+Guidance for coding agents working in the current OpenRange repo.
 
 ## What OpenRange Is
 
@@ -23,7 +23,7 @@ The core contract is:
 
 ## Current Objective
 
-OpenRange V1 is a validator-admitted enterprise web-security training environment
+OpenRange is a validator-admitted enterprise web-security training environment
 that combines:
 
 - exact code-level web flaws
@@ -155,7 +155,8 @@ Prefer `uv run -m ...` for Python commands in this repo.
 
 ## PR Guidelines
 
-- default pull requests for this repo should target `v1`, not `main`, unless the user explicitly asks otherwise
+- `main` is the protected user-facing branch and remains the default branch on GitHub
+- default pull requests for this repo should target `dev`, not `main`, unless the user explicitly asks otherwise
 - keep each PR focused on one theme
 - follow `.github/PULL_REQUEST_TEMPLATE.md`
 - keep the `Testing` section terse and factual
@@ -170,7 +171,7 @@ Prefer `uv run -m ...` for Python commands in this repo.
 
 When reviewing or changing code, prioritize:
 
-1. architectural drift from the V1 objective
+1. architectural drift from the current objective
 2. hidden-oracle leakage
 3. silent downgrade from live to offline validation
 4. reward/objective mismatch between admission and runtime
