@@ -1,0 +1,233 @@
+{
+  "$defs": {
+    "ValidatorCheckReport": {
+      "additionalProperties": false,
+      "properties": {
+        "advisory": {
+          "default": false,
+          "title": "Advisory",
+          "type": "boolean"
+        },
+        "details": {
+          "additionalProperties": true,
+          "title": "Details",
+          "type": "object"
+        },
+        "duration_s": {
+          "default": 0.0,
+          "minimum": 0.0,
+          "title": "Duration S",
+          "type": "number"
+        },
+        "error": {
+          "default": "",
+          "title": "Error",
+          "type": "string"
+        },
+        "name": {
+          "minLength": 1,
+          "title": "Name",
+          "type": "string"
+        },
+        "passed": {
+          "title": "Passed",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "name",
+        "passed"
+      ],
+      "title": "ValidatorCheckReport",
+      "type": "object"
+    },
+    "ValidatorStageReport": {
+      "additionalProperties": false,
+      "properties": {
+        "checks": {
+          "items": {
+            "$ref": "#/$defs/ValidatorCheckReport"
+          },
+          "title": "Checks",
+          "type": "array"
+        },
+        "duration_s": {
+          "default": 0.0,
+          "minimum": 0.0,
+          "title": "Duration S",
+          "type": "number"
+        },
+        "name": {
+          "minLength": 1,
+          "title": "Name",
+          "type": "string"
+        },
+        "passed": {
+          "title": "Passed",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "name",
+        "passed"
+      ],
+      "title": "ValidatorStageReport",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "admitted": {
+      "title": "Admitted",
+      "type": "boolean"
+    },
+    "benchmark_tags_covered": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Benchmark Tags Covered",
+      "type": "array"
+    },
+    "blue_signal_points": {
+      "default": 0,
+      "minimum": 0,
+      "title": "Blue Signal Points",
+      "type": "integer"
+    },
+    "boot_ok": {
+      "default": false,
+      "title": "Boot Ok",
+      "type": "boolean"
+    },
+    "build_logs": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Build Logs",
+      "type": "array"
+    },
+    "business_continuity_score": {
+      "default": 0.0,
+      "maximum": 1.0,
+      "minimum": 0.0,
+      "title": "Business Continuity Score",
+      "type": "number"
+    },
+    "determinism_score": {
+      "default": 0.0,
+      "maximum": 1.0,
+      "minimum": 0.0,
+      "title": "Determinism Score",
+      "type": "number"
+    },
+    "flakiness": {
+      "default": 1.0,
+      "maximum": 1.0,
+      "minimum": 0.0,
+      "title": "Flakiness",
+      "type": "number"
+    },
+    "graph_ok": {
+      "default": false,
+      "title": "Graph Ok",
+      "type": "boolean"
+    },
+    "health_info": {
+      "additionalProperties": true,
+      "title": "Health Info",
+      "type": "object"
+    },
+    "mode": {
+      "default": "fail_fast",
+      "enum": [
+        "fail_fast",
+        "analysis"
+      ],
+      "title": "Mode",
+      "type": "string"
+    },
+    "necessity_ok": {
+      "default": false,
+      "title": "Necessity Ok",
+      "type": "boolean"
+    },
+    "red_alt_path_count": {
+      "default": 0,
+      "minimum": 0,
+      "title": "Red Alt Path Count",
+      "type": "integer"
+    },
+    "red_path_depth": {
+      "default": 0,
+      "minimum": 0,
+      "title": "Red Path Depth",
+      "type": "integer"
+    },
+    "reference_attack_ok": {
+      "default": false,
+      "title": "Reference Attack Ok",
+      "type": "boolean"
+    },
+    "reference_defense_ok": {
+      "default": false,
+      "title": "Reference Defense Ok",
+      "type": "boolean"
+    },
+    "rejection_reasons": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Rejection Reasons",
+      "type": "array"
+    },
+    "shortcut_risk": {
+      "default": "high",
+      "enum": [
+        "low",
+        "medium",
+        "high"
+      ],
+      "title": "Shortcut Risk",
+      "type": "string"
+    },
+    "stages": {
+      "items": {
+        "$ref": "#/$defs/ValidatorStageReport"
+      },
+      "title": "Stages",
+      "type": "array"
+    },
+    "summary": {
+      "default": "",
+      "title": "Summary",
+      "type": "string"
+    },
+    "telemetry_ok": {
+      "default": false,
+      "title": "Telemetry Ok",
+      "type": "boolean"
+    },
+    "workflow_ok": {
+      "default": false,
+      "title": "Workflow Ok",
+      "type": "boolean"
+    },
+    "world_hash": {
+      "minLength": 1,
+      "title": "World Hash",
+      "type": "string"
+    },
+    "world_id": {
+      "minLength": 1,
+      "title": "World Id",
+      "type": "string"
+    }
+  },
+  "required": [
+    "admitted",
+    "world_id",
+    "world_hash"
+  ],
+  "title": "ValidatorReport",
+  "type": "object"
+}

@@ -1,0 +1,172 @@
+{
+  "$defs": {
+    "ProbeSpec": {
+      "additionalProperties": false,
+      "properties": {
+        "command": {
+          "default": "",
+          "title": "Command",
+          "type": "string"
+        },
+        "description": {
+          "minLength": 1,
+          "title": "Description",
+          "type": "string"
+        },
+        "expected": {
+          "additionalProperties": true,
+          "title": "Expected",
+          "type": "object"
+        },
+        "id": {
+          "minLength": 1,
+          "title": "Id",
+          "type": "string"
+        },
+        "kind": {
+          "enum": [
+            "smoke",
+            "shortcut",
+            "determinism",
+            "necessity"
+          ],
+          "title": "Kind",
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "kind",
+        "description"
+      ],
+      "title": "ProbeSpec",
+      "type": "object"
+    },
+    "ReferenceAction": {
+      "additionalProperties": false,
+      "properties": {
+        "actor": {
+          "enum": [
+            "red",
+            "blue"
+          ],
+          "title": "Actor",
+          "type": "string"
+        },
+        "kind": {
+          "minLength": 1,
+          "title": "Kind",
+          "type": "string"
+        },
+        "payload": {
+          "additionalProperties": true,
+          "title": "Payload",
+          "type": "object"
+        },
+        "target": {
+          "default": "",
+          "title": "Target",
+          "type": "string"
+        }
+      },
+      "required": [
+        "actor",
+        "kind"
+      ],
+      "title": "ReferenceAction",
+      "type": "object"
+    },
+    "ReferenceTrace": {
+      "additionalProperties": false,
+      "properties": {
+        "expected_events": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Expected Events",
+          "type": "array"
+        },
+        "id": {
+          "minLength": 1,
+          "title": "Id",
+          "type": "string"
+        },
+        "objective_ids": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Objective Ids",
+          "type": "array"
+        },
+        "role": {
+          "enum": [
+            "red",
+            "blue"
+          ],
+          "title": "Role",
+          "type": "string"
+        },
+        "steps": {
+          "items": {
+            "$ref": "#/$defs/ReferenceAction"
+          },
+          "title": "Steps",
+          "type": "array"
+        }
+      },
+      "required": [
+        "id",
+        "role"
+      ],
+      "title": "ReferenceTrace",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "determinism_probes": {
+      "items": {
+        "$ref": "#/$defs/ProbeSpec"
+      },
+      "title": "Determinism Probes",
+      "type": "array"
+    },
+    "necessity_probes": {
+      "items": {
+        "$ref": "#/$defs/ProbeSpec"
+      },
+      "title": "Necessity Probes",
+      "type": "array"
+    },
+    "reference_attack_traces": {
+      "items": {
+        "$ref": "#/$defs/ReferenceTrace"
+      },
+      "title": "Reference Attack Traces",
+      "type": "array"
+    },
+    "reference_defense_traces": {
+      "items": {
+        "$ref": "#/$defs/ReferenceTrace"
+      },
+      "title": "Reference Defense Traces",
+      "type": "array"
+    },
+    "shortcut_probes": {
+      "items": {
+        "$ref": "#/$defs/ProbeSpec"
+      },
+      "title": "Shortcut Probes",
+      "type": "array"
+    },
+    "smoke_tests": {
+      "items": {
+        "$ref": "#/$defs/ProbeSpec"
+      },
+      "title": "Smoke Tests",
+      "type": "array"
+    }
+  },
+  "title": "ReferenceBundle",
+  "type": "object"
+}

@@ -1,292 +1,202 @@
-import json
-from types import SimpleNamespace
+from __future__ import annotations
 
+import json
+import subprocess
+import sys
+from pathlib import Path
+
+import yaml
 from click.testing import CliRunner
 
+import open_range.cli as cli_module
 from open_range.cli import cli
-from open_range.protocols import CheckResult, ContainerSet
-from open_range.server.helm_runner import BootedRelease
+from tests.support import manifest_payload
 
 
-class _DockerAwareCheck:
-    def __init__(self) -> None:
-        self.saw_containers = {}
-
-    async def check(self, snapshot, containers: ContainerSet) -> CheckResult:
-        self.saw_containers = dict(containers.container_ids)
-        return CheckResult(
-            name="docker_aware",
-            passed=bool(containers.container_ids),
-            details={"containers": dict(containers.container_ids)},
-            error="" if containers.container_ids else "missing containers",
-        )
+def _manifest_payload() -> dict:
+    return manifest_payload()
 
 
-def test_validate_docker_boots_temporary_project_and_passes_live_containers(
-    tmp_path,
-    sample_snapshot_spec,
-    monkeypatch,
-):
-    snapshot_path = tmp_path / "spec.json"
-    snapshot_path.write_text(
-        json.dumps(sample_snapshot_spec.model_dump(mode="python")),
-        encoding="utf-8",
+def _write_manifest(tmp_path: Path) -> Path:
+    manifest_path = tmp_path / "manifest.yaml"
+    manifest_path.write_text(
+        yaml.safe_dump(_manifest_payload(), sort_keys=False), encoding="utf-8"
     )
+    return manifest_path
 
-    rendered_dirs: list[str] = []
-    teardown_calls: list[str] = []
-    check = _DockerAwareCheck()
 
-    class FakeRenderer:
-        def render(self, spec, output_dir):
-            rendered_dirs.append(str(output_dir))
-            chart_dir = output_dir / "openrange"
-            chart_dir.mkdir(parents=True, exist_ok=True)
-            (chart_dir / "values.yaml").write_text(
-                "services:\n  attacker:\n    image: kali\n  web:\n    image: nginx\n",
-                encoding="utf-8",
-            )
-            (output_dir / "kind-config.yaml").write_text("kind: Cluster\n", encoding="utf-8")
-            return output_dir
+def test_build_command_writes_candidate_world(tmp_path: Path):
+    manifest_path = _write_manifest(tmp_path)
+    output_dir = tmp_path / "rendered"
 
-    class FakeHelmRunner:
-        def boot(self, *, snapshot_id, artifacts_dir, compose, project_name=None):
-            assert compose["services"].keys() == {"attacker", "web"}
-            return BootedRelease(
-                release_name=project_name or f"or-{snapshot_id}",
-                chart_dir=artifacts_dir / "openrange",
-                artifacts_dir=artifacts_dir,
-                containers=ContainerSet(
-                    project_name=project_name or f"openrange-{snapshot_id}",
-                    container_ids={"attacker": "cid-attacker", "web": "cid-web"},
-                ),
-            )
-
-        def teardown(self, project):
-            teardown_calls.append(project.project_name)
-
-    monkeypatch.setattr("open_range.builder.renderer.KindRenderer", FakeRenderer)
-    monkeypatch.setattr("open_range.server.helm_runner.HelmRunner", FakeHelmRunner)
-    monkeypatch.setattr("open_range.cli._CHECK_REGISTRY", {"build_boot": "fake.DockerAwareCheck"})
-    monkeypatch.setattr("open_range.cli._import_check", lambda dotted: lambda: check)
-
-    runner = CliRunner()
-    result = runner.invoke(cli, ["validate", "--snapshot", str(snapshot_path), "--docker"])
+    result = CliRunner().invoke(
+        cli, ["build", "--manifest", str(manifest_path), "--output", str(output_dir)]
+    )
 
     assert result.exit_code == 0, result.output
-    assert rendered_dirs
-    assert check.saw_containers == {"attacker": "cid-attacker", "web": "cid-web"}
-    assert teardown_calls
-    assert "Booting temporary Helm release for validation" in result.output
-    assert "Validation PASSED" in result.output
+    world_path = output_dir / "candidate-world.json"
+    assert world_path.exists()
+    payload = json.loads(world_path.read_text(encoding="utf-8"))
+    assert payload["world_family"] == "enterprise_saas_v1"
+    assert "Candidate world written to" in result.output
 
 
-def test_validate_docker_uses_rendered_values_for_live_checks(
-    tmp_path,
-    sample_snapshot_spec,
-    monkeypatch,
-):
-    snapshot_path = tmp_path / "spec.json"
-    snapshot_path.write_text(
-        json.dumps(sample_snapshot_spec.model_dump(mode="python")),
-        encoding="utf-8",
-    )
+def test_admit_command_persists_snapshot(tmp_path: Path):
+    manifest_path = _write_manifest(tmp_path)
+    store_dir = tmp_path / "snapshots"
+    render_dir = tmp_path / "rendered"
 
-    class _RenderedSpecCheck:
-        def __init__(self) -> None:
-            self.compose = {}
-            self.saw_containers = {}
-
-        async def check(self, snapshot, containers: ContainerSet) -> CheckResult:
-            self.compose = dict(snapshot.compose)
-            self.saw_containers = dict(containers.container_ids)
-            return CheckResult(name="rendered_spec", passed=bool(self.compose))
-
-    check = _RenderedSpecCheck()
-
-    class FakeRenderer:
-        def render(self, spec, output_dir):
-            chart_dir = output_dir / "openrange"
-            chart_dir.mkdir(parents=True, exist_ok=True)
-            (chart_dir / "values.yaml").write_text(
-                "services:\n  web:\n    image: nginx\n  db:\n    image: mysql\n",
-                encoding="utf-8",
-            )
-            (output_dir / "kind-config.yaml").write_text("kind: Cluster\n", encoding="utf-8")
-            return output_dir
-
-    class FakeHelmRunner:
-        def boot(self, *, snapshot_id, artifacts_dir, compose, project_name=None):
-            assert compose["services"].keys() == {"web", "db"}
-            return BootedRelease(
-                release_name=project_name or f"or-{snapshot_id}",
-                chart_dir=artifacts_dir / "openrange",
-                artifacts_dir=artifacts_dir,
-                containers=ContainerSet(
-                    project_name=project_name or f"or-{snapshot_id}",
-                    container_ids={"web": "pod-web", "db": "pod-db"},
-                ),
-            )
-
-        def teardown(self, project):
-            return None
-
-    monkeypatch.setattr("open_range.builder.renderer.KindRenderer", FakeRenderer)
-    monkeypatch.setattr("open_range.server.helm_runner.HelmRunner", FakeHelmRunner)
-    monkeypatch.setattr("open_range.cli._CHECK_REGISTRY", {"build_boot": "fake.DockerAwareCheck"})
-    monkeypatch.setattr("open_range.cli._import_check", lambda dotted: lambda: check)
-
-    runner = CliRunner()
-    result = runner.invoke(cli, ["validate", "--snapshot", str(snapshot_path), "--docker"])
-
-    assert result.exit_code == 0, result.output
-    assert check.compose["services"]["web"]["image"] == "nginx"
-    assert check.saw_containers == {"web": "pod-web", "db": "pod-db"}
-
-
-def test_validate_rejects_removed_hugging_face_deploy_flag(
-    tmp_path,
-    sample_snapshot_spec,
-):
-    snapshot_path = tmp_path / "spec.json"
-    snapshot_path.write_text(
-        json.dumps(sample_snapshot_spec.model_dump(mode="python")),
-        encoding="utf-8",
-    )
-
-    runner = CliRunner()
-    result = runner.invoke(
+    result = CliRunner().invoke(
         cli,
         [
-            "validate",
-            "--snapshot",
-            str(snapshot_path),
-            "--deploy-hf",
-            "--hf-space",
-            "test/open-range",
-            "--hf-token",
-            "hf_test",
-            "--checks",
-            "isolation",
+            "admit",
+            "--manifest",
+            str(manifest_path),
+            "--output",
+            str(render_dir),
+            "--store-dir",
+            str(store_dir),
+            "--split",
+            "eval",
+            "--validation-profile",
+            "graph_only",
         ],
     )
 
-    assert result.exit_code == 2
-    assert "No such option: --deploy-hf" in result.output
-
-
-def test_validate_without_docker_excludes_live_only_checks(
-    tmp_path,
-    sample_snapshot_spec,
-    monkeypatch,
-):
-    snapshot_path = tmp_path / "spec.json"
-    snapshot_path.write_text(
-        json.dumps(sample_snapshot_spec.model_dump(mode="python")),
-        encoding="utf-8",
-    )
-
-    invoked: list[str] = []
-
-    class _OfflineCheck:
-        def __init__(self, name: str) -> None:
-            self.name = name
-
-        async def check(self, snapshot, containers: ContainerSet) -> CheckResult:
-            invoked.append(self.name)
-            return CheckResult(name=self.name, passed=True)
-
-    monkeypatch.setattr(
-        "open_range.cli._CHECK_REGISTRY",
-        {
-            "build_boot": "fake.BuildBootCheck",
-            "reward_grounding": "fake.RewardGroundingCheck",
-            "isolation": "fake.IsolationCheck",
-            "difficulty": "fake.DifficultyCheck",
-            "npc_consistency": "fake.NPCConsistencyCheck",
-            "realism_review": "fake.RealismReviewCheck",
-        },
-    )
-    monkeypatch.setattr(
-        "open_range.cli._import_check",
-        lambda dotted: lambda: _OfflineCheck(dotted.rsplit(".", 1)[-1]),
-    )
-
-    runner = CliRunner()
-    result = runner.invoke(cli, ["validate", "--snapshot", str(snapshot_path)])
-
     assert result.exit_code == 0, result.output
-    assert invoked == ["DifficultyCheck"]
-    assert "Validation PASSED" in result.output
-
-
-def test_deploy_installs_rendered_chart_on_kind_cluster(
-    tmp_path,
-    sample_snapshot_spec,
-    monkeypatch,
-):
-    snapshot_path = tmp_path / "spec.json"
-    snapshot_path.write_text(
-        json.dumps(sample_snapshot_spec.model_dump(mode="python")),
-        encoding="utf-8",
+    snapshot_dirs = [path for path in store_dir.iterdir() if path.is_dir()]
+    assert len(snapshot_dirs) == 1
+    metadata = json.loads(
+        (snapshot_dirs[0] / "metadata.json").read_text(encoding="utf-8")
     )
+    assert metadata["split"] == "eval"
+    assert "Admitted snapshot written to" in result.output
 
-    compose_dir = tmp_path / "deploy"
-    commands: list[list[str]] = []
-    prepared: list[str] = []
-    boot_calls: list[dict[str, object]] = []
 
-    class FakeRenderer:
-        def render(self, spec, output_dir):
-            chart_dir = output_dir / "openrange"
-            chart_dir.mkdir(parents=True, exist_ok=True)
-            (chart_dir / "Chart.yaml").write_text("apiVersion: v2\nname: openrange\n", encoding="utf-8")
-            (output_dir / "kind-config.yaml").write_text("kind: Cluster\n", encoding="utf-8")
-            return output_dir
-
-    class FakeHelmRunner:
-        def prepare_images(self, chart_dir):
-            prepared.append(str(chart_dir))
-
-        def boot(self, *, snapshot_id, artifacts_dir, compose=None, project_name=None):
-            boot_calls.append(
-                {
-                    "snapshot_id": snapshot_id,
-                    "artifacts_dir": str(artifacts_dir),
-                    "project_name": project_name,
-                }
-            )
-            return BootedRelease(
-                release_name=project_name or "openrange",
-                chart_dir=artifacts_dir / "openrange",
-                artifacts_dir=artifacts_dir,
-                containers=ContainerSet(project_name=project_name or "openrange"),
-            )
-
-    def fake_run(args, capture_output, text, timeout):
-        commands.append(list(args))
-        if "kubectl" in args and "get" in args:
-            return SimpleNamespace(returncode=0, stdout="NAMESPACE NAME\n", stderr="")
-        return SimpleNamespace(returncode=0, stdout="", stderr="")
-
-    monkeypatch.setattr("open_range.builder.renderer.KindRenderer", FakeRenderer)
-    monkeypatch.setattr("open_range.server.helm_runner.HelmRunner", FakeHelmRunner)
-    monkeypatch.setattr(
-        "open_range.server.helm_runner.resolve_kubectl_cmd",
-        lambda kind_cluster="openrange": ("docker", "exec", f"{kind_cluster}-control-plane", "kubectl"),
-    )
-    monkeypatch.setattr("subprocess.run", fake_run)
-
+def test_reset_command_loads_snapshot_from_store(tmp_path: Path):
+    manifest_path = _write_manifest(tmp_path)
+    store_dir = tmp_path / "snapshots"
+    render_dir = tmp_path / "rendered"
     runner = CliRunner()
-    result = runner.invoke(
+
+    admit_result = runner.invoke(
         cli,
-        ["deploy", "--snapshot", str(snapshot_path), "--chart-dir", str(compose_dir)],
+        [
+            "admit",
+            "--manifest",
+            str(manifest_path),
+            "--output",
+            str(render_dir),
+            "--store-dir",
+            str(store_dir),
+            "--validation-profile",
+            "graph_only",
+        ],
+    )
+    assert admit_result.exit_code == 0, admit_result.output
+
+    reset_result = runner.invoke(
+        cli,
+        [
+            "reset",
+            "--store-dir",
+            str(store_dir),
+            "--sample-seed",
+            "17",
+            "--strategy",
+            "latest",
+        ],
+    )
+
+    assert reset_result.exit_code == 0, reset_result.output
+    assert "Episode ready on" in reset_result.output
+    assert "Sim Time:" in reset_result.output
+    assert "Next Actor:" in reset_result.output
+
+
+def test_traces_command_writes_branch_native_datasets(tmp_path: Path):
+    manifest_path = _write_manifest(tmp_path)
+    output_dir = tmp_path / "traces"
+
+    result = CliRunner().invoke(
+        cli,
+        [
+            "traces",
+            "--manifest",
+            str(manifest_path),
+            "--output",
+            str(output_dir),
+            "--roots",
+            "1",
+            "--mutations",
+            "1",
+        ],
     )
 
     assert result.exit_code == 0, result.output
-    assert commands[0][:3] == ["kind", "create", "cluster"]
-    assert "kubectl" in commands[1]
-    assert prepared == [str(compose_dir / "openrange")]
-    assert boot_calls[0]["project_name"] == "openrange"
-    assert "Kind cluster created. Preparing images and installing Helm chart ..." in result.output
-    assert "Helm chart installed as release openrange." in result.output
+    assert (output_dir / "trace_rows.jsonl").exists()
+    assert (output_dir / "decision_sft.jsonl").exists()
+    assert (output_dir / "report.json").exists()
+    assert "Trace dataset written to" in result.output
+
+
+def test_grpo_command_invokes_standalone_runner(monkeypatch):
+    commands: list[list[str]] = []
+
+    def _fake_run(command: list[str], check: bool) -> subprocess.CompletedProcess[str]:
+        commands.append(command)
+        assert check is False
+        return subprocess.CompletedProcess(command, 0)
+
+    monkeypatch.setattr(cli_module.subprocess, "run", _fake_run)
+
+    result = CliRunner().invoke(
+        cli,
+        [
+            "grpo",
+            "--model",
+            "/tmp/model",
+            "--data",
+            "/tmp/data.jsonl",
+            "--output",
+            "/tmp/out",
+            "--reward",
+            "binary",
+            "--env-url",
+            "http://env",
+            "--seq",
+            "8192",
+            "--comp-len",
+            "1024",
+            "--num-gen",
+            "8",
+            "--epochs",
+            "2",
+        ],
+    )
+
+    assert result.exit_code == 0, result.output
+    assert len(commands) == 1
+    command = commands[0]
+    assert command[0] == sys.executable
+    assert command[1].endswith("scripts/run_grpo.py")
+    assert command[2:] == [
+        "--model",
+        "/tmp/model",
+        "--data",
+        "/tmp/data.jsonl",
+        "--output",
+        "/tmp/out",
+        "--reward",
+        "binary",
+        "--env-url",
+        "http://env",
+        "--seq",
+        "8192",
+        "--comp-len",
+        "1024",
+        "--num-gen",
+        "8",
+        "--epochs",
+        "2",
+    ]

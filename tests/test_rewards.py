@@ -1,213 +1,78 @@
-"""Tests for reward components -- Red and Blue operators."""
+from __future__ import annotations
 
-import pytest
+from types import SimpleNamespace
 
-from open_range.server.rewards import (
-    AvailabilityReward,
-    ComplexityBonus,
-    CompositeBlueReward,
-    CompositeRedReward,
-    DetectionReward,
-    EfficiencyReward,
-    FalsePositiveReward,
-    FlagReward,
-    HallucinationPenalty,
-    PatchReward,
-    StealthReward,
-)
+from open_range.runtime_types import Action
+from open_range.rewards import RewardEngine
 
 
-# ---------------------------------------------------------------------------
-# Red rewards
-# ---------------------------------------------------------------------------
+def test_red_reward_keeps_tick_cost_and_milestone_bonus():
+    engine = RewardEngine()
+    action = Action(
+        actor_id="red", role="red", kind="api", payload={"target": "svc-web"}
+    )
+    event = SimpleNamespace(
+        event_type="InitialAccess",
+        linked_objective_predicates=(),
+    )
+
+    reward = engine.on_red_action(action, (event,))
+
+    assert round(reward, 4) == 0.09
 
 
-class TestFlagReward:
-    def test_correct_flag(self):
-        r = FlagReward()
-        assert r.score("FLAG{abc}", {"FLAG{abc}", "FLAG{def}"}) == 1.0
+def test_red_reward_applies_hallucination_penalty_for_false_claim():
+    engine = RewardEngine()
+    action = Action(
+        actor_id="red",
+        role="red",
+        kind="api",
+        payload={"target": "svc-web", "claim_objective": "asset_read(finance_docs)"},
+    )
 
-    def test_wrong_flag(self):
-        r = FlagReward()
-        assert r.score("FLAG{wrong}", {"FLAG{abc}"}) == 0.0
+    reward = engine.on_red_action(action, ())
 
-    def test_empty_submission(self):
-        r = FlagReward()
-        assert r.score("", {"FLAG{abc}"}) == 0.0
-
-
-class TestHallucinationPenalty:
-    def test_one_fake_flag(self):
-        p = HallucinationPenalty()
-        assert p.score(1) == -0.3
-
-    def test_zero_hallucinations(self):
-        p = HallucinationPenalty()
-        assert p.score(0) == 0.0
-
-    def test_multiple_hallucinations(self):
-        p = HallucinationPenalty()
-        assert p.score(3) == pytest.approx(-0.9)
-
-    def test_penalty_value(self):
-        assert HallucinationPenalty.PENALTY == -0.3
+    assert reward == -0.31
 
 
-class TestEfficiencyReward:
-    def test_step_zero(self):
-        r = EfficiencyReward(gamma=0.95)
-        assert r.score(0) == 1.0
+def test_red_reward_can_disable_hallucination_penalty_for_false_claim():
+    engine = RewardEngine()
+    action = Action(
+        actor_id="red",
+        role="red",
+        kind="api",
+        payload={"target": "svc-web", "claim_objective": "asset_read(finance_docs)"},
+    )
 
-    def test_decays_with_steps(self):
-        r = EfficiencyReward(gamma=0.95)
-        assert r.score(1) == pytest.approx(0.95)
-        assert r.score(10) == pytest.approx(0.95 ** 10)
+    reward = engine.on_red_action(action, (), hallucination_penalty_enabled=False)
 
-    def test_more_steps_less_reward(self):
-        r = EfficiencyReward(gamma=0.95)
-        assert r.score(5) > r.score(10) > r.score(20)
-
-
-class TestStealthReward:
-    def test_zero_detections_full_stealth(self):
-        r = StealthReward()
-        assert r.score(0, 10) == 1.0
-
-    def test_all_detected_zero_stealth(self):
-        r = StealthReward()
-        assert r.score(10, 10) == 0.0
-
-    def test_half_detected(self):
-        r = StealthReward()
-        assert r.score(5, 10) == pytest.approx(0.5)
-
-    def test_no_actions(self):
-        r = StealthReward()
-        assert r.score(0, 0) == 1.0
+    assert reward == -0.01
 
 
-class TestComplexityBonus:
-    def test_tier_multipliers(self):
-        b = ComplexityBonus()
-        assert b.multiplier(1) == 1.0
-        assert b.multiplier(2) == 1.5
-        assert b.multiplier(3) == 2.0
-        assert b.multiplier(4) == 2.5
-        assert b.multiplier(5) == 3.0
+def test_blue_reward_tracks_valid_detection_and_false_positives():
+    engine = RewardEngine()
+    valid = SimpleNamespace(id="evt-1")
 
-    def test_unknown_tier_defaults_to_1(self):
-        b = ComplexityBonus()
-        assert b.multiplier(99) == 1.0
+    assert engine.on_blue_detection(valid) == 0.1
+    assert engine.on_blue_detection(valid) == 0.0
+    assert engine.on_blue_detection(None) == -0.1
 
 
-class TestCompositeRedReward:
-    def test_positive_score_at_step_zero(self):
-        r = CompositeRedReward()
-        # At step 0, efficiency=1.0; no flag, no stealth coupling
-        score = r.score(step_count=0, tier=1)
-        assert score > 0
+def test_blue_reward_can_disable_false_positive_penalty_and_all_shaping():
+    engine = RewardEngine()
 
-    def test_hallucination_reduces_score(self):
-        r = CompositeRedReward()
-        s_clean = r.score(step_count=0, tier=1, hallucinated_count=0)
-        s_dirty = r.score(step_count=0, tier=1, hallucinated_count=1)
-        assert s_dirty < s_clean
-
-    def test_tier_scales_reward(self):
-        r = CompositeRedReward()
-        s1 = r.score(step_count=5, tier=1)
-        s2 = r.score(step_count=5, tier=2)
-        assert s2 > s1
+    assert engine.on_blue_detection(None, false_positive_penalty_enabled=False) == 0.0
+    assert engine.on_blue_detection(None, shaping_enabled=False) == 0.0
 
 
-# ---------------------------------------------------------------------------
-# Blue rewards
-# ---------------------------------------------------------------------------
+def test_blue_containment_reward_is_path_breakage_minus_continuity_loss():
+    engine = RewardEngine()
 
+    reward = engine.on_blue_containment(
+        target="svc-db",
+        path_broken=True,
+        continuity_before=1.0,
+        continuity_after=0.95,
+    )
 
-class TestDetectionReward:
-    def test_perfect_detection(self):
-        d = DetectionReward()
-        assert d.score(10, 10) == 1.0
-
-    def test_no_detection(self):
-        d = DetectionReward()
-        assert d.score(0, 10) == 0.0
-
-    def test_partial_detection(self):
-        d = DetectionReward()
-        assert d.score(3, 10) == pytest.approx(0.3)
-
-    def test_no_red_actions_returns_zero(self):
-        """With no Red actions, detection is 0.0 (nothing to detect)."""
-        d = DetectionReward()
-        assert d.score(0, 0) == 0.0
-
-
-class TestPatchReward:
-    def test_exploit_blocked(self):
-        p = PatchReward()
-        assert p.score(True) == 1.0
-
-    def test_exploit_not_blocked(self):
-        p = PatchReward()
-        assert p.score(False) == 0.0
-
-
-class TestAvailabilityReward:
-    def test_all_healthy(self):
-        a = AvailabilityReward()
-        assert a.score(8, 8) == 1.0
-
-    def test_half_healthy(self):
-        a = AvailabilityReward()
-        assert a.score(4, 8) == pytest.approx(0.5)
-
-    def test_none_healthy(self):
-        a = AvailabilityReward()
-        assert a.score(0, 8) == 0.0
-
-    def test_no_services(self):
-        a = AvailabilityReward()
-        assert a.score(0, 0) == 1.0
-
-
-class TestFalsePositiveReward:
-    def test_no_false_positives(self):
-        f = FalsePositiveReward()
-        assert f.score(0) == 0.0
-
-    def test_one_false_positive(self):
-        f = FalsePositiveReward()
-        assert f.score(1) == -0.2
-
-    def test_multiple_false_positives(self):
-        f = FalsePositiveReward()
-        assert f.score(3) == pytest.approx(-0.6)
-
-
-class TestCompositeBlueReward:
-    def test_perfect_defense(self):
-        r = CompositeBlueReward()
-        score = r.score(
-            true_positives=10,
-            total_red_actions=10,
-            exploit_blocked=True,
-            healthy_services=8,
-            total_services=8,
-            false_positives=0,
-            tier=1,
-        )
-        assert score > 0
-
-    def test_tier_scales_blue_reward(self):
-        r = CompositeBlueReward()
-        s1 = r.score(true_positives=5, total_red_actions=10, tier=1)
-        s2 = r.score(true_positives=5, total_red_actions=10, tier=2)
-        assert s2 > s1
-
-    def test_false_positives_reduce_reward(self):
-        r = CompositeBlueReward()
-        s_clean = r.score(true_positives=5, total_red_actions=10, false_positives=0)
-        s_noisy = r.score(true_positives=5, total_red_actions=10, false_positives=5)
-        assert s_noisy < s_clean
+    assert round(reward, 4) == 0.19

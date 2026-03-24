@@ -1,46 +1,59 @@
-# Training Data
+# Data
 
-Seed and generated datasets for SFT warm-start live under `data/`.
+Files under `data/` are repo-local training artifacts and references.
 
-## Files
+They are not part of the supported runtime package surface.
 
-| File | Purpose |
-|------|---------|
-| `sft.jsonl` | Seed SFT dataset in ChatML format, including assistant tool calls and tool responses. |
-| `tool_info.md` | Reusable tool catalog that can be injected into generated system prompts with `--tool-info`. |
-| `synthetic*.jsonl` | Generated synthetic datasets from `openrange synthetic-data` (gitignored). |
+Current usage:
 
-## Seed SFT Format
+- `sft.jsonl`: seed supervised trajectories
+- `synthetic*.jsonl`: generated or experimental datasets
+- `synthetic_sft_5_bootstrap.jsonl`: older mixed bootstrap chat dataset retained as legacy reference
+- `tool_info.md`: prompt-side tool catalog material
 
-Each line in `sft.jsonl` is a single solved trajectory:
-
-```json
-{
-  "messages": [
-    {"role": "system", "content": "..."},
-    {"role": "user", "content": "..."},
-    {"role": "assistant", "content": "...", "tool_calls": [...]},
-    {"role": "tool", "tool_call_id": "...", "name": "shell_command", "content": "..."}
-  ],
-  "metadata": {"source": "bootstrap", "success": true},
-  "ground_truth_flag": "FLAG{...}",
-  "optimal_steps": 8
-}
-```
-
-## Generating Synthetic Data
-
-Use the seed file as bootstrap context and merge newly generated OpenRange traces into a single output:
+The preferred branch-native path is now dynamic trace generation from admitted snapshots:
 
 ```bash
-uv run --extra synthetic openrange synthetic-data \
+uv run scripts/generate_traces.py \
   --manifest manifests/tier1_basic.yaml \
-  --output data/synthetic_sft_5.jsonl \
-  --num-traces 5 \
-  --roles red \
-  --teacher-model azure/gpt-5.2-codex \
-  --bootstrap-traces data/sft.jsonl \
-  --tool-info data/tool_info.md
+  --roots 3 \
+  --mutations 1 \
+  --outdir /tmp/openrange-traces
 ```
 
-The output file keeps the imported bootstrap records intact and appends the generated OpenRange records after them.
+This produces:
+
+- raw trace rows: `/tmp/openrange-traces/trace_rows.jsonl`
+- branch-native decision SFT rows: `/tmp/openrange-traces/decision_sft.jsonl`
+- red runtime training shard: `/tmp/openrange-traces/sft_red_runtime.jsonl`
+- blue runtime training shard: `/tmp/openrange-traces/sft_blue_runtime.jsonl`
+
+Those exported rows are tied to:
+
+- admitted snapshot ids
+- world ids and world hashes
+- lineage roots and mutation generation
+- runtime mode and start state
+- role-correct observations, candidate actions, chosen actions, and emitted events
+- terminal outcome metadata
+
+Tiny training path:
+
+```bash
+HF_HOME=/tmp/hf-home TOKENIZERS_PARALLELISM=false \
+uv run scripts/train_tiny_sft.py \
+  --data /tmp/openrange-traces/decision_sft.jsonl \
+  --roles red \
+  --outdir /tmp/openrange-sft-tiny
+
+HF_HOME=/tmp/hf-home TOKENIZERS_PARALLELISM=false \
+uv run scripts/eval_tiny_sft.py \
+  --data /tmp/openrange-traces/decision_sft.jsonl \
+  --adapter /tmp/openrange-sft-tiny/adapter \
+  --roles red
+```
+
+The small model probe is currently red-only, so role filtering should stay
+explicit in tiny SFT/eval runs unless you are intentionally training a mixed
+decision model.
+```

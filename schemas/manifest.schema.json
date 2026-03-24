@@ -1,0 +1,450 @@
+{
+  "$defs": {
+    "BusinessSpec": {
+      "additionalProperties": false,
+      "properties": {
+        "archetype": {
+          "minLength": 1,
+          "title": "Archetype",
+          "type": "string"
+        },
+        "workflows": {
+          "items": {
+            "type": "string"
+          },
+          "minItems": 1,
+          "title": "Workflows",
+          "type": "array"
+        }
+      },
+      "required": [
+        "archetype"
+      ],
+      "title": "BusinessSpec",
+      "type": "object"
+    },
+    "DifficultySpec": {
+      "additionalProperties": false,
+      "properties": {
+        "target_blue_signal_points": {
+          "exclusiveMinimum": 0,
+          "title": "Target Blue Signal Points",
+          "type": "integer"
+        },
+        "target_noise_density": {
+          "enum": [
+            "low",
+            "medium",
+            "high"
+          ],
+          "title": "Target Noise Density",
+          "type": "string"
+        },
+        "target_red_path_depth": {
+          "exclusiveMinimum": 0,
+          "title": "Target Red Path Depth",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "target_red_path_depth",
+        "target_blue_signal_points",
+        "target_noise_density"
+      ],
+      "title": "DifficultySpec",
+      "type": "object"
+    },
+    "ManifestAsset": {
+      "additionalProperties": false,
+      "properties": {
+        "class": {
+          "enum": [
+            "crown_jewel",
+            "sensitive",
+            "operational"
+          ],
+          "title": "Class",
+          "type": "string"
+        },
+        "id": {
+          "minLength": 1,
+          "title": "Id",
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "class"
+      ],
+      "title": "ManifestAsset",
+      "type": "object"
+    },
+    "MutationBounds": {
+      "additionalProperties": false,
+      "properties": {
+        "allow_patch_old_weaknesses": {
+          "default": true,
+          "title": "Allow Patch Old Weaknesses",
+          "type": "boolean"
+        },
+        "max_new_hosts": {
+          "default": 0,
+          "minimum": 0,
+          "title": "Max New Hosts",
+          "type": "integer"
+        },
+        "max_new_services": {
+          "default": 0,
+          "minimum": 0,
+          "title": "Max New Services",
+          "type": "integer"
+        },
+        "max_new_users": {
+          "default": 0,
+          "minimum": 0,
+          "title": "Max New Users",
+          "type": "integer"
+        },
+        "max_new_weaknesses": {
+          "default": 0,
+          "minimum": 0,
+          "title": "Max New Weaknesses",
+          "type": "integer"
+        }
+      },
+      "title": "MutationBounds",
+      "type": "object"
+    },
+    "NPCProfileSpec": {
+      "additionalProperties": false,
+      "properties": {
+        "awareness": {
+          "anyOf": [
+            {
+              "maximum": 1.0,
+              "minimum": 0.0,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Awareness"
+        },
+        "routine": {
+          "anyOf": [
+            {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Routine"
+        },
+        "susceptibility": {
+          "additionalProperties": {
+            "maximum": 1.0,
+            "minimum": 0.0,
+            "type": "number"
+          },
+          "title": "Susceptibility",
+          "type": "object"
+        }
+      },
+      "title": "NPCProfileSpec",
+      "type": "object"
+    },
+    "ObjectivePredicate": {
+      "additionalProperties": false,
+      "properties": {
+        "predicate": {
+          "minLength": 1,
+          "title": "Predicate",
+          "type": "string"
+        }
+      },
+      "required": [
+        "predicate"
+      ],
+      "title": "ObjectivePredicate",
+      "type": "object"
+    },
+    "ObjectiveSet": {
+      "additionalProperties": false,
+      "properties": {
+        "blue": {
+          "items": {
+            "$ref": "#/$defs/ObjectivePredicate"
+          },
+          "minItems": 1,
+          "title": "Blue",
+          "type": "array"
+        },
+        "red": {
+          "items": {
+            "$ref": "#/$defs/ObjectivePredicate"
+          },
+          "minItems": 1,
+          "title": "Red",
+          "type": "array"
+        }
+      },
+      "title": "ObjectiveSet",
+      "type": "object"
+    },
+    "ObservabilityRequirements": {
+      "additionalProperties": false,
+      "properties": {
+        "require_email_logs": {
+          "default": false,
+          "title": "Require Email Logs",
+          "type": "boolean"
+        },
+        "require_idp_logs": {
+          "default": false,
+          "title": "Require Idp Logs",
+          "type": "boolean"
+        },
+        "require_siem_ingest": {
+          "default": false,
+          "title": "Require Siem Ingest",
+          "type": "boolean"
+        },
+        "require_web_logs": {
+          "default": false,
+          "title": "Require Web Logs",
+          "type": "boolean"
+        }
+      },
+      "title": "ObservabilityRequirements",
+      "type": "object"
+    },
+    "PinnedWeaknessSpec": {
+      "additionalProperties": false,
+      "properties": {
+        "family": {
+          "enum": [
+            "code_web",
+            "config_identity",
+            "secret_exposure",
+            "workflow_abuse",
+            "telemetry_blindspot"
+          ],
+          "title": "Family",
+          "type": "string"
+        },
+        "kind": {
+          "enum": [
+            "sql_injection",
+            "broken_authorization",
+            "auth_bypass",
+            "path_traversal",
+            "ssrf",
+            "command_injection",
+            "weak_password",
+            "default_credential",
+            "overbroad_service_account",
+            "admin_surface_exposed",
+            "trust_edge_misconfig",
+            "env_file_leak",
+            "credential_in_share",
+            "backup_leak",
+            "token_in_email",
+            "hardcoded_app_secret",
+            "helpdesk_reset_bypass",
+            "approval_chain_bypass",
+            "document_share_abuse",
+            "phishing_credential_capture",
+            "internal_request_impersonation",
+            "missing_web_logs",
+            "missing_idp_logs",
+            "delayed_siem_ingest",
+            "unmonitored_admin_action",
+            "silent_mail_rule"
+          ],
+          "title": "Kind",
+          "type": "string"
+        },
+        "target": {
+          "minLength": 1,
+          "title": "Target",
+          "type": "string"
+        }
+      },
+      "required": [
+        "family",
+        "kind",
+        "target"
+      ],
+      "title": "PinnedWeaknessSpec",
+      "type": "object"
+    },
+    "SecuritySpec": {
+      "additionalProperties": false,
+      "properties": {
+        "allowed_weakness_families": {
+          "items": {
+            "enum": [
+              "code_web",
+              "config_identity",
+              "secret_exposure",
+              "workflow_abuse",
+              "telemetry_blindspot"
+            ],
+            "type": "string"
+          },
+          "minItems": 1,
+          "title": "Allowed Weakness Families",
+          "type": "array"
+        },
+        "code_flaw_kinds": {
+          "items": {
+            "enum": [
+              "sql_injection",
+              "broken_authorization",
+              "auth_bypass",
+              "path_traversal",
+              "ssrf",
+              "command_injection"
+            ],
+            "type": "string"
+          },
+          "title": "Code Flaw Kinds",
+          "type": "array"
+        },
+        "observability": {
+          "$ref": "#/$defs/ObservabilityRequirements"
+        },
+        "phishing_surface_enabled": {
+          "default": true,
+          "title": "Phishing Surface Enabled",
+          "type": "boolean"
+        },
+        "pinned_weaknesses": {
+          "items": {
+            "$ref": "#/$defs/PinnedWeaknessSpec"
+          },
+          "title": "Pinned Weaknesses",
+          "type": "array"
+        }
+      },
+      "required": [
+        "observability"
+      ],
+      "title": "SecuritySpec",
+      "type": "object"
+    },
+    "TopologySpec": {
+      "additionalProperties": false,
+      "properties": {
+        "services": {
+          "items": {
+            "type": "string"
+          },
+          "minItems": 1,
+          "title": "Services",
+          "type": "array"
+        },
+        "zones": {
+          "items": {
+            "type": "string"
+          },
+          "minItems": 1,
+          "title": "Zones",
+          "type": "array"
+        }
+      },
+      "title": "TopologySpec",
+      "type": "object"
+    },
+    "UserRoleSpec": {
+      "additionalProperties": false,
+      "properties": {
+        "roles": {
+          "additionalProperties": {
+            "exclusiveMinimum": 0,
+            "type": "integer"
+          },
+          "minProperties": 1,
+          "title": "Roles",
+          "type": "object"
+        }
+      },
+      "title": "UserRoleSpec",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "assets": {
+      "items": {
+        "$ref": "#/$defs/ManifestAsset"
+      },
+      "minItems": 1,
+      "title": "Assets",
+      "type": "array"
+    },
+    "business": {
+      "$ref": "#/$defs/BusinessSpec"
+    },
+    "difficulty": {
+      "$ref": "#/$defs/DifficultySpec"
+    },
+    "mutation_bounds": {
+      "$ref": "#/$defs/MutationBounds"
+    },
+    "npc_profiles": {
+      "additionalProperties": {
+        "$ref": "#/$defs/NPCProfileSpec"
+      },
+      "title": "Npc Profiles",
+      "type": "object"
+    },
+    "objectives": {
+      "$ref": "#/$defs/ObjectiveSet"
+    },
+    "security": {
+      "$ref": "#/$defs/SecuritySpec"
+    },
+    "seed": {
+      "title": "Seed",
+      "type": "integer"
+    },
+    "topology": {
+      "$ref": "#/$defs/TopologySpec"
+    },
+    "users": {
+      "$ref": "#/$defs/UserRoleSpec"
+    },
+    "version": {
+      "const": 1,
+      "default": 1,
+      "title": "Version",
+      "type": "integer"
+    },
+    "world_family": {
+      "const": "enterprise_saas_v1",
+      "default": "enterprise_saas_v1",
+      "title": "World Family",
+      "type": "string"
+    }
+  },
+  "required": [
+    "seed",
+    "business",
+    "topology",
+    "users",
+    "objectives",
+    "security",
+    "difficulty",
+    "mutation_bounds"
+  ],
+  "title": "EnterpriseSaaSManifest",
+  "type": "object"
+}

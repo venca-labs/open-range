@@ -1,214 +1,261 @@
 <div align="center">
   <h1>OpenRange</h1>
-  <img src="assets/evolving_gym_hero.png" alt="OpenRange: Multi-Agent Cybersecurity Training Gymnasium" width="800" />
+  <img src="assets/evolving_gym_hero.png" alt="OpenRange: validator-admitted enterprise cyber range" width="800" />
   <br />
   <br />
-  <a href="https://github.com/meta-pytorch/OpenEnv"><img src="https://img.shields.io/badge/Powered_by-OpenEnv-green.svg" alt="Powered by OpenEnv"></a>
-  <img src="https://img.shields.io/badge/Status-Experimental-yellow" alt="Status: Experimental">
-  <img src="https://img.shields.io/badge/Validator-12%2F12_Pass-brightgreen" alt="Validator: 12/12 Pass">
-  <img src="https://img.shields.io/badge/License-Apache_2.0-blue.svg" alt="License: Apache 2.0">
+  <img src="https://img.shields.io/badge/Package-open--range-blue" alt="Package: open-range" />
+  <img src="https://img.shields.io/badge/Runtime-red%2Fblue%2Fgreen-red" alt="Runtime: red/blue/green" />
+  <img src="https://img.shields.io/badge/License-Apache_2.0-blue.svg" alt="License: Apache 2.0" />
 </div>
 
-## Context
-Reinforcement learning has produced breakthroughs in games, robotics, and code generation — each powered by a high-quality training environment (MuJoCo, SWE-bench, Atari). Cybersecurity has no equivalent. Offensive and defensive skills require multi-host enterprise networks with real services, real protocols, and realistic user traffic — none of which exist in current benchmarks.
+OpenRange is a manifest-first cyber range for training red and blue agents in
+bounded enterprise worlds. It compiles a business manifest into a world,
+validates that world with private reference traces and deterministic probes,
+freezes it as an immutable snapshot, and runs episodes with red, blue, and
+green-user dynamics.
 
-## Problem
-The closest alternatives — static CTF challenges — are hand-authored, single-exploit puzzles that don't scale. They lack background traffic, ignore the defensive side entirely, and present the same challenge on every reset. Agents trained on them memorize specific exploit sequences instead of learning transferable skills. You cannot do meaningful RL when the environment never changes.
+This branch exposes OpenRange as an installable Python package and CLI. It is
+not the legacy OpenEnv server/client stack from `main`.
 
-## Solution
-OpenRange procedurally generates full enterprise networks — web servers, databases, mail, LDAP, firewalls, SIEM — using an LLM-driven Builder, then mechanically validates every generated environment before an episode starts. The environment mutates on each reset, so no two episodes are alike. Red and Blue agents train simultaneously on the same live infrastructure with coupled reward signals: Red's stealth score depends on Blue's detection, and vice versa. This creates the adversarial pressure needed to drive real skill acquisition in both directions.
+## Why OpenRange
 
-## Key Capabilities
+Static cyber tasks are useful for evaluation, but they are a weak training
+target. They are fixed, narrow, easy to memorize, and usually offense-only.
+OpenRange is aimed at the opposite shape: families of admitted enterprise-like
+worlds that can be replayed, mutated between snapshots, and used for runtime and
+training-data generation.
 
-|  | Static CTFs (Before) | OpenRange (After) |
-|--|---------------------|-------------------|
-| **Environment** | Hand-authored, fixed topology | Procedurally generated enterprise networks that mutate every episode |
-| **Diversity** | Same challenge on every reset | Unique vulnerability chains, injection points, and network layouts per episode |
-| **Validation** | Manual / honor system | 12-check mechanical pipeline verifies exploitability, patchability, and isolation before any episode runs |
-| **Realism** | No background traffic | NPCs run web queries, database transactions, and emails — Blue must filter signal from noise |
-| **Defense** | Not supported | Blue agent trains simultaneously, with rewards coupled to Red's actions |
-| **Rewards** | Binary (solved / not solved) | Grounded in pod state: flag capture, patch validity, stealth, availability — no LLM judgment |
-| **Scale** | One challenge at a time | Continuous generation of novel Kubernetes environments via LLM Builder |
+|  | Static cyber task | OpenRange |
+|--|-------------------|-----------|
+| **World** | One fixed puzzle | Admitted enterprise world from a manifest |
+| **Reset** | Same challenge again | Load a stored snapshot from a pool |
+| **Validation** | Often manual or benchmark-specific | Deterministic admission with private references |
+| **Roles** | Usually red only | Red, blue, and green in one runtime |
+| **Training data** | External transcripts or logs | Branch-native traces from admitted snapshots |
 
-## How It Works
+## What You Can Do
 
-A **manifest** declares a family of legal enterprise worlds — topology, services, identities, trust relationships, vulnerability classes, and mutation bounds. The **LLMSnapshotBuilder** calls an LLM (e.g., `gpt-5.4`) to generate a complete `SnapshotSpec` — a multi-page PHP web application with planted vulnerabilities, database seed SQL, file share documents, NPC personas, and golden path exploit chains. 
+- Build and admit worlds from strict manifests
+- Run red/blue/green episodes over immutable snapshots
+- Sample snapshots from train and eval pools
+- Generate branch-native trace datasets for training
+- Use offline admission for local iteration or live validation when running with
+  Kind
 
-The **KindRenderer** then produces a Helm chart with namespace-per-zone isolation (NetworkPolicies replacing iptables), ConfigMap-injected payloads, and ExternalName services for cross-namespace DNS. The **ValidatorGate** runs 12 admission checks — 7 offline graph checks plus 5 live checks that `kubectl exec` into the pods to verify the golden path is actually exploitable.
-
-```mermaid
-flowchart LR
-    M[Manifest<br/>legal family +<br/>mutation envelope] --> B[LLMSnapshotBuilder<br/>gpt-5.4]
-    B --> S[SnapshotSpec<br/>vulns + flags + files + golden path]
-    S --> R[KindRenderer<br/>Helm chart + Kind config]
-    R --> K[Kind Cluster<br/>namespace-per-zone pods]
-    K --> V{ValidatorGate<br/>12 checks incl.<br/>live exploitability}
-    V -->|fail + retry| B
-    V -->|pass| E["reset() → step() → obs + reward"]
-
-    style V fill:#ffd93d,color:#333
-    style E fill:#6bcb77,color:#fff
-```
-
-Red and Blue operate on the **same infrastructure simultaneously**. Red's stealth reward depends on whether Blue catches them. Blue's detection reward depends on Red's actual actions in the logs. This coupling drives co-evolution.
-
-**Example End-to-End Result (`tier1_basic.yaml`):**
-
-| Component | Detail |
-|-----------|--------|
-| LLM Build | 3 vulns (sqli, weak_creds, missing_authz), 2 flags, 6 golden path steps, 18 files, 8 NPCs |
-| Deploy | 7 pods across 4 namespaces in 10s, attacker tools ready in 30s |
-| Network | 14 NetworkPolicies (namespace-per-zone), 18 ExternalName DNS aliases |
-| Validation | **12/12 checks pass** including live SQLi execution from attacker pod |
-
+- [Architecture](docs/architecture.md)
+- [Training Data Spec](docs/training-data-spec.md)
+- [Benchmark Offensive Coverage](docs/benchmark-offensive-coverage.md)
+- [Effect Grounding](docs/effect-grounding.md)
+- [Weakness Lifecycle](docs/weakness-lifecycle.md)
+- [NPC Profiles](docs/npc-profiles.md)
 ## Quick Start
 
-### 1. Installation
+### 1. Install
 
 ```bash
-git clone https://github.com/open-cybernauts/open-range.git
-cd open-range
 uv sync
-
-# Optional: Enable the LiteLLM-backed builder pipeline
-uv sync --extra builder
+uv run openrange --help
 ```
 
-### 2. Run an Interactive Demo
-Test the core mechanics locally without Kubernetes or LLMs:
+Or install the package directly:
+
 ```bash
-uv run python examples/demo.py
+pip install .
+openrange --help
 ```
 
-### 3. Spin up an Environment (Kind / Kubernetes)
-To build, validate, and boot a full Red vs Blue sandbox locally on Kind:
+### 2. Run the Small Demo
+
+This is the fastest way to see the package working end to end without setting up
+Kind:
+
 ```bash
-# Prerequisites: Docker, Kind, Helm, kubectl
-
-# 1. Build a local snapshot from a manifest
-export OPENRANGE_BUILDER_MODEL="openai/gpt-5.4"
-uv run openrange build -m manifests/tier1_basic.yaml -o /tmp/snapshot --tier 1
-
-# 2. Render Helm chart and Validate
-uv run openrange render -s /tmp/snapshot/spec.json -o /tmp/artifacts
-uv run openrange validate -s /tmp/snapshot/spec.json 
-
-# 3. Deploy to Kind
-uv run openrange deploy -s /tmp/snapshot/spec.json
-
-# 4. Start the FastAPI server
-uv run openrange server  # Runs on 0.0.0.0:8000
+uv run openrange-demo
 ```
 
-## Kubernetes Architecture
+You can also point it at a checked-in manifest:
 
-The range deploys to Kind with **namespace-per-zone** isolation:
+```bash
+uv run openrange-demo --manifest manifests/tier1_basic.yaml
+```
 
-| Zone | Namespace | Pods | Role |
-|------|-----------|------|------|
-| external | `openrange-external` | attacker | Red team operator (nmap, curl, sqlmap, hydra) |
-| dmz | `openrange-dmz` | web, mail | Internet-facing services (PHP app, SMTP/IMAP) |
-| internal | `openrange-internal` | db, files | Data tier (MySQL, Samba shares) |
-| management | `openrange-management` | ldap, siem | Identity + monitoring (OpenLDAP, syslog-ng) |
+### 3. Admit a Snapshot Locally
 
-**Key design decisions:**
-- **NetworkPolicies** replace iptables (default-deny + allow-same-zone + cross-zone firewall rules from manifest)
-- **ExternalName services** in every namespace so bare hostnames (`web`, `db`) resolve anywhere — the attacker can `curl http://web/` without full DNS
-- **ConfigMaps** inject all payload files (PHP code, SQL seeds, configs, flag files) via `subPath` volume mounts
-- **Base DB schema** runs as `00-base-schema.sql`; LLM SQL runs as `99-openrange-init.sh` with `mysql --force` to tolerate minor LLM errors
-- **Golden path post-processing** fixes URL encoding (`%25'`→`%27`), encodes spaces in SQL payloads, and wraps `grep` with `|| true`
+For a local first run, use the explicit offline profile:
 
-## Validator Pipeline
+```bash
+uv run openrange admit \
+  -m manifests/tier1_basic.yaml \
+  -o /tmp/openrange-build \
+  --store-dir /tmp/openrange-snapshots \
+  --validation-profile graph_only
+```
 
-12 admission checks — 7 offline graph checks + 5 live container checks:
+Then reset the runtime onto an admitted snapshot:
 
-| # | Check | Type | What it verifies |
-|---|-------|------|-----------------|
-| 1 | manifest_compliance | offline | Topology matches manifest hosts/zones |
-| 2 | graph_consistency | offline | Hosts, users, principals, edges are consistent |
-| 3 | path_solvability | offline | All vuln/flag hosts reachable from attacker via graph edges |
-| 4 | graph_evidence_sufficiency | offline | Evidence locations grounded in graph |
-| 5 | graph_reward_grounding | offline | Flags linked to vulns, rewards computable |
-| 6 | task_feasibility | offline | Briefings present and non-leaking |
-| 7 | difficulty | offline | Golden path step count within tier range (T1: 6-10) |
-| 8 | build_boot | live | All pods Running + Ready (firewall skipped — K8s virtual host) |
-| 9 | exploitability | live | Execute golden path end-to-end via `kubectl exec` in attacker pod |
-| 10 | evidence | live | Evidence artifacts exist at declared locations |
-| 11 | reward_grounding | live | Flag capture produces correct reward signal |
-| 12 | isolation | live | Zone isolation enforced, no cross-zone leakage |
+```bash
+uv run openrange reset \
+  --store-dir /tmp/openrange-snapshots \
+  --mode blue_only_live \
+  --sample-seed 7
+```
 
-## Core Components
+`graph_only` is the cheapest offline path. `full` and `graph_plus_live` require
+a live Kind-backed setup.
 
-| Component | What it does |
-|-----------|-------------|
-| **Manifests** | Declarative YAML blueprints that define valid enterprise topologies — hosts, zones, services, users, and allowed vulnerability classes. Ships with healthcare, fintech, and SaaS examples at tiers 1–3. |
-| **Builder / Mutator** | LLM-driven agent (via [LiteLLM](https://github.com/BerriAI/litellm)) that generates a unique `SnapshotSpec` and mutates the environment on each `reset()` using curriculum feedback from prior episodes. |
-| **KindRenderer** | Produces a Helm chart (`values.yaml` from SnapshotSpec + static Go templates) and Kind cluster config. Namespace-per-zone, NetworkPolicies, ConfigMap payloads, ExternalName DNS aliases. |
-| **HelmRunner** | `helm upgrade --install` / `helm uninstall` for lifecycle. `KubePodSet` provides `exec()`, `is_healthy()`, `cp()`, `restart()` via `kubectl`. |
-| **ValidatorGate** | Mechanical admission controller running the 12-check test pipeline to ensure exploitability, graph coherence, and isolation. |
-| **Environment** | `RangeEnvironment(MCPEnvironment)` following the OpenEnv contract. `reset()` selects a frozen admitted snapshot. `step(action)` routes commands to live SIEM / attacker pods. |
-| **Rewards** | Fully grounded in container state. Red is scored on flag capture (`kubectl exec`), efficiency, and stealth. Blue is scored on detection accuracy, patch validity, and service availability. No LLM judgment involved. |
-| **NPC Traffic** | Background noise engine generating benign shell-script HTTP/DB patterns or full LLM-driven NPC agents with autonomous workday loops and stimulus-responses. |
-| **Agents** | BYO protocol — implement `reset()` and `act()`. Ships with `LLMRangeAgent` (any LiteLLM model), `ScriptedAgent` (testing), and `HumanAgent` (interactive). |
+### 4. Generate Trace Data
 
-### Example
+```bash
+uv run openrange traces \
+  -m manifests/tier1_basic.yaml \
+  -o /tmp/openrange-traces \
+  --roots 3 \
+  --mutations 1
+```
+
+This writes raw decision rows, SFT-ready rows, and a small dataset report tied
+to admitted snapshots.
+
+## Python API
 
 ```python
-from open_range.agents.episode import run_episode
-from open_range.agents.llm_agent import LLMRangeAgent
-from open_range.server.environment import RangeEnvironment
+from open_range import BuildConfig, BuildPipeline, EpisodeConfig, OpenRange, load_bundled_manifest
 
-env = RangeEnvironment()
-red = LLMRangeAgent(model="anthropic/claude-opus-4-6-20260301")
-blue = LLMRangeAgent(model="openai/gpt-5.4")
-result = run_episode(env, red, blue, max_steps=50)
+pipeline = BuildPipeline()
+candidate = pipeline.build(
+    load_bundled_manifest("tier1_basic.yaml"),
+    "/tmp/openrange-build",
+    BuildConfig(validation_profile="graph_only"),
+)
+snapshot = pipeline.admit(candidate)
+
+env = OpenRange()
+state = env.reset(snapshot.snapshot_id, EpisodeConfig(mode="blue_only_live"))
+decision = env.next_decision()
+
+print(state.snapshot_id)
+print(decision.actor, decision.obs.sim_time)
 ```
 
-## Tier System
+## Start Here
 
-| Tier | Scale | Steps | Example |
-|------|-------|-------|---------|
-| 1 | 6-8 hosts, 3-4 zones | 6-10 | Healthcare clinic: web + DB + mail + LDAP + SIEM |
-| 2 | 10-12 hosts, 5-6 zones | 12-18 | Financial firm: + VPN, jumpbox, internal APIs |
-| 3 | 14-18 hosts, 7-8 zones | 20-30 | SaaS company: + CI/CD, container registry, partner extranet |
+- [How an Episode Works](docs/how-an-episode-works.md): practical runtime walkthrough
+- [Architecture](docs/architecture.md): package layers and runtime boundaries
+- [V1 Scope](docs/v1-paper-scope.md): product and claim boundary
+- [Training Data Spec](docs/training-data-spec.md): canonical trace/export contract
+- [Weakness Lifecycle](docs/weakness-lifecycle.md): weakness realization, admission, and mutation
+- [Benchmark Offensive Coverage](docs/benchmark-offensive-coverage.md): web-offensive slice and objective grounding
+- [Effect Grounding](docs/effect-grounding.md): grounded effect and mitigation semantics
 
-## Server Endpoints
+## Scope
 
-| Method | Path | Description |
-|--------|------|-------------|
-| GET | `/health` | Liveness check |
-| GET | `/metadata` | Environment name, version |
-| POST | `/reset` | Start episode, returns initial observation |
-| POST | `/step` | Execute action, returns observation + reward |
-| GET | `/state` | Current episode state |
-| WS | `/ws` | WebSocket session |
+The current branch focuses on a validator-admitted enterprise web-security
+training slice:
 
-## CLI
+- exact web flaws plus config, secret, workflow, and telemetry weaknesses
+- private reference attack and defense traces
+- immutable snapshots and mutation between snapshots
+- red exploit-to-objective behavior
+- blue detection, containment, and continuity under green-user noise
 
-| Command | What it does |
-|---------|-------------|
-| `openrange build` | Generate a snapshot from a manifest (LLM or template) |
-| `openrange validate` | Run admission checks against a snapshot |
-| `openrange render` | Render a snapshot into a Helm chart + Kind config |
-| `openrange deploy` | Deploy to Kind cluster via Helm |
-| `openrange episode` | Run a scripted or interactive episode |
-| `openrange synthetic-data` | Generate SFT training traces |
-| `openrange server` | Start the OpenEnv FastAPI server |
+It does not expose the old public golden-path architecture or the legacy
+OpenEnv HTTP server surface from `main`.
 
-## Docs
+## Optional extras
 
-- [Architecture](docs/architecture.md) — pipeline, network topology, episode lifecycle, rewards
-- [Builder & Validator](docs/builder-validator.md) — snapshot generation, rendering, and admission
-- [Agents](docs/red-blue-agents.md) — BYO agent protocol, tandem training, reward coupling
-- [Synthetic Data](docs/synthetic-data.md) — snapshot-backed SFT trace generation
-- [Mutation Policy](docs/mutation_policy.md) — parent selection and mutation weight tuning
-- [OpenEnv Compliance](docs/openenv-compliance.md) — API contract, models, deployment
+Training dependencies are optional:
 
-## Built On
+```bash
+uv sync --extra training
+```
 
-- [OpenEnv](https://github.com/meta-pytorch/OpenEnv) — standardized agentic execution environments
-- Ideas from [R2E-Gym](https://arxiv.org/abs/2504.07164) (hybrid verification), [Self-Play SWE-RL](https://arxiv.org/abs/2512.18552) (formal specs, inverse mutation), PAIRED/UED (constrained generation), POET (mutate + admit)
+The package also ships a bootstrap example that compares a cheap sim-plane trace
+with a runtime episode:
+
+```bash
+uv run openrange-bootstrap-demo
+```
 
 ## License
 
+For environment-side evaluation over admitted snapshots and sequential mutations:
+
+```bash
+uv run scripts/eval_rollouts.py \
+  --manifest manifests/tier1_basic.yaml \
+  --mutations 3 \
+  --out /tmp/openrange-rollout-eval.json
+```
+
+This writes a JSON report with:
+- base snapshot plus sequential admitted child worlds
+- bootstrap-trace winner/turn counts
+- runtime rollout results for `joint_pool`, `red_only`, `blue_only_live`, and `blue_only_from_prefix`
+- aggregate win-rate, reward, continuity, and turn metrics by mode
+
+## Trace Generation
+
+For branch-native datasets tied to admitted snapshots and mutations:
+
+```bash
+uv run scripts/generate_traces.py \
+  --manifest manifests/tier1_basic.yaml \
+  --roots 3 \
+  --mutations 1 \
+  --outdir /tmp/openrange-traces
+```
+
+Or through the CLI:
+
+```bash
+openrange traces -m manifests/tier1_basic.yaml -o /tmp/openrange-traces --roots 3 --mutations 1
+```
+
+The generator also writes role/source shards such as:
+- `sft_red_runtime.jsonl`
+- `sft_blue_runtime.jsonl`
+- `sft_red_all.jsonl`
+- `sft_blue_all.jsonl`
+
+## Experimental model probe
+
+This is an optional bounded red-only probe that loads a tiny LoRA adapter and
+uses it to score a small candidate action set at each runtime decision.
+It is intentionally narrower than a full policy evaluation: it is
+reference-conditioned and red-only because the current tiny bootstrap dataset is
+not yet a full red/blue runtime-action corpus.
+
+```bash
+uv run scripts/eval_model_rollouts.py \
+  --adapter /tmp/openrange-sft-tiny-split/adapter \
+  --manifest manifests/tier1_basic.yaml \
+  --mutations 3 \
+  --out /tmp/openrange-model-rollout.json
+```
+
+## Container image
+
+The root [Dockerfile](Dockerfile) now builds a CLI image for the standalone package:
+
+```bash
+docker build -t openrange .
+docker run --rm openrange --help
+```
+
+## Verification
+
+```bash
+uv run -m pytest tests -q
+```
+
+## Development checks
+
+```bash
+uv sync
+uv run ruff format .
+uv run ruff check .
+uv run pytest
+uv run pre-commit install
+uv run pre-commit run --all-files
+```
 Apache 2.0

@@ -1,0 +1,23 @@
+minimum_pre_commit_version: "4.5.0"
+
+repos:
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v5.0.0
+    hooks:
+      - id: check-yaml
+        exclude: ^(deploy/openrange/templates/|src/open_range/chart/templates/)
+      - id: end-of-file-fixer
+      - id: trailing-whitespace
+
+  - repo: https://github.com/astral-sh/ruff-pre-commit
+    rev: v0.15.6
+    hooks:
+      - id: ruff-check
+        args: [--fix]
+      - id: ruff-format
+
+  - repo: https://github.com/astral-sh/uv-pre-commit
+    rev: 0.10.11
+    hooks:
+      - id: uv-lock
+        files: ^(pyproject\.toml|uv\.lock)$
