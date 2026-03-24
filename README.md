@@ -161,7 +161,7 @@ training slice:
 It does not expose the old public golden-path architecture or the legacy
 OpenEnv HTTP server surface from `main`.
 
-## Extras
+## Optional extras
 
 Training dependencies are optional:
 
@@ -181,7 +181,7 @@ uv run openrange-bootstrap-demo
 For environment-side evaluation over admitted snapshots and sequential mutations:
 
 ```bash
-PYTHONPATH=src .venv/bin/python scripts/eval_rollouts.py \
+uv run scripts/eval_rollouts.py \
   --manifest manifests/tier1_basic.yaml \
   --mutations 3 \
   --out /tmp/openrange-rollout-eval.json
@@ -198,7 +198,7 @@ This writes a JSON report with:
 For branch-native datasets tied to admitted snapshots and mutations:
 
 ```bash
-PYTHONPATH=src .venv/bin/python scripts/generate_traces.py \
+uv run scripts/generate_traces.py \
   --manifest manifests/tier1_basic.yaml \
   --roots 3 \
   --mutations 1 \
@@ -217,17 +217,16 @@ The generator also writes role/source shards such as:
 - `sft_red_all.jsonl`
 - `sft_blue_all.jsonl`
 
-## Model-In-Loop Probe
+## Experimental model probe
 
-There is also a bounded red-only probe that loads the tiny LoRA adapter and
+This is an optional bounded red-only probe that loads a tiny LoRA adapter and
 uses it to score a small candidate action set at each runtime decision.
-This is intentionally narrower than a full policy evaluation: it is
+It is intentionally narrower than a full policy evaluation: it is
 reference-conditioned and red-only because the current tiny bootstrap dataset is
 not yet a full red/blue runtime-action corpus.
 
 ```bash
-HF_HOME=/tmp/hf-home TOKENIZERS_PARALLELISM=false \
-python scripts/eval_model_rollouts.py \
+uv run scripts/eval_model_rollouts.py \
   --adapter /tmp/openrange-sft-tiny-split/adapter \
   --manifest manifests/tier1_basic.yaml \
   --mutations 3 \
@@ -246,7 +245,7 @@ docker run --rm openrange --help
 ## Verification
 
 ```bash
-PYTHONPATH=src .venv/bin/python -m pytest tests -q
+uv run -m pytest tests -q
 ```
 
 ## Development checks
