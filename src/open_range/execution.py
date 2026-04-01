@@ -322,15 +322,29 @@ class PodActionBackend:
             return f"echo unknown mail target {target}; exit 1"
         port = service.ports[0] if service.ports else 25
         sender = str(action.payload.get("from", action.actor_id))
-        recipient = str(action.payload.get("to", "noreply@corp.local"))
-        subject = str(action.payload.get("subject", "routine update"))
+        # "to" takes precedence; "recipient" is the NPC-to-NPC chat field (DoD #4)
+        recipient = str(
+            action.payload.get("to")
+            or action.payload.get("recipient")
+            or "noreply@corp.local"
+        )
+        subject = str(
+            action.payload.get("email_subject")
+            or action.payload.get("subject")
+            or "routine update"
+        )
+        body = str(
+            action.payload.get("email_body")
+            or action.payload.get("body")
+            or "OpenRange routine mail."
+        )
         payload = (
             "HELO corp.local\n"
             f"MAIL FROM:<{sender}>\n"
             f"RCPT TO:<{recipient}>\n"
             "DATA\n"
             f"Subject: {subject}\n\n"
-            "OpenRange test mail.\n"
+            f"{body}\n"
             ".\n"
             "QUIT\n"
         )

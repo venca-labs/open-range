@@ -73,6 +73,18 @@ def green_events_for_action(
                 observability_surfaces=("svc-siem",),
             ),
         )
+    if branch == "npc_chat":
+        recipient = str(action.payload.get("recipient", "")) or target
+        return (
+            emit_event(
+                event_type="BenignUserAction",
+                actor="green",
+                source_entity=action.actor_id,
+                target_entity=recipient,
+                malicious=False,
+                observability_surfaces=("svc-email",),
+            ),
+        )
     return (
         emit_event(
             event_type="BenignUserAction",

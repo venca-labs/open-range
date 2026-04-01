@@ -51,6 +51,7 @@ include = ["open_range*"]
 [tool.pytest.ini_options]
 markers = [
     "live_model: runs live LiteLLM model smoke tests",
+    "live_kind: requires a running Kind cluster with an admitted snapshot deployed",
 ]
 
 [tool.ruff]
