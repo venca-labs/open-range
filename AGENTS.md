@@ -162,7 +162,8 @@ Prefer `uv run -m ...` for Python commands in this repo.
 - keep the `Testing` section terse and factual
 - do not list routine Ruff, formatting, or generic unit-test commands in the PR body when CI already runs them
 - reserve the `Testing` section for manual verification, integration checks, Kind/admission runs, training/eval smoke tests, or anything else the workflow does not already cover
-- if there was no special verification beyond CI-covered lint/unit checks, say that plainly instead of pasting the commands
+- if there was no special verification beyond CI-covered lint/unit checks, say that plainly and stop there
+- do not add meta-commentary about omitted routine checks; either list non-routine verification only, or say there was no special verification
 - do not paste long verification logs or terminal transcripts into the PR body
 - include the exact verification commands used in the PR description for admission, runtime, Kind-backed, training, or other non-routine validation
 - use `Review Notes` only for reviewer-relevant context such as risks, tradeoffs, or follow-up work
