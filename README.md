@@ -20,6 +20,13 @@ green-user dynamics.
 This branch exposes OpenRange as an installable Python package and CLI. It is
 not the legacy OpenEnv server/client stack from `main`.
 
+### 📞 Community Call
+
+Join us every **Friday at 12:00 PM CT** for the Open Range Community Call.
+
+- 🎥 [Google Meet](https://meet.google.com/zuj-skfh-xjk)
+- 📱 Dial in: [(US) +1 443-671-4919](tel:+14436714919) · PIN: `320 286 452#` · [More numbers](https://tel.meet/zuj-skfh-xjk?pin=6302524387334)
+
 ## Why OpenRange
 
 Static cyber tasks are useful for evaluation, but they are a weak training
