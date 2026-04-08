@@ -14,6 +14,12 @@ validates that world with private reference traces and deterministic probes,
 freezes it as an immutable snapshot, and runs episodes with red, blue, and
 green-user dynamics.
 
+> **Project Provenance:** OpenRange is managed by **Vecna** as an open-source project. 
+> The core evaluation engine and admission concepts in this repository were heavily inspired by the [open-cybernauts/open-range](https://github.com/open-cybernauts/open-range) proof of concept built during the OpenEnv HuggingFace Hackathon in early March.
+
+This branch exposes OpenRange as an installable Python package and CLI. It is
+not the legacy OpenEnv server/client stack from `main`.
+
 ## Why OpenRange
 
 Static cyber tasks are useful for evaluation, but they are a weak training
