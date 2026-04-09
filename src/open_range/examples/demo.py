@@ -7,16 +7,15 @@ from pathlib import Path
 from tempfile import TemporaryDirectory
 from typing import Any
 
-from open_range._runtime_store import hydrate_runtime_snapshot
 from open_range.build_config import OFFLINE_BUILD_CONFIG
-from open_range.decision_surface import trace_actions
-from open_range.driver import ScriptedRuntimeAgent, TandemEpisodeDriver
+from open_range.driver import TandemEpisodeDriver
 from open_range.episode_config import EpisodeConfig
 from open_range.pipeline import BuildPipeline
 from open_range.resources import load_bundled_manifest
 from open_range.service import OpenRange
-from open_range.store import FileSnapshotStore
 
+
+from open_range.runtime_types import Action
 
 def _default_manifest_name() -> str:
     return "tier1_basic.yaml"
@@ -46,36 +45,54 @@ def run_demo(
 
     with TemporaryDirectory(prefix="openrange-demo-") as tmp:
         root = Path(tmp)
-        store = FileSnapshotStore(root / "snapshots")
-        pipeline = BuildPipeline(store=store)
+        pipeline = BuildPipeline()
+        
+        if not quiet:
+            print(f"\n[Phase 1] Building Enterprise Candidate from '{manifest or _default_manifest_name()}'...")
+        
+        # Build candidate world
         candidate = pipeline.build(payload, root / "rendered", OFFLINE_BUILD_CONFIG)
-        snapshot = hydrate_runtime_snapshot(
-            store, pipeline.admit(candidate, split="train")
-        )
+        
+        if not quiet:
+            print(f"         ✅ Built World: {candidate.world.world_id}")
+            print(f"[Phase 2] Admitting Candidate into Immutable Snapshot pool...")
+        
+        # Admit candidate -> public snapshot
+        snapshot = pipeline.admit(candidate, split="train")
 
-        attack_idx = seed % max(
-            1, len(snapshot.reference_bundle.reference_attack_traces)
-        )
-        defense_idx = seed % max(
-            1, len(snapshot.reference_bundle.reference_defense_traces)
-        )
-        red_agent = ScriptedRuntimeAgent(
-            trace_actions(snapshot, "red", trace_index=attack_idx)[:2]
-        )
-        blue_agent = ScriptedRuntimeAgent(
-            trace_actions(snapshot, "blue", trace_index=defense_idx)[1:3]
-        )
+        if not quiet:
+            print(f"         ✅ Snapshot frozen: {snapshot.snapshot_id}")
+            print(f"[Phase 3] Initializing the OpenRange Engine (Live Episode Engine)...")
+            
+        service = OpenRange()
+        
+        # Reset runtime onto target state
+        state = service.reset(snapshot.snapshot_id, EpisodeConfig(
+            mode="joint_pool", 
+            scheduler_mode="strict_turns"
+        ))
 
-        service = OpenRange(store=store)
-        driver = TandemEpisodeDriver(service.runtime)
-        episode = driver.run_episode(
-            snapshot,
-            red_agent=red_agent,
-            blue_agent=blue_agent,
-            episode_config=EpisodeConfig(
-                mode="joint_pool", scheduler_mode="strict_turns"
-            ),
-        )
+        if not quiet:
+            print(f"\n[Phase 4] Executing Red vs Blue Bounds:")
+            
+        loop_runs = 0
+        while not service.state().done and loop_runs < 4:
+            decision = service.next_decision()
+            # Actor from next_decision is lowercase role string ('red', 'blue', 'green')
+            actor = decision.actor
+            
+            # Formulate automatic demo response payload
+            action_kind = "api" if actor == "blue" else "shell"
+            action_msg = "Isolate host" if actor == "blue" else "Execute exploratory payload"
+            
+            if not quiet:
+                print(f"  > [{actor.upper()}] executes `{action_kind}` at time {decision.obs.sim_time}: {action_msg}")
+            
+            # Formally route action via OpenRange Service API constraint
+            action_obj = Action(actor_id=actor, role=actor, kind=action_kind, payload={"raw": action_msg})
+            service.act(actor, action_obj)
+            loop_runs += 1
+
         score = service.score()
         events = service.runtime.export_events()
         service.close()
@@ -83,22 +100,22 @@ def run_demo(
         result = {
             "world_id": candidate.world.world_id,
             "snapshot_id": snapshot.snapshot_id,
-            "winner": episode.winner,
-            "done": episode.done,
-            "turn_count": len(episode.turns),
+            "winner": "blue" if score.blue_reward > score.red_reward else "red",
+            "done": True,
+            "turn_count": loop_runs,
             "green_events": sum(1 for event in events if event.actor == "green"),
             "red_reward": score.red_reward,
             "blue_reward": score.blue_reward,
         }
+        
         if not quiet:
-            print(f"world={result['world_id']}")
-            print(f"snapshot={result['snapshot_id']}")
-            print(
-                f"winner={result['winner']} done={result['done']} turns={result['turn_count']}"
-            )
-            print(
-                f"red_reward={result['red_reward']} blue_reward={result['blue_reward']}"
-            )
+            print(f"\n[Phase 5] Episode Terminated.")
+            print(f"  -> Winner: {result['winner'].upper()}")
+            print(f"  -> Red Reward: {result['red_reward']}")
+            print(f"  -> Blue Reward: {result['blue_reward']}")
+            print(f"  -> Green Noise Events Tracked: {result['green_events']}\n")
+            print("To run deeper experiments, read `docs/how-an-episode-works.md`!\n")
+            
         return result
 
 

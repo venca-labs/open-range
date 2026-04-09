@@ -33,14 +33,30 @@ training-data generation.
 | **Roles** | Usually red only | Red, blue, and green in one runtime |
 | **Training data** | External transcripts or logs | Branch-native traces from admitted snapshots |
 
+## Try it now
+
+The fastest way to experience OpenRange locally is directly through the PyPI package. This requires no external dependencies and runs the engine fully offline over a synthetic simulation plane.
+
+```bash
+pip install openenv-open-range
+openrange demo
+```
+
+The deterministic demo script will compile a tier-1 enterprise environment, synthesize the internal vulnerabilities, establish a runtime slice, and simulate a short Red vs. Blue engagement. You will see the episode narrated in the console output.
+
+## Offline Exploration vs Live Ranges
+
+OpenRange splits execution into two physical planes:
+1. **Offline Exploration:** The default `graph_only` path builds and runs episodes instantly in-memory via `TinyWorld` and synthetic decision tracking. Ideal for iterating on scenarios and RL tuning.
+2. **Live Ranges:** The `full` profile renders live Kubernetes architectures (`kind`), deploys genuine service images, and exposes physical web interfaces. This path provides high-fidelity validation.
+
 ## What You Can Do
 
 - Build and admit worlds from strict manifests
 - Run red/blue/green episodes over immutable snapshots
 - Sample snapshots from train and eval pools
 - Generate branch-native trace datasets for training
-- Use offline admission for local iteration or live validation when running with
-  Kind
+- Use offline admission for local iteration or live validation when running with Kind
 
 - [Architecture](docs/architecture.md)
 - [Training Data Spec](docs/training-data-spec.md)
@@ -48,20 +64,13 @@ training-data generation.
 - [Effect Grounding](docs/effect-grounding.md)
 - [Weakness Lifecycle](docs/weakness-lifecycle.md)
 - [NPC Profiles](docs/npc-profiles.md)
-## Quick Start
+### 1. Install from Source
 
-### 1. Install
+If you want to modify OpenRange features or build complex RL tooling:
 
 ```bash
-uv sync
+uv sync --extra npc
 uv run openrange --help
-```
-
-Or install the package directly:
-
-```bash
-pip install .
-openrange --help
 ```
 
 ### 2. Run the Small Demo
@@ -118,9 +127,12 @@ to admitted snapshots.
 
 ## Python API
 
+You can programmatically compose and manage OpenRange episodes using the exact same public API that powers the CLI:
+
 ```python
 from open_range import BuildConfig, BuildPipeline, EpisodeConfig, OpenRange, load_bundled_manifest
 
+# 1. Build and Admit an immutable snapshot
 pipeline = BuildPipeline()
 candidate = pipeline.build(
     load_bundled_manifest("tier1_basic.yaml"),
@@ -129,12 +141,15 @@ candidate = pipeline.build(
 )
 snapshot = pipeline.admit(candidate)
 
+# 2. Spin up the Simulator Engine
 env = OpenRange()
 state = env.reset(snapshot.snapshot_id, EpisodeConfig(mode="blue_only_live"))
+
+# 3. Step the Loop
 decision = env.next_decision()
 
-print(state.snapshot_id)
-print(decision.actor, decision.obs.sim_time)
+print(f"Active Snapshot: {state.snapshot_id}")
+print(f"Awaiting turn from: {decision.actor} @ time: {decision.obs.sim_time}")
 ```
 
 ## Start Here
