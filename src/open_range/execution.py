@@ -137,6 +137,19 @@ class PodActionBackend:
             return self._run_in_runner(action, self._mail_command(action))
         if action.kind == "api":
             return self._run_in_runner(action, self._api_command(action))
+        if action.kind == "chat":
+            return self._run_in_runner(action, self._chat_command(action))
+        if action.kind == "document_share":
+            return self._run_in_runner(action, self._document_share_command(action))
+        if action.kind == "voice":
+            # Voice is an abstract metadata action — no real audio synthesis.
+            # Treated as a successful no-op that generates events.
+            return ActionExecution(
+                stdout=f"voice pretext delivered to {action_target(action) or 'unknown'}",
+                ok=True,
+                service_health=self.service_health(),
+                target_service=action_target(action),
+            )
         return ActionExecution(
             stdout="",
             stderr=f"unsupported live action kind: {action.kind}",
@@ -337,6 +350,26 @@ class PodActionBackend:
         return (
             f"printf %s {shlex.quote(payload)} | nc -w 3 {shlex.quote(target)} {port}"
         )
+
+    def _chat_command(self, action: Action) -> str:
+        target = action_target(action) or "svc-web"
+        service = self._service_by_id.get(target)
+        if service is None:
+            return f"echo unknown chat target {target}; exit 1"
+        port = service.ports[0] if service.ports else 80
+        sender = str(action.payload.get("from", action.actor_id))
+        message = str(action.payload.get("message", "routine chat message"))
+        body = json.dumps({"from": sender, "message": message, "channel": "internal"})
+        return f"printf %s {shlex.quote(body)} | nc -w 3 {shlex.quote(target)} {port}"
+
+    def _document_share_command(self, action: Action) -> str:
+        target = action_target(action) or "svc-fileshare"
+        service = self._service_by_id.get(target)
+        if service is None:
+            return f"echo unknown share target {target}; exit 1"
+        port = service.ports[0] if service.ports else 445
+        filename = str(action.payload.get("filename", "document.txt"))
+        return f"nc -z -w 3 {shlex.quote(target)} {port} && echo shared {shlex.quote(filename)}"
 
     def _is_contained(self, target: str) -> bool:
         release = self._require_release()

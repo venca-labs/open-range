@@ -50,8 +50,8 @@ training-data generation.
 - Run red/blue/green episodes over immutable snapshots
 - Sample snapshots from train and eval pools
 - Generate branch-native trace datasets for training
-- Use offline admission for local iteration or live validation when running with
-  Kind
+- Use offline admission for local iteration or live validation when running with Kind
+- Simulate dynamic workloads using **Autonomous Agent NPCs** executed natively across Frontier LLM inference (e.g. NVIDIA NIM) without brittle, scripted background noise
 
 - [Architecture](docs/architecture.md)
 - [Training Data Spec](docs/training-data-spec.md)
@@ -141,7 +141,13 @@ candidate = pipeline.build(
 snapshot = pipeline.admit(candidate)
 
 env = OpenRange()
-state = env.reset(snapshot.snapshot_id, EpisodeConfig(mode="blue_only_live"))
+# Activate Live LLM-backed Autonomous Environment
+config = EpisodeConfig(
+    mode="live", 
+    green_branch_enabled=True,
+    green_branch_backend="autonomous"
+)
+state = env.reset(snapshot.snapshot_id, config)
 decision = env.next_decision()
 
 print(state.snapshot_id)
@@ -168,6 +174,7 @@ training slice:
 - immutable snapshots and mutation between snapshots
 - red exploit-to-objective behavior
 - blue detection, containment, and continuity under green-user noise
+- live, native LLM-based NPC cognition pipelines
 
 It does not expose the old public golden-path architecture or the legacy
 OpenEnv HTTP server surface from `main`.
@@ -269,4 +276,7 @@ uv run pytest
 uv run pre-commit install
 uv run pre-commit run --all-files
 ```
+
+## License
+
 Apache 2.0

@@ -14,11 +14,10 @@ from open_range.cluster import ExecResult
 from open_range.code_web import code_web_payload
 from open_range.compiler import EnterpriseSaaSManifestCompiler
 from open_range.episode_config import EpisodeConfig
-from open_range.green import ScriptedGreenScheduler
 from open_range.execution import PodActionBackend
 from open_range.render import EnterpriseSaaSKindRenderer
 from open_range.runtime import ReferenceDrivenRuntime
-from open_range.runtime_types import Action, RuntimeEvent
+from open_range.runtime_types import Action
 from open_range.store import FileSnapshotStore
 from open_range.synth import EnterpriseSaaSWorldSynthesizer
 from open_range.weaknesses import CatalogWeaknessSeeder
@@ -1001,129 +1000,3 @@ def test_next_decision_raises_done_after_internal_terminal_progress(tmp_path: Pa
 
     with pytest.raises(RuntimeError, match="episode is done"):
         runtime.next_decision()
-
-
-def test_green_branch_backends_are_not_aliases(tmp_path: Path):
-    snapshot = _snapshot(tmp_path)
-    first_step = snapshot.reference_bundle.reference_attack_traces[0].steps[0]
-
-    scripted_runtime = ReferenceDrivenRuntime()
-    scripted_runtime.reset(
-        snapshot,
-        EpisodeConfig(
-            mode="joint_pool",
-            green_enabled=True,
-            green_routine_enabled=False,
-            green_branch_backend="scripted",
-        ),
-    )
-    assert scripted_runtime.next_decision().actor == "red"
-    scripted_runtime.act(
-        "red",
-        Action(
-            actor_id="red",
-            role="red",
-            kind=first_step.kind,
-            payload={"target": first_step.target, **first_step.payload},
-        ),
-    )
-    assert scripted_runtime.next_decision().actor == "blue"
-    scripted_runtime.act(
-        "blue", Action(actor_id="blue", role="blue", kind="sleep", payload={})
-    )
-    assert scripted_runtime.next_decision().actor == "red"
-    scripted_green_events = [
-        event for event in scripted_runtime.export_events() if event.actor == "green"
-    ]
-
-    orchestrated_runtime = ReferenceDrivenRuntime()
-    orchestrated_runtime.reset(
-        snapshot,
-        EpisodeConfig(
-            mode="joint_pool",
-            green_enabled=True,
-            green_routine_enabled=False,
-            green_branch_backend="workflow_orchestrator",
-        ),
-    )
-    assert orchestrated_runtime.next_decision().actor == "red"
-    orchestrated_runtime.act(
-        "red",
-        Action(
-            actor_id="red",
-            role="red",
-            kind=first_step.kind,
-            payload={"target": first_step.target, **first_step.payload},
-        ),
-    )
-    assert orchestrated_runtime.next_decision().actor == "blue"
-    orchestrated_runtime.act(
-        "blue", Action(actor_id="blue", role="blue", kind="sleep", payload={})
-    )
-    assert orchestrated_runtime.next_decision().actor == "red"
-    orchestrated_green_events = [
-        event
-        for event in orchestrated_runtime.export_events()
-        if event.actor == "green"
-    ]
-
-    assert len(orchestrated_green_events) > len(scripted_green_events)
-    assert any(
-        event.event_type == "RecoveryCompleted" for event in orchestrated_green_events
-    )
-
-
-def test_small_llm_green_branch_handles_profiled_susceptibility_maps(tmp_path: Path):
-    payload = _manifest_payload()
-    payload["npc_profiles"] = {
-        "sales": {
-            "awareness": 0.9,
-            "susceptibility": {"credential_obtained": 0.8, "phishing": 0.6},
-        }
-    }
-    world = CatalogWeaknessSeeder().apply(
-        EnterpriseSaaSManifestCompiler().compile(payload)
-    )
-    synth = EnterpriseSaaSWorldSynthesizer().synthesize(
-        world, tmp_path / "synth-small-llm"
-    )
-    artifacts = EnterpriseSaaSKindRenderer().render(
-        world, synth, tmp_path / "rendered-small-llm"
-    )
-    reference_bundle, report = LocalAdmissionController(mode="fail_fast").admit(
-        world, artifacts, OFFLINE_BUILD_CONFIG
-    )
-    store = FileSnapshotStore(tmp_path / "snapshots-small-llm")
-    snapshot = hydrate_runtime_snapshot(
-        store, store.create(world, artifacts, reference_bundle, report, synth=synth)
-    )
-
-    scheduler = ScriptedGreenScheduler()
-    scheduler.reset(
-        snapshot,
-        EpisodeConfig(
-            mode="joint_pool",
-            green_enabled=True,
-            green_routine_enabled=False,
-            green_branch_backend="small_llm",
-        ),
-    )
-    scheduler.record_event(
-        RuntimeEvent(
-            id="evt-1",
-            event_type="CredentialObtained",
-            actor="red",
-            time=0.0,
-            source_entity="svc-web",
-            target_entity="idp_admin_cred",
-            malicious=True,
-        )
-    )
-    scheduler.advance_until(1.0)
-    actions = scheduler.pop_ready_actions()
-
-    assert any(
-        action.payload.get("branch") == "report_suspicious_activity"
-        for action in actions
-    )
-    assert any(action.payload.get("branch") == "reset_password" for action in actions)

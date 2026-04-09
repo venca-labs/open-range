@@ -1,0 +1,6 @@
+2026-04-08 17:34:43,982 - MainThread(8606133312) - tinytroupe - DEBUG - TinyTroupe logging initialized
+2026-04-08 17:34:47,494 - MainThread(8606133312) - tinytroupe - DEBUG - Initializing OpenAIClient
+2026-04-08 17:34:47,494 - MainThread(8606133312) - tinytroupe - DEBUG - Initializing AzureClient
+2026-04-08 17:34:47,494 - MainThread(8606133312) - tinytroupe - DEBUG - Initializing OpenAIClient
+2026-04-08 17:34:47,495 - MainThread(8606133312) - tinytroupe - DEBUG - Initializing OllamaClient
+2026-04-08 17:34:47,495 - MainThread(8606133312) - tinytroupe - DEBUG - base_url set to None
