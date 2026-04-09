@@ -42,6 +42,12 @@ training = [
     "peft>=0.18",
     "trl>=0.24",
 ]
+dashboard = [
+    "fastapi>=0.115",
+    "uvicorn>=0.35",
+    "sse-starlette>=2.2",
+    "httpx>=0.28",
+]
 
 [dependency-groups]
 dev = [

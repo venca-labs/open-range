@@ -1,0 +1,605 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>OpenRange — Episode Dashboard</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<script src="https://d3js.org/d3.v7.min.js"></script>
+<style>
+/* ── Design Tokens ─────────────────────────────────────────────── */
+:root {
+  --bg-primary: #0a0e17;
+  --bg-card: rgba(15, 23, 42, 0.75);
+  --bg-glass: rgba(30, 41, 59, 0.5);
+  --border-glass: rgba(100, 116, 139, 0.25);
+  --border-glow: rgba(56, 189, 248, 0.3);
+  --text-primary: #e2e8f0;
+  --text-secondary: #94a3b8;
+  --text-muted: #64748b;
+  --red-accent: #f43f5e;
+  --red-glow: rgba(244, 63, 94, 0.4);
+  --blue-accent: #38bdf8;
+  --blue-glow: rgba(56, 189, 248, 0.4);
+  --green-accent: #4ade80;
+  --green-glow: rgba(74, 222, 128, 0.4);
+  --amber-accent: #fbbf24;
+  --amber-glow: rgba(251, 191, 36, 0.3);
+  --font-sans: 'Inter', system-ui, sans-serif;
+  --font-mono: 'JetBrains Mono', monospace;
+  --radius: 12px;
+  --transition: 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+* { margin: 0; padding: 0; box-sizing: border-box; }
+html, body { height: 100%; overflow: hidden; }
+body {
+  font-family: var(--font-sans);
+  background: var(--bg-primary);
+  color: var(--text-primary);
+  display: flex; flex-direction: column;
+}
+
+/* ── Header ────────────────────────────────────────────────────── */
+.header {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 12px 24px;
+  background: var(--bg-card);
+  border-bottom: 1px solid var(--border-glass);
+  backdrop-filter: blur(20px);
+  z-index: 10;
+}
+.header-title {
+  font-size: 18px; font-weight: 600;
+  background: linear-gradient(135deg, var(--blue-accent), var(--green-accent));
+  -webkit-background-clip: text; -webkit-text-fill-color: transparent;
+}
+.header-subtitle { font-size: 12px; color: var(--text-muted); margin-left: 12px; }
+.header-controls { display: flex; gap: 8px; align-items: center; }
+
+.btn {
+  padding: 8px 16px; border: 1px solid var(--border-glass);
+  border-radius: 8px; background: var(--bg-glass);
+  color: var(--text-primary); font-family: var(--font-sans);
+  font-size: 13px; font-weight: 500; cursor: pointer;
+  transition: var(--transition);
+  backdrop-filter: blur(10px);
+}
+.btn:hover { border-color: var(--blue-accent); background: rgba(56, 189, 248, 0.1); }
+.btn-play { border-color: var(--green-accent); }
+.btn-play:hover { background: rgba(74, 222, 128, 0.15); }
+.btn-pause { border-color: var(--amber-accent); }
+.btn-pause:hover { background: rgba(251, 191, 36, 0.15); }
+.btn-reset { border-color: var(--red-accent); }
+.btn-reset:hover { background: rgba(244, 63, 94, 0.15); }
+
+.status-badge {
+  padding: 4px 12px; border-radius: 20px; font-size: 11px;
+  font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px;
+}
+.status-idle { background: rgba(100, 116, 139, 0.2); color: var(--text-muted); }
+.status-running { background: rgba(74, 222, 128, 0.15); color: var(--green-accent); border: 1px solid var(--green-glow); }
+.status-done { background: rgba(56, 189, 248, 0.15); color: var(--blue-accent); border: 1px solid var(--blue-glow); }
+
+/* ── Main Grid ─────────────────────────────────────────────────── */
+.main {
+  flex: 1; display: grid; gap: 12px; padding: 12px;
+  grid-template-columns: 1fr 320px;
+  grid-template-rows: 1fr auto auto;
+  min-height: 0;
+}
+
+/* ── Card Glass ────────────────────────────────────────────────── */
+.card {
+  background: var(--bg-card);
+  border: 1px solid var(--border-glass);
+  border-radius: var(--radius);
+  backdrop-filter: blur(20px);
+  overflow: hidden;
+  display: flex; flex-direction: column;
+}
+.card-header {
+  padding: 12px 16px;
+  border-bottom: 1px solid var(--border-glass);
+  font-size: 12px; font-weight: 600;
+  text-transform: uppercase; letter-spacing: 0.8px;
+  color: var(--text-secondary);
+  display: flex; align-items: center; gap: 8px;
+}
+.card-body { padding: 12px 16px; flex: 1; overflow-y: auto; min-height: 0; }
+
+/* ── Topology (D3) ─────────────────────────────────────────────── */
+.topology-card { grid-row: 1 / 3; }
+#topology-svg { width: 100%; height: 100%; }
+.topology-card .card-body { padding: 0; }
+
+.node-label {
+  font-family: var(--font-mono); font-size: 10px; font-weight: 500;
+  fill: var(--text-secondary); text-anchor: middle;
+  pointer-events: none;
+}
+.edge-line {
+  stroke: var(--border-glass); stroke-width: 1.5;
+  stroke-dasharray: 4 2; opacity: 0.6;
+}
+.edge-line.active { stroke: var(--amber-accent); opacity: 1; stroke-dasharray: none; }
+
+/* ── Scoreboard ────────────────────────────────────────────────── */
+.scoreboard-card { grid-column: 2; }
+.score-row {
+  display: flex; align-items: center; gap: 10px;
+  margin-bottom: 10px;
+}
+.score-label { font-size: 12px; font-weight: 500; width: 70px; }
+.score-bar-bg {
+  flex: 1; height: 8px; border-radius: 4px;
+  background: rgba(100, 116, 139, 0.15);
+  overflow: hidden;
+}
+.score-bar {
+  height: 100%; border-radius: 4px; transition: width 0.6s ease;
+}
+.score-bar.red { background: linear-gradient(90deg, var(--red-accent), #fb7185); }
+.score-bar.blue { background: linear-gradient(90deg, var(--blue-accent), #7dd3fc); }
+.score-bar.continuity { background: linear-gradient(90deg, var(--green-accent), #86efac); }
+.score-value { font-size: 12px; font-weight: 600; font-family: var(--font-mono); width: 40px; text-align: right; }
+
+.score-meta {
+  display: grid; grid-template-columns: 1fr 1fr; gap: 6px;
+  margin-top: 12px; padding-top: 12px;
+  border-top: 1px solid var(--border-glass);
+}
+.meta-item { font-size: 11px; color: var(--text-secondary); }
+.meta-value { font-weight: 600; color: var(--text-primary); font-family: var(--font-mono); }
+
+/* ── NPC Panel ─────────────────────────────────────────────────── */
+.npc-card { grid-column: 2; }
+.npc-item {
+  display: flex; align-items: center; gap: 8px;
+  padding: 6px 0; font-size: 12px;
+  border-bottom: 1px solid rgba(100, 116, 139, 0.1);
+}
+.npc-item:last-child { border-bottom: none; }
+.npc-dot {
+  width: 8px; height: 8px; border-radius: 50%;
+  background: var(--green-accent); flex-shrink: 0;
+  box-shadow: 0 0 6px var(--green-glow);
+  animation: pulse 2s ease-in-out infinite;
+}
+.npc-name { font-weight: 500; color: var(--text-primary); }
+.npc-activity { color: var(--text-muted); margin-left: auto; font-size: 11px; }
+
+/* ── Narrator ──────────────────────────────────────────────────── */
+.narrator-card { grid-column: 1 / -1; }
+.narrator-text {
+  font-size: 14px; line-height: 1.6;
+  color: var(--text-secondary);
+  font-style: italic;
+  min-height: 40px;
+  transition: var(--transition);
+}
+.narrator-text.active { color: var(--text-primary); }
+
+/* ── Timeline ──────────────────────────────────────────────────── */
+.timeline-card { grid-column: 1 / -1; max-height: 200px; }
+.timeline-card .card-body { padding: 8px 16px; }
+.event-row {
+  display: flex; align-items: flex-start; gap: 10px;
+  padding: 5px 0; font-size: 12px;
+  border-bottom: 1px solid rgba(100, 116, 139, 0.08);
+  animation: slideIn 0.3s ease;
+}
+.event-row:last-child { border-bottom: none; }
+.event-time {
+  font-family: var(--font-mono); font-size: 11px;
+  color: var(--text-muted); width: 50px; flex-shrink: 0;
+}
+.event-dot {
+  width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0;
+  margin-top: 3px;
+}
+.event-dot.red { background: var(--red-accent); box-shadow: 0 0 8px var(--red-glow); }
+.event-dot.blue { background: var(--blue-accent); box-shadow: 0 0 8px var(--blue-glow); }
+.event-dot.green { background: var(--green-accent); box-shadow: 0 0 8px var(--green-glow); }
+.event-target { font-family: var(--font-mono); color: var(--text-secondary); }
+.event-type { color: var(--text-primary); font-weight: 500; }
+.event-malicious { color: var(--red-accent); font-weight: 600; }
+
+/* ── Animations ────────────────────────────────────────────────── */
+@keyframes pulse {
+  0%, 100% { opacity: 1; transform: scale(1); }
+  50% { opacity: 0.6; transform: scale(0.85); }
+}
+@keyframes slideIn {
+  from { opacity: 0; transform: translateY(-8px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+@keyframes nodeGlow {
+  0%, 100% { filter: drop-shadow(0 0 4px currentColor); }
+  50% { filter: drop-shadow(0 0 12px currentColor); }
+}
+
+/* ── Scrollbar ─────────────────────────────────────────────────── */
+::-webkit-scrollbar { width: 4px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: var(--border-glass); border-radius: 2px; }
+</style>
+</head>
+<body>
+
+<!-- ── Header ────────────────────────────────────────────────── -->
+<header class="header">
+  <div style="display:flex;align-items:center;">
+    <span class="header-title">🏢 OpenRange</span>
+    <span class="header-subtitle">Episode Dashboard</span>
+    <span id="status-badge" class="status-badge status-idle" style="margin-left:16px;">IDLE</span>
+  </div>
+  <div class="header-controls">
+    <span id="sim-clock" style="font-family:var(--font-mono);font-size:13px;color:var(--text-muted);margin-right:8px;">⏱ 0.0s</span>
+    <button class="btn btn-reset" onclick="resetEpisode()">⟳ Reset</button>
+    <button class="btn btn-play" onclick="playEpisode()">▶ Play</button>
+    <button class="btn btn-pause" onclick="pauseEpisode()">⏸ Pause</button>
+  </div>
+</header>
+
+<!-- ── Main Grid ─────────────────────────────────────────────── -->
+<main class="main">
+
+  <!-- Topology -->
+  <div class="card topology-card">
+    <div class="card-header">🌐 Network Topology</div>
+    <div class="card-body">
+      <svg id="topology-svg"></svg>
+    </div>
+  </div>
+
+  <!-- Scoreboard -->
+  <div class="card scoreboard-card">
+    <div class="card-header">📊 Scoreboard</div>
+    <div class="card-body">
+      <div class="score-row">
+        <span class="score-label" style="color:var(--red-accent);">🔴 Red</span>
+        <div class="score-bar-bg"><div id="red-bar" class="score-bar red" style="width:0%"></div></div>
+        <span id="red-score" class="score-value">0.00</span>
+      </div>
+      <div class="score-row">
+        <span class="score-label" style="color:var(--blue-accent);">🔵 Blue</span>
+        <div class="score-bar-bg"><div id="blue-bar" class="score-bar blue" style="width:0%"></div></div>
+        <span id="blue-score" class="score-value">0.00</span>
+      </div>
+      <div class="score-row">
+        <span class="score-label" style="color:var(--green-accent);">💚 Uptime</span>
+        <div class="score-bar-bg"><div id="continuity-bar" class="score-bar continuity" style="width:100%"></div></div>
+        <span id="continuity-score" class="score-value">1.00</span>
+      </div>
+      <div class="score-meta">
+        <div class="meta-item">Winner: <span id="meta-winner" class="meta-value">—</span></div>
+        <div class="meta-item">Decisions: <span id="meta-decisions" class="meta-value">0</span></div>
+        <div class="meta-item">Red Obj: <span id="meta-red-obj" class="meta-value">0</span></div>
+        <div class="meta-item">Blue Obj: <span id="meta-blue-obj" class="meta-value">0</span></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- NPCs -->
+  <div class="card npc-card">
+    <div class="card-header">🎭 Active NPCs</div>
+    <div class="card-body" id="npc-list">
+      <div style="color:var(--text-muted);font-size:12px;">Waiting for episode...</div>
+    </div>
+  </div>
+
+  <!-- Narrator -->
+  <div class="card narrator-card">
+    <div class="card-header">💬 Narrator <span style="font-size:10px;color:var(--text-muted);font-weight:400;margin-left:auto;">powered by NIM</span></div>
+    <div class="card-body">
+      <div id="narrator-text" class="narrator-text">The cyber range is quiet. Reset an episode to begin the simulation...</div>
+    </div>
+  </div>
+
+  <!-- Timeline -->
+  <div class="card timeline-card">
+    <div class="card-header">📜 Event Timeline <span id="event-count" style="margin-left:auto;font-family:var(--font-mono);font-size:11px;color:var(--text-muted);">0 events</span></div>
+    <div class="card-body" id="timeline-body"></div>
+  </div>
+
+</main>
+
+<script>
+/* ── State ──────────────────────────────────────────────────── */
+let topology = { services: [], edges: [], zones: [], users: [] };
+let events = [];
+let simulation = null;
+let eventSource = null;
+let narrateSource = null;
+let nodeElements = {};
+
+/* ── API Helpers ────────────────────────────────────────────── */
+async function api(method, path, body) {
+  const opts = { method, headers: { 'Content-Type': 'application/json' } };
+  if (body) opts.body = JSON.stringify(body);
+  const resp = await fetch(path, opts);
+  return resp.json();
+}
+
+/* ── Episode Controls ──────────────────────────────────────── */
+async function resetEpisode() {
+  stopStreams();
+  setStatus('loading');
+  const result = await api('POST', '/api/episode/reset');
+  if (result.topology) {
+    topology = result.topology;
+    renderTopology();
+    renderNPCs();
+  }
+  events = [];
+  renderTimeline();
+  updateScoreboard({});
+  setStatus('idle');
+  document.getElementById('narrator-text').textContent =
+    `Episode loaded on ${result.snapshot_id || 'unknown'}. Press Play to begin.`;
+  document.getElementById('narrator-text').classList.add('active');
+}
+
+async function playEpisode() {
+  setStatus('running');
+  await api('POST', '/api/episode/play');
+  startEventStream();
+  startNarrateStream();
+}
+
+async function pauseEpisode() {
+  setStatus('idle');
+  await api('POST', '/api/episode/pause');
+  stopStreams();
+}
+
+function setStatus(s) {
+  const badge = document.getElementById('status-badge');
+  badge.className = 'status-badge';
+  if (s === 'running') { badge.classList.add('status-running'); badge.textContent = 'RUNNING'; }
+  else if (s === 'done') { badge.classList.add('status-done'); badge.textContent = 'DONE'; }
+  else if (s === 'loading') { badge.classList.add('status-idle'); badge.textContent = 'LOADING...'; }
+  else { badge.classList.add('status-idle'); badge.textContent = 'IDLE'; }
+}
+
+/* ── SSE Streams ───────────────────────────────────────────── */
+function startEventStream() {
+  if (eventSource) eventSource.close();
+  eventSource = new EventSource('/api/events/stream');
+  eventSource.addEventListener('runtime_event', (e) => {
+    const ev = JSON.parse(e.data);
+    events.unshift(ev);
+    if (events.length > 200) events.pop();
+    onEvent(ev);
+  });
+}
+
+function startNarrateStream() {
+  if (narrateSource) narrateSource.close();
+  narrateSource = new EventSource('/api/narrate/stream');
+  narrateSource.addEventListener('narration', (e) => {
+    const data = JSON.parse(e.data);
+    const el = document.getElementById('narrator-text');
+    el.textContent = data.text;
+    el.classList.add('active');
+  });
+}
+
+function stopStreams() {
+  if (eventSource) { eventSource.close(); eventSource = null; }
+  if (narrateSource) { narrateSource.close(); narrateSource = null; }
+}
+
+/* ── Event Handler ─────────────────────────────────────────── */
+function onEvent(ev) {
+  renderTimeline();
+  highlightNode(ev.target_entity, ev.actor);
+  highlightNode(ev.source_entity, ev.actor);
+  document.getElementById('sim-clock').textContent = `⏱ ${ev.time.toFixed(1)}s`;
+  document.getElementById('event-count').textContent = `${events.length} events`;
+
+  // Poll state periodically
+  if (events.length % 3 === 0) pollState();
+
+  if (ev.id === 'episode-done') setStatus('done');
+}
+
+async function pollState() {
+  try {
+    const state = await api('GET', '/api/state');
+    if (!state.error) updateScoreboard(state);
+  } catch(e) {}
+}
+
+/* ── D3 Topology ───────────────────────────────────────────── */
+const zoneColors = {
+  'external': '#ef4444',
+  'dmz': '#f59e0b',
+  'corp': '#3b82f6',
+  'internal': '#8b5cf6',
+  'management': '#10b981',
+  'data': '#06b6d4',
+  'sandbox': '#ec4899',
+};
+
+function renderTopology() {
+  const svg = d3.select('#topology-svg');
+  svg.selectAll('*').remove();
+
+  const container = svg.node().parentElement;
+  const width = container.clientWidth || 600;
+  const height = container.clientHeight || 400;
+  svg.attr('viewBox', `0 0 ${width} ${height}`);
+
+  const nodes = topology.services.map(s => ({
+    id: s.id, kind: s.kind, zone: s.zone, host: s.host, ports: s.ports,
+    x: width / 2, y: height / 2,
+  }));
+
+  const nodeIndex = {};
+  nodes.forEach((n, i) => { nodeIndex[n.id] = i; });
+
+  const links = topology.edges
+    .filter(e => nodeIndex[e.source] !== undefined && nodeIndex[e.target] !== undefined)
+    .map(e => ({ source: e.source, target: e.target, kind: e.kind }));
+
+  const sim = d3.forceSimulation(nodes)
+    .force('link', d3.forceLink(links).id(d => d.id).distance(90))
+    .force('charge', d3.forceManyBody().strength(-250))
+    .force('center', d3.forceCenter(width / 2, height / 2))
+    .force('collision', d3.forceCollide(40));
+
+  // Zone background labels
+  const zonePositions = {};
+  topology.zones.forEach((z, i) => {
+    const angle = (2 * Math.PI * i) / topology.zones.length;
+    zonePositions[z] = { x: width/2 + Math.cos(angle) * 120, y: height/2 + Math.sin(angle) * 120 };
+  });
+
+  const link = svg.append('g')
+    .selectAll('line')
+    .data(links)
+    .enter().append('line')
+    .attr('class', 'edge-line')
+    .attr('data-source', d => d.source)
+    .attr('data-target', d => d.target);
+
+  const nodeG = svg.append('g')
+    .selectAll('g')
+    .data(nodes)
+    .enter().append('g')
+    .attr('cursor', 'pointer')
+    .call(d3.drag()
+      .on('start', (e, d) => { if (!e.active) sim.alphaTarget(0.3).restart(); d.fx = d.x; d.fy = d.y; })
+      .on('drag', (e, d) => { d.fx = e.x; d.fy = e.y; })
+      .on('end', (e, d) => { if (!e.active) sim.alphaTarget(0); d.fx = null; d.fy = null; })
+    );
+
+  // Outer glow ring
+  nodeG.append('circle')
+    .attr('r', 22)
+    .attr('fill', 'none')
+    .attr('stroke', d => zoneColors[d.zone] || '#64748b')
+    .attr('stroke-width', 2)
+    .attr('opacity', 0.3)
+    .attr('class', 'glow-ring');
+
+  // Node circle
+  nodeG.append('circle')
+    .attr('r', 16)
+    .attr('fill', d => zoneColors[d.zone] || '#334155')
+    .attr('stroke', d => zoneColors[d.zone] || '#64748b')
+    .attr('stroke-width', 1.5)
+    .attr('opacity', 0.85);
+
+  // Kind icon
+  const kindIcons = {
+    'web_app': '🌐', 'database': '🗄️', 'mail': '✉️', 'idp': '🔑',
+    'fileshare': '📁', 'siem': '📊', 'firewall': '🛡️', 'jumpbox': '🖥️',
+  };
+  nodeG.append('text')
+    .attr('text-anchor', 'middle')
+    .attr('dominant-baseline', 'central')
+    .attr('font-size', '12px')
+    .text(d => kindIcons[d.kind] || '⬡');
+
+  // Label
+  nodeG.append('text')
+    .attr('class', 'node-label')
+    .attr('y', 28)
+    .text(d => d.id.replace('svc-', ''));
+
+  // Store references for highlighting
+  nodeG.each(function(d) { nodeElements[d.id] = d3.select(this); });
+
+  sim.on('tick', () => {
+    link
+      .attr('x1', d => d.source.x).attr('y1', d => d.source.y)
+      .attr('x2', d => d.target.x).attr('y2', d => d.target.y);
+    nodeG.attr('transform', d => `translate(${d.x},${d.y})`);
+  });
+
+  simulation = sim;
+}
+
+function highlightNode(entityId, actor) {
+  const node = nodeElements[entityId];
+  if (!node) return;
+  const colors = { red: '#f43f5e', blue: '#38bdf8', green: '#4ade80' };
+  const color = colors[actor] || '#fbbf24';
+
+  node.select('.glow-ring')
+    .attr('stroke', color)
+    .attr('opacity', 0.8)
+    .attr('r', 28)
+    .transition().duration(1500)
+    .attr('opacity', 0.3)
+    .attr('r', 22);
+
+  node.select('circle:nth-child(2)')
+    .transition().duration(200)
+    .attr('fill', color)
+    .attr('opacity', 1)
+    .transition().duration(2000)
+    .attr('fill', d => zoneColors[d.zone] || '#334155')
+    .attr('opacity', 0.85);
+}
+
+/* ── Scoreboard ────────────────────────────────────────────── */
+function updateScoreboard(state) {
+  const rr = state.red_reward || 0;
+  const br = state.blue_reward || 0;
+  const cont = state.continuity ?? 1.0;
+
+  document.getElementById('red-bar').style.width = `${Math.min(100, Math.abs(rr) * 100)}%`;
+  document.getElementById('red-score').textContent = rr.toFixed(2);
+  document.getElementById('blue-bar').style.width = `${Math.min(100, Math.abs(br) * 100)}%`;
+  document.getElementById('blue-score').textContent = br.toFixed(2);
+  document.getElementById('continuity-bar').style.width = `${cont * 100}%`;
+  document.getElementById('continuity-score').textContent = cont.toFixed(2);
+
+  document.getElementById('meta-winner').textContent = state.winner || '—';
+  document.getElementById('meta-decisions').textContent = state.decision_count || 0;
+  document.getElementById('meta-red-obj').textContent = (state.red_objectives_satisfied || []).length;
+  document.getElementById('meta-blue-obj').textContent = (state.blue_objectives_satisfied || []).length;
+}
+
+/* ── NPC List ──────────────────────────────────────────────── */
+function renderNPCs() {
+  const el = document.getElementById('npc-list');
+  if (!topology.users || topology.users.length === 0) {
+    el.innerHTML = '<div style="color:var(--text-muted);font-size:12px;">No NPCs in this snapshot</div>';
+    return;
+  }
+  const activities = ['checking mail ✉️', 'browsing app 🌐', 'reviewing alerts 🔍', 'accessing files 📁', 'idle 💤'];
+  el.innerHTML = topology.users.slice(0, 8).map((u, i) => `
+    <div class="npc-item">
+      <div class="npc-dot"></div>
+      <span class="npc-name">${u.id}</span>
+      <span class="npc-activity">${activities[i % activities.length]}</span>
+    </div>
+  `).join('');
+}
+
+/* ── Timeline ──────────────────────────────────────────────── */
+const actorEmoji = { red: '🔴', blue: '🔵', green: '🟢' };
+
+function renderTimeline() {
+  const el = document.getElementById('timeline-body');
+  el.innerHTML = events.slice(0, 50).map(ev => `
+    <div class="event-row">
+      <span class="event-time">t=${(ev.time || 0).toFixed(1)}</span>
+      <span class="event-dot ${ev.actor}"></span>
+      <span class="event-type${ev.malicious ? ' event-malicious' : ''}">${actorEmoji[ev.actor] || '⚪'} ${ev.event_type}</span>
+      <span class="event-target">${ev.source_entity} → ${ev.target_entity}</span>
+    </div>
+  `).join('');
+}
+
+/* ── Init ──────────────────────────────────────────────────── */
+window.addEventListener('resize', () => { if (topology.services.length) renderTopology(); });
+</script>
+</body>
+</html>

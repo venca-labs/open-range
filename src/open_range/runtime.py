@@ -41,9 +41,11 @@ class ReferenceDrivenRuntime:
         *,
         green_scheduler: GreenScheduler | None = None,
         action_backend: ActionBackend | None = None,
+        event_bridge: object | None = None,
     ) -> None:
         self.green_scheduler = green_scheduler or ScriptedGreenScheduler()
         self.action_backend = action_backend
+        self.event_bridge = event_bridge
         self.reward_engine = RewardEngine()
         self._snapshot: RuntimeSnapshot | None = None
         self._predicates: PredicateEngine | None = None
@@ -983,6 +985,8 @@ class ReferenceDrivenRuntime:
             self.green_scheduler.record_event(event)
         if self.action_backend is not None:
             self.action_backend.record_event(event)
+        if self.event_bridge is not None:
+            self.event_bridge.push(event)
         return event
 
     def _blue_visibility_time(

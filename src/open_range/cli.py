@@ -423,5 +423,69 @@ def grpo_cmd(
         raise SystemExit(result.returncode)
 
 
+@cli.command("dashboard")
+@click.option(
+    "--store-dir",
+    default="snapshots",
+    show_default=True,
+    type=click.Path(),
+    help="Directory containing admitted snapshots.",
+)
+@click.option(
+    "--snapshot-id",
+    default=None,
+    help="Snapshot to load on reset (default: random from store).",
+)
+@click.option(
+    "--port",
+    default=8765,
+    show_default=True,
+    type=int,
+    help="Port for the dashboard web server.",
+)
+@click.option(
+    "--host",
+    default="127.0.0.1",
+    show_default=True,
+    help="Host to bind the dashboard server.",
+)
+@click.option(
+    "--no-browser",
+    is_flag=True,
+    default=False,
+    help="Do not auto-open the browser.",
+)
+def dashboard_cmd(
+    store_dir: str,
+    snapshot_id: str | None,
+    port: int,
+    host: str,
+    no_browser: bool,
+) -> None:
+    """Launch the Sims-like episode dashboard in a browser."""
+    try:
+        import uvicorn
+    except ImportError:
+        raise click.ClickException(
+            "Dashboard requires extra dependencies. "
+            "Install with: uv sync --extra dashboard"
+        )
+
+    from open_range.dashboard.app import create_app
+
+    app = create_app(store_dir=store_dir, snapshot_id=snapshot_id)
+
+    url = f"http://{host}:{port}"
+    click.echo(f"🏢 OpenRange Dashboard starting at {url}")
+
+    if not no_browser:
+        import threading
+        import webbrowser
+
+        threading.Timer(1.5, lambda: webbrowser.open(url)).start()
+
+    uvicorn.run(app, host=host, port=port, log_level="info")
+
+
 if __name__ == "__main__":
     cli()
