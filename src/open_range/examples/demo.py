@@ -119,6 +119,8 @@ def run_demo(
         return result
 
 
+import os
+
 def main() -> None:
     parser = argparse.ArgumentParser(
         description="Run a deterministic OpenRange demo episode."
@@ -129,7 +131,22 @@ def main() -> None:
         help="Bundled manifest name or path to a strict manifest YAML.",
     )
     parser.add_argument("--seed", type=int, default=7, help="Episode seed.")
+    parser.add_argument("--model", type=str, default=None, help="Override backend LLM.")
+    parser.add_argument("--base-url", type=str, default=None, help="Override backend API URL.")
+    parser.add_argument("--asr-url", type=str, default=None, help="Override ASR payload target.")
+    parser.add_argument("--tts-url", type=str, default=None, help="Override TTS payload target.")
+    
     args = parser.parse_args()
+    
+    if args.model:
+        os.environ["MODEL_ID"] = args.model
+    if args.base_url:
+        os.environ["OPENAI_BASE_URL"] = args.base_url
+    if args.asr_url:
+        os.environ["ASR_URL"] = args.asr_url
+    if args.tts_url:
+        os.environ["TTS_URL"] = args.tts_url
+        
     run_demo(manifest=args.manifest, seed=args.seed, quiet=False)
 
 

@@ -63,14 +63,44 @@ def _repo_script(script_name: str) -> Path:
     return script_path
 
 
+import os
+
 @click.group()
 @click.option(
     "-v", "--verbose", is_flag=True, default=False, help="Enable debug logging."
 )
+@click.option(
+    "--model",
+    default=None,
+    help="Override default backend AI model (e.g. moonshotai/kimi-k2-instruct).",
+)
+@click.option(
+    "--base-url",
+    default=None,
+    help="Override default HTTP backend AI URL (e.g. https://integrate.api.nvidia.com/v1/).",
+)
+@click.option(
+    "--asr-url",
+    default=None,
+    help="Override Parakeet ASR endpoint.",
+)
+@click.option(
+    "--tts-url",
+    default=None,
+    help="Override Riva FastPitch TTS endpoint.",
+)
 @click.version_option(package_name="open-range", prog_name="openrange")
-def cli(verbose: bool) -> None:
+def cli(verbose: bool, model: str | None, base_url: str | None, asr_url: str | None, tts_url: str | None) -> None:
     """Build, admit, and run immutable OpenRange snapshots."""
     _configure_logging(verbose)
+    if model:
+        os.environ["MODEL_ID"] = model
+    if base_url:
+        os.environ["OPENAI_BASE_URL"] = base_url
+    if asr_url:
+        os.environ["ASR_URL"] = asr_url
+    if tts_url:
+        os.environ["TTS_URL"] = tts_url
 
 
 @cli.command("build")
