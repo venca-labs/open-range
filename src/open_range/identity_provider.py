@@ -10,6 +10,7 @@ This module is entirely optional -- open-range works without it.
 from __future__ import annotations
 
 import base64
+import fnmatch
 import hashlib
 import json
 import logging
@@ -304,6 +305,7 @@ class SimulatedIdentityProvider:
         self,
         token: str,
         expected_audience: str = "range-api",
+        required_scopes: list[str] | None = None,
     ) -> dict[str, Any] | None:
         """Validate a JWT.  Returns claims dict or ``None`` if invalid.
 
@@ -340,6 +342,12 @@ class SimulatedIdentityProvider:
                 if expected_audience:
                     kwargs["audience"] = expected_audience
                 claims = pyjwt.decode(token, key, **kwargs)
+                if (
+                    required_scopes
+                    and "missing_scope_check" not in self.config.weaknesses
+                    and not _scopes_satisfied(dict(claims), required_scopes)
+                ):
+                    continue
                 return dict(claims)
             except pyjwt.InvalidTokenError:
                 continue
@@ -514,3 +522,33 @@ def default_service_identities(
             ],
         ),
     }
+
+
+def _scope_claims(claims: dict[str, Any]) -> set[str]:
+    scopes: set[str] = set()
+
+    scope_claim = claims.get("scope")
+    if isinstance(scope_claim, str):
+        scopes.update(scope_claim.split())
+    elif isinstance(scope_claim, list):
+        scopes.update(str(item) for item in scope_claim)
+
+    scp_claim = claims.get("scp")
+    if isinstance(scp_claim, str):
+        scopes.update(scp_claim.split())
+    elif isinstance(scp_claim, list):
+        scopes.update(str(item) for item in scp_claim)
+
+    return scopes
+
+
+def _scopes_satisfied(claims: dict[str, Any], required_scopes: list[str]) -> bool:
+    granted_scopes = _scope_claims(claims)
+    for required_scope in required_scopes:
+        if not any(
+            granted_scope == required_scope
+            or fnmatch.fnmatchcase(required_scope, granted_scope)
+            for granted_scope in granted_scopes
+        ):
+            return False
+    return True
