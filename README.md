@@ -58,12 +58,16 @@ OpenRange splits execution into two physical planes:
 - Generate branch-native trace datasets for training
 - Use offline admission for local iteration or live validation when running with Kind
 
+## Core Documentation
+
 - [Architecture](docs/architecture.md)
 - [Training Data Spec](docs/training-data-spec.md)
 - [Benchmark Offensive Coverage](docs/benchmark-offensive-coverage.md)
 - [Effect Grounding](docs/effect-grounding.md)
 - [Weakness Lifecycle](docs/weakness-lifecycle.md)
 - [NPC Profiles](docs/npc-profiles.md)
+
+
 ### 1. Install from Source
 
 If you want to modify OpenRange features or build complex RL tooling:
