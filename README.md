@@ -39,10 +39,10 @@ The fastest way to experience OpenRange locally is directly through the PyPI pac
 
 ```bash
 pip install openenv-open-range
-openrange demo
+openrange admit -m manifests/tier1_basic.yaml -o /tmp/openrange-build --validation-profile graph_only
 ```
 
-The deterministic demo script will compile a tier-1 enterprise environment, synthesize the internal vulnerabilities, establish a runtime slice, and simulate a short Red vs. Blue engagement. You will see the episode narrated in the console output.
+This deterministic pipeline will immediately compile a tier-1 enterprise environment, synthesize internal vulnerabilities, and freeze it into an immutable snapshot. You can then trace an episode by instantly invoking `openrange reset`.
 
 ## Offline Exploration vs Live Ranges
 
@@ -73,22 +73,7 @@ uv sync --extra npc
 uv run openrange --help
 ```
 
-### 2. Run the Small Demo
-
-This is the fastest way to see the package working end to end without setting up
-Kind:
-
-```bash
-uv run openrange-demo
-```
-
-You can also point it at a checked-in manifest:
-
-```bash
-uv run openrange-demo --manifest manifests/tier1_basic.yaml
-```
-
-### 3. Admit a Snapshot Locally
+### 2. Admit a Snapshot Locally
 
 For a local first run, use the explicit offline profile:
 
@@ -112,7 +97,7 @@ uv run openrange reset \
 `graph_only` is the cheapest offline path. `full` and `graph_plus_live` require
 a live Kind-backed setup.
 
-### 4. Generate Trace Data
+### 3. Generate Trace Data
 
 ```bash
 uv run openrange traces \
@@ -184,12 +169,7 @@ Training dependencies are optional:
 uv sync --extra training
 ```
 
-The package also ships a bootstrap example that compares a cheap sim-plane trace
-with a runtime episode:
 
-```bash
-uv run openrange-bootstrap-demo
-```
 
 ## License
 

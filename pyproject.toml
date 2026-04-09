@@ -36,8 +36,6 @@ test = ["pytest>=8.0"]
 
 [project.scripts]
 openrange = "open_range.cli:cli"
-openrange-demo = "open_range.examples.demo:main"
-openrange-bootstrap-demo = "open_range.examples.bootstrap:main"
 
 [tool.setuptools]
 include-package-data = true

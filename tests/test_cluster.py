@@ -22,7 +22,7 @@ def test_podset_is_healthy_uses_async_kubectl(monkeypatch) -> None:
         del args, kwargs
         return _FakeProc()
 
-    podset = PodSet(project_name="or-demo", pod_ids={"svc-web": "ns/svc-web-pod"})
+    podset = PodSet(project_name="or-test", pod_ids={"svc-web": "ns/svc-web-pod"})
     monkeypatch.setattr(PodSet, "_discover_current_ref", lambda self, service: "")
     monkeypatch.setattr(
         cluster_mod.asyncio, "create_subprocess_exec", fake_create_subprocess_exec
@@ -32,7 +32,7 @@ def test_podset_is_healthy_uses_async_kubectl(monkeypatch) -> None:
 
 
 def test_podset_resolve_caches_discovered_refs(monkeypatch) -> None:
-    podset = PodSet(project_name="or-demo")
+    podset = PodSet(project_name="or-test")
     monkeypatch.setattr(
         PodSet, "_discover_current_ref", lambda self, service: "ns/svc-web-pod"
     )
@@ -57,7 +57,7 @@ def test_kind_backend_discovers_pods_from_service_label(monkeypatch) -> None:
 
     monkeypatch.setattr(KindBackend, "_run", staticmethod(fake_run))
 
-    assert backend._discover_pods("or-demo") == {
+    assert backend._discover_pods("or-test") == {
         "svc-web": "ns/svc-web-pod",
         "sandbox-red": "ns/sandbox-red-pod",
     }
