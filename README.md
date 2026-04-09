@@ -35,11 +35,11 @@ training-data generation.
 The fastest way to experience OpenRange locally is directly through the PyPI package. This requires no external dependencies and runs the engine fully offline over a synthetic simulation plane.
 
 ```bash
-pip install openenv-open-range
-openrange admit -m manifests/tier1_basic.yaml -o /tmp/openrange-build --validation-profile graph_only
+pip install open-range
+openrange admit -m tier1_basic.yaml -o /tmp/openrange-build --store-dir /tmp/openrange-snapshots --validation-profile graph_only
 ```
 
-This deterministic pipeline will immediately compile a tier-1 enterprise environment, synthesize internal vulnerabilities, and freeze it into an immutable snapshot. You can then trace an episode by instantly invoking `openrange reset`.
+This deterministic pipeline will immediately compile a tier-1 enterprise environment, synthesize internal vulnerabilities, and freeze it into an immutable snapshot. You can then trace an episode by invoking `openrange reset --store-dir /tmp/openrange-snapshots --sample-seed 7`.
 
 ## Offline Exploration vs Live Ranges
 
@@ -248,4 +248,3 @@ uv run pre-commit run --all-files
 ## License
 
 Apache 2.0
-
