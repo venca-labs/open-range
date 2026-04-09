@@ -1,10 +1,14 @@
 from __future__ import annotations
 
 from subprocess import CompletedProcess
+from pathlib import Path
 
 from open_range.async_utils import run_async
 from open_range.cluster import KindBackend, PodSet
 import open_range.cluster as cluster_mod
+import open_range.k3d_runner as k3d_mod
+from open_range.k3d_runner import K3dBackend
+import pytest
 
 
 class _FakeProc:
@@ -63,3 +67,83 @@ def test_kind_backend_discovers_pods_from_service_label(monkeypatch) -> None:
     }
     assert "labels['openrange/service']" in captured["args"][-1]
     assert captured["timeout"] == 30.0
+
+
+def test_kind_backend_requires_cilium_when_chart_requests_it(
+    tmp_path: Path, monkeypatch
+) -> None:
+    chart_dir = tmp_path / "openrange"
+    chart_dir.mkdir()
+    (chart_dir / "values.yaml").write_text(
+        "cilium:\n  enabled: true\n", encoding="utf-8"
+    )
+
+    backend = KindBackend()
+    monkeypatch.setattr(KindBackend, "_cilium_ready", lambda self: False)
+
+    with pytest.raises(RuntimeError, match="requires Cilium"):
+        backend.validate_runtime_env(tmp_path)
+
+
+def test_kind_backend_boot_validates_runtime_env_before_install(
+    tmp_path: Path, monkeypatch
+) -> None:
+    chart_dir = tmp_path / "openrange"
+    chart_dir.mkdir()
+    calls: list[tuple[str, object]] = []
+    backend = KindBackend()
+
+    monkeypatch.setattr(
+        KindBackend,
+        "validate_runtime_env",
+        lambda self, artifacts_dir: calls.append(("validate", artifacts_dir)),
+    )
+    monkeypatch.setattr(
+        KindBackend,
+        "prepare_images",
+        lambda self, live_chart_dir: calls.append(("prepare", live_chart_dir)),
+    )
+    monkeypatch.setattr(
+        KindBackend,
+        "_helm_install",
+        lambda self, release_name, live_chart_dir: calls.append(
+            ("helm", (release_name, live_chart_dir))
+        ),
+    )
+    monkeypatch.setattr(
+        KindBackend,
+        "_discover_pods",
+        lambda self, release_name: {"svc-web": "ns/svc-web-pod"},
+    )
+    monkeypatch.setattr(
+        KindBackend,
+        "wait_until_healthy",
+        lambda self, release, services: calls.append(("wait", tuple(services))),
+    )
+
+    backend.boot(snapshot_id="demo", artifacts_dir=tmp_path)
+
+    assert calls[0] == ("validate", tmp_path)
+    assert calls[1] == ("prepare", chart_dir)
+
+
+def test_k3d_backend_requires_ready_cilium_even_without_cilium_chart(
+    tmp_path: Path, monkeypatch
+) -> None:
+    chart_dir = tmp_path / "openrange"
+    chart_dir.mkdir()
+    (chart_dir / "values.yaml").write_text("services: {}\n", encoding="utf-8")
+
+    backend = K3dBackend()
+    monkeypatch.setattr(K3dBackend, "_cilium_ready", lambda self: False)
+
+    with pytest.raises(RuntimeError, match="requires Cilium"):
+        backend.validate_runtime_env(tmp_path)
+
+
+def test_k3d_backend_uses_k3d_context_when_kubectl_is_available(monkeypatch) -> None:
+    monkeypatch.setattr(k3d_mod.shutil, "which", lambda name: "/usr/bin/kubectl")
+
+    backend = K3dBackend(kind_cluster="openrange")
+
+    assert backend.kubectl_cmd == ("kubectl", "--context", "k3d-openrange")

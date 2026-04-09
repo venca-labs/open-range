@@ -73,10 +73,19 @@ class K3dBackend(KindBackend):
         self.k3d_cluster = kind_cluster
         self.k3d_agents = k3d_agents
         self.k3d_subnet = k3d_subnet
+        self.kubectl_cmd = resolve_kubectl_cmd(self.k3d_cluster)
 
     # ------------------------------------------------------------------
     # Cluster lifecycle
     # ------------------------------------------------------------------
+
+    def validate_runtime_env(self, artifacts_dir: Path) -> None:
+        if not self._cilium_ready():
+            raise RuntimeError(
+                "k3d live backend requires Cilium to be installed and ready on the "
+                "target cluster because the rendered k3d cluster disables flannel."
+            )
+        super().validate_runtime_env(artifacts_dir)
 
     def create_cluster(
         self,
