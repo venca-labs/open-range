@@ -2,9 +2,9 @@ name: CI
 
 on:
   push:
-    branches: [main, v1]
+    branches: [main, dev]
   pull_request:
-    branches: [main, v1]
+    branches: [main, dev]
 
 permissions:
   contents: read
@@ -68,3 +68,26 @@ jobs:
 
       - name: Verify Dockerfiles parse correctly
         run: docker buildx build --check -f Dockerfile .
+
+  cli-e2e:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v7
+        with:
+          version: "0.10.11"
+          python-version: "3.11"
+          enable-cache: true
+
+      - name: Install package dependencies
+        run: uv sync
+
+      - name: Offline CLI admission E2E check
+        run: |
+          uv run openrange admit \
+            -m manifests/tier1_basic.yaml \
+            -o /tmp/openrange-build \
+            --store-dir /tmp/openrange-snapshots \
+            --validation-profile graph_only

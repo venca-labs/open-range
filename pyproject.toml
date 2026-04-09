@@ -6,8 +6,26 @@ build-backend = "setuptools.build_meta"
 name = "open-range"
 version = "0.1.0"
 description = "Manifest-first red/blue/green cyber range package"
+readme = "README.md"
+authors = [
+    { name = "OpenRange Authors" }
+]
 requires-python = ">=3.11"
 license = { text = "Apache-2.0" }
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Developers",
+    "Intended Audience :: Information Technology",
+    "License :: OSI Approved :: Apache Software License",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Security",
+]
+
+[project.urls]
+Homepage = "https://github.com/venca-labs/open-range"
+"Bug Tracker" = "https://github.com/venca-labs/open-range/issues"
 dependencies = [
     "click>=8.1",
     "pydantic>=2.0.0",
