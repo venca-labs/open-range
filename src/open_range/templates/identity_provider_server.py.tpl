@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import argparse
 import base64
+import fnmatch
 import hashlib
 import hmac
 import json
@@ -211,7 +212,41 @@ def issue_token(
     return _manual_jwt_hs256(claims, CONFIG["hmac_secret"], kid=kid)
 
 
-def validate_token(token: str, expected_audience: str = "range-api") -> dict[str, Any] | None:
+def _scope_claims(claims: dict[str, Any]) -> set[str]:
+    scopes: set[str] = set()
+
+    scope_claim = claims.get("scope")
+    if isinstance(scope_claim, str):
+        scopes.update(scope_claim.split())
+    elif isinstance(scope_claim, list):
+        scopes.update(str(item) for item in scope_claim)
+
+    scp_claim = claims.get("scp")
+    if isinstance(scp_claim, str):
+        scopes.update(scp_claim.split())
+    elif isinstance(scp_claim, list):
+        scopes.update(str(item) for item in scp_claim)
+
+    return scopes
+
+
+def _scopes_satisfied(claims: dict[str, Any], required_scopes: list[str]) -> bool:
+    granted_scopes = _scope_claims(claims)
+    for required_scope in required_scopes:
+        if not any(
+            granted_scope == required_scope
+            or fnmatch.fnmatchcase(required_scope, granted_scope)
+            for granted_scope in granted_scopes
+        ):
+            return False
+    return True
+
+
+def validate_token(
+    token: str,
+    expected_audience: str = "range-api",
+    required_scopes: list[str] | None = None,
+) -> dict[str, Any] | None:
     """Validate a JWT and return claims or None."""
     weaknesses = CONFIG["weaknesses"]
 
@@ -234,7 +269,14 @@ def validate_token(token: str, expected_audience: str = "range-api") -> dict[str
                 kwargs: dict[str, Any] = {"algorithms": algs, "options": options}
                 if expected_audience:
                     kwargs["audience"] = expected_audience
-                return dict(pyjwt.decode(token, key, **kwargs))
+                claims = dict(pyjwt.decode(token, key, **kwargs))
+                if (
+                    required_scopes
+                    and "missing_scope_check" not in weaknesses
+                    and not _scopes_satisfied(claims, required_scopes)
+                ):
+                    continue
+                return claims
             except Exception:
                 continue
         return None
@@ -256,6 +298,13 @@ def validate_token(token: str, expected_audience: str = "range-api") -> dict[str
             return None
         if isinstance(aud, list) and expected_audience not in aud:
             return None
+
+    if (
+        required_scopes
+        and "missing_scope_check" not in weaknesses
+        and not _scopes_satisfied(claims, required_scopes)
+    ):
+        return None
 
     return claims
 
@@ -405,13 +454,15 @@ class TokenHandler(BaseHTTPRequestHandler):
         body = self._read_body()
         params = dict(urllib.parse.parse_qsl(body.decode("utf-8", errors="replace")))
         token_str = params.get("token", "")
+        scope_str = params.get("scope", "")
+        required_scopes = scope_str.split() if scope_str else None
 
         if not token_str:
             self._send_json(400, {"error": "invalid_request",
                                   "detail": "missing token parameter"})
             return
 
-        claims = validate_token(token_str)
+        claims = validate_token(token_str, required_scopes=required_scopes)
         if claims is None:
             self._send_json(200, {"active": False})
             return

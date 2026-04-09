@@ -53,6 +53,15 @@ spec:
               value: {{ $val | quote }}
             {{- end }}
           {{- end }}
+          {{- if $svc.postStartCommand }}
+          lifecycle:
+            postStart:
+              exec:
+                command:
+                  {{- range $svc.postStartCommand }}
+                  - {{ . | quote }}
+                  {{- end }}
+          {{- end }}
           {{- if $svc.payloads }}
           volumeMounts:
             {{- range $svc.payloads }}
@@ -61,6 +70,47 @@ spec:
               subPath: {{ .key }}
             {{- end }}
           {{- end }}
+        {{- if $svc.sidecars }}
+        {{- range $sidecar := $svc.sidecars }}
+        - name: {{ $sidecar.name }}
+          image: {{ $sidecar.image }}
+          {{- if $sidecar.command }}
+          command:
+            {{- range $sidecar.command }}
+            - {{ . | quote }}
+            {{- end }}
+          {{- end }}
+          {{- if $sidecar.args }}
+          args:
+            {{- range $sidecar.args }}
+            - {{ . | quote }}
+            {{- end }}
+          {{- end }}
+          {{- if $sidecar.ports }}
+          ports:
+            {{- range $sidecar.ports }}
+            - name: {{ .name }}
+              containerPort: {{ .port }}
+              protocol: {{ .protocol | default "TCP" }}
+            {{- end }}
+          {{- end }}
+          {{- if $sidecar.env }}
+          env:
+            {{- range $key, $val := $sidecar.env }}
+            - name: {{ $key }}
+              value: {{ $val | quote }}
+            {{- end }}
+          {{- end }}
+          {{- if $sidecar.payloads }}
+          volumeMounts:
+            {{- range $sidecar.payloads }}
+            - name: payloads
+              mountPath: {{ .mountPath }}
+              subPath: {{ .key }}
+            {{- end }}
+          {{- end }}
+        {{- end }}
+        {{- end }}
       {{- if $svc.payloads }}
       volumes:
         - name: payloads
