@@ -14,9 +14,6 @@ validates that world with private reference traces and deterministic probes,
 freezes it as an immutable snapshot, and runs episodes with red, blue, and
 green-user dynamics.
 
-This branch exposes OpenRange as an installable Python package and CLI. It is
-not the legacy OpenEnv server/client stack from `main`.
-
 ## Why OpenRange
 
 Static cyber tasks are useful for evaluation, but they are a weak training
@@ -165,7 +162,7 @@ training slice:
 It does not expose the old public golden-path architecture or the legacy
 OpenEnv HTTP server surface.
 
-## Optional extras
+## Optional Extras
 
 Training dependencies are optional:
 
@@ -173,9 +170,7 @@ Training dependencies are optional:
 uv sync --extra training
 ```
 
-
-
-## License
+## Evaluation
 
 For environment-side evaluation over admitted snapshots and sequential mutations:
 
@@ -216,7 +211,7 @@ The generator also writes role/source shards such as:
 - `sft_red_all.jsonl`
 - `sft_blue_all.jsonl`
 
-## Experimental model probe
+## Experimental Model Probe
 
 This is an optional bounded red-only probe that loads a tiny LoRA adapter and
 uses it to score a small candidate action set at each runtime decision.
@@ -232,9 +227,9 @@ uv run scripts/eval_model_rollouts.py \
   --out /tmp/openrange-model-rollout.json
 ```
 
-## Container image
+## Container Image
 
-The root [Dockerfile](Dockerfile) now builds a CLI image for the standalone package:
+The root [Dockerfile](Dockerfile) builds a CLI image for the standalone package:
 
 ```bash
 docker build -t openrange .
@@ -247,7 +242,7 @@ docker run --rm openrange --help
 uv run -m pytest tests -q
 ```
 
-## Development checks
+## Development
 
 ```bash
 uv sync
@@ -257,4 +252,8 @@ uv run pytest
 uv run pre-commit install
 uv run pre-commit run --all-files
 ```
+
+## License
+
 Apache 2.0
+

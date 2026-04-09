@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import logging
+import os
 import subprocess
 import sys
 from pathlib import Path
@@ -63,8 +64,6 @@ def _repo_script(script_name: str) -> Path:
     return script_path
 
 
-import os
-
 @click.group()
 @click.option(
     "-v", "--verbose", is_flag=True, default=False, help="Enable debug logging."
@@ -90,7 +89,13 @@ import os
     help="Override Riva FastPitch TTS endpoint.",
 )
 @click.version_option(package_name="open-range", prog_name="openrange")
-def cli(verbose: bool, model: str | None, base_url: str | None, asr_url: str | None, tts_url: str | None) -> None:
+def cli(
+    verbose: bool,
+    model: str | None,
+    base_url: str | None,
+    asr_url: str | None,
+    tts_url: str | None,
+) -> None:
     """Build, admit, and run immutable OpenRange snapshots."""
     _configure_logging(verbose)
     if model:
