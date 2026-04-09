@@ -78,7 +78,7 @@ def configure_npc_llm(
     api_key: str | None = None,
     *,
     model: str | None = None,
-    base_url: str = "https://integrate.api.nvidia.com/v1",
+    base_url: str = "https://integrate.api.nvidia.com/v1/",
 ) -> None:
     """Configure npc agents to use NVIDIA NIM / Kimi K2 (or any compatible endpoint).
 

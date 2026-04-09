@@ -3225,7 +3225,7 @@ dependencies = [
 ]
 
 [package.optional-dependencies]
-autonomous = [
+npc = [
     { name = "tinytroupe" },
 ]
 training = [
@@ -3261,12 +3261,12 @@ requires-dist = [
     { name = "peft", marker = "extra == 'training'", specifier = ">=0.18" },
     { name = "pydantic", specifier = ">=2.0.0" },
     { name = "pyyaml", specifier = ">=6.0" },
-    { name = "tinytroupe", marker = "extra == 'autonomous'", git = "https://github.com/microsoft/TinyTroupe.git" },
+    { name = "tinytroupe", marker = "extra == 'npc'", git = "https://github.com/microsoft/TinyTroupe.git" },
     { name = "torch", marker = "extra == 'training'", specifier = ">=2.10" },
     { name = "transformers", marker = "extra == 'training'", specifier = ">=5.2" },
     { name = "trl", marker = "extra == 'training'", specifier = ">=0.24" },
 ]
-provides-extras = ["autonomous", "training"]
+provides-extras = ["npc", "training"]
 
 [package.metadata.requires-dev]
 dev = [
