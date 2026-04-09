@@ -403,8 +403,8 @@ class SimulatedIdentityProvider:
     def generate_startup_script(self) -> str:
         """Generate a shell script that runs a minimal token endpoint.
 
-        The script is injected into the web/ldap container as a payload.
-        It serves:
+        The script is injected into the runtime as a payload and launched as a
+        dedicated long-running helper process. It serves:
           - ``POST /oauth/token`` (client_credentials grant)
           - ``GET /.well-known/jwks.json``
           - ``POST /oauth/introspect``
@@ -442,12 +442,11 @@ class SimulatedIdentityProvider:
         return textwrap.dedent(f"""\
             #!/bin/bash
             # OpenRange Identity Provider - Auto-generated token endpoint
-            # Launched as a background service inside the range container.
             set -e
 
             echo "[openrange-idp] Starting identity provider on port {port}..."
 
-            python3 /opt/openrange/identity_provider_server.py \\
+            exec python3 /opt/openrange/identity_provider_server.py \\
                 --port {port} \\
                 --issuer '{issuer}' \\
                 --ttl {ttl} \\
@@ -456,10 +455,7 @@ class SimulatedIdentityProvider:
                 --public-key-b64 '{pub_key_b64}' \\
                 --jwks '{jwks_json}' \\
                 --identities '{identities_json}' \\
-                --hmac-secret '{hmac_secret}' \\
-                &
-
-            echo "[openrange-idp] Identity provider started (PID $!)"
+                --hmac-secret '{hmac_secret}'
         """)
 
 

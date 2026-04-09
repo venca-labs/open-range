@@ -98,21 +98,25 @@ def test_build_config_can_enable_security_integration(tmp_path: Path):
         path.endswith("security/security-context.json")
         for path in candidate.artifacts.rendered_files
     )
-    idp_payloads = candidate.artifacts.chart_values["services"]["svc-idp"]["payloads"]
+    idp_service = candidate.artifacts.chart_values["services"]["svc-idp"]
+    idp_payloads = idp_service["payloads"]
     db_payloads = candidate.artifacts.chart_values["services"]["svc-db"]["payloads"]
-    idp_post_start = candidate.artifacts.chart_values["services"]["svc-idp"][
-        "postStartCommand"
-    ]
+    idp_sidecar = idp_service["sidecars"][0]
 
     assert any(
         payload["mountPath"] == "/opt/openrange/identity_provider_server.py"
         for payload in idp_payloads
     )
-    assert idp_post_start == ["/bin/sh", "/opt/openrange/start_identity_provider.sh"]
+    assert idp_sidecar["name"] == "idp-helper"
+    assert idp_sidecar["command"] == [
+        "/bin/sh",
+        "/opt/openrange/start_identity_provider.sh",
+    ]
     assert any(
-        port["port"] == 8443
-        for port in candidate.artifacts.chart_values["services"]["svc-idp"]["ports"]
+        payload["mountPath"] == "/opt/openrange/start_identity_provider.sh"
+        for payload in idp_sidecar["payloads"]
     )
+    assert any(port["port"] == 8443 for port in idp_service["ports"])
     assert any(
         payload["mountPath"] == "/etc/openrange/wrapped_dek.json"
         for payload in db_payloads
@@ -151,6 +155,7 @@ def test_security_integration_renders_idp_runtime_hooks_with_helm(tmp_path: Path
 
     assert "containerPort: 8443" in rendered
     assert "/opt/openrange/start_identity_provider.sh" in rendered
+    assert "name: idp-helper" in rendered
 
 
 def test_build_config_can_select_k3d_and_cilium_outputs(tmp_path: Path):

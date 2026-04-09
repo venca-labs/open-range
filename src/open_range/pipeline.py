@@ -204,10 +204,6 @@ class BuildPipeline:
                     ),
                 ],
             )
-            next_services[idp_targets[0]]["postStartCommand"] = [
-                "/bin/sh",
-                "/opt/openrange/start_identity_provider.sh",
-            ]
             self._append_port(
                 next_services,
                 idp_targets[0],
@@ -261,6 +257,25 @@ class BuildPipeline:
                 ],
             )
 
+        if context.identity_provider and idp_targets:
+            self._set_sidecars(
+                next_services,
+                idp_targets[0],
+                [
+                    {
+                        "name": "idp-helper",
+                        "image": next_services[idp_targets[0]].get("image"),
+                        "command": [
+                            "/bin/sh",
+                            "/opt/openrange/start_identity_provider.sh",
+                        ],
+                        "payloads": list(
+                            next_services[idp_targets[0]].get("payloads", [])
+                        ),
+                    }
+                ],
+            )
+
         return next_services
 
     @staticmethod
@@ -289,6 +304,15 @@ class BuildPipeline:
             return
         existing.append(port)
         service["ports"] = existing
+
+    @staticmethod
+    def _set_sidecars(
+        services: dict[str, Any], service_id: str, sidecars: list[dict[str, Any]]
+    ) -> None:
+        service = services.get(service_id)
+        if not isinstance(service, dict):
+            return
+        service["sidecars"] = sidecars
 
     @staticmethod
     def _payload_entry(
