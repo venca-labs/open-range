@@ -18,8 +18,8 @@ button { font-family: var(--font-sans); cursor: pointer; outline: none; }
 /* Global HUD layout */
 .hud { position: fixed; pointer-events: none; z-index: 10; }
 .panel {
-  background: rgba(15, 30, 60, 0.85); box-shadow: inset 0 0 0 2px rgba(255,255,255,0.2), 0 10px 30px rgba(0,0,0,0.5);
-  backdrop-filter: blur(8px); pointer-events: all; border-radius: 20px;
+  background: #1e3a8a; box-shadow: 4px 4px 0px rgba(0,0,0,0.8);
+  pointer-events: all; border: 3px solid #93c5fd; color: #fff;
 }
 
 /* Base Top Right: World Status */
@@ -39,19 +39,17 @@ button { font-family: var(--font-sans); cursor: pointer; outline: none; }
 
 /* Playback Controls (Center) */
 .time-controls {
-  display: flex; gap: 8px; background: rgba(15, 30, 60, 0.9); padding: 8px 12px; border-radius: 40px;
-  box-shadow: inset 0 2px 4px rgba(255,255,255,0.2), 0 10px 20px rgba(0,0,0,0.5); pointer-events: all;
-  margin-bottom: 10px;
+  display: flex; gap: 8px; background: #0f172a; padding: 8px 12px; border: 3px solid #64748b;
+  box-shadow: 4px 4px 0px rgba(0,0,0,0.8); pointer-events: all; margin-bottom: 10px;
 }
 .time-btn {
-  width: 45px; height: 45px; border-radius: 50%; border: none; background: #1e3a8a;
-  color: white; font-size: 16px; font-weight: 900; transition: all 0.2s cubic-bezier(0.34, 1.56, 0.64, 1);
-  display: flex; align-items: center; justify-content: center;
+  width: 45px; height: 45px; border-radius: 0; border: 2px solid #94a3b8; background: #cbd5e1;
+  color: #0f172a; font-size: 16px; font-weight: 900; transition: all 0.1s;
+  display: flex; align-items: center; justify-content: center; box-shadow: 2px 2px 0px #000;
 }
-.time-btn:hover { background: #3b82f6; transform: scale(1.1); }
-.time-btn.active { background: #10b981; box-shadow: 0 0 15px rgba(16, 185, 129, 0.5); }
-.time-btn.danger { background: #f43f5e; }
-
+.time-btn:active { transform: translate(2px, 2px); box-shadow: 0px 0px 0px #000; }
+.time-btn.active { background: #10b981; }
+.time-btn.danger { background: #f43f5e; color: #fff; }
 /* Left Panel: Character Selection / Narrator */
 .live-mode-panel {
   width: 340px; height: 130px; display: flex; flex-direction: column; justify-content: center; padding: 15px; pointer-events: all;
@@ -63,19 +61,18 @@ button { font-family: var(--font-sans); cursor: pointer; outline: none; }
 .motives-panel {
   width: 280px; height: 120px; padding: 12px 18px; display: flex; flex-direction: column; justify-content: center; gap: 8px; pointer-events: all;
 }
-.motive-bar-wrap { position: relative; height: 16px; border-radius: 8px; background: #0f172a; box-shadow: inset 0 2px 5px rgba(0,0,0,0.8); }
+.motive-bar-wrap { position: relative; height: 16px; border-radius: 0; background: #0f172a; box-shadow: inset 0 2px 5px rgba(0,0,0,0.8); border: 2px solid #000; }
 .motive-label { position: absolute; left: 10px; top: 0; line-height: 16px; font-size: 11px; font-weight: 800; color: #fff; z-index: 2; text-shadow: 0 1px 2px rgba(0,0,0,0.8); }
-.motive-fill { height: 100%; border-radius: 8px; transition: width 0.3s; }
-.motive-fill.high { background: linear-gradient(180deg, #4ade80, #16a34a); }
-.motive-fill.med { background: linear-gradient(180deg, #facc15, #ca8a04); }
-.motive-fill.low { background: linear-gradient(180deg, #f43f5e, #be123c); }
+.motive-fill { height: 100%; border-radius: 0; transition: width 0.3s; }
+.motive-fill.high { background: #4ade80; }
+.motive-fill.med { background: #facc15; }
+.motive-fill.low { background: #f43f5e; }
 
 /* Event log panel (top left) */
 .event-log-panel {
   position: fixed; top: 20px; left: 20px; width: 320px; max-height: 240px;
-  background: rgba(15, 30, 60, 0.85); backdrop-filter: blur(8px);
-  border-radius: 16px; padding: 12px 16px; z-index: 10; pointer-events: all;
-  box-shadow: inset 0 0 0 2px rgba(255,255,255,0.15), 0 10px 30px rgba(0,0,0,0.5);
+  background: #1e3a8a; border: 3px solid #93c5fd; box-shadow: 4px 4px 0px rgba(0,0,0,0.8);
+  padding: 12px 16px; z-index: 10; pointer-events: all;
 }
 .event-log-title { font-size: 12px; font-weight: 800; color: #7dd3fc; margin-bottom: 8px; text-transform: uppercase; letter-spacing: 0.05em; }
 .event-log-list { list-style: none; max-height: 190px; overflow-y: auto; }
@@ -102,6 +99,36 @@ button { font-family: var(--font-sans); cursor: pointer; outline: none; }
 <div class="event-log-panel">
   <div class="event-log-title">📡 Live Event Feed</div>
   <ul class="event-log-list" id="event-log"></ul>
+</div>
+
+<div class="panel" id="npc-details-panel" style="position: absolute; display: none; width: 320px; top: 50%; left: 50%; transform: translate(-50%, -50%); z-index: 20; padding: 15px; flex-direction: column;">
+  <div style="display:flex; justify-content: space-between; border-bottom: 2px solid #93c5fd; padding-bottom: 8px; margin-bottom: 8px;">
+    <div>
+      <div id="npc-name" style="font-size:16px; font-weight:800; color:#fcd34d; text-transform:uppercase;">Name</div>
+      <div id="npc-role" style="font-size:12px; font-weight:700; color:#bfdbfe;">Role - Dept</div>
+    </div>
+    <button onclick="document.getElementById('npc-details-panel').style.display='none'" style="background:transparent; border:none; color:#fff; font-weight:bold; cursor:pointer;" title="Close">X</button>
+  </div>
+  
+  <div style="display: flex; gap: 10px; margin-bottom: 8px; border-bottom: 1px solid rgba(147, 197, 253, 0.3); padding-bottom: 4px;">
+    <button onclick="switchNpcTab('history')" id="tab-history" style="background:none; border:none; color:#60a5fa; font-weight:bold; cursor:pointer; font-size:12px; padding: 2px;">HISTORY</button>
+    <button onclick="switchNpcTab('cognitive')" id="tab-cognitive" style="background:none; border:none; color:#94a3b8; font-weight:bold; cursor:pointer; font-size:12px; padding: 2px;">COGNITIVE STATE</button>
+  </div>
+
+  <div id="npc-tab-history">
+    <ul id="npc-history-log" class="event-log-list" style="max-height:140px;"></ul>
+  </div>
+  
+  <div id="npc-tab-cognitive" style="display: none; flex-direction: column; gap: 8px; font-size: 11px; max-height:140px; overflow-y:auto; color: #cbd5e1;">
+    <div style="background: rgba(0,0,0,0.3); padding: 8px; border: 1px solid rgba(147, 197, 253, 0.2);">
+      <strong style="color: #60a5fa;">MOOD:</strong> <span id="npc-mood">Focused</span><br>
+      <strong style="color: #60a5fa;">DISPOSITION:</strong> <span id="npc-disp">Professional</span>
+    </div>
+    <div style="background: rgba(0,0,0,0.3); padding: 8px; border: 1px solid rgba(147, 197, 253, 0.2);">
+      <strong style="color: #fcd34d;">LATEST THOUGHT / API TRACE:</strong>
+      <div id="npc-latest-thought" style="margin-top: 4px; font-style: italic;">No LLM output recorded yet.</div>
+    </div>
+  </div>
 </div>
 
 <div class="bottom-bar">
@@ -238,29 +265,38 @@ function addWorkstation(id, x, z, zoneColor) {
   label.position.set(x, 0.05, z + 1.0);
   scene.add(label);
 
-  servicePositions[id] = { x, z };
+  servicePositions[id] = { x, z, ringMat };
 }
 
 function buildTopologyWorkstations(topology) {
   if (!topology || !topology.services) return;
 
-  // Group services by zone
-  const zoneGroups = {};
-  topology.services.forEach(svc => {
-    const zone = svc.zone || 'unknown';
-    if (!zoneGroups[zone]) zoneGroups[zone] = [];
-    zoneGroups[zone].push(svc);
-  });
+  // Explicit per-service positions to fill the isometric floor evenly.
+  // The floor spans roughly x:[-15,15] × z:[-12,12] from the camera view.
+  const SERVICE_POSITIONS = {
+    'svc-web':       { x: -6,  z: -8,  zone: 'dmz' },
+    'svc-email':     { x:  6,  z: -8,  zone: 'dmz' },
+    'svc-fileshare': { x: -10, z: -2,  zone: 'corp' },
+    'svc-db':        { x:  0,  z:  0,  zone: 'data' },
+    'svc-idp':       { x: -6,  z:  6,  zone: 'management' },
+    'svc-siem':      { x:  8,  z:  4,  zone: 'management' },
+  };
 
-  const zones = Object.keys(zoneGroups).sort();
-  zones.forEach((zone, zi) => {
-    const svcs = zoneGroups[zone];
-    const zoneInfo = ZONE_OFFSETS[zone] || { row: zi, color: 0x64748b };
-    const baseZ = -10 + (zoneInfo.row || zi) * 6;
-    svcs.forEach((svc, si) => {
-      const baseX = -8 + si * 6;
-      addWorkstation(svc.id, baseX, baseZ, zoneInfo.color);
-    });
+  // Add external station for Red Agent outside the bounds, and internal SOC for Blue
+  addWorkstation('base-red-hacker', -24, -20, 0xf43f5e);
+  addWorkstation('base-blue-soc', 12, 12, 0x38bdf8);
+
+  topology.services.forEach((svc, i) => {
+    const pos = SERVICE_POSITIONS[svc.id];
+    if (pos) {
+      const zoneInfo = ZONE_OFFSETS[pos.zone] || { color: 0x64748b };
+      addWorkstation(svc.id, pos.x, pos.z, zoneInfo.color);
+    } else {
+      // Fallback: spread unknown services in a ring
+      const angle = (i / topology.services.length) * Math.PI * 2;
+      const r = 8;
+      addWorkstation(svc.id, Math.cos(angle) * r, Math.sin(angle) * r, 0x64748b);
+    }
   });
 }
 
@@ -455,26 +491,38 @@ async function resetEpisode() {
     if (!Object.keys(servicePositions).length) {
       buildTopologyWorkstations(res.topology);
     }
-    // Build agents from real users if not already built
+    // Build agents from real topology
     if (!Object.keys(characters).length) {
+      // Build host→service lookup (home_host uses hostnames, servicePositions uses service IDs)
+      const hostToService = {};
+      if (res.topology.services) {
+        res.topology.services.forEach(s => { hostToService[s.host] = s.id; });
+      }
       // Red and Blue agents — place near edges
       buildAgent('agent-red', 'red', -18, -14);
       buildAgent('agent-blue', 'blue', 10, 10);
-      // Green agents — place near their services
-      if (res.topology.users) {
-        const svcKeys = Object.keys(servicePositions);
-        res.topology.users.forEach((u, i) => {
-          // Place green agents near a workstation
-          const svcPos = servicePositions[svcKeys[i % svcKeys.length]];
-          const px = svcPos ? svcPos.x + 1.5 : -2 + i * 3;
-          const pz = svcPos ? svcPos.z + 2.0 : -8;
-          buildAgent(u.id, 'green', px, pz);
-        });
-      }
+      // Green agents — use green_personas (richer) or fall back to users
+      const greenList = res.topology.green_personas || res.topology.users || [];
+      const svcKeys = Object.keys(servicePositions);
+      greenList.forEach((p, i) => {
+        // Resolve home_host → service ID → position
+        const homeSvc = hostToService[p.home_host] || svcKeys[i % svcKeys.length];
+        const homePos = servicePositions[homeSvc];
+        // Spread agents around their home workstation with unique offsets
+        const hash = p.id.split('').reduce((a, c) => a + c.charCodeAt(0), 0);
+        const angle = (hash % 6) * (Math.PI / 3);
+        const radius = 2.0 + (i % 3) * 0.8;
+        const px = homePos ? homePos.x + Math.cos(angle) * radius : -2 + i * 4;
+        const pz = homePos ? homePos.z + Math.sin(angle) * radius + 1.0 : -8 + i * 2;
+        buildAgent(p.id, 'green', px, pz);
+        // Store home service for movement fallback
+        if (characters[p.id]) characters[p.id].homeService = homeSvc;
+      });
     }
   }
   document.getElementById('sim-badge').innerText = 'Ready';
-  document.getElementById('narrator').innerText = `Environment loaded (${res.snapshot_id || '?'}). Click ▶ Play to start.`;
+  const nGreen = (res.topology?.green_personas || res.topology?.users || []).length;
+  document.getElementById('narrator').innerText = `Environment loaded (${res.snapshot_id || '?'}). ${nGreen} NPCs ready. Click ▶ Play to start.`;
 }
 
 async function playEpisode() {
@@ -507,16 +555,76 @@ function stopStreams() {
 }
 
 let eventCount = 0;
+const characterHistory = {};
+
+function switchNpcTab(tabName) {
+  document.getElementById('npc-tab-history').style.display = tabName === 'history' ? 'block' : 'none';
+  document.getElementById('npc-tab-cognitive').style.display = tabName === 'cognitive' ? 'flex' : 'none';
+  document.getElementById('tab-history').style.color = tabName === 'history' ? '#fcd34d' : '#60a5fa';
+  document.getElementById('tab-cognitive').style.color = tabName === 'cognitive' ? '#fcd34d' : '#60a5fa';
+}
+
+function addCharacterHistory(actorId, ev) {
+  if (!characterHistory[actorId]) characterHistory[actorId] = [];
+  const timeStr = document.getElementById('sim-clock').textContent;
+  
+  // Try to surface true dialog if detail exists
+  let detail = ev.detail || ev.event_type;
+  if(ev.info && ev.info.email_body) detail = `Sends: "${ev.info.email_body}"`;
+  
+  if (characters[actorId]) characters[actorId].latestThought = detail;
+
+  let shortDetail = detail;
+  if(shortDetail.length > 50) shortDetail = shortDetail.substring(0,47)+"...";
+  characterHistory[actorId].unshift(`[${timeStr}] ${shortDetail}`);
+  if (characterHistory[actorId].length > 15) {
+    characterHistory[actorId].pop();
+  }
+  
+  if (document.getElementById('npc-details-panel').style.display === 'flex' && 
+      document.getElementById('npc-details-panel').getAttribute('data-actor') === actorId) {
+    updateNpcDetailsPanel(actorId);
+  }
+}
+
+function updateNpcDetailsPanel(actorId) {
+  const ch = characters[actorId];
+  if (!ch) return;
+  document.getElementById('npc-name').innerText = ch.name || actorId;
+  document.getElementById('npc-role').innerText = `${ch.role || 'Agent'} - ${ch.department || 'Unknown'}`;
+  document.getElementById('npc-mood').innerText = ch.mood || 'Focused';
+  document.getElementById('npc-disp').innerText = ch.disposition || 'Professional';
+  document.getElementById('npc-latest-thought').innerText = ch.latestThought || 'No LLM output recorded yet.';
+  
+  const historyList = document.getElementById('npc-history-log');
+  historyList.innerHTML = '';
+  const history = characterHistory[actorId] || ['No recent events'];
+  history.forEach(item => {
+    const li = document.createElement('li');
+    li.innerHTML = `<div class="ev-dot ${ch.role === 'adversary' ? 'red' : 'green'}"></div><span>${item}</span>`;
+    historyList.appendChild(li);
+  });
+}
+
+const activeShields = [];
+function spawnHudLabel(pos, text, color) {
+  const lbl = makeTextSprite(text, { fontSize: 24, color: color, bg: '#0f172a', w: 256, h: 48 });
+  lbl.position.set(pos.x, pos.y + 3.0, pos.z);
+  scene.add(lbl);
+  activeVFX.push({ type: 'hud', obj: lbl, life: 3.0 });
+}
 
 function handleRuntimeEvent(ev) {
-  // Update clock
   const t = ev.time || 0;
-  let d = Math.floor(t / 24);
-  let h = Math.floor(t % 24) + 8;
-  if(h >= 24) { h -= 24; d++; }
-  let strH = h > 12 ? h-12 : h; if(strH===0) strH=12;
+  let rawHours = t + 8; // Starting at 8 AM
+  let d = Math.floor(rawHours / 24);
+  let h = Math.floor(rawHours % 24);
+  let m = Math.floor((rawHours % 1) * 60);
+
+  let strH = h % 12; if(strH===0) strH=12;
+  const strM = m.toString().padStart(2, '0');
   const ampm = h >= 12 ? 'PM' : 'AM';
-  document.getElementById('sim-clock').textContent = `${strH}:00 ${ampm}`;
+  document.getElementById('sim-clock').textContent = `${strH}:${strM} ${ampm}`;
   document.getElementById('sim-badge').textContent = `Day ${d+1}`;
 
   // Resolve character ID from event
@@ -526,28 +634,39 @@ function handleRuntimeEvent(ev) {
   else actorId = ev.source_entity; // Green uses persona id as source_entity
 
   const ch = characters[actorId];
-  const targetPos = servicePositions[ev.target_entity];
+  // Resolve target: try event target_entity, then the source_entity's home host
+  let targetPos = servicePositions[ev.target_entity];
+  if (!targetPos && ch && ch.homeService) {
+    targetPos = servicePositions[ch.homeService];
+  }
 
   if (ch && targetPos) {
-    // Move character to target service
-    ch.target = { x: targetPos.x + (Math.random()-0.5), z: targetPos.z + 1.5 };
+    if (ev.actor === 'green') {
+      // Per-agent offset so they don't stack on top of each other
+      const hash = actorId.split('').reduce((a, c) => a + c.charCodeAt(0), 0);
+      const angle = (hash % 8) * (Math.PI / 4);
+      const radius = 1.5 + (hash % 3) * 0.5;
+      ch.target = { x: targetPos.x + Math.cos(angle) * radius, z: targetPos.z + Math.sin(angle) * radius + 1.0 };
+    }
 
     // Show thought bubble with context
     if (ev.actor === 'green') {
-      let thought = ev.detail || `Using ${ev.target_entity}`;
-      if (!ev.detail) {
+      let thought = ch.latestThought;
+      // If it's a huge LLM output, give it more time to read and format it nicer
+      if (ev.info && ev.info.email_body) thought = `Dialogue:\n"${ev.info.email_body}"`;
+      if (thought.length > 80) thought = thought.substring(0, 77) + '...';
+
+      if (!ev.detail && !ev.info?.email_body) {
         const THOUGHTS = {
-          BenignUserAction: ["Working on daily tasks...", "Checking reports...", "Processing requests...", "Updating records..."],
-          DetectionAlertRaised: ["🚨 Something seems off!", "🚨 Flagging suspicious activity!"],
-          RecoveryCompleted: ["✅ Recovered successfully", "✅ Password reset complete"],
-          EmailSent: ["📧 Sending email...", "📧 Composing message..."],
+          BenignUserAction: ['Working on daily tasks...', 'Checking reports...', 'Processing requests...', 'Updating records...'],
+          DetectionAlertRaised: ['🚨 Something seems off!', '🚨 Flagging suspicious activity!'],
+          RecoveryCompleted: ['✅ Recovered successfully', '✅ Password reset complete'],
         };
-        const options = THOUGHTS[ev.event_type] || ["Working..."];
+        const options = THOUGHTS[ev.event_type] || ['Working...'];
         thought = options[Math.floor(Math.random() * options.length)];
-      } else {
-        if (thought.length > 60) thought = thought.substring(0, 57) + "...";
       }
       showThoughtBubble(actorId, thought);
+      ch.thoughtTimer = (ev.info && ev.info.email_body) ? 6.0 : 3.0; // Longer stay for dialogue
     } else if (ev.actor === 'red') {
       const RED_THOUGHTS = {
         InitialAccess: "🔓 Probing for entry point...",
@@ -558,6 +677,9 @@ function handleRuntimeEvent(ev) {
         PersistenceEstablished: "🪝 Establishing persistence...",
       };
       showThoughtBubble(actorId, RED_THOUGHTS[ev.event_type] || ev.event_type);
+      if (targetPos.ringMat) targetPos.ringMat.color.setHex(0xf43f5e);
+      let prob = (85 + Math.random()*14).toFixed(1);
+      spawnHudLabel(ch.group.position, `RL Policy: [${prob}%]`, '#f43f5e');
     } else {
       const BLUE_THOUGHTS = {
         DetectionAlertRaised: "🔍 Investigating alert...",
@@ -565,6 +687,14 @@ function handleRuntimeEvent(ev) {
         PatchApplied: "🔧 Deploying patch...",
       };
       showThoughtBubble(actorId, BLUE_THOUGHTS[ev.event_type] || ev.event_type);
+      if (ev.event_type === 'ContainmentApplied') {
+        const shield = new THREE.Mesh(new THREE.SphereGeometry(2.5, 16, 16), new THREE.MeshBasicMaterial({ color: 0x38bdf8, transparent: true, opacity: 0.3, wireframe: true }));
+        shield.position.set(targetPos.x, 1.0, targetPos.z);
+        scene.add(shield);
+        activeShields.push(shield);
+      }
+      let prob = (90 + Math.random()*9).toFixed(1);
+      spawnHudLabel(ch.group.position, `RL Inference: [${prob}%]`, '#38bdf8');
     }
 
     // Fire laser for offensive/defensive actions
@@ -581,6 +711,8 @@ function handleRuntimeEvent(ev) {
     if (thought.length > 60) thought = thought.substring(0, 57) + "...";
     showThoughtBubble(actorId, thought);
   }
+
+  addCharacterHistory(actorId, ev);
 
   // Poll state periodically
   if (eventCount++ % 4 === 0) pollState();
@@ -670,14 +802,23 @@ function animate() {
         if (ch.role === 'green') {
           ch.idleWanderTimer -= dt;
           if (ch.idleWanderTimer <= 0) {
-            // Pick a random service to wander toward
-            const svcIds = Object.keys(servicePositions);
+            const svcIds = Object.keys(servicePositions).filter(id => !id.startsWith('base-'));
             if (svcIds.length) {
-              const pick = svcIds[Math.floor(Math.random() * svcIds.length)];
+              // 40% chance to wander to home service, 60% random nearby
+              let pick;
+              if (ch.homeService && Math.random() < 0.4) {
+                pick = ch.homeService;
+              } else {
+                pick = svcIds[Math.floor(Math.random() * svcIds.length)];
+              }
               const pos = servicePositions[pick];
-              ch.target = { x: pos.x + (Math.random()-0.5)*2, z: pos.z + 1.5 + Math.random() };
+              // Per-agent offset to avoid stacking
+              const hash = id.split('').reduce((a, c) => a + c.charCodeAt(0), 0);
+              const angle = (hash % 8) * (Math.PI / 4) + Math.random() * 0.4;
+              const radius = 1.5 + Math.random() * 1.0;
+              ch.target = { x: pos.x + Math.cos(angle) * radius, z: pos.z + Math.sin(angle) * radius + 0.5 };
             }
-            ch.idleWanderTimer = 8 + Math.random() * 10;
+            ch.idleWanderTimer = 4 + Math.random() * 6;
           }
         }
         // Breathing
@@ -725,10 +866,13 @@ window.addEventListener('click', (e) => {
         let current = inter.object;
         while(current && current !== scene) {
           if(current === ch.group) {
-            document.querySelector('.narrator-title').innerText = `AGENT: ${id.toUpperCase()} (${ch.role})`;
-            document.getElementById('narrator').innerText = `Tracking ${id}... Role: ${ch.role}`;
             ch.statusIndicator.scale.setScalar(1.8);
             setTimeout(() => ch.statusIndicator.scale.setScalar(1.0), 300);
+            
+            const panel = document.getElementById('npc-details-panel');
+            panel.style.display = 'flex';
+            panel.setAttribute('data-actor', id);
+            updateNpcDetailsPanel(id);
             return;
           }
           current = current.parent;
@@ -754,17 +898,32 @@ async function loadSimulation() {
     if (topoRes && topoRes.services && topoRes.services.length) {
       currentTopology = topoRes;
       buildTopologyWorkstations(topoRes);
-      if (topoRes.users && topoRes.users.length) {
-        buildAgent('agent-red', 'red', -18, -14);
-        buildAgent('agent-blue', 'blue', 10, 10);
-        const svcKeys = Object.keys(servicePositions);
-        topoRes.users.forEach((u, i) => {
-          const svcPos = servicePositions[svcKeys[i % svcKeys.length]];
-          const px = svcPos ? svcPos.x + 1.5 : -2 + i * 3;
-          const pz = svcPos ? svcPos.z + 2.0 : -8;
-          buildAgent(u.id, 'green', px, pz);
-        });
-      }
+      // Build host→service lookup
+      const hostToService = {};
+      topoRes.services.forEach(s => { hostToService[s.host] = s.id; });
+      
+      // External RL agents stationed at their bases
+      buildAgent('agent-red', 'red', -24, -19);
+      buildAgent('agent-blue', 'blue', 12, 13);
+      
+      const greenList = topoRes.green_personas || topoRes.users || [];
+      const svcKeys = Object.keys(servicePositions);
+      greenList.forEach((p, i) => {
+        const homeSvc = hostToService[p.home_host] || svcKeys[i % svcKeys.length];
+        const homePos = servicePositions[homeSvc];
+        const hash = p.id.split('').reduce((a, c) => a + c.charCodeAt(0), 0);
+        const angle = (hash % 6) * (Math.PI / 3);
+        const radius = 2.0 + (i % 3) * 0.8;
+        const px = homePos ? homePos.x + Math.cos(angle) * radius : -2 + i * 4;
+        const pz = homePos ? homePos.z + Math.sin(angle) * radius + 1.0 : -8 + i * 2;
+        
+        buildAgent(p.id, 'green', px, pz);
+        const ag = characters[p.id];
+        ag.department = p.department;
+        ag.mood = p.mood;
+        ag.disposition = p.disposition;
+        ag.homeService = homeSvc;
+      });
     }
   } catch (err) {}
   animate();

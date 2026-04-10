@@ -5,6 +5,12 @@ families:
     description: "Small healthcare SaaS example with balanced red and blue objectives."
     tags: [tier-1, healthcare, baseline]
     target_red_path_depth: 4
+  tier1_security:
+    display_name: "Tier 1 Security"
+    manifest: tier1_security.yaml
+    description: "Tier 1 variant with a dedicated SOC analyst for realistic security event routing."
+    tags: [tier-1, healthcare, security]
+    target_red_path_depth: 4
   tier1_hard:
     display_name: "Tier 1 Hard"
     manifest: tier1_hard.yaml

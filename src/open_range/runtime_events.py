@@ -78,6 +78,23 @@ def green_events_for_action(
                 detail=raw,
             ),
         )
+    # NPC-to-NPC email/chat communication
+    if branch == "npc_chat":
+        recipient = str(action.payload.get("recipient", "")) or target
+        modality = str(action.payload.get("modality", "email"))
+        surface = "svc-chat" if modality == "chat" else "svc-email"
+        detail = raw or f"{action.actor_id} → {recipient} ({modality})"
+        return (
+            emit_event(
+                event_type="BenignUserAction",
+                actor="green",
+                source_entity=action.actor_id,
+                target_entity=surface,
+                malicious=False,
+                observability_surfaces=(surface,),
+                detail=detail,
+            ),
+        )
     # Multimodal routine events
     if action.kind == "chat":
         return (
@@ -115,6 +132,9 @@ def green_events_for_action(
                 detail=raw,
             ),
         )
+    # Default: routine action with context
+    routine = str(action.payload.get("routine", "")) or action.kind
+    detail = raw or f"{action.actor_id} {routine.replace('_', ' ')} on {target}"
     return (
         emit_event(
             event_type="BenignUserAction",
@@ -123,7 +143,7 @@ def green_events_for_action(
             target_entity=target,
             malicious=False,
             observability_surfaces=service_surfaces(target),
-            detail=raw,
+            detail=detail,
         ),
     )
 

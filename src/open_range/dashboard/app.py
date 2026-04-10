@@ -107,11 +107,25 @@ def create_app(
             for u in world.users
         ]
 
+        green_personas = [
+            {
+                "id": p.id,
+                "role": p.role,
+                "department": p.department,
+                "home_host": p.home_host,
+                "awareness": p.awareness,
+                "mood": p.profile.personality.mood if p.profile else "focused",
+                "disposition": p.profile.personality.disposition if p.profile else "professional",
+            }
+            for p in world.green_personas
+        ]
+
         return {
             "services": services,
             "edges": edges,
             "zones": sorted(zone_set),
             "users": users,
+            "green_personas": green_personas,
         }
 
     def _run_episode_loop() -> None:
@@ -149,12 +163,13 @@ def create_app(
                     bridge.push(
                         RuntimeEvent(
                             id="episode-done",
-                            event_type="EpisodeComplete",
+                            event_type="BenignUserAction",
                             actor="green",
                             time=state.sim_time,
                             source_entity="system",
                             target_entity="episode",
                             malicious=False,
+                            detail="Episode complete",
                         )
                     )
                     _episode_running.clear()
@@ -218,7 +233,7 @@ def create_app(
                         pushed_event_ids.add(ev.id)
 
                 # Pace the loop so events arrive visually spaced out.
-                time.sleep(1.5)
+                time.sleep(0.8)
 
         except Exception:
             logger.exception("Episode loop error")
@@ -267,6 +282,7 @@ def create_app(
                     mode="joint_pool",
                     green_branch_backend="npc",
                     green_profile="high",
+                    npc_mode="live",
                 ),
             )
         except Exception:
