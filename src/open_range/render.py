@@ -309,6 +309,10 @@ def _service_env(service: ServiceSpec) -> dict[str, str]:
 
 
 def _service_command(service: ServiceSpec) -> list[str]:
+    if service.kind == "idp":
+        # The osixia/openldap image expects mounted certs to be copied into a
+        # writable service directory before startup mutates ownership.
+        return ["/container/tool/run", "--copy-service"]
     if service.kind == "siem":
         return [
             "/bin/sh",

@@ -403,7 +403,8 @@ class TestServiceTLSEnv:
 
     def test_ldap_env(self):
         env = MTLSSimulator.get_service_tls_env("ldap")
-        assert env["LDAP_TLS_CRT_FILENAME"] == "/etc/mtls/cert.pem"
+        assert env["LDAP_TLS_CRT_FILENAME"] == "ldap.crt"
+        assert env["LDAP_TLS_CA_CRT_FILENAME"] == "ca.crt"
         assert env["LDAP_TLS_VERIFY_CLIENT"] == "demand"
 
     def test_unknown_service_returns_empty(self):

@@ -238,6 +238,17 @@ class TestMTLSIntegration:
         assert ctx.mtls["enabled"] is True
         cert_files = list((render_dir / "security" / "mtls").glob("*/*.pem"))
         assert len(cert_files) >= 3
+        assert ctx.service_runtime["svc-idp"].env["LDAP_TLS_VERIFY_CLIENT"] == "demand"
+        assert ctx.service_runtime["svc-idp"].env["LDAP_TLS_CRT_FILENAME"] == "ldap.crt"
+        assert any(
+            payload.mount_path == "/container/service/slapd/assets/certs/ldap.crt"
+            for payload in ctx.service_runtime["svc-idp"].payloads
+        )
+        assert any(port.port == 636 for port in ctx.service_runtime["svc-idp"].ports)
+        assert any(
+            payload.mount_path == "/etc/mysql/conf.d/openrange-mtls.cnf"
+            for payload in ctx.service_runtime["svc-db"].payloads
+        )
 
     @pytest.mark.skipif(
         not _has_cryptography(), reason="cryptography library not available"

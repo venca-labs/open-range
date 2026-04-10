@@ -148,6 +148,7 @@ class SecurityServiceRuntimeSpec(BaseModel):
 
     model_config = ConfigDict(extra="forbid", frozen=True)
 
+    env: dict[str, str] = Field(default_factory=dict)
     payloads: tuple[SecurityPayloadSpec, ...] = Field(default_factory=tuple)
     ports: tuple[RuntimePort, ...] = Field(default_factory=tuple)
     sidecars: tuple[RuntimeSidecar, ...] = Field(default_factory=tuple)
@@ -209,6 +210,7 @@ def materialize_security_runtime(
             for payload in extension.payloads
         ]
         services[service_id] = ServiceRuntimeExtension(
+            env=dict(extension.env),
             payloads=payloads,
             ports=list(extension.ports),
             sidecars=list(extension.sidecars),
@@ -384,6 +386,7 @@ def _mtls_files(
         return {}
 
     services, _ = _service_zone_layout(world)
+    service_kinds = {service.id: service.kind for service in world.services}
     now = _DETERMINISTIC_CERT_EPOCH
     # Keep deterministic render-time certs valid across calendar time.
     # The explicit expired_cert weakness remains the supported way to
@@ -509,6 +512,14 @@ def _mtls_files(
                 serialization.NoEncryption(),
             ).decode()
         )
+        if service_kinds.get(service_id) == "db":
+            file_contents[f"security/mtls/{service_id}/mysql.cnf"] = (
+                "[mysqld]\n"
+                "ssl-ca=/etc/mtls/ca.pem\n"
+                "ssl-cert=/etc/mtls/cert.pem\n"
+                "ssl-key=/etc/mtls/key.pem\n"
+                "require_secure_transport=ON\n"
+            )
 
     return file_contents
 

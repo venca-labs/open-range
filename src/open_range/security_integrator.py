@@ -145,6 +145,7 @@ class SecurityIntegratorConfig(BaseModel):
 class SecurityServiceRuntimeBuilder(BaseModel):
     """Mutable runtime builder before freezing onto ``WorldIR``."""
 
+    env: dict[str, str] = Field(default_factory=dict)
     payloads: list[SecurityPayloadSpec] = Field(default_factory=list)
     ports: list[RuntimePort] = Field(default_factory=list)
     sidecars: list[RuntimeSidecar] = Field(default_factory=list)
@@ -179,6 +180,10 @@ class SecurityContext(BaseModel):
     def append_sidecar(self, service_id: str, sidecar: RuntimeSidecar) -> None:
         self.service_extension(service_id).sidecars.append(sidecar)
 
+    def extend_env(self, service_id: str, env: dict[str, str]) -> None:
+        if env:
+            self.service_extension(service_id).env.update(env)
+
     @staticmethod
     def runtime_payload(
         *,
@@ -201,6 +206,7 @@ class SecurityContext(BaseModel):
             npc_credential_lifecycle=self.npc_credential_lifecycle,
             service_runtime={
                 service_id: SecurityServiceRuntimeSpec(
+                    env=dict(extension.env),
                     payloads=tuple(extension.payloads),
                     ports=tuple(extension.ports),
                     sidecars=tuple(extension.sidecars),
@@ -247,10 +253,12 @@ class SecurityIntegrator:
 
         # Build service→zone mapping from WorldIR
         services: dict[str, str] = {}
+        service_kinds: dict[str, str] = {}
         host_by_id = {h.id: h for h in world.hosts}
         for svc in world.services:
             zone = host_by_id[svc.host].zone if svc.host in host_by_id else "default"
             services[svc.id] = zone
+            service_kinds[svc.id] = svc.kind
 
         domain = "range.local"
 
@@ -261,7 +269,7 @@ class SecurityIntegrator:
             self._integrate_encryption(ctx, world, services, rng)
 
         if tier_cfg.mtls:
-            self._integrate_mtls(ctx, services, domain, rng)
+            self._integrate_mtls(ctx, services, service_kinds, domain, rng)
 
         if tier_cfg.npc_credential_lifecycle:
             self._integrate_npc_lifecycle(ctx)
@@ -468,12 +476,13 @@ class SecurityIntegrator:
         self,
         ctx: SecurityContext,
         services: dict[str, str],
+        service_kinds: dict[str, str],
         domain: str,
         rng: random.Random,
     ) -> None:
-        """Declare TLS runtime intent for service-to-service mTLS."""
+        """Declare mTLS artifacts plus supported runtime hooks for services."""
         try:
-            from open_range.mtls_sim import MTLSConfig
+            from open_range.mtls_sim import MTLSConfig, MTLSSimulator
         except ImportError:
             logger.warning("mtls_sim module not available; skipping mTLS integration")
             return
@@ -518,6 +527,43 @@ class SecurityIntegrator:
                     source_path=f"security/mtls/{svc_name}/key.pem",
                 ),
             )
+            service_kind = service_kinds.get(svc_name, "")
+            if service_kind == "idp":
+                ctx.extend_env(svc_name, MTLSSimulator.get_service_tls_env("openldap"))
+                ctx.append_payload(
+                    svc_name,
+                    ctx.runtime_payload(
+                        key="security-mtls-openldap-ca.crt",
+                        mount_path="/container/service/slapd/assets/certs/ca.crt",
+                        source_path=f"security/mtls/{svc_name}/ca.pem",
+                    ),
+                )
+                ctx.append_payload(
+                    svc_name,
+                    ctx.runtime_payload(
+                        key="security-mtls-openldap-ldap.crt",
+                        mount_path="/container/service/slapd/assets/certs/ldap.crt",
+                        source_path=f"security/mtls/{svc_name}/cert.pem",
+                    ),
+                )
+                ctx.append_payload(
+                    svc_name,
+                    ctx.runtime_payload(
+                        key="security-mtls-openldap-ldap.key",
+                        mount_path="/container/service/slapd/assets/certs/ldap.key",
+                        source_path=f"security/mtls/{svc_name}/key.pem",
+                    ),
+                )
+                ctx.append_port(svc_name, RuntimePort(name="ldaps", port=636))
+            if service_kind == "db":
+                ctx.append_payload(
+                    svc_name,
+                    ctx.runtime_payload(
+                        key="security-mtls-mysql.cnf",
+                        mount_path="/etc/mysql/conf.d/openrange-mtls.cnf",
+                        source_path=f"security/mtls/{svc_name}/mysql.cnf",
+                    ),
+                )
 
         ctx.mtls = mtls_config.model_dump()
 

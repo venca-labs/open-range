@@ -95,6 +95,7 @@ class ServiceRuntimeExtension(BaseModel):
 
     model_config = ConfigDict(extra="forbid")
 
+    env: dict[str, str] = Field(default_factory=dict)
     payloads: list[RuntimePayload] = Field(default_factory=list)
     ports: list[RuntimePort] = Field(default_factory=list)
     sidecars: list[RuntimeSidecar] = Field(default_factory=list)
@@ -135,6 +136,7 @@ def merge_render_extensions(
             )
             continue
         merged = services[service_id]
+        merged.env.update(extension.env)
         merged.payloads.extend(extension.payloads)
         merged.ports.extend(extension.ports)
         merged.sidecars.extend(extension.sidecars)
@@ -163,6 +165,10 @@ def apply_service_runtime_extensions(
         service = next_services.get(service_id)
         if not isinstance(service, dict):
             continue
+        if extension.env:
+            merged_env = dict(service.get("env", {}))
+            merged_env.update(extension.env)
+            service["env"] = merged_env
         if extension.payloads:
             service["payloads"] = list(service.get("payloads", [])) + [
                 payload.as_chart_value() for payload in extension.payloads

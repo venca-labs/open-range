@@ -118,14 +118,17 @@ def test_build_config_can_enable_security_integration(tmp_path: Path):
         for path in candidate.artifacts.rendered_files
     )
     idp_service = candidate.artifacts.chart_values["services"]["svc-idp"]
+    idp_env = idp_service["env"]
     idp_payloads = idp_service["payloads"]
-    db_payloads = candidate.artifacts.chart_values["services"]["svc-db"]["payloads"]
+    db_service = candidate.artifacts.chart_values["services"]["svc-db"]
+    db_payloads = db_service["payloads"]
     idp_sidecar = idp_service["sidecars"][0]
 
     assert any(
         payload["mountPath"] == "/opt/openrange/identity_provider_server.py"
         for payload in idp_payloads
     )
+    assert idp_service["command"] == ["/container/tool/run", "--copy-service"]
     assert idp_sidecar["name"] == "idp-helper"
     assert idp_sidecar["command"] == [
         "/bin/sh",
@@ -139,11 +142,30 @@ def test_build_config_can_enable_security_integration(tmp_path: Path):
         for payload in idp_sidecar["payloads"]
     )
     assert any(port["port"] == 8443 for port in idp_service["ports"])
+    assert any(port["port"] == 636 for port in idp_service["ports"])
+    assert idp_env["LDAP_TLS_CRT_FILENAME"] == "ldap.crt"
+    assert idp_env["LDAP_TLS_CA_CRT_FILENAME"] == "ca.crt"
+    assert idp_env["LDAP_TLS_VERIFY_CLIENT"] == "demand"
+    assert any(
+        payload["mountPath"] == "/container/service/slapd/assets/certs/ldap.crt"
+        for payload in idp_payloads
+    )
     assert any(
         payload["mountPath"] == "/etc/openrange/wrapped_dek.json"
         for payload in db_payloads
     )
     assert any(payload["mountPath"] == "/etc/mtls/cert.pem" for payload in db_payloads)
+    assert any(
+        payload["mountPath"] == "/etc/mysql/conf.d/openrange-mtls.cnf"
+        for payload in db_payloads
+    )
+    mysql_tls_config = next(
+        payload["content"]
+        for payload in db_service["payloads"]
+        if payload["mountPath"] == "/etc/mysql/conf.d/openrange-mtls.cnf"
+    )
+    assert "require_secure_transport=ON" in mysql_tls_config
+    assert "ssl-cert=/etc/mtls/cert.pem" in mysql_tls_config
 
 
 def test_security_integration_renders_idp_runtime_hooks_with_helm(tmp_path: Path):

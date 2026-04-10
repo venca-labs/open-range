@@ -109,15 +109,15 @@ _SERVICE_TLS_ENV: dict[str, dict[str, str]] = {
         "ssl_client_certificate": "/etc/mtls/ca.pem",
     },
     "ldap": {
-        "LDAP_TLS_CRT_FILENAME": "/etc/mtls/cert.pem",
-        "LDAP_TLS_KEY_FILENAME": "/etc/mtls/key.pem",
-        "LDAP_TLS_CA_FILE": "/etc/mtls/ca.pem",
+        "LDAP_TLS_CRT_FILENAME": "ldap.crt",
+        "LDAP_TLS_KEY_FILENAME": "ldap.key",
+        "LDAP_TLS_CA_CRT_FILENAME": "ca.crt",
         "LDAP_TLS_VERIFY_CLIENT": "demand",
     },
     "openldap": {
-        "LDAP_TLS_CRT_FILENAME": "/etc/mtls/cert.pem",
-        "LDAP_TLS_KEY_FILENAME": "/etc/mtls/key.pem",
-        "LDAP_TLS_CA_FILE": "/etc/mtls/ca.pem",
+        "LDAP_TLS_CRT_FILENAME": "ldap.crt",
+        "LDAP_TLS_KEY_FILENAME": "ldap.key",
+        "LDAP_TLS_CA_CRT_FILENAME": "ca.crt",
         "LDAP_TLS_VERIFY_CLIENT": "demand",
     },
 }
@@ -482,7 +482,8 @@ class MTLSSimulator:
 
         - **MySQL / db** : ``SSL_CERT``, ``SSL_KEY``, ``SSL_CA``, ``require_secure_transport``
         - **nginx / web** : ``ssl_certificate``, ``ssl_certificate_key``, ``ssl_client_certificate``
-        - **LDAP / openldap** : ``LDAP_TLS_CRT_FILENAME``, ``LDAP_TLS_KEY_FILENAME``, etc.
+        - **LDAP / openldap** : image-native TLS filenames such as
+          ``LDAP_TLS_CRT_FILENAME`` and ``LDAP_TLS_CA_CRT_FILENAME``
 
         Returns an empty dict for unknown services.
         """
