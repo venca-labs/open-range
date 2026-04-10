@@ -41,9 +41,11 @@ class ReferenceDrivenRuntime:
         *,
         green_scheduler: GreenScheduler | None = None,
         action_backend: ActionBackend | None = None,
+        event_bridge: object | None = None,
     ) -> None:
         self.green_scheduler = green_scheduler or ScriptedGreenScheduler()
         self.action_backend = action_backend
+        self.event_bridge = event_bridge
         self.reward_engine = RewardEngine()
         self._snapshot: RuntimeSnapshot | None = None
         self._predicates: PredicateEngine | None = None
@@ -152,6 +154,20 @@ class ReferenceDrivenRuntime:
                 session_id=f"blue-{uuid4()}", actor_id="blue", role="blue"
             ),
         )
+        if episode_config.green_branch_backend == "npc":
+            from open_range.agents.npc_scheduler import NPCGreenScheduler
+
+            if not isinstance(self.green_scheduler, NPCGreenScheduler):
+                self.green_scheduler = NPCGreenScheduler(
+                    model=episode_config.llm_model,
+                    base_url=episode_config.llm_endpoint,
+                )
+        else:
+            from open_range.green import ScriptedGreenScheduler
+
+            if not isinstance(self.green_scheduler, ScriptedGreenScheduler):
+                self.green_scheduler = ScriptedGreenScheduler()
+
         self.green_scheduler.reset(snapshot, episode_config)
         self._apply_prefix_start()
         self._advance_until_external_decision()
@@ -958,6 +974,7 @@ class ReferenceDrivenRuntime:
         suspicious: bool = False,
         suspicious_reasons: tuple[str, ...] = (),
         green_reactive: bool = True,
+        detail: str | None = None,
     ) -> RuntimeEvent:
         self._event_seq += 1
         event = RuntimeEvent(
@@ -972,6 +989,7 @@ class ReferenceDrivenRuntime:
             linked_objective_predicates=linked_objective_predicates,
             suspicious=suspicious,
             suspicious_reasons=suspicious_reasons,
+            detail=detail,
         )
         self._events.append(event)
         blue_delay = self._blue_visibility_time(event, observability_surfaces)
@@ -983,6 +1001,8 @@ class ReferenceDrivenRuntime:
             self.green_scheduler.record_event(event)
         if self.action_backend is not None:
             self.action_backend.record_event(event)
+        if self.event_bridge is not None:
+            self.event_bridge.push(event)
         return event
 
     def _blue_visibility_time(

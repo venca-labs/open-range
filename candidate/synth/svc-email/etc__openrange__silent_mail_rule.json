@@ -1,0 +1,9 @@
+{
+  "kind": "silent_mail_rule",
+  "mail_rule_logging": false,
+  "mailbox_auto_forward_alerting": false,
+  "ship_to_siem": false,
+  "target": "svc-email",
+  "weakness_id": "wk-silent-mail-rule-svc-email",
+  "world_id": "enterprise_saas_v1-1101"
+}

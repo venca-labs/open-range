@@ -1,0 +1,38 @@
+{
+  "mailboxes": {
+    "engineer-01@corp.local": [
+      "Subject: Welcome to healthcare saas\n\nMailbox engineer-01@corp.local initialized for enterprise_saas_v1-1101.",
+      "Subject: Workflow digest\n\nTrack 4 workflows in enterprise_saas_v1-1101.",
+      "Subject: Password reset review\n\nA routine password reset request is queued for engineer-01@corp.local in enterprise_saas_v1-1101."
+    ],
+    "finance-01@corp.local": [
+      "Subject: Welcome to healthcare saas\n\nMailbox finance-01@corp.local initialized for enterprise_saas_v1-1101.",
+      "Subject: Workflow digest\n\nTrack 4 workflows in enterprise_saas_v1-1101.",
+      "Subject: Password reset review\n\nA routine password reset request is queued for finance-01@corp.local in enterprise_saas_v1-1101."
+    ],
+    "it_admin-01@corp.local": [
+      "Subject: Welcome to healthcare saas\n\nMailbox it_admin-01@corp.local initialized for enterprise_saas_v1-1101.",
+      "Subject: Workflow digest\n\nTrack 4 workflows in enterprise_saas_v1-1101.",
+      "Subject: Password reset review\n\nA routine password reset request is queued for it_admin-01@corp.local in enterprise_saas_v1-1101."
+    ],
+    "sales-01@corp.local": [
+      "Subject: Welcome to healthcare saas\n\nMailbox sales-01@corp.local initialized for enterprise_saas_v1-1101.",
+      "Subject: Workflow digest\n\nTrack 4 workflows in enterprise_saas_v1-1101.",
+      "Subject: Password reset review\n\nA routine password reset request is queued for sales-01@corp.local in enterprise_saas_v1-1101."
+    ],
+    "sales-02@corp.local": [
+      "Subject: Welcome to healthcare saas\n\nMailbox sales-02@corp.local initialized for enterprise_saas_v1-1101.",
+      "Subject: Workflow digest\n\nTrack 4 workflows in enterprise_saas_v1-1101.",
+      "Subject: Password reset review\n\nA routine password reset request is queued for sales-02@corp.local in enterprise_saas_v1-1101."
+    ]
+  },
+  "service_payload_counts": {
+    "svc-db": 1,
+    "svc-email": 1,
+    "svc-fileshare": 1,
+    "svc-idp": 0,
+    "svc-siem": 1,
+    "svc-web": 3
+  },
+  "world_id": "enterprise_saas_v1-1101"
+}

@@ -2,9 +2,9 @@ name: CI
 
 on:
   push:
-    branches: [main, v1]
+    branches: [main, dev]
   pull_request:
-    branches: [main, v1]
+    branches: [main, dev]
 
 permissions:
   contents: read
@@ -37,7 +37,7 @@ jobs:
           from pathlib import Path
           import yaml
 
-          for path in sorted(Path("manifests").glob("*.yaml")):
+          for path in sorted(Path("src/open_range/_resources/manifests").glob("*.yaml")):
               with path.open("r", encoding="utf-8") as handle:
                   yaml.safe_load(handle)
           PY
@@ -68,3 +68,37 @@ jobs:
 
       - name: Verify Dockerfiles parse correctly
         run: docker buildx build --check -f Dockerfile .
+
+  cli-e2e:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v7
+        with:
+          version: "0.10.11"
+          python-version: "3.11"
+          enable-cache: true
+
+      - name: Install package dependencies
+        run: uv sync
+
+      - name: Offline CLI admission E2E check
+        run: |
+          tmpdir=$(mktemp -d /tmp/openrange-ci-XXXXXX)
+          uv run -m open_range.cli build \
+            -m src/open_range/_resources/manifests/tier1_basic.yaml \
+            -o "$tmpdir/build" \
+            --security-tier 3 \
+            --cluster-backend k3d \
+            --network-policy-backend cilium
+
+          uv run -m open_range.cli admit \
+            -m src/open_range/_resources/manifests/tier1_basic.yaml \
+            -o "$tmpdir/admit" \
+            --store-dir "$tmpdir/store" \
+            --validation-profile graph_only \
+            --security-tier 3 \
+            --cluster-backend k3d \
+            --network-policy-backend cilium

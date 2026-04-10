@@ -10,16 +10,16 @@ from pathlib import Path
 from typing import Callable, Protocol
 from urllib.parse import urlencode
 
-from open_range.admission_plan import admission_stages, profile_requires_live
-from open_range.admission_scoring import report_summary
 from open_range.admission import (
+    ReferenceBundle,
     ValidatorCheckReport,
     ValidatorReport,
     ValidatorStageReport,
-    ReferenceBundle,
 )
+from open_range.admission_plan import admission_stages, profile_requires_live
+from open_range.admission_scoring import report_summary
 from open_range.async_utils import run_async
-from open_range.build_config import BuildConfig, DEFAULT_BUILD_CONFIG
+from open_range.build_config import DEFAULT_BUILD_CONFIG, BuildConfig
 from open_range.cluster import KindBackend, LiveBackend
 from open_range.counterfactuals import clear_runtime_markers, remediation_command
 from open_range.execution import PodActionBackend

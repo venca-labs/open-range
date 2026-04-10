@@ -35,7 +35,6 @@ from open_range.training_data import (
     render_candidate_completion,
 )
 
-
 DEFAULT_BASE_MODEL = "HuggingFaceTB/SmolLM2-360M-Instruct"
 DEFAULT_ADAPTER = "/tmp/openrange-sft-tiny-split/adapter"
 

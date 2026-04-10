@@ -3,8 +3,7 @@
 from __future__ import annotations
 
 from collections import defaultdict
-from typing import Iterable
-from typing import Literal
+from typing import Iterable, Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -15,6 +14,7 @@ from open_range.manifest import (
     WeaknessFamily,
     WeaknessTargetKind,
 )
+from open_range.builder.npc.identity import NPCProfile
 from open_range.objectives import StandardAttackObjective
 
 
@@ -148,6 +148,8 @@ class GreenPersona(_StrictModel):
     awareness: float = Field(default=0.5, ge=0.0, le=1.0)
     susceptibility: dict[str, float] = Field(default_factory=dict)
     routine: tuple[str, ...] = Field(default_factory=tuple)
+    # Rich NPC identity (optional — None in offline/legacy mode)
+    profile: NPCProfile | None = None
 
 
 class GreenWorkloadSpec(_StrictModel):

@@ -1,0 +1,10 @@
+{{- range $zoneName, $zone := .Values.zones }}
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: {{ $.Values.global.namePrefix }}-{{ $zoneName }}
+  labels:
+    {{- include "openrange.labels" $ | nindent 4 }}
+    openrange/zone: {{ $zoneName }}
+---
+{{- end }}

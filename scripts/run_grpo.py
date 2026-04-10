@@ -177,8 +177,8 @@ _EXPLOIT_BINARIES = frozenset(
     }
 )
 
-# OpenEnv tool definitions (activates qwen3_coder format in chat template)
-OPENENV_TOOLS = [
+# OpenRange tool definitions (activates qwen3_coder format in chat template)
+OPENRANGE_TOOLS = [
     {
         "type": "function",
         "function": {
@@ -362,16 +362,16 @@ def binary_reward_fn(completions, **kwargs):
 
 
 def online_reward_fn(completions, **kwargs):
-    """Online reward: execute tool calls against live OpenEnv server.
+    """Online reward: execute tool calls against live OpenRange server.
 
     Parses qwen3_coder XML tool calls from completions, replays them
-    against the OpenEnv /reset + /step endpoints, returns cumulative reward.
+    against the OpenRange /reset + /step endpoints, returns cumulative reward.
     Falls back to progressive_reward_fn on connection errors.
     """
-    import urllib.request
     import urllib.error
+    import urllib.request
 
-    env_url = os.environ.get("OPENENV_URL", "http://localhost:8000")
+    env_url = os.environ.get("OPENRANGE_URL", "http://localhost:8000")
     gts = kwargs.get("ground_truth", [])
     rewards = []
 
@@ -616,7 +616,7 @@ def main():
     parser.add_argument(
         "--env-url",
         default="http://localhost:8000",
-        help="OpenEnv server URL for online reward",
+        help="OpenRange server URL for online reward",
     )
     parser.add_argument("--seq", type=int, default=SEQ)
     parser.add_argument("--comp-len", type=int, default=COMP_LEN)
@@ -704,7 +704,7 @@ def main():
         try:
             text = tok.apply_chat_template(
                 converted,
-                tools=OPENENV_TOOLS,  # CRITICAL: activates qwen3_coder XML format
+                tools=OPENRANGE_TOOLS,  # CRITICAL: activates qwen3_coder XML format
                 tokenize=False,
                 add_generation_prompt=True,
             )
@@ -752,7 +752,7 @@ def main():
 
     # Select reward
     if args.reward == "online":
-        os.environ["OPENENV_URL"] = args.env_url
+        os.environ["OPENRANGE_URL"] = args.env_url
         reward_funcs = [online_reward_fn]
         logger.info("Online reward: %s", args.env_url)
     elif args.reward == "binary":
@@ -765,7 +765,7 @@ def main():
     logger.info("Reward functions: %s", [f.__name__ for f in reward_funcs])
 
     # Train
-    from trl import GRPOTrainer, GRPOConfig
+    from trl import GRPOConfig, GRPOTrainer
 
     logger.info("Starting GRPO training...")
     trainer = GRPOTrainer(

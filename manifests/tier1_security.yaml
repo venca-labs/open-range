@@ -1,0 +1,114 @@
+version: 1
+world_family: enterprise_saas_v1
+seed: 1102
+
+business:
+  archetype: healthcare_saas
+  workflows:
+    - helpdesk_ticketing
+    - payroll_approval
+    - document_sharing
+    - internal_email
+
+topology:
+  zones:
+    - external
+    - dmz
+    - corp
+    - data
+    - management
+  services:
+    - web_app
+    - email
+    - idp
+    - fileshare
+    - db
+    - siem
+
+users:
+  roles:
+    sales: 2
+    engineer: 1
+    finance: 1
+    it_admin: 1
+    security: 1
+
+npc_profiles:
+  sales:
+    awareness: 0.2
+    susceptibility:
+      initial_access: 0.8
+      credential_obtained: 0.7
+    routine:
+      - check_mail
+      - browse_app
+      - access_fileshare
+  engineer:
+    awareness: 0.65
+    susceptibility:
+      initial_access: 0.4
+      credential_obtained: 0.3
+    routine:
+      - browse_app
+      - check_mail
+      - access_fileshare
+  it_admin:
+    awareness: 0.9
+    susceptibility:
+      credential_obtained: 0.2
+      unauthorized_credential_use: 0.1
+    routine:
+      - review_idp
+      - triage_alerts
+      - reset_password
+  security:
+    awareness: 0.95
+    susceptibility:
+      initial_access: 0.05
+      credential_obtained: 0.1
+      unauthorized_credential_use: 0.05
+    routine:
+      - triage_alerts
+      - browse_app
+      - query_db
+
+assets:
+  - id: finance_docs
+    class: crown_jewel
+  - id: payroll_db
+    class: crown_jewel
+  - id: idp_admin_cred
+    class: sensitive
+
+objectives:
+  red:
+    - predicate: credential_obtained(idp_admin_cred)
+    - predicate: asset_read(finance_docs)
+  blue:
+    - predicate: intrusion_detected(initial_access)
+    - predicate: intrusion_contained(before_asset_read)
+    - predicate: service_health_above(0.9)
+
+security:
+  allowed_weakness_families:
+    - config_identity
+    - workflow_abuse
+    - secret_exposure
+    - code_web
+    - telemetry_blindspot
+  observability:
+    require_web_logs: true
+    require_idp_logs: true
+    require_email_logs: true
+    require_siem_ingest: true
+
+difficulty:
+  target_red_path_depth: 4
+  target_blue_signal_points: 4
+  target_noise_density: medium
+
+mutation_bounds:
+  max_new_hosts: 2
+  max_new_services: 1
+  max_new_users: 5
+  max_new_weaknesses: 2

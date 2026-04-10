@@ -1,0 +1,27 @@
+{{- range $name, $svc := .Values.services }}
+{{- if and $svc.enabled $svc.ports }}
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ $name }}
+  namespace: {{ $.Values.global.namePrefix }}-{{ $svc.zone }}
+  labels:
+    app: {{ $name }}
+    {{- include "openrange.labels" $ | nindent 4 }}
+spec:
+  type: {{ $svc.serviceType | default "ClusterIP" }}
+  selector:
+    app: {{ $name }}
+  ports:
+    {{- range $svc.ports }}
+    - name: {{ .name }}
+      port: {{ .port }}
+      targetPort: {{ .port }}
+      protocol: {{ .protocol | default "TCP" }}
+      {{- if .nodePort }}
+      nodePort: {{ .nodePort }}
+      {{- end }}
+    {{- end }}
+---
+{{- end }}
+{{- end }}

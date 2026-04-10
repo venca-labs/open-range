@@ -26,7 +26,6 @@ from open_range.runtime_types import (
 )
 from open_range.snapshot import RuntimeSnapshot
 
-
 DEFAULT_SUSPICIOUS_PATTERNS = (
     r"\b(?:apt|apt-get|apk|yum|dnf)\s+(?:install|add)\b",
     r"\bpip(?:3)?\s+install\b",
@@ -413,6 +412,15 @@ def command_text_for_action(action: Action) -> str:
             action.payload.get("event_type", action.payload.get("event", ""))
         )
         return f"submit_finding {event_type} {target}".strip()
+    if action.kind == "chat":
+        sender = str(action.payload.get("from", action.actor_id))
+        message = str(action.payload.get("message", ""))[:64]
+        return f"chat {target or 'svc-web'} {sender} {message}".strip()
+    if action.kind == "document_share":
+        filename = str(action.payload.get("filename", ""))
+        return f"document_share {target or 'svc-fileshare'} {filename}".strip()
+    if action.kind == "voice":
+        return f"voice {target or 'unknown'}".strip()
     return action.kind
 
 

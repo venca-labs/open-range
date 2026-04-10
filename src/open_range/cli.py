@@ -1,9 +1,10 @@
-"""Standalone OpenRange CLI for the rewritten branch."""
+"""Standalone OpenRange CLI."""
 
 from __future__ import annotations
 
 import json
 import logging
+import os
 import subprocess
 import sys
 from pathlib import Path
@@ -67,10 +68,44 @@ def _repo_script(script_name: str) -> Path:
 @click.option(
     "-v", "--verbose", is_flag=True, default=False, help="Enable debug logging."
 )
+@click.option(
+    "--model",
+    default=None,
+    help="Override default backend AI model (e.g. moonshotai/kimi-k2-instruct).",
+)
+@click.option(
+    "--base-url",
+    default=None,
+    help="Override default HTTP backend AI URL (e.g. https://integrate.api.nvidia.com/v1/).",
+)
+@click.option(
+    "--asr-url",
+    default=None,
+    help="Override Parakeet ASR endpoint.",
+)
+@click.option(
+    "--tts-url",
+    default=None,
+    help="Override Riva FastPitch TTS endpoint.",
+)
 @click.version_option(package_name="open-range", prog_name="openrange")
-def cli(verbose: bool) -> None:
+def cli(
+    verbose: bool,
+    model: str | None,
+    base_url: str | None,
+    asr_url: str | None,
+    tts_url: str | None,
+) -> None:
     """Build, admit, and run immutable OpenRange snapshots."""
     _configure_logging(verbose)
+    if model:
+        os.environ["MODEL_ID"] = model
+    if base_url:
+        os.environ["OPENAI_BASE_URL"] = base_url
+    if asr_url:
+        os.environ["ASR_URL"] = asr_url
+    if tts_url:
+        os.environ["TTS_URL"] = tts_url
 
 
 @cli.command("build")
@@ -293,19 +328,17 @@ def traces_cmd(
 @cli.command("grpo")
 @click.option(
     "--model",
-    default="/workspace/outputs/sft-merged",
-    show_default=True,
+    required=True,
     help="Path to the SFT checkpoint used by the Qwen-focused GRPO runner.",
 )
 @click.option(
     "--data",
-    default="/workspace/data/grpo_combined.jsonl",
-    show_default=True,
+    required=True,
     help="Path to the GRPO JSONL training data.",
 )
 @click.option(
     "--output",
-    default="/workspace/outputs/grpo",
+    default="./grpo-output",
     show_default=True,
     help="Output directory for GRPO artifacts.",
 )
@@ -388,6 +421,77 @@ def grpo_cmd(
     result = subprocess.run(command, check=False)
     if result.returncode != 0:
         raise SystemExit(result.returncode)
+
+
+@cli.command("dashboard")
+@click.option(
+    "--store-dir",
+    default="snapshots",
+    show_default=True,
+    type=click.Path(),
+    help="Directory containing admitted snapshots.",
+)
+@click.option(
+    "--snapshot-id",
+    default=None,
+    help="Snapshot to load on reset (default: random from store).",
+)
+@click.option(
+    "--port",
+    default=8765,
+    show_default=True,
+    type=int,
+    help="Port for the dashboard web server.",
+)
+@click.option(
+    "--host",
+    default="127.0.0.1",
+    show_default=True,
+    help="Host to bind the dashboard server.",
+)
+@click.option(
+    "--live",
+    is_flag=True,
+    default=False,
+    help="Connect to real Docker/Kind infrastructure (no mocks).",
+)
+@click.option(
+    "--no-browser",
+    is_flag=True,
+    default=False,
+    help="Do not auto-open the browser.",
+)
+def dashboard_cmd(
+    store_dir: str,
+    snapshot_id: str | None,
+    port: int,
+    host: str,
+    live: bool,
+    no_browser: bool,
+) -> None:
+    """Launch the Sims-like episode dashboard in a browser."""
+    try:
+        import uvicorn
+    except ImportError:
+        raise click.ClickException(
+            "Dashboard requires extra dependencies. "
+            "Install with: uv sync --extra dashboard"
+        )
+
+    from open_range.dashboard.app import create_app
+
+    app = create_app(store_dir=store_dir, snapshot_id=snapshot_id, live=live)
+
+    url = f"http://{host}:{port}"
+    click.echo(f"🏢 OpenRange Dashboard starting at {url}")
+
+    if not no_browser:
+        import threading
+        import webbrowser
+
+        threading.Timer(1.5, lambda: webbrowser.open(url)).start()
+
+    uvicorn.run(app, host=host, port=port, log_level="info")
 
 
 if __name__ == "__main__":

@@ -1,6 +1,6 @@
 # AGENTS.md
 
-Guidance for coding agents working on the current `v1` OpenRange branch.
+Guidance for coding agents working in the current OpenRange repo.
 
 ## What OpenRange Is
 
@@ -23,7 +23,7 @@ The core contract is:
 
 ## Current Objective
 
-OpenRange V1 is a validator-admitted enterprise web-security training environment
+OpenRange is a validator-admitted enterprise web-security training environment
 that combines:
 
 - exact code-level web flaws
@@ -147,7 +147,6 @@ Prefer `uv run -m ...` for Python commands in this repo.
 - run the main test suite with `uv run -m pytest tests -q`
 - run focused tests with `uv run -m pytest tests/test_runtime.py -q`
 - inspect the CLI with `uv run -m open_range.cli --help`
-- run demos with `uv run -m open_range.examples.demo` and `uv run -m open_range.examples.bootstrap`
 - do not use `source .venv/bin/activate` for normal development flows
 - do not fall back to raw `python -m ...` when `uv run -m ...` is available
 - if `uv` is not on `PATH`, resolve the machine's local `uv` path first instead of falling back to venv activation
@@ -155,13 +154,15 @@ Prefer `uv run -m ...` for Python commands in this repo.
 
 ## PR Guidelines
 
-- default pull requests for this repo should target `v1`, not `main`, unless the user explicitly asks otherwise
+- `main` is the protected user-facing branch and remains the default branch on GitHub
+- default pull requests for this repo should target `dev`, not `main`, unless the user explicitly asks otherwise
 - keep each PR focused on one theme
 - follow `.github/PULL_REQUEST_TEMPLATE.md`
 - keep the `Testing` section terse and factual
 - do not list routine Ruff, formatting, or generic unit-test commands in the PR body when CI already runs them
 - reserve the `Testing` section for manual verification, integration checks, Kind/admission runs, training/eval smoke tests, or anything else the workflow does not already cover
-- if there was no special verification beyond CI-covered lint/unit checks, say that plainly instead of pasting the commands
+- if there was no special verification beyond CI-covered lint/unit checks, do not call that out in the PR body
+- do not add meta-commentary about omitted routine checks; either list non-routine verification only, or leave the `Testing` section empty / omit it
 - do not paste long verification logs or terminal transcripts into the PR body
 - include the exact verification commands used in the PR description for admission, runtime, Kind-backed, training, or other non-routine validation
 - use `Review Notes` only for reviewer-relevant context such as risks, tradeoffs, or follow-up work
@@ -170,7 +171,7 @@ Prefer `uv run -m ...` for Python commands in this repo.
 
 When reviewing or changing code, prioritize:
 
-1. architectural drift from the V1 objective
+1. architectural drift from the current objective
 2. hidden-oracle leakage
 3. silent downgrade from live to offline validation
 4. reward/objective mismatch between admission and runtime

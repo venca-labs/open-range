@@ -9,8 +9,8 @@ from open_range._runtime_store import hydrate_runtime_snapshot
 from open_range.admit import LocalAdmissionController
 from open_range.compiler import EnterpriseSaaSManifestCompiler
 from open_range.render import EnterpriseSaaSKindRenderer
-from open_range.synth import EnterpriseSaaSWorldSynthesizer
 from open_range.store import FileSnapshotStore
+from open_range.synth import EnterpriseSaaSWorldSynthesizer
 from open_range.weaknesses import CatalogWeaknessSeeder
 from tests.support import OFFLINE_BUILD_CONFIG, manifest_payload
 

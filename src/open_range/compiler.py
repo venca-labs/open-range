@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import Protocol
 
-from open_range.build_config import BuildConfig, DEFAULT_BUILD_CONFIG
+from open_range.build_config import DEFAULT_BUILD_CONFIG, BuildConfig
 from open_range.manifest import (
     EnterpriseSaaSManifest,
     ManifestAsset,
@@ -102,9 +102,11 @@ class EnterpriseSaaSManifestCompiler:
 
     _ROLE_HOME_SERVICE = {
         "sales": "svc-web",
+        "executive": "svc-web",
         "engineer": "svc-web",
         "finance": "svc-fileshare",
         "it_admin": "svc-idp",
+        "security": "svc-siem",
     }
 
     def compile(
@@ -598,4 +600,6 @@ class EnterpriseSaaSManifestCompiler:
             return ("check_mail", "open_payroll_dashboard", "access_fileshare")
         if role == "it_admin":
             return ("review_idp", "triage_alerts", "reset_password")
+        if role == "security":
+            return ("triage_alerts", "browse_app", "query_db")
         return ("check_mail", "browse_app", "access_fileshare")

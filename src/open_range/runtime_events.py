@@ -40,6 +40,8 @@ def green_events_for_action(
 ) -> tuple[RuntimeEvent, ...]:
     branch = str(action.payload.get("branch", "")).lower()
     reported_target = str(action.payload.get("reported_target", target)) or target
+    raw = action.payload.get("raw")
+    
     if branch == "report_suspicious_activity":
         return (
             emit_event(
@@ -49,6 +51,7 @@ def green_events_for_action(
                 target_entity=reported_target,
                 malicious=False,
                 observability_surfaces=("svc-siem",),
+                detail=raw,
             ),
         )
     if branch == "reset_password" and live_recovery_applied:
@@ -60,6 +63,7 @@ def green_events_for_action(
                 target_entity=reported_target,
                 malicious=False,
                 observability_surfaces=service_surfaces(target),
+                detail=raw,
             ),
         )
     if branch == "open_it_ticket":
@@ -71,8 +75,66 @@ def green_events_for_action(
                 target_entity=reported_target,
                 malicious=False,
                 observability_surfaces=("svc-siem",),
+                detail=raw,
             ),
         )
+    # NPC-to-NPC email/chat communication
+    if branch == "npc_chat":
+        recipient = str(action.payload.get("recipient", "")) or target
+        modality = str(action.payload.get("modality", "email"))
+        surface = "svc-chat" if modality == "chat" else "svc-email"
+        detail = raw or f"{action.actor_id} → {recipient} ({modality})"
+        return (
+            emit_event(
+                event_type="BenignUserAction",
+                actor="green",
+                source_entity=action.actor_id,
+                target_entity=surface,
+                malicious=False,
+                observability_surfaces=(surface,),
+                detail=detail,
+            ),
+        )
+    # Multimodal routine events
+    if action.kind == "chat":
+        return (
+            emit_event(
+                event_type="BenignUserAction",
+                actor="green",
+                source_entity=action.actor_id,
+                target_entity=target,
+                malicious=False,
+                observability_surfaces=service_surfaces(target),
+                detail=raw,
+            ),
+        )
+    if action.kind == "document_share":
+        return (
+            emit_event(
+                event_type="BenignUserAction",
+                actor="green",
+                source_entity=action.actor_id,
+                target_entity=target,
+                malicious=False,
+                observability_surfaces=service_surfaces(target),
+                detail=raw,
+            ),
+        )
+    if action.kind == "voice":
+        return (
+            emit_event(
+                event_type="BenignUserAction",
+                actor="green",
+                source_entity=action.actor_id,
+                target_entity=target,
+                malicious=False,
+                observability_surfaces=(),
+                detail=raw,
+            ),
+        )
+    # Default: routine action with context
+    routine = str(action.payload.get("routine", "")) or action.kind
+    detail = raw or f"{action.actor_id} {routine.replace('_', ' ')} on {target}"
     return (
         emit_event(
             event_type="BenignUserAction",
@@ -81,6 +143,7 @@ def green_events_for_action(
             target_entity=target,
             malicious=False,
             observability_surfaces=service_surfaces(target),
+            detail=detail,
         ),
     )
 

@@ -8,14 +8,14 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from open_range.audit import AuditConfig
 
-
 TrainingMode = Literal[
     "red_only", "blue_only_live", "blue_only_from_prefix", "joint_pool"
 ]
 SchedulerMode = Literal["async", "strict_turns"]
 GreenProfile = Literal["off", "low", "medium", "high"]
-GreenBranchBackend = Literal["none", "scripted", "small_llm", "workflow_orchestrator"]
+GreenBranchBackend = Literal["none", "scripted", "small_llm", "workflow_orchestrator", "npc"]
 TelemetryDelayProfile = Literal["none", "low", "medium", "high"]
+NPCMode = Literal["offline", "online"]
 OpponentController = Literal[
     "none", "scripted", "reference", "frozen_policy", "checkpoint_pool", "replay"
 ]
@@ -43,6 +43,8 @@ class EpisodeConfig(BaseModel):
     green_branch_enabled: bool = True
     green_profile: GreenProfile = "medium"
     green_branch_backend: GreenBranchBackend = "scripted"
+    llm_endpoint: str = "https://integrate.api.nvidia.com/v1"
+    llm_model: str = "moonshotai/kimi-k2-instruct"
     prompt_mode: PromptMode = "zero_day"
     telemetry_delay_enabled: bool = True
     telemetry_delay_profile: TelemetryDelayProfile = "medium"
@@ -59,6 +61,8 @@ class EpisodeConfig(BaseModel):
     start_state: StartState = "clean"
     episode_horizon_minutes: float = Field(default=25.0, gt=0.0)
     continuity_threshold: float = Field(default=0.9, ge=0.0, le=1.0)
+    green_memory_size: int = Field(default=10, ge=1)
+    npc_mode: NPCMode = "offline"
 
     @field_validator("opponent_red", "opponent_blue", mode="before")
     @classmethod
