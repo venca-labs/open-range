@@ -33,6 +33,7 @@ class ScriptedGreenScheduler:
         self._reactive_queue: dict[int, deque[Action]] = defaultdict(deque)
         self._scheduled_reactions: set[tuple[int, str, str]] = set()
         self._ready_actions: deque[Action] = deque()
+        self._persona_memory: dict[str, list[dict[str, Any]]] = defaultdict(list)
 
     def reset(self, snapshot: RuntimeSnapshot, episode_config: EpisodeConfig) -> None:
         self._snapshot = snapshot
@@ -42,6 +43,7 @@ class ScriptedGreenScheduler:
         self._reactive_queue = defaultdict(deque)
         self._scheduled_reactions = set()
         self._ready_actions = deque()
+        self._persona_memory = defaultdict(list)
 
     def advance_until(self, sim_time: float) -> None:
         if self._snapshot is None or not self._episode_config.green_enabled:
@@ -79,13 +81,25 @@ class ScriptedGreenScheduler:
         if reaction_key in self._scheduled_reactions:
             return
         self._scheduled_reactions.add(reaction_key)
+
+        memory_entry = {
+            "time": event.time,
+            "type": event.event_type,
+            "target": event.target_entity,
+            "actor": event.actor,
+            "malicious": event.malicious,
+            "suspicious": event.suspicious,
+        }
+
         if backend == "scripted":
-            self._schedule_scripted_reaction(event, personas, slot)
+            self._schedule_scripted_reaction(event, personas, slot, memory_entry)
             return
         if backend == "small_llm":
-            self._schedule_small_llm_reaction(event, personas, slot)
+            self._schedule_small_llm_reaction(event, personas, slot, memory_entry)
             return
-        self._schedule_workflow_orchestrator_reaction(event, personas, slot)
+        self._schedule_workflow_orchestrator_reaction(
+            event, personas, slot, memory_entry
+        )
 
     def _routine_actions(self, slot: int) -> tuple[Action, ...]:
         assert self._snapshot is not None
@@ -120,8 +134,7 @@ class ScriptedGreenScheduler:
                 if persona.routine
                 else "browse_app"
             )
-            service = _routine_service(routine)
-            kind = "mail" if "mail" in routine else "api"
+            kind, service = _routine_dispatch(routine)
             actions.append(
                 Action(
                     actor_id=persona.id,
@@ -174,10 +187,22 @@ class ScriptedGreenScheduler:
             return base_budget + 1
         return base_budget
 
+    def _log_memory(self, persona_id: str, entry: dict[str, Any]) -> None:
+        """Append a memory entry for a specific persona, trimming to budget."""
+        self._persona_memory[persona_id].append(entry)
+        limit = self._episode_config.green_memory_size
+        if len(self._persona_memory[persona_id]) > limit:
+            self._persona_memory[persona_id] = self._persona_memory[persona_id][-limit:]
+
     def _schedule_scripted_reaction(
-        self, event: RuntimeEvent, personas: list[Any], slot: int
+        self,
+        event: RuntimeEvent,
+        personas: list[Any],
+        slot: int,
+        memory_entry: dict[str, Any],
     ) -> None:
         reporter = personas[0]
+        self._log_memory(reporter.id, memory_entry)
         self._reactive_queue[slot].append(
             self._report_action(reporter.id, event.target_entity, event.event_type)
         )
@@ -187,7 +212,11 @@ class ScriptedGreenScheduler:
             )
 
     def _schedule_small_llm_reaction(
-        self, event: RuntimeEvent, personas: list[Any], slot: int
+        self,
+        event: RuntimeEvent,
+        personas: list[Any],
+        slot: int,
+        memory_entry: dict[str, Any],
     ) -> None:
         reporter = max(
             personas,
@@ -200,17 +229,32 @@ class ScriptedGreenScheduler:
                 persona.id,
             ),
         )
+        # Log memory *before* reading it so the current event is included
+        self._log_memory(reporter.id, memory_entry)
+
+        # Escalate awareness dynamically based on this persona's observations
+        recent_suspicious = sum(
+            1
+            for m in self._persona_memory[reporter.id]
+            if m.get("suspicious") or m.get("malicious")
+        )
+        effective_awareness = min(1.0, reporter.awareness + (recent_suspicious * 0.1))
+
         delay = 2 if event.event_type == "InitialAccess" else 1
         llm_slot = slot + delay - 1
-        self._reactive_queue[llm_slot].append(
-            self._report_action(
-                reporter.id, event.target_entity, event.event_type, depth=40
-            )
+
+        report_action = self._report_action(
+            reporter.id, event.target_entity, event.event_type, depth=40
         )
+        report_action.payload["memory"] = self._persona_memory[reporter.id][-5:]
+        self._reactive_queue[llm_slot].append(report_action)
+
         if event.event_type in {
             "CredentialObtained",
             "UnauthorizedCredentialUse",
-        } and reporter.awareness >= (self._susceptibility_score(reporter, event) * 0.8):
+        } and effective_awareness >= (
+            self._susceptibility_score(reporter, event) * 0.8
+        ):
             self._reactive_queue[llm_slot].append(
                 self._recover_action(reporter.id, event.target_entity)
             )
@@ -225,9 +269,14 @@ class ScriptedGreenScheduler:
         return max(persona.susceptibility.values())
 
     def _schedule_workflow_orchestrator_reaction(
-        self, event: RuntimeEvent, personas: list[Any], slot: int
+        self,
+        event: RuntimeEvent,
+        personas: list[Any],
+        slot: int,
+        memory_entry: dict[str, Any],
     ) -> None:
         reporter = personas[0]
+        self._log_memory(reporter.id, memory_entry)
         self._reactive_queue[slot].append(
             self._report_action(reporter.id, event.target_entity, event.event_type)
         )
@@ -286,30 +335,15 @@ class ScriptedGreenScheduler:
         )
 
 
-def _routine_service(routine: str) -> str:
-    lowered = routine.lower()
-    if "mail" in lowered:
-        return "svc-email"
-    if "file" in lowered or "share" in lowered:
-        return "svc-fileshare"
-    if "idp" in lowered or "password" in lowered:
-        return "svc-idp"
-    if "alert" in lowered or "triage" in lowered:
-        return "svc-siem"
-    if "payroll" in lowered:
-        return "svc-db"
-    return "svc-web"
+# Import dispatch helpers from the canonical location in agents module.
+# The definitions live in agents/__init__.py to be shared between the
+# legacy ScriptedGreenScheduler and the new ComponentBasedScheduler.
+from open_range.agents import _event_susceptibility_key  # noqa: E402
+from open_range.agents import _routine_dispatch  # noqa: E402
 
-
-def _event_susceptibility_key(event_type: str) -> str:
-    chunks: list[str] = []
-    token: list[str] = []
-    for char in event_type:
-        if char.isupper() and token:
-            chunks.append("".join(token).lower())
-            token = [char]
-            continue
-        token.append(char)
-    if token:
-        chunks.append("".join(token).lower())
-    return "_".join(chunks)
+__all__ = [
+    "GreenScheduler",
+    "ScriptedGreenScheduler",
+    "_routine_dispatch",
+    "_event_susceptibility_key",
+]

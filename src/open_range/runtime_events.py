@@ -73,6 +73,40 @@ def green_events_for_action(
                 observability_surfaces=("svc-siem",),
             ),
         )
+    # Multimodal routine events
+    if action.kind == "chat":
+        return (
+            emit_event(
+                event_type="BenignUserAction",
+                actor="green",
+                source_entity=action.actor_id,
+                target_entity=target,
+                malicious=False,
+                observability_surfaces=service_surfaces(target),
+            ),
+        )
+    if action.kind == "document_share":
+        return (
+            emit_event(
+                event_type="BenignUserAction",
+                actor="green",
+                source_entity=action.actor_id,
+                target_entity=target,
+                malicious=False,
+                observability_surfaces=service_surfaces(target),
+            ),
+        )
+    if action.kind == "voice":
+        return (
+            emit_event(
+                event_type="BenignUserAction",
+                actor="green",
+                source_entity=action.actor_id,
+                target_entity=target,
+                malicious=False,
+                observability_surfaces=(),
+            ),
+        )
     return (
         emit_event(
             event_type="BenignUserAction",

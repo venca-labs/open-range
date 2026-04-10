@@ -450,6 +450,12 @@ def grpo_cmd(
     help="Host to bind the dashboard server.",
 )
 @click.option(
+    "--live",
+    is_flag=True,
+    default=False,
+    help="Connect to real Docker/Kind infrastructure (no mocks).",
+)
+@click.option(
     "--no-browser",
     is_flag=True,
     default=False,
@@ -460,6 +466,7 @@ def dashboard_cmd(
     snapshot_id: str | None,
     port: int,
     host: str,
+    live: bool,
     no_browser: bool,
 ) -> None:
     """Launch the Sims-like episode dashboard in a browser."""
@@ -473,7 +480,7 @@ def dashboard_cmd(
 
     from open_range.dashboard.app import create_app
 
-    app = create_app(store_dir=store_dir, snapshot_id=snapshot_id)
+    app = create_app(store_dir=store_dir, snapshot_id=snapshot_id, live=live)
 
     url = f"http://{host}:{port}"
     click.echo(f"🏢 OpenRange Dashboard starting at {url}")

@@ -154,6 +154,20 @@ class ReferenceDrivenRuntime:
                 session_id=f"blue-{uuid4()}", actor_id="blue", role="blue"
             ),
         )
+        if episode_config.green_branch_backend == "npc":
+            from open_range.agents.npc_scheduler import NPCGreenScheduler
+
+            if not isinstance(self.green_scheduler, NPCGreenScheduler):
+                self.green_scheduler = NPCGreenScheduler(
+                    model=episode_config.llm_model,
+                    base_url=episode_config.llm_endpoint,
+                )
+        else:
+            from open_range.green import ScriptedGreenScheduler
+
+            if not isinstance(self.green_scheduler, ScriptedGreenScheduler):
+                self.green_scheduler = ScriptedGreenScheduler()
+
         self.green_scheduler.reset(snapshot, episode_config)
         self._apply_prefix_start()
         self._advance_until_external_decision()

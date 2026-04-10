@@ -26,6 +26,7 @@ def create_app(
     store_dir: str = "snapshots",
     snapshot_id: str | None = None,
     validation_profile: str = "graph_only",
+    live: bool = False,
 ) -> Any:
     """Create the dashboard FastAPI app wired to a real OpenRange runtime."""
     try:
@@ -41,7 +42,20 @@ def create_app(
     app = FastAPI(title="OpenRange Dashboard", version="0.1.0")
     bridge = EventBridge()
     store = FileSnapshotStore(store_dir)
-    env = OpenRange(store=store)
+
+    live_backend = None
+    action_backend = None
+    if live:
+        from open_range.cluster import KindBackend
+        from open_range.execution import PodActionBackend
+        live_backend = KindBackend()
+        action_backend = PodActionBackend()
+
+    env = OpenRange(
+        store=store, 
+        live_backend=live_backend, 
+        action_backend=action_backend
+    )
 
     # ── Shared mutable state ──────────────────────────────────────────────
     _topology: dict[str, Any] = {}
@@ -125,14 +139,13 @@ def create_app(
                 )
 
                 rt = env.runtime
-                snap = rt._snapshot  # noqa: SLF001
-                if snap is None:
+                if rt._snapshot is None:
                     break
 
                 ref_traces = (
-                    snap.reference_attack_traces
+                    rt._hydrated.reference_attack_traces
                     if decision.actor == "red"
-                    else snap.reference_defense_traces
+                    else rt._hydrated.reference_defense_traces
                 )
                 idx_attr = (
                     "_reference_attack_index"
@@ -141,7 +154,7 @@ def create_app(
                 )
                 idx = getattr(rt, idx_attr, 0)
 
-                if idx < len(ref_traces) and idx < len(ref_traces[0].actions):
+                if ref_traces and idx < len(ref_traces) and idx < len(ref_traces[0].actions):
                     ref_action = ref_traces[0].actions[idx]
                     action = reference_runtime_action(ref_action, actor=decision.actor)
                     setattr(rt, idx_attr, idx + 1)

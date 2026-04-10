@@ -8,7 +8,17 @@ from pydantic import BaseModel, ConfigDict, Field
 
 ActorRole = Literal["red", "blue", "green"]
 ExternalRole = Literal["red", "blue"]
-ActionKind = Literal["shell", "api", "mail", "control", "submit_finding", "sleep"]
+ActionKind = Literal[
+    "shell",
+    "api",
+    "mail",
+    "chat",
+    "document_share",
+    "voice",
+    "control",
+    "submit_finding",
+    "sleep",
+]
 EventType = Literal[
     "InitialAccess",
     "CredentialObtained",
@@ -24,6 +34,9 @@ EventType = Literal[
     "ServiceDegraded",
     "BenignUserAction",
     "SuspiciousActionObserved",
+    "ChatReceived",
+    "DocumentShared",
+    "PhishingVoiceCall",
 ]
 
 
