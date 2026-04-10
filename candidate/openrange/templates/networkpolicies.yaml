@@ -1,0 +1,54 @@
+{{- range $zoneName, $zone := .Values.zones }}
+# Default deny all ingress in {{ $zoneName }}
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: default-deny-ingress
+  namespace: {{ $.Values.global.namePrefix }}-{{ $zoneName }}
+spec:
+  podSelector: {}
+  policyTypes:
+    - Ingress
+---
+# Allow intra-zone traffic in {{ $zoneName }}
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-same-zone
+  namespace: {{ $.Values.global.namePrefix }}-{{ $zoneName }}
+spec:
+  podSelector: {}
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+        - podSelector: {}
+---
+{{- end }}
+# Cross-zone firewall rules
+{{- range .Values.firewallRules }}
+{{- if eq .action "allow" }}
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-{{ .fromZone }}-to-{{ .toZone }}
+  namespace: {{ $.Values.global.namePrefix }}-{{ .toZone }}
+spec:
+  podSelector: {}
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              openrange/zone: {{ .fromZone }}
+      {{- if .ports }}
+      ports:
+        {{- range .ports }}
+        - port: {{ . }}
+          protocol: TCP
+        {{- end }}
+      {{- end }}
+---
+{{- end }}
+{{- end }}

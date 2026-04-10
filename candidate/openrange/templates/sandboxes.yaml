@@ -1,0 +1,60 @@
+{{- range $name, $sb := .Values.sandboxes }}
+{{- if $sb.enabled }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ $name }}
+  namespace: {{ $.Values.global.namePrefix }}-{{ $sb.zone }}
+  labels:
+    app: {{ $name }}
+    openrange/service: {{ $name }}
+    openrange/role: {{ $sb.role }}
+    {{- include "openrange.labels" $ | nindent 4 }}
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: {{ $name }}
+  template:
+    metadata:
+      labels:
+        app: {{ $name }}
+        openrange/service: {{ $name }}
+        openrange/role: {{ $sb.role }}
+        {{- include "openrange.labels" $ | nindent 8 }}
+        openrange/zone: {{ $sb.zone }}
+    spec:
+      hostname: {{ $name }}
+      containers:
+        - name: {{ $name }}
+          image: {{ $sb.image }}
+          {{- if $sb.command }}
+          command:
+            {{- range $sb.command }}
+            - {{ . | quote }}
+            {{- end }}
+          {{- end }}
+          {{- if $sb.args }}
+          args:
+            {{- range $sb.args }}
+            - {{ . | quote }}
+            {{- end }}
+          {{- end }}
+          env:
+            - name: OPENRANGE_ROLE
+              value: {{ $sb.role | quote }}
+            {{- if $sb.persona }}
+            - name: OPENRANGE_PERSONA
+              value: {{ $sb.persona | quote }}
+            {{- end }}
+            {{- if $sb.mailbox }}
+            - name: OPENRANGE_MAILBOX
+              value: {{ $sb.mailbox | quote }}
+            {{- end }}
+            {{- if $sb.homeHost }}
+            - name: OPENRANGE_HOME_HOST
+              value: {{ $sb.homeHost | quote }}
+            {{- end }}
+---
+{{- end }}
+{{- end }}

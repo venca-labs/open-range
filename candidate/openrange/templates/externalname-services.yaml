@@ -1,0 +1,29 @@
+{{/*
+ExternalName services for cross-namespace DNS resolution.
+
+In K8s, a pod in openrange-external cannot resolve bare "web" — it needs
+web.openrange-dmz.svc.cluster.local.  These ExternalName services create
+aliases in every namespace so that bare service names resolve everywhere.
+
+Only created in namespaces where the real ClusterIP service does NOT live.
+*/}}
+{{- $prefix := .Values.global.namePrefix }}
+{{- range $srcZone, $srcZoneData := .Values.zones }}
+{{- range $svcName, $svc := $.Values.services }}
+{{- if and $svc.enabled $svc.ports (ne $svc.zone $srcZone) }}
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ $svcName }}
+  namespace: {{ $prefix }}-{{ $srcZone }}
+  labels:
+    app: {{ $svcName }}
+    {{- include "openrange.labels" $ | nindent 4 }}
+    openrange/external-name: "true"
+spec:
+  type: ExternalName
+  externalName: {{ $svcName }}.{{ $prefix }}-{{ $svc.zone }}.svc.cluster.local
+---
+{{- end }}
+{{- end }}
+{{- end }}

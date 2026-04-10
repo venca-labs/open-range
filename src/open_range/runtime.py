@@ -974,6 +974,7 @@ class ReferenceDrivenRuntime:
         suspicious: bool = False,
         suspicious_reasons: tuple[str, ...] = (),
         green_reactive: bool = True,
+        detail: str | None = None,
     ) -> RuntimeEvent:
         self._event_seq += 1
         event = RuntimeEvent(
@@ -988,6 +989,7 @@ class ReferenceDrivenRuntime:
             linked_objective_predicates=linked_objective_predicates,
             suspicious=suspicious,
             suspicious_reasons=suspicious_reasons,
+            detail=detail,
         )
         self._events.append(event)
         blue_delay = self._blue_visibility_time(event, observability_surfaces)

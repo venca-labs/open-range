@@ -338,8 +338,10 @@ class ScriptedGreenScheduler:
 # Import dispatch helpers from the canonical location in agents module.
 # The definitions live in agents/__init__.py to be shared between the
 # legacy ScriptedGreenScheduler and the new ComponentBasedScheduler.
-from open_range.agents import _event_susceptibility_key  # noqa: E402
-from open_range.agents import _routine_dispatch  # noqa: E402
+from open_range.agents import (
+    _event_susceptibility_key,  # noqa: E402
+    _routine_dispatch,  # noqa: E402
+)
 
 __all__ = [
     "GreenScheduler",

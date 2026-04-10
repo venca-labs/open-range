@@ -1,0 +1,18 @@
+{{- range $name, $svc := .Values.services }}
+{{- if and $svc.enabled $svc.payloads }}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ $name }}-payloads
+  namespace: {{ $.Values.global.namePrefix }}-{{ $svc.zone }}
+  labels:
+    app: {{ $name }}
+    {{- include "openrange.labels" $ | nindent 4 }}
+data:
+  {{- range $svc.payloads }}
+  {{ .key | quote }}: |2
+{{ .content | indent 4 }}
+  {{- end }}
+---
+{{- end }}
+{{- end }}

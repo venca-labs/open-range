@@ -6,6 +6,7 @@ import asyncio
 import json
 import logging
 import threading
+import time
 from pathlib import Path
 from typing import Any
 
@@ -52,9 +53,9 @@ def create_app(
         action_backend = PodActionBackend()
 
     env = OpenRange(
-        store=store, 
-        live_backend=live_backend, 
-        action_backend=action_backend
+        store=store,
+        live_backend=live_backend,
+        action_backend=action_backend,
     )
 
     # ── Shared mutable state ──────────────────────────────────────────────
@@ -114,15 +115,41 @@ def create_app(
         }
 
     def _run_episode_loop() -> None:
-        """Auto-play the episode using reference traces in a background thread."""
+        """Auto-play the episode using reference traces in a background thread.
+
+        Streams ALL runtime events (red, blue, AND green) to the event bridge
+        so the frontend receives the full picture of agent activity.
+        """
+        from open_range.probe_planner import (
+            runtime_action as reference_runtime_action,
+        )
+        from open_range.runtime_types import Action
+
         try:
+            # Track which events we've already pushed to the bridge.
+            # The runtime appends every event (including green routine
+            # events generated during _advance_time) to rt._events.
+            pushed_event_ids: set[str] = set()
+
             while _episode_running.is_set():
+                rt = env.runtime
+
+                # ── Flush any new events the runtime generated internally ──
+                # Green routine events and reactive events are created during
+                # _advance_time → _drain_green → _act_green. They live in
+                # rt._events but are NOT returned via act().emitted_events.
+                if rt and hasattr(rt, "_events"):
+                    for ev in rt._events:
+                        if ev.id not in pushed_event_ids:
+                            bridge.push(ev)
+                            pushed_event_ids.add(ev.id)
+
                 state = env.state()
                 if state.done:
                     bridge.push(
                         RuntimeEvent(
                             id="episode-done",
-                            event_type="BenignUserAction",
+                            event_type="EpisodeComplete",
                             actor="green",
                             time=state.sim_time,
                             source_entity="system",
@@ -133,19 +160,29 @@ def create_app(
                     _episode_running.clear()
                     break
 
-                decision = env.next_decision()
-                from open_range.probe_planner import (
-                    runtime_action as reference_runtime_action,
-                )
+                try:
+                    decision = env.next_decision()
+                except RuntimeError as exc:
+                    if "done" in str(exc):
+                        continue
+                    raise
 
-                rt = env.runtime
+                # Flush green events generated during next_decision's
+                # internal _advance_until_external_decision call.
+                if rt and hasattr(rt, "_events"):
+                    for ev in rt._events:
+                        if ev.id not in pushed_event_ids:
+                            bridge.push(ev)
+                            pushed_event_ids.add(ev.id)
+
                 if rt._snapshot is None:
                     break
 
+                # ── Pick the next action from reference traces ────────────
                 ref_traces = (
-                    rt._hydrated.reference_attack_traces
+                    rt._snapshot.reference_bundle.reference_attack_traces
                     if decision.actor == "red"
-                    else rt._hydrated.reference_defense_traces
+                    else rt._snapshot.reference_bundle.reference_defense_traces
                 )
                 idx_attr = (
                     "_reference_attack_index"
@@ -154,13 +191,17 @@ def create_app(
                 )
                 idx = getattr(rt, idx_attr, 0)
 
-                if ref_traces and idx < len(ref_traces) and idx < len(ref_traces[0].actions):
-                    ref_action = ref_traces[0].actions[idx]
-                    action = reference_runtime_action(ref_action, actor=decision.actor)
+                if (
+                    ref_traces
+                    and idx < len(ref_traces)
+                    and idx < len(ref_traces[0].steps)
+                ):
+                    ref_action = ref_traces[0].steps[idx]
+                    action = reference_runtime_action(
+                        actor=decision.actor, step=ref_action
+                    )
                     setattr(rt, idx_attr, idx + 1)
                 else:
-                    from open_range.runtime_types import Action
-
                     action = Action(
                         actor_id=f"agent-{decision.actor}",
                         role=decision.actor,
@@ -169,12 +210,15 @@ def create_app(
                     )
 
                 result = env.act(decision.actor, action)
+
+                # Push newly emitted events from act()
                 for ev in result.emitted_events:
-                    bridge.push(ev)
+                    if ev.id not in pushed_event_ids:
+                        bridge.push(ev)
+                        pushed_event_ids.add(ev.id)
 
-                import time
-
-                time.sleep(0.8)
+                # Pace the loop so events arrive visually spaced out.
+                time.sleep(1.5)
 
         except Exception:
             logger.exception("Episode loop error")
@@ -219,7 +263,11 @@ def create_app(
         try:
             env.reset(
                 snapshot_id,
-                EpisodeConfig(mode="joint_pool"),
+                EpisodeConfig(
+                    mode="joint_pool",
+                    green_branch_backend="npc",
+                    green_profile="high",
+                ),
             )
         except Exception:
             logger.exception("Reset failed")

@@ -3,175 +3,141 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>OpenRange — Cyber Range Simulation</title>
-<link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<title>OpenRange — Cyber Environment</title>
+<link href="https://fonts.googleapis.com/css2?family=Nunito:wght@400;600;700;800;900&display=swap" rel="stylesheet">
 <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
 <style>
-:root {
-  --font-sans: 'Inter', system-ui, sans-serif;
-  --font-mono: 'JetBrains Mono', monospace;
-}
+/* ── ISOMETRIC SIMULATION UI ───────────────────────────────────────── */
+:root { --font-sans: 'Nunito', system-ui, sans-serif; --theme-blue: #0ea5e9; --theme-dark: #0f172a; }
 * { margin: 0; padding: 0; box-sizing: border-box; }
-html, body { width: 100%; height: 100%; overflow: hidden; background: #0a0e17; }
+html, body { width: 100%; height: 100%; overflow: hidden; background: #000; font-family: var(--font-sans); }
 #canvas { width: 100%; height: 100%; display: block; }
+button { font-family: var(--font-sans); cursor: pointer; outline: none; }
 
-/* ── HUD Overlay ────────────────────────────────────────── */
-.hud { position: fixed; pointer-events: none; font-family: var(--font-sans); z-index: 10; }
+/* Global HUD layout */
+.hud { position: fixed; pointer-events: none; z-index: 10; }
+.panel {
+  background: rgba(15, 30, 60, 0.85); box-shadow: inset 0 0 0 2px rgba(255,255,255,0.2), 0 10px 30px rgba(0,0,0,0.5);
+  backdrop-filter: blur(8px); pointer-events: all; border-radius: 20px;
+}
 
-/* Top bar */
-.hud-top {
-  top: 0; left: 0; right: 0; height: 48px;
-  display: flex; align-items: center; justify-content: space-between;
-  padding: 0 20px;
-  background: linear-gradient(180deg, rgba(10,14,23,0.95) 0%, rgba(10,14,23,0.4) 100%);
-}
-.hud-title {
-  font-size: 16px; font-weight: 600; color: #e2e8f0;
-  text-shadow: 0 0 20px rgba(56,189,248,0.3);
-}
-.hud-status {
-  font-size: 12px; font-weight: 500; padding: 4px 14px;
-  border-radius: 20px; letter-spacing: 0.5px;
-  text-transform: uppercase;
-}
-.hud-status.idle { background: rgba(100,116,139,0.3); color: #94a3b8; }
-.hud-status.running { background: rgba(74,222,128,0.15); color: #4ade80; border: 1px solid rgba(74,222,128,0.3); }
-.hud-status.done { background: rgba(56,189,248,0.15); color: #38bdf8; }
-
-.hud-controls {
-  display: flex; gap: 6px; pointer-events: all;
-}
-.hud-btn {
-  padding: 6px 14px; border-radius: 6px; font-size: 12px; font-weight: 500;
-  border: 1px solid rgba(100,116,139,0.3); background: rgba(15,23,42,0.8);
-  color: #e2e8f0; cursor: pointer; font-family: var(--font-sans);
-  backdrop-filter: blur(10px); transition: 0.2s;
-}
-.hud-btn:hover { border-color: #38bdf8; background: rgba(56,189,248,0.1); }
-.hud-btn.play { border-color: rgba(74,222,128,0.4); }
-.hud-btn.play:hover { background: rgba(74,222,128,0.15); }
-
-/* Score panel — Sims-style need bars */
-.hud-scores {
-  top: 60px; right: 16px; width: 220px;
-  background: rgba(15,23,42,0.85); border: 1px solid rgba(100,116,139,0.2);
-  border-radius: 12px; padding: 14px; backdrop-filter: blur(20px);
-}
-.score-title { font-size: 11px; font-weight: 600; color: #64748b; text-transform: uppercase; letter-spacing: 0.8px; margin-bottom: 10px; }
-.need-row { display: flex; align-items: center; gap: 8px; margin-bottom: 8px; }
-.need-label { font-size: 11px; font-weight: 500; width: 65px; }
-.need-bar-bg { flex: 1; height: 10px; border-radius: 5px; background: rgba(30,41,59,0.8); overflow: hidden; }
-.need-bar { height: 100%; border-radius: 5px; transition: width 0.8s ease; }
-.need-bar.red { background: linear-gradient(90deg, #f43f5e, #fb7185); }
-.need-bar.blue { background: linear-gradient(90deg, #38bdf8, #7dd3fc); }
-.need-bar.green { background: linear-gradient(90deg, #4ade80, #86efac); }
-.score-meta { margin-top: 10px; padding-top: 8px; border-top: 1px solid rgba(100,116,139,0.15); }
-.meta-row { display: flex; justify-content: space-between; font-size: 11px; color: #94a3b8; margin-bottom: 3px; }
-.meta-val { font-weight: 600; color: #e2e8f0; font-family: var(--font-mono); }
-
-/* Narrator — speech bubble */
-.hud-narrator {
-  bottom: 16px; left: 50%; transform: translateX(-50%);
-  max-width: 600px; width: 90%;
-  background: rgba(15,23,42,0.9); border: 1px solid rgba(100,116,139,0.25);
-  border-radius: 16px; padding: 14px 20px;
-  backdrop-filter: blur(20px);
-  box-shadow: 0 8px 32px rgba(0,0,0,0.4);
-}
-.narrator-label { font-size: 10px; font-weight: 600; color: #64748b; text-transform: uppercase; letter-spacing: 0.8px; margin-bottom: 6px; }
-.narrator-text {
-  font-size: 14px; line-height: 1.5; color: #cbd5e1; font-style: italic;
-  transition: 0.3s;
-}
-.narrator-text.active { color: #f1f5f9; }
-
-/* Event feed — bottom left */
-.hud-feed {
-  bottom: 16px; left: 16px; width: 280px; max-height: 200px;
-  overflow-y: auto; display: flex; flex-direction: column-reverse;
-}
-.feed-item {
-  font-size: 11px; padding: 4px 0; color: #94a3b8;
-  border-bottom: 1px solid rgba(100,116,139,0.08);
-  animation: feedSlide 0.3s ease;
-}
-.feed-item .feed-time { font-family: var(--font-mono); color: #64748b; margin-right: 6px; }
-.feed-item .feed-actor { font-weight: 600; }
-.feed-item .feed-actor.red { color: #f43f5e; }
-.feed-item .feed-actor.blue { color: #38bdf8; }
-.feed-item .feed-actor.green { color: #4ade80; }
-
-/* Sim clock */
+/* Base Top Right: World Status */
 .hud-clock {
-  top: 60px; left: 16px;
-  background: rgba(15,23,42,0.85); border: 1px solid rgba(100,116,139,0.2);
-  border-radius: 12px; padding: 10px 16px; backdrop-filter: blur(20px);
+  top: 20px; right: 20px; text-align: center; padding: 12px 24px; min-width: 140px;
 }
-.clock-time { font-family: var(--font-mono); font-size: 20px; font-weight: 600; color: #e2e8f0; }
-.clock-label { font-size: 10px; color: #64748b; text-transform: uppercase; letter-spacing: 0.5px; }
+.clock-time { font-size: 28px; font-weight: 800; color: #fff; text-shadow: 0 2px 4px rgba(0,0,0,0.5); }
+.clock-day { font-size: 14px; font-weight: 700; color: #7dd3fc; text-transform: uppercase; }
 
-@keyframes feedSlide { from { opacity: 0; transform: translateX(-10px); } to { opacity: 1; transform: translateX(0); } }
+/* Simulation Bottom Control Bar */
+.bottom-bar {
+  position: fixed; z-index: 10;
+  bottom: 0; left: 0; right: 0; height: 180px; display: flex; align-items: flex-end; justify-content: space-between;
+  padding: 20px 40px; background: linear-gradient(0deg, rgba(5,15,35,0.9) 0%, rgba(5,15,35,0) 100%);
+  pointer-events: none;
+}
+
+/* Playback Controls (Center) */
+.time-controls {
+  display: flex; gap: 8px; background: rgba(15, 30, 60, 0.9); padding: 8px 12px; border-radius: 40px;
+  box-shadow: inset 0 2px 4px rgba(255,255,255,0.2), 0 10px 20px rgba(0,0,0,0.5); pointer-events: all;
+  margin-bottom: 10px;
+}
+.time-btn {
+  width: 45px; height: 45px; border-radius: 50%; border: none; background: #1e3a8a;
+  color: white; font-size: 16px; font-weight: 900; transition: all 0.2s cubic-bezier(0.34, 1.56, 0.64, 1);
+  display: flex; align-items: center; justify-content: center;
+}
+.time-btn:hover { background: #3b82f6; transform: scale(1.1); }
+.time-btn.active { background: #10b981; box-shadow: 0 0 15px rgba(16, 185, 129, 0.5); }
+.time-btn.danger { background: #f43f5e; }
+
+/* Left Panel: Character Selection / Narrator */
+.live-mode-panel {
+  width: 340px; height: 130px; display: flex; flex-direction: column; justify-content: center; padding: 15px; pointer-events: all;
+}
+.narrator-title { font-size: 13px; font-weight: 800; color: #fcd34d; margin-bottom: 6px; text-shadow: 0 1px 2px rgba(0,0,0,0.8); }
+.narrator-text { font-size: 13px; font-weight: 600; color: #f1f5f9; line-height: 1.4; max-height: 90px; overflow-y: auto; }
+
+/* Right Panel: Motives / Needs (Network Health) */
+.motives-panel {
+  width: 280px; height: 120px; padding: 12px 18px; display: flex; flex-direction: column; justify-content: center; gap: 8px; pointer-events: all;
+}
+.motive-bar-wrap { position: relative; height: 16px; border-radius: 8px; background: #0f172a; box-shadow: inset 0 2px 5px rgba(0,0,0,0.8); }
+.motive-label { position: absolute; left: 10px; top: 0; line-height: 16px; font-size: 11px; font-weight: 800; color: #fff; z-index: 2; text-shadow: 0 1px 2px rgba(0,0,0,0.8); }
+.motive-fill { height: 100%; border-radius: 8px; transition: width 0.3s; }
+.motive-fill.high { background: linear-gradient(180deg, #4ade80, #16a34a); }
+.motive-fill.med { background: linear-gradient(180deg, #facc15, #ca8a04); }
+.motive-fill.low { background: linear-gradient(180deg, #f43f5e, #be123c); }
+
+/* Event log panel (top left) */
+.event-log-panel {
+  position: fixed; top: 20px; left: 20px; width: 320px; max-height: 240px;
+  background: rgba(15, 30, 60, 0.85); backdrop-filter: blur(8px);
+  border-radius: 16px; padding: 12px 16px; z-index: 10; pointer-events: all;
+  box-shadow: inset 0 0 0 2px rgba(255,255,255,0.15), 0 10px 30px rgba(0,0,0,0.5);
+}
+.event-log-title { font-size: 12px; font-weight: 800; color: #7dd3fc; margin-bottom: 8px; text-transform: uppercase; letter-spacing: 0.05em; }
+.event-log-list { list-style: none; max-height: 190px; overflow-y: auto; }
+.event-log-list li {
+  font-size: 12px; color: #cbd5e1; padding: 3px 0; border-bottom: 1px solid rgba(255,255,255,0.05);
+  display: flex; align-items: center; gap: 6px;
+}
+.event-log-list li .ev-dot { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; }
+.event-log-list li .ev-dot.red { background: #f43f5e; }
+.event-log-list li .ev-dot.blue { background: #38bdf8; }
+.event-log-list li .ev-dot.green { background: #4ade80; }
+
 </style>
 </head>
 <body>
 
 <canvas id="canvas"></canvas>
 
-<!-- HUD: Top Bar -->
-<div class="hud hud-top">
-  <div style="display:flex;align-items:center;gap:12px;">
-    <span class="hud-title">🏢 OpenRange</span>
-    <span id="status" class="hud-status idle">IDLE</span>
-  </div>
-  <div class="hud-controls">
-    <button class="hud-btn" onclick="resetEpisode()">⟳ Reset</button>
-    <button class="hud-btn play" onclick="playEpisode()">▶ Play</button>
-    <button class="hud-btn" onclick="pauseEpisode()">⏸ Pause</button>
-  </div>
+<div class="hud hud-clock panel">
+  <div class="clock-time" id="sim-clock">8:00 AM</div>
+  <div class="clock-day" id="sim-badge">Paused</div>
 </div>
 
-<!-- HUD: Clock -->
-<div class="hud hud-clock">
-  <div class="clock-label">Sim Time</div>
-  <div id="sim-clock" class="clock-time">00:00</div>
+<div class="event-log-panel">
+  <div class="event-log-title">📡 Live Event Feed</div>
+  <ul class="event-log-list" id="event-log"></ul>
 </div>
 
-<!-- HUD: Scores (Sims need bars) -->
-<div class="hud hud-scores">
-  <div class="score-title">Simulation Status</div>
-  <div class="need-row">
-    <span class="need-label" style="color:#f43f5e;">🔴 Red</span>
-    <div class="need-bar-bg"><div id="bar-red" class="need-bar red" style="width:0%"></div></div>
+<div class="bottom-bar">
+  <!-- Left Side -->
+  <div class="panel live-mode-panel">
+    <div class="narrator-title">LIVE MODE NARRATOR</div>
+    <div id="narrator" class="narrator-text">Ready. Click ↻ Rebuild then ▶ Play to start.</div>
   </div>
-  <div class="need-row">
-    <span class="need-label" style="color:#38bdf8;">🔵 Blue</span>
-    <div class="need-bar-bg"><div id="bar-blue" class="need-bar blue" style="width:0%"></div></div>
-  </div>
-  <div class="need-row">
-    <span class="need-label" style="color:#4ade80;">💚 Uptime</span>
-    <div class="need-bar-bg"><div id="bar-cont" class="need-bar green" style="width:100%"></div></div>
-  </div>
-  <div class="score-meta">
-    <div class="meta-row"><span>Winner</span><span id="m-winner" class="meta-val">—</span></div>
-    <div class="meta-row"><span>Decisions</span><span id="m-decisions" class="meta-val">0</span></div>
-    <div class="meta-row"><span>Red Obj</span><span id="m-robj" class="meta-val">0</span></div>
-    <div class="meta-row"><span>Blue Obj</span><span id="m-bobj" class="meta-val">0</span></div>
-  </div>
-</div>
 
-<!-- HUD: Event Feed -->
-<div class="hud hud-feed" id="feed"></div>
+  <!-- Center Controls -->
+  <div class="time-controls">
+    <button class="time-btn danger" onclick="resetEpisode()" title="Rebuild/Reset">↻</button>
+    <button class="time-btn" id="btn-pause" onclick="stopStreams()" title="Pause">⏸</button>
+    <button class="time-btn" id="btn-play" onclick="playEpisode()" title="Play">▶</button>
+  </div>
 
-<!-- HUD: Narrator -->
-<div class="hud hud-narrator">
-  <div class="narrator-label">💬 Narrator — powered by NIM</div>
-  <div id="narrator" class="narrator-text">The office is quiet. Reset an episode to begin the simulation...</div>
+  <!-- Right Side: Needs -->
+  <div class="panel motives-panel">
+    <div class="motive-bar-wrap">
+      <div class="motive-label">Uptime</div>
+      <div class="motive-fill high" id="need-uptime" style="width: 100%"></div>
+    </div>
+    <div class="motive-bar-wrap">
+      <div class="motive-label">Defense</div>
+      <div class="motive-fill high" id="need-defense" style="width: 100%"></div>
+    </div>
+    <div class="motive-bar-wrap">
+      <div class="motive-label">Integrity</div>
+      <div class="motive-fill high" id="need-threat" style="width: 80%"></div>
+    </div>
+  </div>
 </div>
 
 <script>
 /* ═══════════════════════════════════════════════════════════════
-   THREE.JS — ISOMETRIC OFFICE WORLD
+   THREE.JS — ISOMETRIC SIMULATION SCENE
    ═══════════════════════════════════════════════════════════════ */
 
 const canvas = document.getElementById('canvas');
@@ -180,499 +146,466 @@ renderer.setSize(window.innerWidth, window.innerHeight);
 renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
 renderer.shadowMap.enabled = true;
 renderer.shadowMap.type = THREE.PCFSoftShadowMap;
-renderer.toneMapping = THREE.ACESFilmicToneMapping;
-renderer.toneMappingExposure = 1.2;
 
 const scene = new THREE.Scene();
-scene.background = new THREE.Color(0x1a1f2e);
-scene.fog = new THREE.FogExp2(0x1a1f2e, 0.012);
+scene.background = new THREE.Color(0x0a192f);
+scene.fog = new THREE.FogExp2(0x0a192f, 0.012);
 
-/* ── Camera (isometric like The Sims) ──────────────────────── */
+// Camera Setup
 const aspect = window.innerWidth / window.innerHeight;
 const frustum = 22;
-const camera = new THREE.OrthographicCamera(
-  -frustum * aspect, frustum * aspect,
-  frustum, -frustum, 0.1, 200
-);
-camera.position.set(30, 30, 30);
+const camera = new THREE.OrthographicCamera(-frustum * aspect, frustum * aspect, frustum, -frustum, 0.1, 200);
+camera.position.set(35, 35, 35);
 camera.lookAt(0, 0, 0);
 
 const controls = new THREE.OrbitControls(camera, canvas);
 controls.enableDamping = true;
 controls.dampingFactor = 0.05;
-controls.maxPolarAngle = Math.PI / 3;
+controls.maxPolarAngle = Math.PI / 2.2;
 controls.minPolarAngle = Math.PI / 6;
-controls.enablePan = true;
-controls.screenSpacePanning = false;
 
-/* ── Lighting ──────────────────────────────────────────────── */
-const ambient = new THREE.AmbientLight(0x405070, 0.6);
-scene.add(ambient);
+// Lighting
+scene.add(new THREE.AmbientLight(0xffffff, 0.6));
+const keyLight = new THREE.DirectionalLight(0xfff5e6, 1.2);
+keyLight.position.set(20, 50, 20);
+keyLight.castShadow = true;
+keyLight.shadow.mapSize.width = 2048;
+keyLight.shadow.mapSize.height = 2048;
+keyLight.shadow.camera.left = -30; keyLight.shadow.camera.right = 30;
+keyLight.shadow.camera.top = 30; keyLight.shadow.camera.bottom = -30;
+scene.add(keyLight);
 
-const sun = new THREE.DirectionalLight(0xffeedd, 0.9);
-sun.position.set(20, 40, 20);
-sun.castShadow = true;
-sun.shadow.mapSize.set(2048, 2048);
-sun.shadow.camera.left = -30; sun.shadow.camera.right = 30;
-sun.shadow.camera.top = 30; sun.shadow.camera.bottom = -30;
-scene.add(sun);
+// Floor
+function createFloorMaterial() {
+  const ctx = document.createElement('canvas').getContext('2d');
+  ctx.canvas.width = 128; ctx.canvas.height = 128;
+  ctx.fillStyle = '#dbd2c8'; ctx.fillRect(0, 0, 128, 128);
+  ctx.strokeStyle = '#c4b5a3'; ctx.lineWidth = 2;
+  for(let i=0; i<=128; i+=16) { ctx.beginPath(); ctx.moveTo(0, i); ctx.lineTo(128, i); ctx.stroke(); }
+  const tex = new THREE.CanvasTexture(ctx.canvas);
+  tex.wrapS = THREE.RepeatWrapping; tex.wrapT = THREE.RepeatWrapping;
+  tex.repeat.set(40, 40);
+  return new THREE.MeshStandardMaterial({ map: tex, roughness: 0.5 });
+}
+const floor = new THREE.Mesh(new THREE.PlaneGeometry(80, 80), createFloorMaterial());
+floor.rotation.x = -Math.PI / 2;
+floor.receiveShadow = true;
+scene.add(floor);
 
-const fill = new THREE.DirectionalLight(0x8888ff, 0.3);
-fill.position.set(-15, 10, -10);
-scene.add(fill);
+const wallMat = new THREE.MeshStandardMaterial({ color: 0xf1f5f9 });
 
-/* ── Materials ─────────────────────────────────────────────── */
-const mats = {
-  floor: new THREE.MeshStandardMaterial({ color: 0x2a3040, roughness: 0.8 }),
-  wall: new THREE.MeshStandardMaterial({ color: 0x334155, roughness: 0.6, transparent: true, opacity: 0.5 }),
-  desk: new THREE.MeshStandardMaterial({ color: 0x4a3728, roughness: 0.7 }),
-  monitor: new THREE.MeshStandardMaterial({ color: 0x1e293b, roughness: 0.3, metalness: 0.5 }),
-  screen: new THREE.MeshStandardMaterial({ color: 0x38bdf8, emissive: 0x38bdf8, emissiveIntensity: 0.4 }),
-  server: new THREE.MeshStandardMaterial({ color: 0x334155, roughness: 0.4, metalness: 0.6 }),
-  serverLight: new THREE.MeshStandardMaterial({ color: 0x4ade80, emissive: 0x4ade80, emissiveIntensity: 0.6 }),
-  grass: new THREE.MeshStandardMaterial({ color: 0x1a2e1a, roughness: 0.9 }),
-  path: new THREE.MeshStandardMaterial({ color: 0x3a3a4a, roughness: 0.7 }),
-  red: new THREE.MeshStandardMaterial({ color: 0xf43f5e, emissive: 0xf43f5e, emissiveIntensity: 0.3 }),
-  blue: new THREE.MeshStandardMaterial({ color: 0x38bdf8, emissive: 0x38bdf8, emissiveIntensity: 0.3 }),
-  green: new THREE.MeshStandardMaterial({ color: 0x4ade80, emissive: 0x4ade80, emissiveIntensity: 0.3 }),
-  skin: new THREE.MeshStandardMaterial({ color: 0xf0c8a0, roughness: 0.8 }),
+function buildWalls() {
+  const w1 = new THREE.Mesh(new THREE.BoxGeometry(30, 2.5, 0.4), wallMat);
+  w1.position.set(0, 1.25, -15); w1.castShadow = true; scene.add(w1);
+  const w2 = new THREE.Mesh(new THREE.BoxGeometry(0.4, 2.5, 30), wallMat);
+  w2.position.set(-15, 1.25, 0); w2.castShadow = true; scene.add(w2);
+}
+buildWalls();
+
+/* ── DYNAMIC WORKSTATION PLACEMENT ──────────────────────── */
+const servicePositions = {};
+const mDesk = new THREE.MeshStandardMaterial({ color: 0x94a3b8 });
+const mMonitor = new THREE.MeshStandardMaterial({ color: 0x0f172a });
+
+// Zone-based placement grid
+const ZONE_OFFSETS = {
+  dmz:        { row: 0, color: 0xf43f5e },
+  corp:       { row: 1, color: 0xeab308 },
+  data:       { row: 2, color: 0x8b5cf6 },
+  management: { row: 3, color: 0x0ea5e9 },
 };
 
-/* ── Ground ────────────────────────────────────────────────── */
-const ground = new THREE.Mesh(
-  new THREE.PlaneGeometry(80, 80),
-  mats.grass
-);
-ground.rotation.x = -Math.PI / 2;
-ground.position.y = -0.01;
-ground.receiveShadow = true;
-scene.add(ground);
+function addWorkstation(id, x, z, zoneColor) {
+  const table = new THREE.Mesh(new THREE.BoxGeometry(1.8, 0.05, 0.9), mDesk);
+  table.position.set(x, 0.75, z); table.castShadow = true; scene.add(table);
 
-// Grid overlay
-const gridHelper = new THREE.GridHelper(80, 40, 0x2a3a4a, 0x1a2a3a);
-gridHelper.position.y = 0.01;
-scene.add(gridHelper);
+  const leg1 = new THREE.Mesh(new THREE.CylinderGeometry(0.05, 0.05, 0.75), mDesk);
+  leg1.position.set(x - 0.6, 0.375, z - 0.3); scene.add(leg1);
+  const leg2 = new THREE.Mesh(new THREE.CylinderGeometry(0.05, 0.05, 0.75), mDesk);
+  leg2.position.set(x + 0.6, 0.375, z - 0.3); scene.add(leg2);
 
-/* ── Room/Zone Builder ─────────────────────────────────────── */
-const zonePositions = {};
-const servicePositions = {};
-const roomGroups = {};
+  const monitor = new THREE.Mesh(new THREE.BoxGeometry(0.6, 0.4, 0.05), mMonitor);
+  monitor.position.set(x, 1.0, z - 0.3); monitor.castShadow = true; scene.add(monitor);
 
-function buildRoom(id, x, z, w, d, label, color) {
-  const group = new THREE.Group();
-  group.position.set(x, 0, z);
-
-  // Floor
-  const floor = new THREE.Mesh(new THREE.BoxGeometry(w, 0.15, d), mats.floor);
-  floor.position.y = 0.075;
-  floor.receiveShadow = true;
-  group.add(floor);
-
-  // Walls (transparent)
-  const wallMat = new THREE.MeshStandardMaterial({
-    color: color || 0x334155, roughness: 0.6,
-    transparent: true, opacity: 0.25
-  });
-  const wallH = 3;
-  // Back wall
-  const bw = new THREE.Mesh(new THREE.BoxGeometry(w, wallH, 0.12), wallMat);
-  bw.position.set(0, wallH/2 + 0.15, -d/2);
-  group.add(bw);
-  // Left wall
-  const lw = new THREE.Mesh(new THREE.BoxGeometry(0.12, wallH, d), wallMat);
-  lw.position.set(-w/2, wallH/2 + 0.15, 0);
-  group.add(lw);
+  // Glow ring for zone identification
+  const ringGeo = new THREE.RingGeometry(1.1, 1.2, 32);
+  const ringMat = new THREE.MeshBasicMaterial({ color: zoneColor || 0x3b82f6, side: THREE.DoubleSide, transparent: true, opacity: 0.4 });
+  const ring = new THREE.Mesh(ringGeo, ringMat);
+  ring.rotation.x = -Math.PI / 2; ring.position.set(x, 0.02, z); scene.add(ring);
 
   // Label
-  const labelSprite = makeTextSprite(label, { fontSize: 28, color: '#94a3b8' });
-  labelSprite.position.set(0, wallH + 0.5, 0);
-  group.add(labelSprite);
+  const label = makeTextSprite(id.replace('svc-','').toUpperCase(), { fontSize: 22, color: '#94a3b8', bg: null, w: 256, h: 48 });
+  label.position.set(x, 0.05, z + 1.0);
+  scene.add(label);
 
-  // Ceiling glow line
-  const glowGeo = new THREE.BoxGeometry(w - 0.5, 0.08, 0.08);
-  const glowMat = new THREE.MeshStandardMaterial({ color: color || 0x38bdf8, emissive: color || 0x38bdf8, emissiveIntensity: 0.5 });
-  const glow = new THREE.Mesh(glowGeo, glowMat);
-  glow.position.set(0, wallH + 0.15, -d/2 + 0.2);
-  group.add(glow);
-
-  scene.add(group);
-  roomGroups[id] = group;
-  zonePositions[id] = { x, z, w, d };
-  return group;
+  servicePositions[id] = { x, z };
 }
 
-function addDesk(room, lx, lz) {
-  const desk = new THREE.Mesh(new THREE.BoxGeometry(1.6, 0.7, 0.8), mats.desk);
-  desk.position.set(lx, 0.5, lz);
-  desk.castShadow = true;
-  room.add(desk);
-  // Monitor
-  const mon = new THREE.Mesh(new THREE.BoxGeometry(0.8, 0.6, 0.05), mats.monitor);
-  mon.position.set(lx, 1.2, lz - 0.25);
-  room.add(mon);
-  const scr = new THREE.Mesh(new THREE.BoxGeometry(0.7, 0.48, 0.02), mats.screen);
-  scr.position.set(lx, 1.2, lz - 0.27);
-  room.add(scr);
-  // Chair
-  const chair = new THREE.Mesh(new THREE.CylinderGeometry(0.25, 0.25, 0.4, 8), mats.desk);
-  chair.position.set(lx, 0.35, lz + 0.7);
-  room.add(chair);
-  return { x: lx, z: lz };
+function buildTopologyWorkstations(topology) {
+  if (!topology || !topology.services) return;
+
+  // Group services by zone
+  const zoneGroups = {};
+  topology.services.forEach(svc => {
+    const zone = svc.zone || 'unknown';
+    if (!zoneGroups[zone]) zoneGroups[zone] = [];
+    zoneGroups[zone].push(svc);
+  });
+
+  const zones = Object.keys(zoneGroups).sort();
+  zones.forEach((zone, zi) => {
+    const svcs = zoneGroups[zone];
+    const zoneInfo = ZONE_OFFSETS[zone] || { row: zi, color: 0x64748b };
+    const baseZ = -10 + (zoneInfo.row || zi) * 6;
+    svcs.forEach((svc, si) => {
+      const baseX = -8 + si * 6;
+      addWorkstation(svc.id, baseX, baseZ, zoneInfo.color);
+    });
+  });
 }
 
-function addServerRack(room, lx, lz) {
-  for (let i = 0; i < 3; i++) {
-    const rack = new THREE.Mesh(new THREE.BoxGeometry(0.6, 1.8, 0.5), mats.server);
-    rack.position.set(lx + i * 0.8, 1.05, lz);
-    rack.castShadow = true;
-    room.add(rack);
-    // Blinky lights
-    for (let j = 0; j < 4; j++) {
-      const light = new THREE.Mesh(
-        new THREE.BoxGeometry(0.04, 0.04, 0.01),
-        mats.serverLight
-      );
-      light.position.set(lx + i * 0.8 - 0.15 + j * 0.1, 1.2 + j * 0.15, lz - 0.26);
-      room.add(light);
-    }
-  }
-}
-
-/* ── Build Office Layout ───────────────────────────────────── */
-// DMZ / External
-const dmzRoom = buildRoom('dmz', -12, -8, 8, 6, '🌐 DMZ', 0xf59e0b);
-const webDesk = addDesk(dmzRoom, -1.5, 0);
-const webDesk2 = addDesk(dmzRoom, 1.5, 0);
-servicePositions['svc-web'] = { x: -12 + webDesk.x, z: -8 + webDesk.z };
-servicePositions['svc-mail'] = { x: -12 + webDesk2.x, z: -8 + webDesk2.z };
-
-// Corp Office
-const corpRoom = buildRoom('corp', 2, -8, 10, 6, '🏢 Corp Office', 0x3b82f6);
-addDesk(corpRoom, -3, 0);
-addDesk(corpRoom, -1, 0);
-addDesk(corpRoom, 1, 0);
-addDesk(corpRoom, 3, 0);
-servicePositions['svc-idp'] = { x: 2 - 3, z: -8 };
-servicePositions['svc-fileshare'] = { x: 2 + 3, z: -8 };
-
-// Server Room / Internal
-const srvRoom = buildRoom('internal', -5, 2, 8, 6, '🗄️ Server Room', 0x8b5cf6);
-addServerRack(srvRoom, -2, 0);
-addServerRack(srvRoom, 1.5, 0);
-servicePositions['svc-db'] = { x: -5 - 2, z: 2 };
-
-// SOC / Management
-const socRoom = buildRoom('management', 8, 2, 8, 6, '🛡️ SOC', 0x10b981);
-addDesk(socRoom, -2, 0);
-addDesk(socRoom, 0, 0);
-addDesk(socRoom, 2, 0);
-servicePositions['svc-siem'] = { x: 8, z: 2 };
-servicePositions['svc-firewall'] = { x: 8 + 2, z: 2 };
-
-/* ── Sims-style Character Builder ──────────────────────────── */
+/* ── CHARACTERS & INDICATORS ──────────────────────────────────── */
 const characters = {};
 
-function createCharacter(id, role, startPos) {
-  const group = new THREE.Group();
-  const roleColor = role === 'red' ? mats.red : role === 'blue' ? mats.blue : mats.green;
-  const bodyColor = role === 'red' ? 0x991b1b : role === 'blue' ? 0x1e3a5f : 0x166534;
+function createStatusIndicator() {
+  const geo = new THREE.OctahedronGeometry(0.18, 0);
+  geo.scale(1, 2.5, 1);
+  const mat = new THREE.MeshStandardMaterial({ color: 0x4ade80, emissive: 0x4ade80, emissiveIntensity: 0.8, transparent: true, opacity: 0.9 });
+  const mesh = new THREE.Mesh(geo, mat);
+  mesh.castShadow = true;
+  return mesh;
+}
 
-  // Body (capsule shape)
-  const body = new THREE.Mesh(
-    new THREE.CylinderGeometry(0.25, 0.2, 0.9, 8),
-    new THREE.MeshStandardMaterial({ color: bodyColor, roughness: 0.6 })
-  );
-  body.position.y = 0.75;
-  body.castShadow = true;
+function buildAgent(id, role, pX, pZ) {
+  const group = new THREE.Group();
+  const shirtColor = role === 'red' ? 0xef4444 : role === 'blue' ? 0x3b82f6 : 0xeab308;
+  const matShirt = new THREE.MeshStandardMaterial({ color: shirtColor });
+  const matPant = new THREE.MeshStandardMaterial({ color: 0x1e293b });
+  const matSkin = new THREE.MeshStandardMaterial({ color: 0xffdbac });
+
+  const body = new THREE.Group();
+  const torso = new THREE.Mesh(new THREE.BoxGeometry(0.4, 0.5, 0.2), matShirt);
+  torso.position.y = 0.85; torso.castShadow = true; body.add(torso);
+  const head = new THREE.Mesh(new THREE.BoxGeometry(0.25, 0.25, 0.25), matSkin);
+  head.position.y = 1.25; head.castShadow = true; body.add(head);
+
+  const createLimb = (mat, w,h,d, px,py) => {
+    const pivot = new THREE.Group(); pivot.position.set(px, py, 0);
+    const mesh = new THREE.Mesh(new THREE.BoxGeometry(w,h,d), mat);
+    mesh.position.y = -h/2; mesh.castShadow = true; pivot.add(mesh);
+    return pivot;
+  };
+  const armL = createLimb(matShirt, 0.12, 0.45, 0.15, -0.26, 1.05);
+  const armR = createLimb(matShirt, 0.12, 0.45, 0.15, 0.26, 1.05);
+  const legL = createLimb(matPant, 0.16, 0.55, 0.16, -0.1, 0.6);
+  const legR = createLimb(matPant, 0.16, 0.55, 0.16, 0.1, 0.6);
+  body.add(armL, armR, legL, legR);
   group.add(body);
 
-  // Head
-  const head = new THREE.Mesh(
-    new THREE.SphereGeometry(0.2, 8, 8),
-    mats.skin
-  );
-  head.position.y = 1.45;
-  head.castShadow = true;
-  group.add(head);
-
-  // Arms
-  for (const side of [-1, 1]) {
-    const arm = new THREE.Mesh(
-      new THREE.CylinderGeometry(0.06, 0.06, 0.5, 6),
-      new THREE.MeshStandardMaterial({ color: bodyColor, roughness: 0.6 })
-    );
-    arm.position.set(side * 0.32, 0.9, 0);
-    arm.rotation.z = side * 0.15;
-    group.add(arm);
+  const statusIndicator = createStatusIndicator();
+  statusIndicator.position.y = 2.0;
+  // Color indicator based on role
+  if (role === 'red') {
+    statusIndicator.material.color.set(0xf43f5e);
+    statusIndicator.material.emissive.set(0xf43f5e);
+  } else if (role === 'blue') {
+    statusIndicator.material.color.set(0x38bdf8);
+    statusIndicator.material.emissive.set(0x38bdf8);
   }
+  group.add(statusIndicator);
 
-  // PLUMBOB (The Sims diamond!)
-  const plumbobGeo = new THREE.OctahedronGeometry(0.15, 0);
-  const plumbob = new THREE.Mesh(plumbobGeo, roleColor.clone());
-  plumbob.position.y = 2.0;
-  plumbob.userData.isPlumbob = true;
-  group.add(plumbob);
+  const thoughtSprite = makeTextSprite("💭", { bg: 'rgba(255,255,255,0.95)', color: '#000' });
+  thoughtSprite.position.y = 2.6;
+  thoughtSprite.visible = false;
+  group.add(thoughtSprite);
 
-  // Point light under plumbob
-  const plight = new THREE.PointLight(roleColor.color || 0xffffff, 0.5, 3);
-  plight.position.y = 1.8;
-  group.add(plight);
-
-  // Name label
-  const label = makeTextSprite(id, { fontSize: 22, color: role === 'red' ? '#f43f5e' : role === 'blue' ? '#38bdf8' : '#4ade80' });
-  label.position.y = 2.4;
-  group.add(label);
-
-  group.position.set(startPos.x, 0.15, startPos.z);
+  group.position.set(pX, 0, pZ);
   scene.add(group);
 
   characters[id] = {
-    group, role, target: null,
-    pos: { x: startPos.x, z: startPos.z },
-    plumbob, plight,
-    walkPhase: Math.random() * Math.PI * 2,
-    idleTimer: 0,
+    group, bodyParts: { armL, armR, legL, legR }, statusIndicator, thoughtSprite,
+    walkPhase: Math.random()*10, target: null, thoughtTimer: 0, role,
+    homeX: pX, homeZ: pZ, idleWanderTimer: Math.random() * 5
   };
-  return characters[id];
 }
 
-/* ── Text Sprite Helper ────────────────────────────────────── */
+/* ── Text Sprite ────────────────────────────────────────── */
 function makeTextSprite(text, opts = {}) {
   const canvas2d = document.createElement('canvas');
   const ctx = canvas2d.getContext('2d');
-  const fontSize = opts.fontSize || 24;
-  canvas2d.width = 256;
-  canvas2d.height = 64;
-  ctx.font = `${fontSize}px Inter, sans-serif`;
+  canvas2d.width = opts.w || 512;
+  canvas2d.height = opts.h || 128;
+
+  if (opts.bg) {
+    ctx.fillStyle = opts.bg;
+    ctx.roundRect(0, 0, canvas2d.width, canvas2d.height, 20);
+    ctx.fill();
+    ctx.strokeStyle = 'rgba(255,255,255,0.15)';
+    ctx.lineWidth = 3;
+    ctx.stroke();
+  }
+
+  const fontSize = opts.fontSize || 32;
+  ctx.font = `${opts.bold ? 'bold' : 'normal'} ${fontSize}px Nunito, sans-serif`;
   ctx.fillStyle = opts.color || '#ffffff';
   ctx.textAlign = 'center';
   ctx.textBaseline = 'middle';
-  ctx.fillText(text, 128, 32);
+  ctx.fillText(text, canvas2d.width/2, canvas2d.height/2);
 
   const tex = new THREE.CanvasTexture(canvas2d);
   tex.minFilter = THREE.LinearFilter;
   const mat = new THREE.SpriteMaterial({ map: tex, transparent: true, depthTest: false });
   const sprite = new THREE.Sprite(mat);
-  sprite.scale.set(3, 0.75, 1);
+  sprite.scale.set(canvas2d.width/100, canvas2d.height/100, 1);
   return sprite;
 }
 
-/* ── Particle System for Events ────────────────────────────── */
-const particles = [];
+function showThoughtBubble(charId, text) {
+  const ch = characters[charId];
+  if(!ch) return;
+  ch.thoughtSprite.material.map.dispose();
+  const newSprite = makeTextSprite(`💭 ${text}`, { fontSize: 26, color: '#1e293b', bg: 'rgba(248, 250, 252, 0.95)', w: 700, h: 90, bold: true });
+  ch.thoughtSprite.material = newSprite.material;
+  ch.thoughtSprite.visible = true;
+  ch.thoughtTimer = 6.0;
+}
 
-function spawnParticles(worldPos, color, count = 12) {
-  for (let i = 0; i < count; i++) {
-    const geo = new THREE.SphereGeometry(0.06, 4, 4);
-    const mat = new THREE.MeshBasicMaterial({ color, transparent: true, opacity: 1 });
-    const mesh = new THREE.Mesh(geo, mat);
-    mesh.position.copy(worldPos);
-    mesh.position.y += 1;
-    scene.add(mesh);
-    particles.push({
-      mesh,
-      vel: new THREE.Vector3(
-        (Math.random() - 0.5) * 0.15,
-        Math.random() * 0.12 + 0.05,
-        (Math.random() - 0.5) * 0.15
-      ),
-      life: 1.0,
-      decay: 0.015 + Math.random() * 0.01,
+/* ── Visual FX: Lasers & Particles ─────────────────────────── */
+const activeVFX = [];
+
+function spawnLaserBeam(from, to, role) {
+  const color = role === 'red' ? 0xf43f5e : role === 'blue' ? 0x38bdf8 : 0x4ade80;
+  const pts = [ new THREE.Vector3(from.x, 1.2, from.z), new THREE.Vector3(to.x, 1.2, to.z) ];
+  const geo = new THREE.BufferGeometry().setFromPoints(pts);
+  const coreMat = new THREE.LineBasicMaterial({ color: 0xffffff, linewidth: 2 });
+  const core = new THREE.Line(geo, coreMat);
+  const glowMat = new THREE.LineBasicMaterial({ color, transparent: true, opacity: 0.8, linewidth: 8 });
+  const glow = new THREE.Line(geo, glowMat);
+  scene.add(core); scene.add(glow);
+  activeVFX.push({ meshes: [core, glow], life: 0.8, type: 'laser' });
+
+  for(let i=0; i<12; i++) {
+    const pgeo = new THREE.BoxGeometry(0.08, 0.08, 0.08);
+    const pmat = new THREE.MeshBasicMaterial({ color, transparent: true });
+    const p = new THREE.Mesh(pgeo, pmat);
+    p.position.set(to.x, 1.2, to.z);
+    scene.add(p);
+    activeVFX.push({
+      meshes: [p], life: 1.0, type: 'particle',
+      vel: new THREE.Vector3((Math.random()-0.5)*0.3, Math.random()*0.2 + 0.1, (Math.random()-0.5)*0.3)
     });
   }
 }
 
-/* ── Attack Beam Effect ────────────────────────────────────── */
-const beams = [];
-
-function spawnBeam(from, to, color) {
-  const pts = [
-    new THREE.Vector3(from.x, 1.5, from.z),
-    new THREE.Vector3(to.x, 1.5, to.z),
-  ];
+/* ── Network traffic line pulse ─────────────────────────── */
+function spawnNetworkPulse(fromId, toId, color) {
+  const from = servicePositions[fromId];
+  const to = servicePositions[toId];
+  if (!from || !to) return;
+  const pts = [ new THREE.Vector3(from.x, 0.3, from.z), new THREE.Vector3(to.x, 0.3, to.z) ];
   const geo = new THREE.BufferGeometry().setFromPoints(pts);
-  const mat = new THREE.LineBasicMaterial({ color, transparent: true, opacity: 0.8, linewidth: 2 });
+  const mat = new THREE.LineBasicMaterial({ color: color || 0x4ade80, transparent: true, opacity: 0.6 });
   const line = new THREE.Line(geo, mat);
   scene.add(line);
-  beams.push({ line, life: 1.0 });
+  activeVFX.push({ meshes: [line], life: 1.5, type: 'laser' });
 }
 
 /* ═══════════════════════════════════════════════════════════════
-   GAME LOGIC
+   SIMULATION DATA HOOKS
    ═══════════════════════════════════════════════════════════════ */
 
-let topology = null;
 let eventSource = null;
 let narrateSource = null;
-let events = [];
-let npcsSpawned = false;
+let currentTopology = null;
+let allEvents = [];
 
-/* ── API ───────────────────────────────────────────────────── */
-async function api(method, path) {
-  const resp = await fetch(path, { method });
-  return resp.json();
+/* ── Event Log ─────────────────────────────────────────── */
+const EVENT_EMOJI = { red: '🔴', blue: '🔵', green: '🟢' };
+function addEventToLog(ev) {
+  allEvents.push(ev);
+  const log = document.getElementById('event-log');
+  const li = document.createElement('li');
+  const dot = document.createElement('span');
+  dot.className = `ev-dot ${ev.actor}`;
+  const text = document.createElement('span');
+  const time = ev.time != null ? `[${ev.time.toFixed(1)}]` : '';
+  text.textContent = `${time} ${ev.actor}→${ev.target_entity}: ${ev.event_type}`;
+  li.prepend(dot);
+  li.appendChild(text);
+  log.prepend(li);
+  // Keep log manageable
+  while (log.children.length > 50) log.removeChild(log.lastChild);
 }
 
-/* ── Spawn dynamic characters from topology ────────────────── */
-function spawnFromTopology(topo) {
-  if (npcsSpawned) return;
-  npcsSpawned = true;
-
-  // Green NPCs from world users
-  const defaultPositions = [
-    { x: 2 - 3, z: -8 + 1.5 },
-    { x: 2 - 1, z: -8 + 1.5 },
-    { x: 2 + 1, z: -8 + 1.5 },
-    { x: 2 + 3, z: -8 + 1.5 },
-  ];
-  (topo.users || []).forEach((u, i) => {
-    const pos = defaultPositions[i % defaultPositions.length];
-    createCharacter(u.id, 'green', { x: pos.x + (i > 3 ? 1 : 0), z: pos.z });
-  });
-
-  // If no users in topology, spawn some defaults
-  if (!topo.users || topo.users.length === 0) {
-    createCharacter('sarah_sales', 'green', { x: -1, z: -6.5 });
-    createCharacter('mike_eng', 'green', { x: 1, z: -6.5 });
-    createCharacter('admin_it', 'green', { x: 3, z: -6.5 });
-  }
-
-  // Red attacker (starts outside)
-  createCharacter('agent-red', 'red', { x: -18, z: -12 });
-
-  // Blue defender (starts in SOC)
-  createCharacter('agent-blue', 'blue', { x: 8, z: 2.5 });
-}
-
-/* ── Move characters toward targets ────────────────────────── */
-function moveCharacterTo(charId, targetServiceId) {
-  const ch = characters[charId];
-  if (!ch) return;
-  const pos = servicePositions[targetServiceId];
-  if (!pos) return;
-  ch.target = { x: pos.x, z: pos.z + 1.2 }; // stand in front of desk
-}
-
-/* ── Process runtime event ─────────────────────────────────── */
-function onRuntimeEvent(ev) {
-  events.unshift(ev);
-  if (events.length > 100) events.pop();
-
-  // Update clock
-  const t = ev.time || 0;
-  const m = Math.floor(t / 60);
-  const s = Math.floor(t % 60);
-  document.getElementById('sim-clock').textContent = `${String(m).padStart(2,'0')}:${String(s).padStart(2,'0')}`;
-
-  // Move the acting character
-  const actorId = ev.actor === 'red' ? 'agent-red' : ev.actor === 'blue' ? 'agent-blue' : ev.source_entity;
-  if (ev.target_entity && servicePositions[ev.target_entity]) {
-    moveCharacterTo(actorId, ev.target_entity);
-  }
-
-  // Spawn particles at target
-  const tgtPos = servicePositions[ev.target_entity];
-  if (tgtPos) {
-    const color = ev.actor === 'red' ? 0xf43f5e : ev.actor === 'blue' ? 0x38bdf8 : 0x4ade80;
-    spawnParticles(new THREE.Vector3(tgtPos.x, 0, tgtPos.z), color, ev.malicious ? 20 : 8);
-
-    // Attack beams for malicious events
-    if (ev.malicious) {
-      const srcPos = servicePositions[ev.source_entity] || { x: -18, z: -12 };
-      spawnBeam(srcPos, tgtPos, 0xf43f5e);
-    }
-  }
-
-  // Feed
-  addFeedItem(ev);
-
-  // Poll state occasionally
-  if (events.length % 3 === 0) pollState();
-  if (ev.id === 'episode-done') setStatus('done');
-}
-
-function addFeedItem(ev) {
-  const feed = document.getElementById('feed');
-  const el = document.createElement('div');
-  el.className = 'feed-item';
-  const emoji = ev.actor === 'red' ? '🔴' : ev.actor === 'blue' ? '🔵' : '🟢';
-  el.innerHTML = `<span class="feed-time">t=${(ev.time||0).toFixed(1)}</span>
-    <span class="feed-actor ${ev.actor}">${emoji} ${ev.actor}</span>
-    ${ev.event_type} → ${ev.target_entity}`;
-  feed.prepend(el);
-  if (feed.children.length > 30) feed.lastChild.remove();
-}
-
-async function pollState() {
-  try {
-    const s = await api('GET', '/api/state');
-    if (!s.error) {
-      document.getElementById('bar-red').style.width = `${Math.min(100, Math.abs(s.red_reward||0)*100)}%`;
-      document.getElementById('bar-blue').style.width = `${Math.min(100, Math.abs(s.blue_reward||0)*100)}%`;
-      document.getElementById('bar-cont').style.width = `${(s.continuity ?? 1) * 100}%`;
-      document.getElementById('m-winner').textContent = s.winner || '—';
-      document.getElementById('m-decisions').textContent = s.decision_count || 0;
-      document.getElementById('m-robj').textContent = (s.red_objectives_satisfied||[]).length;
-      document.getElementById('m-bobj').textContent = (s.blue_objectives_satisfied||[]).length;
-    }
-  } catch(e) {}
-}
-
-/* ── Episode Controls ──────────────────────────────────────── */
 async function resetEpisode() {
   stopStreams();
-  setStatus('idle');
-  const result = await api('POST', '/api/episode/reset');
-  if (result.topology) {
-    topology = result.topology;
-    spawnFromTopology(topology);
+  document.getElementById('sim-badge').innerText = 'Resetting...';
+  document.getElementById('btn-play').classList.remove('active');
+  document.getElementById('event-log').innerHTML = '';
+  allEvents = [];
+
+  const res = await fetch('/api/episode/reset', { method: 'POST' }).then(r => r.json());
+  if (res.error) {
+    document.getElementById('narrator').innerText = `Reset failed: ${res.error}`;
+    return;
   }
-  events = [];
-  document.getElementById('feed').innerHTML = '';
-  document.getElementById('narrator').textContent =
-    `Episode loaded on ${result.snapshot_id || 'unknown'}. Press Play to watch the simulation unfold...`;
+  if (res.topology) {
+    currentTopology = res.topology;
+    // Build workstations from real topology if not already built
+    if (!Object.keys(servicePositions).length) {
+      buildTopologyWorkstations(res.topology);
+    }
+    // Build agents from real users if not already built
+    if (!Object.keys(characters).length) {
+      // Red and Blue agents — place near edges
+      buildAgent('agent-red', 'red', -18, -14);
+      buildAgent('agent-blue', 'blue', 10, 10);
+      // Green agents — place near their services
+      if (res.topology.users) {
+        const svcKeys = Object.keys(servicePositions);
+        res.topology.users.forEach((u, i) => {
+          // Place green agents near a workstation
+          const svcPos = servicePositions[svcKeys[i % svcKeys.length]];
+          const px = svcPos ? svcPos.x + 1.5 : -2 + i * 3;
+          const pz = svcPos ? svcPos.z + 2.0 : -8;
+          buildAgent(u.id, 'green', px, pz);
+        });
+      }
+    }
+  }
+  document.getElementById('sim-badge').innerText = 'Ready';
+  document.getElementById('narrator').innerText = `Environment loaded (${res.snapshot_id || '?'}). Click ▶ Play to start.`;
 }
 
 async function playEpisode() {
-  setStatus('running');
-  await api('POST', '/api/episode/play');
-  startEventStream();
-  startNarrateStream();
-}
+  document.getElementById('sim-badge').innerText = 'Simulating';
+  document.getElementById('btn-play').classList.add('active');
+  await fetch('/api/episode/play', { method: 'POST' });
 
-async function pauseEpisode() {
-  setStatus('idle');
-  await api('POST', '/api/episode/pause');
-  stopStreams();
-}
-
-function setStatus(s) {
-  const el = document.getElementById('status');
-  el.className = 'hud-status';
-  if (s === 'running') { el.classList.add('running'); el.textContent = 'SIMULATING'; }
-  else if (s === 'done') { el.classList.add('done'); el.textContent = 'COMPLETE'; }
-  else { el.classList.add('idle'); el.textContent = 'IDLE'; }
-}
-
-function startEventStream() {
-  if (eventSource) eventSource.close();
+  if(eventSource) eventSource.close();
   eventSource = new EventSource('/api/events/stream');
-  eventSource.addEventListener('runtime_event', e => onRuntimeEvent(JSON.parse(e.data)));
-}
+  eventSource.addEventListener('runtime_event', e => {
+    const ev = JSON.parse(e.data);
+    handleRuntimeEvent(ev);
+    addEventToLog(ev);
+  });
 
-function startNarrateStream() {
-  if (narrateSource) narrateSource.close();
+  if(narrateSource) narrateSource.close();
   narrateSource = new EventSource('/api/narrate/stream');
   narrateSource.addEventListener('narration', e => {
     const data = JSON.parse(e.data);
-    const el = document.getElementById('narrator');
-    el.textContent = data.text;
-    el.classList.add('active');
+    document.getElementById('narrator').innerText = data.text;
   });
 }
 
 function stopStreams() {
-  if (eventSource) { eventSource.close(); eventSource = null; }
-  if (narrateSource) { narrateSource.close(); narrateSource = null; }
+  fetch('/api/episode/pause', { method: 'POST' });
+  document.getElementById('sim-badge').innerText = 'Paused';
+  document.getElementById('btn-play').classList.remove('active');
+  if(eventSource) { eventSource.close(); eventSource = null; }
+  if(narrateSource) { narrateSource.close(); narrateSource = null; }
+}
+
+let eventCount = 0;
+
+function handleRuntimeEvent(ev) {
+  // Update clock
+  const t = ev.time || 0;
+  let d = Math.floor(t / 24);
+  let h = Math.floor(t % 24) + 8;
+  if(h >= 24) { h -= 24; d++; }
+  let strH = h > 12 ? h-12 : h; if(strH===0) strH=12;
+  const ampm = h >= 12 ? 'PM' : 'AM';
+  document.getElementById('sim-clock').textContent = `${strH}:00 ${ampm}`;
+  document.getElementById('sim-badge').textContent = `Day ${d+1}`;
+
+  // Resolve character ID from event
+  let actorId;
+  if (ev.actor === 'red') actorId = 'agent-red';
+  else if (ev.actor === 'blue') actorId = 'agent-blue';
+  else actorId = ev.source_entity; // Green uses persona id as source_entity
+
+  const ch = characters[actorId];
+  const targetPos = servicePositions[ev.target_entity];
+
+  if (ch && targetPos) {
+    // Move character to target service
+    ch.target = { x: targetPos.x + (Math.random()-0.5), z: targetPos.z + 1.5 };
+
+    // Show thought bubble with context
+    if (ev.actor === 'green') {
+      let thought = ev.detail || `Using ${ev.target_entity}`;
+      if (!ev.detail) {
+        const THOUGHTS = {
+          BenignUserAction: ["Working on daily tasks...", "Checking reports...", "Processing requests...", "Updating records..."],
+          DetectionAlertRaised: ["🚨 Something seems off!", "🚨 Flagging suspicious activity!"],
+          RecoveryCompleted: ["✅ Recovered successfully", "✅ Password reset complete"],
+          EmailSent: ["📧 Sending email...", "📧 Composing message..."],
+        };
+        const options = THOUGHTS[ev.event_type] || ["Working..."];
+        thought = options[Math.floor(Math.random() * options.length)];
+      } else {
+        if (thought.length > 60) thought = thought.substring(0, 57) + "...";
+      }
+      showThoughtBubble(actorId, thought);
+    } else if (ev.actor === 'red') {
+      const RED_THOUGHTS = {
+        InitialAccess: "🔓 Probing for entry point...",
+        CredentialObtained: "🔑 Captured credentials!",
+        CrossZoneTraversal: "🕸️ Pivoting to new zone...",
+        SensitiveAssetRead: "💎 Exfiltrating data...",
+        PrivilegeEscalation: "⬆️ Escalating privileges...",
+        PersistenceEstablished: "🪝 Establishing persistence...",
+      };
+      showThoughtBubble(actorId, RED_THOUGHTS[ev.event_type] || ev.event_type);
+    } else {
+      const BLUE_THOUGHTS = {
+        DetectionAlertRaised: "🔍 Investigating alert...",
+        ContainmentApplied: "🛡️ Containing threat!",
+        PatchApplied: "🔧 Deploying patch...",
+      };
+      showThoughtBubble(actorId, BLUE_THOUGHTS[ev.event_type] || ev.event_type);
+    }
+
+    // Fire laser for offensive/defensive actions
+    if (ev.malicious || ev.event_type === 'ContainmentApplied' || ev.event_type === 'PatchApplied') {
+      spawnLaserBeam(ch.group.position, targetPos, ev.actor);
+    }
+    // Network pulse for green routine traffic
+    if (ev.actor === 'green' && ev.source_entity) {
+      spawnNetworkPulse(ev.target_entity, 'svc-siem', 0x4ade80);
+    }
+  } else if (ch && !targetPos) {
+    // Target entity not in our service map — still show thought bubble
+    let thought = ev.detail || ev.event_type;
+    if (thought.length > 60) thought = thought.substring(0, 57) + "...";
+    showThoughtBubble(actorId, thought);
+  }
+
+  // Poll state periodically
+  if (eventCount++ % 4 === 0) pollState();
+}
+
+async function pollState() {
+  try {
+    const s = await fetch('/api/state').then(r => r.json());
+    if(!s.error) {
+      document.getElementById('need-threat').style.width = `${Math.min(100, Math.max(0, 100 - Math.abs(s.red_reward||0)*100))}%`;
+      document.getElementById('need-defense').style.width = `${Math.min(100, Math.max(0, 100 - Math.abs(s.blue_reward||0)*100))}%`;
+      document.getElementById('need-uptime').style.width = `${(s.continuity ?? 1) * 100}%`;
+
+      // Update need bar CSS classes
+      ['need-threat','need-defense','need-uptime'].forEach(id => {
+        const el = document.getElementById(id);
+        const w = parseFloat(el.style.width);
+        el.className = 'motive-fill ' + (w > 60 ? 'high' : w > 30 ? 'med' : 'low');
+      });
+
+      if (s.done) {
+        document.getElementById('sim-badge').textContent = `Done: ${s.winner || 'draw'}`;
+      }
+    }
+  } catch(e) {}
 }
 
 /* ═══════════════════════════════════════════════════════════════
@@ -686,74 +619,90 @@ function animate() {
   const dt = clock.getDelta();
   const t = clock.getElapsedTime();
 
-  // ── Animate Characters ──
   for (const [id, ch] of Object.entries(characters)) {
-    // Plumbob rotation + bob
-    if (ch.plumbob) {
-      ch.plumbob.rotation.y += dt * 2.0;
-      ch.plumbob.position.y = 2.0 + Math.sin(t * 2 + ch.walkPhase) * 0.1;
+    // Status indicator spin
+    const spinSpeed = ch.thoughtTimer > 0 ? 8.0 : 1.0;
+    ch.statusIndicator.rotation.y += dt * spinSpeed;
+    ch.statusIndicator.position.y = 2.0 + Math.sin(t*3)*0.05;
+
+    // Thought bubble fade
+    if (ch.thoughtTimer > 0) {
+      ch.thoughtTimer -= dt;
+      if(ch.thoughtTimer <= 0) ch.thoughtSprite.visible = false;
     }
 
-    // Walk toward target
     if (ch.target) {
-      const dx = ch.target.x - ch.pos.x;
-      const dz = ch.target.z - ch.pos.z;
+      const dx = ch.target.x - ch.group.position.x;
+      const dz = ch.target.z - ch.group.position.z;
       const dist = Math.sqrt(dx*dx + dz*dz);
-      if (dist > 0.3) {
-        const speed = 3.5;
-        ch.pos.x += (dx / dist) * speed * dt;
-        ch.pos.z += (dz / dist) * speed * dt;
-        ch.group.position.x = ch.pos.x;
-        ch.group.position.z = ch.pos.z;
-        // Face direction
-        ch.group.rotation.y = Math.atan2(dx, dz);
-        // Walk bob
-        ch.walkPhase += dt * 10;
-        ch.group.position.y = 0.15 + Math.abs(Math.sin(ch.walkPhase)) * 0.08;
+
+      if (dist > 0.4) {
+        const speed = 4.0;
+        ch.group.position.x += (dx / dist) * speed * dt;
+        ch.group.position.z += (dz / dist) * speed * dt;
+        const targetRot = Math.atan2(dx, dz);
+        let diff = targetRot - ch.group.rotation.y;
+        while(diff < -Math.PI) diff += Math.PI*2;
+        while(diff > Math.PI) diff -= Math.PI*2;
+        ch.group.rotation.y += diff * 10 * dt;
+        ch.walkPhase += dt * 15;
+        const swing = Math.sin(ch.walkPhase) * 0.6;
+        ch.bodyParts.armL.rotation.x = swing;
+        ch.bodyParts.armR.rotation.x = -swing;
+        ch.bodyParts.legL.rotation.x = -swing;
+        ch.bodyParts.legR.rotation.x = swing;
       } else {
         ch.target = null;
-        ch.group.position.y = 0.15;
+        ch.bodyParts.armL.rotation.x = 0; ch.bodyParts.armR.rotation.x = 0;
+        ch.bodyParts.legL.rotation.x = 0; ch.bodyParts.legR.rotation.x = 0;
       }
     } else {
-      // Idle sway
-      ch.idleTimer += dt;
-      if (ch.role === 'green' && ch.idleTimer > 5 + Math.random() * 5) {
-        ch.idleTimer = 0;
-        // Random wander within corp
-        const zone = zonePositions['corp'];
-        if (zone) {
-          ch.target = {
-            x: zone.x + (Math.random() - 0.5) * zone.w * 0.7,
-            z: zone.z + (Math.random() - 0.5) * zone.d * 0.4 + 1.5,
-          };
+      ch.walkPhase += dt * 2;
+      const isAtDesk = Object.values(servicePositions).some(pos =>
+         Math.abs(ch.group.position.x - pos.x) < 1.5 && Math.abs(ch.group.position.z - pos.z) < 2.0
+      );
+      if (isAtDesk) {
+        // Typing animation
+        ch.bodyParts.armL.rotation.x = Math.sin(t * 20) * 0.15 + 0.3;
+        ch.bodyParts.armR.rotation.x = Math.cos(t * 22) * 0.15 + 0.3;
+      } else {
+        // Idle wander for green agents
+        if (ch.role === 'green') {
+          ch.idleWanderTimer -= dt;
+          if (ch.idleWanderTimer <= 0) {
+            // Pick a random service to wander toward
+            const svcIds = Object.keys(servicePositions);
+            if (svcIds.length) {
+              const pick = svcIds[Math.floor(Math.random() * svcIds.length)];
+              const pos = servicePositions[pick];
+              ch.target = { x: pos.x + (Math.random()-0.5)*2, z: pos.z + 1.5 + Math.random() };
+            }
+            ch.idleWanderTimer = 8 + Math.random() * 10;
+          }
         }
+        // Breathing
+        ch.bodyParts.armL.rotation.x = Math.sin(ch.walkPhase)*0.05;
+        ch.bodyParts.armR.rotation.x = -Math.sin(ch.walkPhase)*0.05;
       }
-      ch.group.position.y = 0.15 + Math.sin(t * 1.5 + ch.walkPhase) * 0.02;
     }
   }
 
-  // ── Animate Particles ──
-  for (let i = particles.length - 1; i >= 0; i--) {
-    const p = particles[i];
-    p.mesh.position.add(p.vel);
-    p.vel.y -= 0.003; // gravity
-    p.life -= p.decay;
-    p.mesh.material.opacity = p.life;
-    p.mesh.scale.setScalar(p.life);
-    if (p.life <= 0) {
-      scene.remove(p.mesh);
-      particles.splice(i, 1);
+  // VFX
+  for (let i = activeVFX.length - 1; i >= 0; i--) {
+    const vfx = activeVFX[i];
+    vfx.life -= dt;
+    if(vfx.type === 'particle') {
+      const p = vfx.meshes[0];
+      p.position.add(vfx.vel);
+      vfx.vel.y -= 0.01;
+      p.scale.setScalar(Math.max(0, vfx.life));
+      p.material.opacity = Math.max(0, vfx.life);
+    } else if (vfx.type === 'laser') {
+      vfx.meshes.forEach(m => m.material.opacity = Math.max(0, vfx.life));
     }
-  }
-
-  // ── Animate Beams ──
-  for (let i = beams.length - 1; i >= 0; i--) {
-    const b = beams[i];
-    b.life -= dt * 0.8;
-    b.line.material.opacity = b.life;
-    if (b.life <= 0) {
-      scene.remove(b.line);
-      beams.splice(i, 1);
+    if (vfx.life <= 0) {
+      vfx.meshes.forEach(m => { scene.remove(m); m.geometry.dispose(); });
+      activeVFX.splice(i, 1);
     }
   }
 
@@ -761,22 +710,67 @@ function animate() {
   renderer.render(scene, camera);
 }
 
-/* ── Resize ────────────────────────────────────────────────── */
+/* ── Agent Selection ─────────────────────────── */
+const raycaster = new THREE.Raycaster();
+const mouse = new THREE.Vector2();
+window.addEventListener('click', (e) => {
+  if(e.clientY > window.innerHeight - 180) return;
+  mouse.x = (e.clientX / window.innerWidth) * 2 - 1;
+  mouse.y = -(e.clientY / window.innerHeight) * 2 + 1;
+  raycaster.setFromCamera(mouse, camera);
+  const intersects = raycaster.intersectObjects(scene.children, true);
+  if (intersects.length > 0) {
+    for (let inter of intersects) {
+      for (const [id, ch] of Object.entries(characters)) {
+        let current = inter.object;
+        while(current && current !== scene) {
+          if(current === ch.group) {
+            document.querySelector('.narrator-title').innerText = `AGENT: ${id.toUpperCase()} (${ch.role})`;
+            document.getElementById('narrator').innerText = `Tracking ${id}... Role: ${ch.role}`;
+            ch.statusIndicator.scale.setScalar(1.8);
+            setTimeout(() => ch.statusIndicator.scale.setScalar(1.0), 300);
+            return;
+          }
+          current = current.parent;
+        }
+      }
+    }
+  }
+});
+
 window.addEventListener('resize', () => {
   const w = window.innerWidth, h = window.innerHeight;
   const a = w / h;
-  camera.left = -frustum * a;
-  camera.right = frustum * a;
-  camera.top = frustum;
-  camera.bottom = -frustum;
+  camera.left = -frustum * a; camera.right = frustum * a;
+  camera.top = frustum; camera.bottom = -frustum;
   camera.updateProjectionMatrix();
   renderer.setSize(w, h);
 });
 
-/* ── Start ─────────────────────────────────────────────────── */
-// Spawn default characters even before reset
-spawnFromTopology({ users: [] });
-animate();
+/* ── Auto-init ─────────────────────────────────────── */
+async function loadSimulation() {
+  try {
+    const topoRes = await fetch('/api/topology').then(r => r.json());
+    if (topoRes && topoRes.services && topoRes.services.length) {
+      currentTopology = topoRes;
+      buildTopologyWorkstations(topoRes);
+      if (topoRes.users && topoRes.users.length) {
+        buildAgent('agent-red', 'red', -18, -14);
+        buildAgent('agent-blue', 'blue', 10, 10);
+        const svcKeys = Object.keys(servicePositions);
+        topoRes.users.forEach((u, i) => {
+          const svcPos = servicePositions[svcKeys[i % svcKeys.length]];
+          const px = svcPos ? svcPos.x + 1.5 : -2 + i * 3;
+          const pz = svcPos ? svcPos.z + 2.0 : -8;
+          buildAgent(u.id, 'green', px, pz);
+        });
+      }
+    }
+  } catch (err) {}
+  animate();
+}
+
+loadSimulation();
 </script>
 </body>
 </html>

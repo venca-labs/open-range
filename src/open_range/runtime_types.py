@@ -66,6 +66,7 @@ class RuntimeEvent(_StrictModel):
     linked_objective_predicates: tuple[str, ...] = Field(default_factory=tuple)
     suspicious: bool = False
     suspicious_reasons: tuple[str, ...] = Field(default_factory=tuple)
+    detail: str | None = None
 
 
 class ServiceHealth(_StrictModel):

@@ -40,6 +40,8 @@ def green_events_for_action(
 ) -> tuple[RuntimeEvent, ...]:
     branch = str(action.payload.get("branch", "")).lower()
     reported_target = str(action.payload.get("reported_target", target)) or target
+    raw = action.payload.get("raw")
+    
     if branch == "report_suspicious_activity":
         return (
             emit_event(
@@ -49,6 +51,7 @@ def green_events_for_action(
                 target_entity=reported_target,
                 malicious=False,
                 observability_surfaces=("svc-siem",),
+                detail=raw,
             ),
         )
     if branch == "reset_password" and live_recovery_applied:
@@ -60,6 +63,7 @@ def green_events_for_action(
                 target_entity=reported_target,
                 malicious=False,
                 observability_surfaces=service_surfaces(target),
+                detail=raw,
             ),
         )
     if branch == "open_it_ticket":
@@ -71,6 +75,7 @@ def green_events_for_action(
                 target_entity=reported_target,
                 malicious=False,
                 observability_surfaces=("svc-siem",),
+                detail=raw,
             ),
         )
     # Multimodal routine events
@@ -83,6 +88,7 @@ def green_events_for_action(
                 target_entity=target,
                 malicious=False,
                 observability_surfaces=service_surfaces(target),
+                detail=raw,
             ),
         )
     if action.kind == "document_share":
@@ -94,6 +100,7 @@ def green_events_for_action(
                 target_entity=target,
                 malicious=False,
                 observability_surfaces=service_surfaces(target),
+                detail=raw,
             ),
         )
     if action.kind == "voice":
@@ -105,6 +112,7 @@ def green_events_for_action(
                 target_entity=target,
                 malicious=False,
                 observability_surfaces=(),
+                detail=raw,
             ),
         )
     return (
@@ -115,6 +123,7 @@ def green_events_for_action(
             target_entity=target,
             malicious=False,
             observability_surfaces=service_surfaces(target),
+            detail=raw,
         ),
     )
 

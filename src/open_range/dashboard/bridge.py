@@ -20,17 +20,21 @@ class EventBridge:
     def __init__(self, *, max_buffer: int = 200) -> None:
         self._buffer: deque[RuntimeEvent] = deque(maxlen=max_buffer)
         self._lock = threading.Lock()
-        self._subscribers: list[asyncio.Queue[RuntimeEvent | None]] = []
+        self._subscribers: list[tuple[asyncio.Queue[RuntimeEvent | None], asyncio.AbstractEventLoop]] = []
 
     def push(self, event: RuntimeEvent) -> None:
-        """Called from the runtime thread to broadcast an event."""
+        """Called from the runtime thread to broadcast an event.
+
+        Uses loop.call_soon_threadsafe to ensure the asyncio event loop
+        is properly notified when pushing from a background thread.
+        """
         with self._lock:
             self._buffer.append(event)
-            for q in self._subscribers:
+            for q, loop in self._subscribers:
                 try:
-                    q.put_nowait(event)
-                except asyncio.QueueFull:
-                    pass  # slow consumer, drop oldest
+                    loop.call_soon_threadsafe(q.put_nowait, event)
+                except (RuntimeError, asyncio.QueueFull):
+                    pass  # loop closed or slow consumer
 
     def snapshot_buffer(self) -> list[RuntimeEvent]:
         """Return a copy of the current rolling buffer."""
@@ -42,10 +46,11 @@ class EventBridge:
 
         First replays buffered events, then streams live.
         """
+        loop = asyncio.get_running_loop()
         q: asyncio.Queue[RuntimeEvent | None] = asyncio.Queue(maxsize=500)
         with self._lock:
             backlog = list(self._buffer)
-            self._subscribers.append(q)
+            self._subscribers.append((q, loop))
         try:
             for event in backlog:
                 yield event
@@ -56,13 +61,15 @@ class EventBridge:
                 yield event
         finally:
             with self._lock:
-                self._subscribers.remove(q)
+                self._subscribers[:] = [
+                    (sq, sl) for sq, sl in self._subscribers if sq is not q
+                ]
 
     def close(self) -> None:
         """Signal all subscribers to stop."""
         with self._lock:
-            for q in self._subscribers:
+            for q, loop in self._subscribers:
                 try:
-                    q.put_nowait(None)
-                except asyncio.QueueFull:
+                    loop.call_soon_threadsafe(q.put_nowait, None)
+                except (RuntimeError, asyncio.QueueFull):
                     pass
