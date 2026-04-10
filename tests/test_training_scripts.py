@@ -114,19 +114,19 @@ def test_grpo_runner_applies_backend_overrides() -> None:
         "run_grpo_backend_override_test",
     )
 
-    env: dict[str, str] = {}
-    applied = module.apply_backend_overrides(
-        env,
-        model_id="moonshotai/kimi-k2-instruct",
+    overrides = module.BackendOverrides(
+        model="moonshotai/kimi-k2-instruct",
         base_url="https://integrate.api.nvidia.com/v1/",
         asr_url="http://asr.local",
         tts_url="http://tts.local",
     )
+    env: dict[str, str] = {}
+    applied = overrides.apply(env)
 
     assert applied == {
-        "MODEL_ID": "moonshotai/kimi-k2-instruct",
-        "OPENAI_BASE_URL": "https://integrate.api.nvidia.com/v1/",
-        "ASR_URL": "http://asr.local",
-        "TTS_URL": "http://tts.local",
+        "OPENRANGE_MODEL_ID": "moonshotai/kimi-k2-instruct",
+        "OPENRANGE_BASE_URL": "https://integrate.api.nvidia.com/v1/",
+        "OPENRANGE_ASR_URL": "http://asr.local",
+        "OPENRANGE_TTS_URL": "http://tts.local",
     }
     assert env == applied

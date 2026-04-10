@@ -2,7 +2,7 @@
 """Standalone GRPO training script for remote GPU instances.
 
 Runs Unsloth GRPO with progressive + binary reward functions on
-Qwen3.5-4B (from SFT checkpoint). Self-contained -- no open-range imports needed.
+Qwen3.5-4B (from SFT checkpoint).
 
 Usage:
     python3 run_grpo.py
@@ -20,6 +20,12 @@ import random
 import re
 import sys
 from pathlib import Path
+
+try:
+    from open_range.backend_overrides import BackendOverrides
+except ModuleNotFoundError:
+    sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
+    from open_range.backend_overrides import BackendOverrides
 
 logging.basicConfig(
     level=logging.INFO,
@@ -176,28 +182,6 @@ _EXPLOIT_BINARIES = frozenset(
         "php",
     }
 )
-
-
-def apply_backend_overrides(
-    env: dict[str, str],
-    *,
-    model_id: str | None = None,
-    base_url: str | None = None,
-    asr_url: str | None = None,
-    tts_url: str | None = None,
-) -> dict[str, str]:
-    applied: dict[str, str] = {}
-    if model_id:
-        applied["MODEL_ID"] = model_id
-    if base_url:
-        applied["OPENAI_BASE_URL"] = base_url
-    if asr_url:
-        applied["ASR_URL"] = asr_url
-    if tts_url:
-        applied["TTS_URL"] = tts_url
-    env.update(applied)
-    return applied
-
 
 # OpenEnv tool definitions (activates qwen3_coder format in chat template)
 OPENENV_TOOLS = [
@@ -649,20 +633,20 @@ def main():
     parser.add_argument("--num-gen", type=int, default=NUM_GEN)
     parser.add_argument("--epochs", type=int, default=EPOCHS)
     args = parser.parse_args()
-    backend_overrides = apply_backend_overrides(
-        os.environ,
-        model_id=args.backend_model,
+    backend_overrides = BackendOverrides(
+        model=args.backend_model,
         base_url=args.base_url,
         asr_url=args.asr_url,
         tts_url=args.tts_url,
     )
+    applied_backend_env = backend_overrides.apply(os.environ)
 
     logger.info("=== Unsloth GRPO Training ===")
     logger.info("Model: %s", args.model)
     logger.info("Data: %s", args.data)
     logger.info("Reward: %s", args.reward)
-    if backend_overrides:
-        logger.info("Backend overrides: %s", ", ".join(sorted(backend_overrides)))
+    if applied_backend_env:
+        logger.info("Backend overrides: %s", ", ".join(sorted(applied_backend_env)))
 
     # Check model exists
     if not Path(args.model).exists():

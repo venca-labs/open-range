@@ -165,7 +165,12 @@ def test_traces_command_writes_branch_native_datasets(tmp_path: Path):
 
 
 def test_grpo_command_invokes_standalone_runner(monkeypatch):
-    for key in ("MODEL_ID", "OPENAI_BASE_URL", "ASR_URL", "TTS_URL"):
+    for key in (
+        "OPENRANGE_MODEL_ID",
+        "OPENRANGE_BASE_URL",
+        "OPENRANGE_ASR_URL",
+        "OPENRANGE_TTS_URL",
+    ):
         monkeypatch.delenv(key, raising=False)
 
     commands: list[tuple[list[str], dict[str, str] | None]] = []
@@ -229,15 +234,16 @@ def test_grpo_command_invokes_standalone_runner(monkeypatch):
         "--epochs",
         "2",
     ]
-    assert env is not None
-    assert "MODEL_ID" not in env
-    assert "OPENAI_BASE_URL" not in env
-    assert "ASR_URL" not in env
-    assert "TTS_URL" not in env
+    assert env is None
 
 
 def test_grpo_command_forwards_root_backend_overrides(monkeypatch):
-    for key in ("MODEL_ID", "OPENAI_BASE_URL", "ASR_URL", "TTS_URL"):
+    for key in (
+        "OPENRANGE_MODEL_ID",
+        "OPENRANGE_BASE_URL",
+        "OPENRANGE_ASR_URL",
+        "OPENRANGE_TTS_URL",
+    ):
         monkeypatch.delenv(key, raising=False)
 
     commands: list[tuple[list[str], dict[str, str] | None]] = []
@@ -303,8 +309,4 @@ def test_grpo_command_forwards_root_backend_overrides(monkeypatch):
         "--tts-url",
         "http://tts.local",
     ]
-    assert env is not None
-    assert env["MODEL_ID"] == "moonshotai/kimi-k2-instruct"
-    assert env["OPENAI_BASE_URL"] == "https://integrate.api.nvidia.com/v1/"
-    assert env["ASR_URL"] == "http://asr.local"
-    assert env["TTS_URL"] == "http://tts.local"
+    assert env is None

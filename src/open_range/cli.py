@@ -4,16 +4,15 @@ from __future__ import annotations
 
 import json
 import logging
-import os
 import subprocess
 import sys
-from collections.abc import Mapping, MutableMapping
 from pathlib import Path
 from typing import Any
 
 import click
 import yaml
 
+from open_range.backend_overrides import BackendOverrides
 from open_range.build_config import BuildConfig
 from open_range.episode_config import EpisodeConfig
 from open_range.pipeline import BuildPipeline
@@ -24,12 +23,6 @@ from open_range.tracegen import generate_trace_dataset
 
 LOG_FORMAT = "%(asctime)s [%(levelname)s] %(name)s: %(message)s"
 LOG_DATE_FORMAT = "%H:%M:%S"
-BACKEND_OVERRIDE_ENV = {
-    "model": "MODEL_ID",
-    "base_url": "OPENAI_BASE_URL",
-    "asr_url": "ASR_URL",
-    "tts_url": "TTS_URL",
-}
 
 
 def _configure_logging(verbose: bool) -> None:
@@ -76,45 +69,6 @@ def _repo_script(script_name: str) -> Path:
     return script_path
 
 
-def _build_backend_overrides(
-    *,
-    model: str | None,
-    base_url: str | None,
-    asr_url: str | None,
-    tts_url: str | None,
-) -> dict[str, str]:
-    values = {
-        "model": model,
-        "base_url": base_url,
-        "asr_url": asr_url,
-        "tts_url": tts_url,
-    }
-    return {
-        env_name: value
-        for option, env_name in BACKEND_OVERRIDE_ENV.items()
-        if (value := values[option])
-    }
-
-
-def _apply_backend_overrides(
-    env: MutableMapping[str, str], overrides: Mapping[str, str]
-) -> None:
-    env.update(overrides)
-
-
-def _append_backend_override_args(
-    command: list[str], overrides: Mapping[str, str]
-) -> None:
-    if "MODEL_ID" in overrides:
-        command.extend(["--backend-model", overrides["MODEL_ID"]])
-    if "OPENAI_BASE_URL" in overrides:
-        command.extend(["--base-url", overrides["OPENAI_BASE_URL"]])
-    if "ASR_URL" in overrides:
-        command.extend(["--asr-url", overrides["ASR_URL"]])
-    if "TTS_URL" in overrides:
-        command.extend(["--tts-url", overrides["TTS_URL"]])
-
-
 @click.group()
 @click.option(
     "-v", "--verbose", is_flag=True, default=False, help="Enable debug logging."
@@ -151,13 +105,12 @@ def cli(
 ) -> None:
     """Build, admit, and run immutable OpenRange snapshots."""
     _configure_logging(verbose)
-    overrides = _build_backend_overrides(
+    overrides = BackendOverrides(
         model=model,
         base_url=base_url,
         asr_url=asr_url,
         tts_url=tts_url,
     )
-    _apply_backend_overrides(os.environ, overrides)
     ctx.ensure_object(dict)
     ctx.obj["backend_overrides"] = overrides
 
@@ -452,7 +405,9 @@ def grpo_cmd(
 ) -> None:
     """Run the advanced GRPO training path through the standalone Qwen runner."""
     runner = _repo_script("run_grpo.py")
-    backend_overrides = dict(ctx.find_root().obj.get("backend_overrides", {}))
+    backend_overrides: BackendOverrides = ctx.find_root().obj.get(
+        "backend_overrides", BackendOverrides()
+    )
     command = [
         sys.executable,
         str(runner),
@@ -475,10 +430,8 @@ def grpo_cmd(
         "--epochs",
         str(epochs),
     ]
-    _append_backend_override_args(command, backend_overrides)
-    child_env = os.environ.copy()
-    _apply_backend_overrides(child_env, backend_overrides)
-    result = subprocess.run(command, check=False, env=child_env)
+    backend_overrides.append_grpo_args(command)
+    result = subprocess.run(command, check=False)
     if result.returncode != 0:
         raise SystemExit(result.returncode)
 
