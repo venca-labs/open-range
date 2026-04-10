@@ -2,8 +2,8 @@
 
 from __future__ import annotations
 
-from collections.abc import Iterable, Mapping
 import shlex
+from collections.abc import Iterable, Mapping
 from typing import Literal
 
 from pydantic import BaseModel, ConfigDict
@@ -15,7 +15,6 @@ from open_range.effect_markers import (
     effect_marker_token,
 )
 from open_range.predicate_expr import parse_predicate
-
 
 StandardAttackObjective = Literal[
     "dos",

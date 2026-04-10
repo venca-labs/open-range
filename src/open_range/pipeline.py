@@ -8,7 +8,7 @@ from typing import Any
 from pydantic import BaseModel, ConfigDict
 
 from open_range.admit import LocalAdmissionController
-from open_range.build_config import BuildConfig, DEFAULT_BUILD_CONFIG
+from open_range.build_config import DEFAULT_BUILD_CONFIG, BuildConfig
 from open_range.compiler import EnterpriseSaaSManifestCompiler
 from open_range.manifest import EnterpriseSaaSManifest, validate_manifest
 from open_range.render import EnterpriseSaaSKindRenderer

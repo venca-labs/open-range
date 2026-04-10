@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-from open_range.admission import ValidatorReport, ReferenceBundle
+from open_range.admission import ReferenceBundle, ValidatorReport
 from open_range.manifest import EnterpriseSaaSManifest
 
 

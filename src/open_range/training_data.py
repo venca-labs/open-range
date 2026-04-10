@@ -14,7 +14,6 @@ from open_range.objectives import StandardAttackObjective
 from open_range.runtime_types import Action, Observation, RuntimeEvent
 from open_range.snapshot import RuntimeSnapshot
 
-
 TraceSource = Literal["runtime", "sim"]
 TraceSplit = Literal["train", "val", "test"]
 TeacherSource = Literal["reference_runtime", "reference_sim", "scripted_runtime"]

@@ -8,8 +8,8 @@ from typing import Protocol
 
 from open_range.code_web import code_web_realizations, code_web_remediation_command
 from open_range.manifest import (
-    PinnedWeaknessSpec,
     WEAKNESS_KIND_CATALOG,
+    PinnedWeaknessSpec,
     WeaknessFamily,
 )
 from open_range.objectives import weakness_objective_tags

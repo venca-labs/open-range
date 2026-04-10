@@ -24,7 +24,6 @@ strict manifest
 - `src/open_range/`: supported importable code
 - `manifests/`: checked-in example manifests for the strict public schema
 - `schemas/`: generated JSON schemas
-- `examples/`: runnable examples against the current package API
 - `data/`, `scripts/`: repo-only operational or experimental material
 
 ## Runtime model

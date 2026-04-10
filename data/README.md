@@ -56,4 +56,3 @@ uv run scripts/eval_tiny_sft.py \
 The small model probe is currently red-only, so role filtering should stay
 explicit in tiny SFT/eval runs unless you are intentionally training a mixed
 decision model.
-```

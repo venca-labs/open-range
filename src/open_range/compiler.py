@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import Protocol
 
-from open_range.build_config import BuildConfig, DEFAULT_BUILD_CONFIG
+from open_range.build_config import DEFAULT_BUILD_CONFIG, BuildConfig
 from open_range.manifest import (
     EnterpriseSaaSManifest,
     ManifestAsset,

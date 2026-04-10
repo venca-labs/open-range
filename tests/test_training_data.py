@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from open_range.runtime_types import Action, Observation
+from open_range.runtime_types import Action, Observation, RuntimeEvent
 from open_range.training_data import (
     TraceCandidate,
     TraceLineage,
@@ -12,7 +12,6 @@ from open_range.training_data import (
     render_candidate_completion,
     system_prompt_for_role,
 )
-from open_range.runtime_types import RuntimeEvent
 
 
 def test_decision_prompt_and_completion_are_structured() -> None:

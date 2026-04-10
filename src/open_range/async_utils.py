@@ -7,7 +7,6 @@ from concurrent.futures import Future
 from threading import Thread
 from typing import TypeVar
 
-
 T = TypeVar("T")
 
 

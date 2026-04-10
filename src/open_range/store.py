@@ -8,11 +8,10 @@ from pathlib import Path
 from random import Random
 from typing import Literal, Protocol
 
-from open_range.admission import ValidatorReport, ReferenceBundle
+from open_range.admission import ReferenceBundle, ValidatorReport
 from open_range.snapshot import KindArtifacts, Snapshot, world_hash
 from open_range.synth import SynthArtifacts
 from open_range.world_ir import WorldIR
-
 
 PoolSplit = Literal["train", "eval"]
 
