@@ -1149,7 +1149,7 @@ requires-dist = [
     { name = "transformers", marker = "extra == 'training'", specifier = ">=5.2" },
     { name = "trl", marker = "extra == 'training'", specifier = ">=0.24" },
 ]
-provides-extras = ["training"]
+provides-extras = ["npc", "training"]
 
 [package.metadata.requires-dev]
 dev = [

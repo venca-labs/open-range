@@ -73,6 +73,30 @@ def test_admit_command_persists_snapshot(tmp_path: Path):
     assert "Admitted snapshot written to" in result.output
 
 
+def test_admit_command_accepts_bundled_manifest_name(tmp_path: Path):
+    store_dir = tmp_path / "snapshots"
+    render_dir = tmp_path / "rendered"
+
+    result = CliRunner().invoke(
+        cli,
+        [
+            "admit",
+            "--manifest",
+            "tier1_basic.yaml",
+            "--output",
+            str(render_dir),
+            "--store-dir",
+            str(store_dir),
+            "--validation-profile",
+            "graph_only",
+        ],
+    )
+
+    assert result.exit_code == 0, result.output
+    snapshot_dirs = [path for path in store_dir.iterdir() if path.is_dir()]
+    assert len(snapshot_dirs) == 1
+
+
 def test_reset_command_loads_snapshot_from_store(tmp_path: Path):
     manifest_path = _write_manifest(tmp_path)
     store_dir = tmp_path / "snapshots"

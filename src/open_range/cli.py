@@ -16,6 +16,7 @@ import yaml
 from open_range.build_config import BuildConfig
 from open_range.episode_config import EpisodeConfig
 from open_range.pipeline import BuildPipeline
+from open_range.resources import load_bundled_manifest
 from open_range.service import OpenRange
 from open_range.store import FileSnapshotStore
 from open_range.tracegen import generate_trace_dataset
@@ -34,11 +35,15 @@ def _configure_logging(verbose: bool) -> None:
     )
 
 
-def _load_manifest(path: str) -> dict[str, Any]:
-    manifest_path = Path(path)
-    if not manifest_path.exists():
-        raise click.ClickException(f"manifest not found: {manifest_path}")
-    payload = yaml.safe_load(manifest_path.read_text(encoding="utf-8"))
+def _load_manifest(source: str) -> dict[str, Any]:
+    manifest_path = Path(source)
+    if manifest_path.exists():
+        payload = yaml.safe_load(manifest_path.read_text(encoding="utf-8"))
+    else:
+        try:
+            payload = load_bundled_manifest(source)
+        except FileNotFoundError as exc:
+            raise click.ClickException(f"manifest not found: {source}") from exc
     if not isinstance(payload, dict):
         raise click.ClickException(
             f"manifest must be a YAML mapping, got {type(payload).__name__}"
@@ -113,8 +118,8 @@ def cli(
     "-m",
     "--manifest",
     required=True,
-    type=click.Path(exists=True),
-    help="Path to manifest YAML.",
+    type=str,
+    help="Path to manifest YAML or bundled manifest name.",
 )
 @click.option(
     "-o",
@@ -143,8 +148,8 @@ def build_cmd(manifest: str, output: str) -> None:
     "-m",
     "--manifest",
     required=True,
-    type=click.Path(exists=True),
-    help="Path to manifest YAML.",
+    type=str,
+    help="Path to manifest YAML or bundled manifest name.",
 )
 @click.option(
     "-o",
@@ -264,8 +269,8 @@ def reset_cmd(
     "-m",
     "--manifest",
     required=True,
-    type=click.Path(exists=True),
-    help="Path to manifest YAML.",
+    type=str,
+    help="Path to manifest YAML or bundled manifest name.",
 )
 @click.option(
     "-o",
