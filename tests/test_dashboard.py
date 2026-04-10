@@ -192,4 +192,3 @@ class TestTopologyExtraction:
         assert len(topo["edges"]) == 1
         assert topo["edges"][0]["source"] == "svc-web"
         assert set(topo["zones"]) == {"dmz", "internal"}
-

@@ -3,343 +3,633 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>OpenRange — Episode Dashboard</title>
-<link rel="preconnect" href="https://fonts.googleapis.com">
+<title>OpenRange — Cyber Range Simulation</title>
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
-<script src="https://d3js.org/d3.v7.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
 <style>
-/* ── Design Tokens ─────────────────────────────────────────────── */
 :root {
-  --bg-primary: #0a0e17;
-  --bg-card: rgba(15, 23, 42, 0.75);
-  --bg-glass: rgba(30, 41, 59, 0.5);
-  --border-glass: rgba(100, 116, 139, 0.25);
-  --border-glow: rgba(56, 189, 248, 0.3);
-  --text-primary: #e2e8f0;
-  --text-secondary: #94a3b8;
-  --text-muted: #64748b;
-  --red-accent: #f43f5e;
-  --red-glow: rgba(244, 63, 94, 0.4);
-  --blue-accent: #38bdf8;
-  --blue-glow: rgba(56, 189, 248, 0.4);
-  --green-accent: #4ade80;
-  --green-glow: rgba(74, 222, 128, 0.4);
-  --amber-accent: #fbbf24;
-  --amber-glow: rgba(251, 191, 36, 0.3);
   --font-sans: 'Inter', system-ui, sans-serif;
   --font-mono: 'JetBrains Mono', monospace;
-  --radius: 12px;
-  --transition: 0.3s cubic-bezier(0.4, 0, 0.2, 1);
 }
-
 * { margin: 0; padding: 0; box-sizing: border-box; }
-html, body { height: 100%; overflow: hidden; }
-body {
-  font-family: var(--font-sans);
-  background: var(--bg-primary);
-  color: var(--text-primary);
-  display: flex; flex-direction: column;
-}
+html, body { width: 100%; height: 100%; overflow: hidden; background: #0a0e17; }
+#canvas { width: 100%; height: 100%; display: block; }
 
-/* ── Header ────────────────────────────────────────────────────── */
-.header {
+/* ── HUD Overlay ────────────────────────────────────────── */
+.hud { position: fixed; pointer-events: none; font-family: var(--font-sans); z-index: 10; }
+
+/* Top bar */
+.hud-top {
+  top: 0; left: 0; right: 0; height: 48px;
   display: flex; align-items: center; justify-content: space-between;
-  padding: 12px 24px;
-  background: var(--bg-card);
-  border-bottom: 1px solid var(--border-glass);
+  padding: 0 20px;
+  background: linear-gradient(180deg, rgba(10,14,23,0.95) 0%, rgba(10,14,23,0.4) 100%);
+}
+.hud-title {
+  font-size: 16px; font-weight: 600; color: #e2e8f0;
+  text-shadow: 0 0 20px rgba(56,189,248,0.3);
+}
+.hud-status {
+  font-size: 12px; font-weight: 500; padding: 4px 14px;
+  border-radius: 20px; letter-spacing: 0.5px;
+  text-transform: uppercase;
+}
+.hud-status.idle { background: rgba(100,116,139,0.3); color: #94a3b8; }
+.hud-status.running { background: rgba(74,222,128,0.15); color: #4ade80; border: 1px solid rgba(74,222,128,0.3); }
+.hud-status.done { background: rgba(56,189,248,0.15); color: #38bdf8; }
+
+.hud-controls {
+  display: flex; gap: 6px; pointer-events: all;
+}
+.hud-btn {
+  padding: 6px 14px; border-radius: 6px; font-size: 12px; font-weight: 500;
+  border: 1px solid rgba(100,116,139,0.3); background: rgba(15,23,42,0.8);
+  color: #e2e8f0; cursor: pointer; font-family: var(--font-sans);
+  backdrop-filter: blur(10px); transition: 0.2s;
+}
+.hud-btn:hover { border-color: #38bdf8; background: rgba(56,189,248,0.1); }
+.hud-btn.play { border-color: rgba(74,222,128,0.4); }
+.hud-btn.play:hover { background: rgba(74,222,128,0.15); }
+
+/* Score panel — Sims-style need bars */
+.hud-scores {
+  top: 60px; right: 16px; width: 220px;
+  background: rgba(15,23,42,0.85); border: 1px solid rgba(100,116,139,0.2);
+  border-radius: 12px; padding: 14px; backdrop-filter: blur(20px);
+}
+.score-title { font-size: 11px; font-weight: 600; color: #64748b; text-transform: uppercase; letter-spacing: 0.8px; margin-bottom: 10px; }
+.need-row { display: flex; align-items: center; gap: 8px; margin-bottom: 8px; }
+.need-label { font-size: 11px; font-weight: 500; width: 65px; }
+.need-bar-bg { flex: 1; height: 10px; border-radius: 5px; background: rgba(30,41,59,0.8); overflow: hidden; }
+.need-bar { height: 100%; border-radius: 5px; transition: width 0.8s ease; }
+.need-bar.red { background: linear-gradient(90deg, #f43f5e, #fb7185); }
+.need-bar.blue { background: linear-gradient(90deg, #38bdf8, #7dd3fc); }
+.need-bar.green { background: linear-gradient(90deg, #4ade80, #86efac); }
+.score-meta { margin-top: 10px; padding-top: 8px; border-top: 1px solid rgba(100,116,139,0.15); }
+.meta-row { display: flex; justify-content: space-between; font-size: 11px; color: #94a3b8; margin-bottom: 3px; }
+.meta-val { font-weight: 600; color: #e2e8f0; font-family: var(--font-mono); }
+
+/* Narrator — speech bubble */
+.hud-narrator {
+  bottom: 16px; left: 50%; transform: translateX(-50%);
+  max-width: 600px; width: 90%;
+  background: rgba(15,23,42,0.9); border: 1px solid rgba(100,116,139,0.25);
+  border-radius: 16px; padding: 14px 20px;
   backdrop-filter: blur(20px);
-  z-index: 10;
+  box-shadow: 0 8px 32px rgba(0,0,0,0.4);
 }
-.header-title {
-  font-size: 18px; font-weight: 600;
-  background: linear-gradient(135deg, var(--blue-accent), var(--green-accent));
-  -webkit-background-clip: text; -webkit-text-fill-color: transparent;
-}
-.header-subtitle { font-size: 12px; color: var(--text-muted); margin-left: 12px; }
-.header-controls { display: flex; gap: 8px; align-items: center; }
-
-.btn {
-  padding: 8px 16px; border: 1px solid var(--border-glass);
-  border-radius: 8px; background: var(--bg-glass);
-  color: var(--text-primary); font-family: var(--font-sans);
-  font-size: 13px; font-weight: 500; cursor: pointer;
-  transition: var(--transition);
-  backdrop-filter: blur(10px);
-}
-.btn:hover { border-color: var(--blue-accent); background: rgba(56, 189, 248, 0.1); }
-.btn-play { border-color: var(--green-accent); }
-.btn-play:hover { background: rgba(74, 222, 128, 0.15); }
-.btn-pause { border-color: var(--amber-accent); }
-.btn-pause:hover { background: rgba(251, 191, 36, 0.15); }
-.btn-reset { border-color: var(--red-accent); }
-.btn-reset:hover { background: rgba(244, 63, 94, 0.15); }
-
-.status-badge {
-  padding: 4px 12px; border-radius: 20px; font-size: 11px;
-  font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px;
-}
-.status-idle { background: rgba(100, 116, 139, 0.2); color: var(--text-muted); }
-.status-running { background: rgba(74, 222, 128, 0.15); color: var(--green-accent); border: 1px solid var(--green-glow); }
-.status-done { background: rgba(56, 189, 248, 0.15); color: var(--blue-accent); border: 1px solid var(--blue-glow); }
-
-/* ── Main Grid ─────────────────────────────────────────────────── */
-.main {
-  flex: 1; display: grid; gap: 12px; padding: 12px;
-  grid-template-columns: 1fr 320px;
-  grid-template-rows: 1fr auto auto;
-  min-height: 0;
-}
-
-/* ── Card Glass ────────────────────────────────────────────────── */
-.card {
-  background: var(--bg-card);
-  border: 1px solid var(--border-glass);
-  border-radius: var(--radius);
-  backdrop-filter: blur(20px);
-  overflow: hidden;
-  display: flex; flex-direction: column;
-}
-.card-header {
-  padding: 12px 16px;
-  border-bottom: 1px solid var(--border-glass);
-  font-size: 12px; font-weight: 600;
-  text-transform: uppercase; letter-spacing: 0.8px;
-  color: var(--text-secondary);
-  display: flex; align-items: center; gap: 8px;
-}
-.card-body { padding: 12px 16px; flex: 1; overflow-y: auto; min-height: 0; }
-
-/* ── Topology (D3) ─────────────────────────────────────────────── */
-.topology-card { grid-row: 1 / 3; }
-#topology-svg { width: 100%; height: 100%; }
-.topology-card .card-body { padding: 0; }
-
-.node-label {
-  font-family: var(--font-mono); font-size: 10px; font-weight: 500;
-  fill: var(--text-secondary); text-anchor: middle;
-  pointer-events: none;
-}
-.edge-line {
-  stroke: var(--border-glass); stroke-width: 1.5;
-  stroke-dasharray: 4 2; opacity: 0.6;
-}
-.edge-line.active { stroke: var(--amber-accent); opacity: 1; stroke-dasharray: none; }
-
-/* ── Scoreboard ────────────────────────────────────────────────── */
-.scoreboard-card { grid-column: 2; }
-.score-row {
-  display: flex; align-items: center; gap: 10px;
-  margin-bottom: 10px;
-}
-.score-label { font-size: 12px; font-weight: 500; width: 70px; }
-.score-bar-bg {
-  flex: 1; height: 8px; border-radius: 4px;
-  background: rgba(100, 116, 139, 0.15);
-  overflow: hidden;
-}
-.score-bar {
-  height: 100%; border-radius: 4px; transition: width 0.6s ease;
-}
-.score-bar.red { background: linear-gradient(90deg, var(--red-accent), #fb7185); }
-.score-bar.blue { background: linear-gradient(90deg, var(--blue-accent), #7dd3fc); }
-.score-bar.continuity { background: linear-gradient(90deg, var(--green-accent), #86efac); }
-.score-value { font-size: 12px; font-weight: 600; font-family: var(--font-mono); width: 40px; text-align: right; }
-
-.score-meta {
-  display: grid; grid-template-columns: 1fr 1fr; gap: 6px;
-  margin-top: 12px; padding-top: 12px;
-  border-top: 1px solid var(--border-glass);
-}
-.meta-item { font-size: 11px; color: var(--text-secondary); }
-.meta-value { font-weight: 600; color: var(--text-primary); font-family: var(--font-mono); }
-
-/* ── NPC Panel ─────────────────────────────────────────────────── */
-.npc-card { grid-column: 2; }
-.npc-item {
-  display: flex; align-items: center; gap: 8px;
-  padding: 6px 0; font-size: 12px;
-  border-bottom: 1px solid rgba(100, 116, 139, 0.1);
-}
-.npc-item:last-child { border-bottom: none; }
-.npc-dot {
-  width: 8px; height: 8px; border-radius: 50%;
-  background: var(--green-accent); flex-shrink: 0;
-  box-shadow: 0 0 6px var(--green-glow);
-  animation: pulse 2s ease-in-out infinite;
-}
-.npc-name { font-weight: 500; color: var(--text-primary); }
-.npc-activity { color: var(--text-muted); margin-left: auto; font-size: 11px; }
-
-/* ── Narrator ──────────────────────────────────────────────────── */
-.narrator-card { grid-column: 1 / -1; }
+.narrator-label { font-size: 10px; font-weight: 600; color: #64748b; text-transform: uppercase; letter-spacing: 0.8px; margin-bottom: 6px; }
 .narrator-text {
-  font-size: 14px; line-height: 1.6;
-  color: var(--text-secondary);
-  font-style: italic;
-  min-height: 40px;
-  transition: var(--transition);
+  font-size: 14px; line-height: 1.5; color: #cbd5e1; font-style: italic;
+  transition: 0.3s;
 }
-.narrator-text.active { color: var(--text-primary); }
+.narrator-text.active { color: #f1f5f9; }
 
-/* ── Timeline ──────────────────────────────────────────────────── */
-.timeline-card { grid-column: 1 / -1; max-height: 200px; }
-.timeline-card .card-body { padding: 8px 16px; }
-.event-row {
-  display: flex; align-items: flex-start; gap: 10px;
-  padding: 5px 0; font-size: 12px;
-  border-bottom: 1px solid rgba(100, 116, 139, 0.08);
-  animation: slideIn 0.3s ease;
+/* Event feed — bottom left */
+.hud-feed {
+  bottom: 16px; left: 16px; width: 280px; max-height: 200px;
+  overflow-y: auto; display: flex; flex-direction: column-reverse;
 }
-.event-row:last-child { border-bottom: none; }
-.event-time {
-  font-family: var(--font-mono); font-size: 11px;
-  color: var(--text-muted); width: 50px; flex-shrink: 0;
+.feed-item {
+  font-size: 11px; padding: 4px 0; color: #94a3b8;
+  border-bottom: 1px solid rgba(100,116,139,0.08);
+  animation: feedSlide 0.3s ease;
 }
-.event-dot {
-  width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0;
-  margin-top: 3px;
-}
-.event-dot.red { background: var(--red-accent); box-shadow: 0 0 8px var(--red-glow); }
-.event-dot.blue { background: var(--blue-accent); box-shadow: 0 0 8px var(--blue-glow); }
-.event-dot.green { background: var(--green-accent); box-shadow: 0 0 8px var(--green-glow); }
-.event-target { font-family: var(--font-mono); color: var(--text-secondary); }
-.event-type { color: var(--text-primary); font-weight: 500; }
-.event-malicious { color: var(--red-accent); font-weight: 600; }
+.feed-item .feed-time { font-family: var(--font-mono); color: #64748b; margin-right: 6px; }
+.feed-item .feed-actor { font-weight: 600; }
+.feed-item .feed-actor.red { color: #f43f5e; }
+.feed-item .feed-actor.blue { color: #38bdf8; }
+.feed-item .feed-actor.green { color: #4ade80; }
 
-/* ── Animations ────────────────────────────────────────────────── */
-@keyframes pulse {
-  0%, 100% { opacity: 1; transform: scale(1); }
-  50% { opacity: 0.6; transform: scale(0.85); }
+/* Sim clock */
+.hud-clock {
+  top: 60px; left: 16px;
+  background: rgba(15,23,42,0.85); border: 1px solid rgba(100,116,139,0.2);
+  border-radius: 12px; padding: 10px 16px; backdrop-filter: blur(20px);
 }
-@keyframes slideIn {
-  from { opacity: 0; transform: translateY(-8px); }
-  to { opacity: 1; transform: translateY(0); }
-}
-@keyframes nodeGlow {
-  0%, 100% { filter: drop-shadow(0 0 4px currentColor); }
-  50% { filter: drop-shadow(0 0 12px currentColor); }
-}
+.clock-time { font-family: var(--font-mono); font-size: 20px; font-weight: 600; color: #e2e8f0; }
+.clock-label { font-size: 10px; color: #64748b; text-transform: uppercase; letter-spacing: 0.5px; }
 
-/* ── Scrollbar ─────────────────────────────────────────────────── */
-::-webkit-scrollbar { width: 4px; }
-::-webkit-scrollbar-track { background: transparent; }
-::-webkit-scrollbar-thumb { background: var(--border-glass); border-radius: 2px; }
+@keyframes feedSlide { from { opacity: 0; transform: translateX(-10px); } to { opacity: 1; transform: translateX(0); } }
 </style>
 </head>
 <body>
 
-<!-- ── Header ────────────────────────────────────────────────── -->
-<header class="header">
-  <div style="display:flex;align-items:center;">
-    <span class="header-title">🏢 OpenRange</span>
-    <span class="header-subtitle">Episode Dashboard</span>
-    <span id="status-badge" class="status-badge status-idle" style="margin-left:16px;">IDLE</span>
-  </div>
-  <div class="header-controls">
-    <span id="sim-clock" style="font-family:var(--font-mono);font-size:13px;color:var(--text-muted);margin-right:8px;">⏱ 0.0s</span>
-    <button class="btn btn-reset" onclick="resetEpisode()">⟳ Reset</button>
-    <button class="btn btn-play" onclick="playEpisode()">▶ Play</button>
-    <button class="btn btn-pause" onclick="pauseEpisode()">⏸ Pause</button>
-  </div>
-</header>
+<canvas id="canvas"></canvas>
 
-<!-- ── Main Grid ─────────────────────────────────────────────── -->
-<main class="main">
-
-  <!-- Topology -->
-  <div class="card topology-card">
-    <div class="card-header">🌐 Network Topology</div>
-    <div class="card-body">
-      <svg id="topology-svg"></svg>
-    </div>
+<!-- HUD: Top Bar -->
+<div class="hud hud-top">
+  <div style="display:flex;align-items:center;gap:12px;">
+    <span class="hud-title">🏢 OpenRange</span>
+    <span id="status" class="hud-status idle">IDLE</span>
   </div>
-
-  <!-- Scoreboard -->
-  <div class="card scoreboard-card">
-    <div class="card-header">📊 Scoreboard</div>
-    <div class="card-body">
-      <div class="score-row">
-        <span class="score-label" style="color:var(--red-accent);">🔴 Red</span>
-        <div class="score-bar-bg"><div id="red-bar" class="score-bar red" style="width:0%"></div></div>
-        <span id="red-score" class="score-value">0.00</span>
-      </div>
-      <div class="score-row">
-        <span class="score-label" style="color:var(--blue-accent);">🔵 Blue</span>
-        <div class="score-bar-bg"><div id="blue-bar" class="score-bar blue" style="width:0%"></div></div>
-        <span id="blue-score" class="score-value">0.00</span>
-      </div>
-      <div class="score-row">
-        <span class="score-label" style="color:var(--green-accent);">💚 Uptime</span>
-        <div class="score-bar-bg"><div id="continuity-bar" class="score-bar continuity" style="width:100%"></div></div>
-        <span id="continuity-score" class="score-value">1.00</span>
-      </div>
-      <div class="score-meta">
-        <div class="meta-item">Winner: <span id="meta-winner" class="meta-value">—</span></div>
-        <div class="meta-item">Decisions: <span id="meta-decisions" class="meta-value">0</span></div>
-        <div class="meta-item">Red Obj: <span id="meta-red-obj" class="meta-value">0</span></div>
-        <div class="meta-item">Blue Obj: <span id="meta-blue-obj" class="meta-value">0</span></div>
-      </div>
-    </div>
+  <div class="hud-controls">
+    <button class="hud-btn" onclick="resetEpisode()">⟳ Reset</button>
+    <button class="hud-btn play" onclick="playEpisode()">▶ Play</button>
+    <button class="hud-btn" onclick="pauseEpisode()">⏸ Pause</button>
   </div>
+</div>
 
-  <!-- NPCs -->
-  <div class="card npc-card">
-    <div class="card-header">🎭 Active NPCs</div>
-    <div class="card-body" id="npc-list">
-      <div style="color:var(--text-muted);font-size:12px;">Waiting for episode...</div>
-    </div>
+<!-- HUD: Clock -->
+<div class="hud hud-clock">
+  <div class="clock-label">Sim Time</div>
+  <div id="sim-clock" class="clock-time">00:00</div>
+</div>
+
+<!-- HUD: Scores (Sims need bars) -->
+<div class="hud hud-scores">
+  <div class="score-title">Simulation Status</div>
+  <div class="need-row">
+    <span class="need-label" style="color:#f43f5e;">🔴 Red</span>
+    <div class="need-bar-bg"><div id="bar-red" class="need-bar red" style="width:0%"></div></div>
   </div>
-
-  <!-- Narrator -->
-  <div class="card narrator-card">
-    <div class="card-header">💬 Narrator <span style="font-size:10px;color:var(--text-muted);font-weight:400;margin-left:auto;">powered by NIM</span></div>
-    <div class="card-body">
-      <div id="narrator-text" class="narrator-text">The cyber range is quiet. Reset an episode to begin the simulation...</div>
-    </div>
+  <div class="need-row">
+    <span class="need-label" style="color:#38bdf8;">🔵 Blue</span>
+    <div class="need-bar-bg"><div id="bar-blue" class="need-bar blue" style="width:0%"></div></div>
   </div>
-
-  <!-- Timeline -->
-  <div class="card timeline-card">
-    <div class="card-header">📜 Event Timeline <span id="event-count" style="margin-left:auto;font-family:var(--font-mono);font-size:11px;color:var(--text-muted);">0 events</span></div>
-    <div class="card-body" id="timeline-body"></div>
+  <div class="need-row">
+    <span class="need-label" style="color:#4ade80;">💚 Uptime</span>
+    <div class="need-bar-bg"><div id="bar-cont" class="need-bar green" style="width:100%"></div></div>
   </div>
+  <div class="score-meta">
+    <div class="meta-row"><span>Winner</span><span id="m-winner" class="meta-val">—</span></div>
+    <div class="meta-row"><span>Decisions</span><span id="m-decisions" class="meta-val">0</span></div>
+    <div class="meta-row"><span>Red Obj</span><span id="m-robj" class="meta-val">0</span></div>
+    <div class="meta-row"><span>Blue Obj</span><span id="m-bobj" class="meta-val">0</span></div>
+  </div>
+</div>
 
-</main>
+<!-- HUD: Event Feed -->
+<div class="hud hud-feed" id="feed"></div>
+
+<!-- HUD: Narrator -->
+<div class="hud hud-narrator">
+  <div class="narrator-label">💬 Narrator — powered by NIM</div>
+  <div id="narrator" class="narrator-text">The office is quiet. Reset an episode to begin the simulation...</div>
+</div>
 
 <script>
-/* ── State ──────────────────────────────────────────────────── */
-let topology = { services: [], edges: [], zones: [], users: [] };
-let events = [];
-let simulation = null;
+/* ═══════════════════════════════════════════════════════════════
+   THREE.JS — ISOMETRIC OFFICE WORLD
+   ═══════════════════════════════════════════════════════════════ */
+
+const canvas = document.getElementById('canvas');
+const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, alpha: false });
+renderer.setSize(window.innerWidth, window.innerHeight);
+renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+renderer.shadowMap.enabled = true;
+renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+renderer.toneMapping = THREE.ACESFilmicToneMapping;
+renderer.toneMappingExposure = 1.2;
+
+const scene = new THREE.Scene();
+scene.background = new THREE.Color(0x1a1f2e);
+scene.fog = new THREE.FogExp2(0x1a1f2e, 0.012);
+
+/* ── Camera (isometric like The Sims) ──────────────────────── */
+const aspect = window.innerWidth / window.innerHeight;
+const frustum = 22;
+const camera = new THREE.OrthographicCamera(
+  -frustum * aspect, frustum * aspect,
+  frustum, -frustum, 0.1, 200
+);
+camera.position.set(30, 30, 30);
+camera.lookAt(0, 0, 0);
+
+const controls = new THREE.OrbitControls(camera, canvas);
+controls.enableDamping = true;
+controls.dampingFactor = 0.05;
+controls.maxPolarAngle = Math.PI / 3;
+controls.minPolarAngle = Math.PI / 6;
+controls.enablePan = true;
+controls.screenSpacePanning = false;
+
+/* ── Lighting ──────────────────────────────────────────────── */
+const ambient = new THREE.AmbientLight(0x405070, 0.6);
+scene.add(ambient);
+
+const sun = new THREE.DirectionalLight(0xffeedd, 0.9);
+sun.position.set(20, 40, 20);
+sun.castShadow = true;
+sun.shadow.mapSize.set(2048, 2048);
+sun.shadow.camera.left = -30; sun.shadow.camera.right = 30;
+sun.shadow.camera.top = 30; sun.shadow.camera.bottom = -30;
+scene.add(sun);
+
+const fill = new THREE.DirectionalLight(0x8888ff, 0.3);
+fill.position.set(-15, 10, -10);
+scene.add(fill);
+
+/* ── Materials ─────────────────────────────────────────────── */
+const mats = {
+  floor: new THREE.MeshStandardMaterial({ color: 0x2a3040, roughness: 0.8 }),
+  wall: new THREE.MeshStandardMaterial({ color: 0x334155, roughness: 0.6, transparent: true, opacity: 0.5 }),
+  desk: new THREE.MeshStandardMaterial({ color: 0x4a3728, roughness: 0.7 }),
+  monitor: new THREE.MeshStandardMaterial({ color: 0x1e293b, roughness: 0.3, metalness: 0.5 }),
+  screen: new THREE.MeshStandardMaterial({ color: 0x38bdf8, emissive: 0x38bdf8, emissiveIntensity: 0.4 }),
+  server: new THREE.MeshStandardMaterial({ color: 0x334155, roughness: 0.4, metalness: 0.6 }),
+  serverLight: new THREE.MeshStandardMaterial({ color: 0x4ade80, emissive: 0x4ade80, emissiveIntensity: 0.6 }),
+  grass: new THREE.MeshStandardMaterial({ color: 0x1a2e1a, roughness: 0.9 }),
+  path: new THREE.MeshStandardMaterial({ color: 0x3a3a4a, roughness: 0.7 }),
+  red: new THREE.MeshStandardMaterial({ color: 0xf43f5e, emissive: 0xf43f5e, emissiveIntensity: 0.3 }),
+  blue: new THREE.MeshStandardMaterial({ color: 0x38bdf8, emissive: 0x38bdf8, emissiveIntensity: 0.3 }),
+  green: new THREE.MeshStandardMaterial({ color: 0x4ade80, emissive: 0x4ade80, emissiveIntensity: 0.3 }),
+  skin: new THREE.MeshStandardMaterial({ color: 0xf0c8a0, roughness: 0.8 }),
+};
+
+/* ── Ground ────────────────────────────────────────────────── */
+const ground = new THREE.Mesh(
+  new THREE.PlaneGeometry(80, 80),
+  mats.grass
+);
+ground.rotation.x = -Math.PI / 2;
+ground.position.y = -0.01;
+ground.receiveShadow = true;
+scene.add(ground);
+
+// Grid overlay
+const gridHelper = new THREE.GridHelper(80, 40, 0x2a3a4a, 0x1a2a3a);
+gridHelper.position.y = 0.01;
+scene.add(gridHelper);
+
+/* ── Room/Zone Builder ─────────────────────────────────────── */
+const zonePositions = {};
+const servicePositions = {};
+const roomGroups = {};
+
+function buildRoom(id, x, z, w, d, label, color) {
+  const group = new THREE.Group();
+  group.position.set(x, 0, z);
+
+  // Floor
+  const floor = new THREE.Mesh(new THREE.BoxGeometry(w, 0.15, d), mats.floor);
+  floor.position.y = 0.075;
+  floor.receiveShadow = true;
+  group.add(floor);
+
+  // Walls (transparent)
+  const wallMat = new THREE.MeshStandardMaterial({
+    color: color || 0x334155, roughness: 0.6,
+    transparent: true, opacity: 0.25
+  });
+  const wallH = 3;
+  // Back wall
+  const bw = new THREE.Mesh(new THREE.BoxGeometry(w, wallH, 0.12), wallMat);
+  bw.position.set(0, wallH/2 + 0.15, -d/2);
+  group.add(bw);
+  // Left wall
+  const lw = new THREE.Mesh(new THREE.BoxGeometry(0.12, wallH, d), wallMat);
+  lw.position.set(-w/2, wallH/2 + 0.15, 0);
+  group.add(lw);
+
+  // Label
+  const labelSprite = makeTextSprite(label, { fontSize: 28, color: '#94a3b8' });
+  labelSprite.position.set(0, wallH + 0.5, 0);
+  group.add(labelSprite);
+
+  // Ceiling glow line
+  const glowGeo = new THREE.BoxGeometry(w - 0.5, 0.08, 0.08);
+  const glowMat = new THREE.MeshStandardMaterial({ color: color || 0x38bdf8, emissive: color || 0x38bdf8, emissiveIntensity: 0.5 });
+  const glow = new THREE.Mesh(glowGeo, glowMat);
+  glow.position.set(0, wallH + 0.15, -d/2 + 0.2);
+  group.add(glow);
+
+  scene.add(group);
+  roomGroups[id] = group;
+  zonePositions[id] = { x, z, w, d };
+  return group;
+}
+
+function addDesk(room, lx, lz) {
+  const desk = new THREE.Mesh(new THREE.BoxGeometry(1.6, 0.7, 0.8), mats.desk);
+  desk.position.set(lx, 0.5, lz);
+  desk.castShadow = true;
+  room.add(desk);
+  // Monitor
+  const mon = new THREE.Mesh(new THREE.BoxGeometry(0.8, 0.6, 0.05), mats.monitor);
+  mon.position.set(lx, 1.2, lz - 0.25);
+  room.add(mon);
+  const scr = new THREE.Mesh(new THREE.BoxGeometry(0.7, 0.48, 0.02), mats.screen);
+  scr.position.set(lx, 1.2, lz - 0.27);
+  room.add(scr);
+  // Chair
+  const chair = new THREE.Mesh(new THREE.CylinderGeometry(0.25, 0.25, 0.4, 8), mats.desk);
+  chair.position.set(lx, 0.35, lz + 0.7);
+  room.add(chair);
+  return { x: lx, z: lz };
+}
+
+function addServerRack(room, lx, lz) {
+  for (let i = 0; i < 3; i++) {
+    const rack = new THREE.Mesh(new THREE.BoxGeometry(0.6, 1.8, 0.5), mats.server);
+    rack.position.set(lx + i * 0.8, 1.05, lz);
+    rack.castShadow = true;
+    room.add(rack);
+    // Blinky lights
+    for (let j = 0; j < 4; j++) {
+      const light = new THREE.Mesh(
+        new THREE.BoxGeometry(0.04, 0.04, 0.01),
+        mats.serverLight
+      );
+      light.position.set(lx + i * 0.8 - 0.15 + j * 0.1, 1.2 + j * 0.15, lz - 0.26);
+      room.add(light);
+    }
+  }
+}
+
+/* ── Build Office Layout ───────────────────────────────────── */
+// DMZ / External
+const dmzRoom = buildRoom('dmz', -12, -8, 8, 6, '🌐 DMZ', 0xf59e0b);
+const webDesk = addDesk(dmzRoom, -1.5, 0);
+const webDesk2 = addDesk(dmzRoom, 1.5, 0);
+servicePositions['svc-web'] = { x: -12 + webDesk.x, z: -8 + webDesk.z };
+servicePositions['svc-mail'] = { x: -12 + webDesk2.x, z: -8 + webDesk2.z };
+
+// Corp Office
+const corpRoom = buildRoom('corp', 2, -8, 10, 6, '🏢 Corp Office', 0x3b82f6);
+addDesk(corpRoom, -3, 0);
+addDesk(corpRoom, -1, 0);
+addDesk(corpRoom, 1, 0);
+addDesk(corpRoom, 3, 0);
+servicePositions['svc-idp'] = { x: 2 - 3, z: -8 };
+servicePositions['svc-fileshare'] = { x: 2 + 3, z: -8 };
+
+// Server Room / Internal
+const srvRoom = buildRoom('internal', -5, 2, 8, 6, '🗄️ Server Room', 0x8b5cf6);
+addServerRack(srvRoom, -2, 0);
+addServerRack(srvRoom, 1.5, 0);
+servicePositions['svc-db'] = { x: -5 - 2, z: 2 };
+
+// SOC / Management
+const socRoom = buildRoom('management', 8, 2, 8, 6, '🛡️ SOC', 0x10b981);
+addDesk(socRoom, -2, 0);
+addDesk(socRoom, 0, 0);
+addDesk(socRoom, 2, 0);
+servicePositions['svc-siem'] = { x: 8, z: 2 };
+servicePositions['svc-firewall'] = { x: 8 + 2, z: 2 };
+
+/* ── Sims-style Character Builder ──────────────────────────── */
+const characters = {};
+
+function createCharacter(id, role, startPos) {
+  const group = new THREE.Group();
+  const roleColor = role === 'red' ? mats.red : role === 'blue' ? mats.blue : mats.green;
+  const bodyColor = role === 'red' ? 0x991b1b : role === 'blue' ? 0x1e3a5f : 0x166534;
+
+  // Body (capsule shape)
+  const body = new THREE.Mesh(
+    new THREE.CylinderGeometry(0.25, 0.2, 0.9, 8),
+    new THREE.MeshStandardMaterial({ color: bodyColor, roughness: 0.6 })
+  );
+  body.position.y = 0.75;
+  body.castShadow = true;
+  group.add(body);
+
+  // Head
+  const head = new THREE.Mesh(
+    new THREE.SphereGeometry(0.2, 8, 8),
+    mats.skin
+  );
+  head.position.y = 1.45;
+  head.castShadow = true;
+  group.add(head);
+
+  // Arms
+  for (const side of [-1, 1]) {
+    const arm = new THREE.Mesh(
+      new THREE.CylinderGeometry(0.06, 0.06, 0.5, 6),
+      new THREE.MeshStandardMaterial({ color: bodyColor, roughness: 0.6 })
+    );
+    arm.position.set(side * 0.32, 0.9, 0);
+    arm.rotation.z = side * 0.15;
+    group.add(arm);
+  }
+
+  // PLUMBOB (The Sims diamond!)
+  const plumbobGeo = new THREE.OctahedronGeometry(0.15, 0);
+  const plumbob = new THREE.Mesh(plumbobGeo, roleColor.clone());
+  plumbob.position.y = 2.0;
+  plumbob.userData.isPlumbob = true;
+  group.add(plumbob);
+
+  // Point light under plumbob
+  const plight = new THREE.PointLight(roleColor.color || 0xffffff, 0.5, 3);
+  plight.position.y = 1.8;
+  group.add(plight);
+
+  // Name label
+  const label = makeTextSprite(id, { fontSize: 22, color: role === 'red' ? '#f43f5e' : role === 'blue' ? '#38bdf8' : '#4ade80' });
+  label.position.y = 2.4;
+  group.add(label);
+
+  group.position.set(startPos.x, 0.15, startPos.z);
+  scene.add(group);
+
+  characters[id] = {
+    group, role, target: null,
+    pos: { x: startPos.x, z: startPos.z },
+    plumbob, plight,
+    walkPhase: Math.random() * Math.PI * 2,
+    idleTimer: 0,
+  };
+  return characters[id];
+}
+
+/* ── Text Sprite Helper ────────────────────────────────────── */
+function makeTextSprite(text, opts = {}) {
+  const canvas2d = document.createElement('canvas');
+  const ctx = canvas2d.getContext('2d');
+  const fontSize = opts.fontSize || 24;
+  canvas2d.width = 256;
+  canvas2d.height = 64;
+  ctx.font = `${fontSize}px Inter, sans-serif`;
+  ctx.fillStyle = opts.color || '#ffffff';
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  ctx.fillText(text, 128, 32);
+
+  const tex = new THREE.CanvasTexture(canvas2d);
+  tex.minFilter = THREE.LinearFilter;
+  const mat = new THREE.SpriteMaterial({ map: tex, transparent: true, depthTest: false });
+  const sprite = new THREE.Sprite(mat);
+  sprite.scale.set(3, 0.75, 1);
+  return sprite;
+}
+
+/* ── Particle System for Events ────────────────────────────── */
+const particles = [];
+
+function spawnParticles(worldPos, color, count = 12) {
+  for (let i = 0; i < count; i++) {
+    const geo = new THREE.SphereGeometry(0.06, 4, 4);
+    const mat = new THREE.MeshBasicMaterial({ color, transparent: true, opacity: 1 });
+    const mesh = new THREE.Mesh(geo, mat);
+    mesh.position.copy(worldPos);
+    mesh.position.y += 1;
+    scene.add(mesh);
+    particles.push({
+      mesh,
+      vel: new THREE.Vector3(
+        (Math.random() - 0.5) * 0.15,
+        Math.random() * 0.12 + 0.05,
+        (Math.random() - 0.5) * 0.15
+      ),
+      life: 1.0,
+      decay: 0.015 + Math.random() * 0.01,
+    });
+  }
+}
+
+/* ── Attack Beam Effect ────────────────────────────────────── */
+const beams = [];
+
+function spawnBeam(from, to, color) {
+  const pts = [
+    new THREE.Vector3(from.x, 1.5, from.z),
+    new THREE.Vector3(to.x, 1.5, to.z),
+  ];
+  const geo = new THREE.BufferGeometry().setFromPoints(pts);
+  const mat = new THREE.LineBasicMaterial({ color, transparent: true, opacity: 0.8, linewidth: 2 });
+  const line = new THREE.Line(geo, mat);
+  scene.add(line);
+  beams.push({ line, life: 1.0 });
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   GAME LOGIC
+   ═══════════════════════════════════════════════════════════════ */
+
+let topology = null;
 let eventSource = null;
 let narrateSource = null;
-let nodeElements = {};
+let events = [];
+let npcsSpawned = false;
 
-/* ── API Helpers ────────────────────────────────────────────── */
-async function api(method, path, body) {
-  const opts = { method, headers: { 'Content-Type': 'application/json' } };
-  if (body) opts.body = JSON.stringify(body);
-  const resp = await fetch(path, opts);
+/* ── API ───────────────────────────────────────────────────── */
+async function api(method, path) {
+  const resp = await fetch(path, { method });
   return resp.json();
+}
+
+/* ── Spawn dynamic characters from topology ────────────────── */
+function spawnFromTopology(topo) {
+  if (npcsSpawned) return;
+  npcsSpawned = true;
+
+  // Green NPCs from world users
+  const defaultPositions = [
+    { x: 2 - 3, z: -8 + 1.5 },
+    { x: 2 - 1, z: -8 + 1.5 },
+    { x: 2 + 1, z: -8 + 1.5 },
+    { x: 2 + 3, z: -8 + 1.5 },
+  ];
+  (topo.users || []).forEach((u, i) => {
+    const pos = defaultPositions[i % defaultPositions.length];
+    createCharacter(u.id, 'green', { x: pos.x + (i > 3 ? 1 : 0), z: pos.z });
+  });
+
+  // If no users in topology, spawn some defaults
+  if (!topo.users || topo.users.length === 0) {
+    createCharacter('sarah_sales', 'green', { x: -1, z: -6.5 });
+    createCharacter('mike_eng', 'green', { x: 1, z: -6.5 });
+    createCharacter('admin_it', 'green', { x: 3, z: -6.5 });
+  }
+
+  // Red attacker (starts outside)
+  createCharacter('agent-red', 'red', { x: -18, z: -12 });
+
+  // Blue defender (starts in SOC)
+  createCharacter('agent-blue', 'blue', { x: 8, z: 2.5 });
+}
+
+/* ── Move characters toward targets ────────────────────────── */
+function moveCharacterTo(charId, targetServiceId) {
+  const ch = characters[charId];
+  if (!ch) return;
+  const pos = servicePositions[targetServiceId];
+  if (!pos) return;
+  ch.target = { x: pos.x, z: pos.z + 1.2 }; // stand in front of desk
+}
+
+/* ── Process runtime event ─────────────────────────────────── */
+function onRuntimeEvent(ev) {
+  events.unshift(ev);
+  if (events.length > 100) events.pop();
+
+  // Update clock
+  const t = ev.time || 0;
+  const m = Math.floor(t / 60);
+  const s = Math.floor(t % 60);
+  document.getElementById('sim-clock').textContent = `${String(m).padStart(2,'0')}:${String(s).padStart(2,'0')}`;
+
+  // Move the acting character
+  const actorId = ev.actor === 'red' ? 'agent-red' : ev.actor === 'blue' ? 'agent-blue' : ev.source_entity;
+  if (ev.target_entity && servicePositions[ev.target_entity]) {
+    moveCharacterTo(actorId, ev.target_entity);
+  }
+
+  // Spawn particles at target
+  const tgtPos = servicePositions[ev.target_entity];
+  if (tgtPos) {
+    const color = ev.actor === 'red' ? 0xf43f5e : ev.actor === 'blue' ? 0x38bdf8 : 0x4ade80;
+    spawnParticles(new THREE.Vector3(tgtPos.x, 0, tgtPos.z), color, ev.malicious ? 20 : 8);
+
+    // Attack beams for malicious events
+    if (ev.malicious) {
+      const srcPos = servicePositions[ev.source_entity] || { x: -18, z: -12 };
+      spawnBeam(srcPos, tgtPos, 0xf43f5e);
+    }
+  }
+
+  // Feed
+  addFeedItem(ev);
+
+  // Poll state occasionally
+  if (events.length % 3 === 0) pollState();
+  if (ev.id === 'episode-done') setStatus('done');
+}
+
+function addFeedItem(ev) {
+  const feed = document.getElementById('feed');
+  const el = document.createElement('div');
+  el.className = 'feed-item';
+  const emoji = ev.actor === 'red' ? '🔴' : ev.actor === 'blue' ? '🔵' : '🟢';
+  el.innerHTML = `<span class="feed-time">t=${(ev.time||0).toFixed(1)}</span>
+    <span class="feed-actor ${ev.actor}">${emoji} ${ev.actor}</span>
+    ${ev.event_type} → ${ev.target_entity}`;
+  feed.prepend(el);
+  if (feed.children.length > 30) feed.lastChild.remove();
+}
+
+async function pollState() {
+  try {
+    const s = await api('GET', '/api/state');
+    if (!s.error) {
+      document.getElementById('bar-red').style.width = `${Math.min(100, Math.abs(s.red_reward||0)*100)}%`;
+      document.getElementById('bar-blue').style.width = `${Math.min(100, Math.abs(s.blue_reward||0)*100)}%`;
+      document.getElementById('bar-cont').style.width = `${(s.continuity ?? 1) * 100}%`;
+      document.getElementById('m-winner').textContent = s.winner || '—';
+      document.getElementById('m-decisions').textContent = s.decision_count || 0;
+      document.getElementById('m-robj').textContent = (s.red_objectives_satisfied||[]).length;
+      document.getElementById('m-bobj').textContent = (s.blue_objectives_satisfied||[]).length;
+    }
+  } catch(e) {}
 }
 
 /* ── Episode Controls ──────────────────────────────────────── */
 async function resetEpisode() {
   stopStreams();
-  setStatus('loading');
+  setStatus('idle');
   const result = await api('POST', '/api/episode/reset');
   if (result.topology) {
     topology = result.topology;
-    renderTopology();
-    renderNPCs();
+    spawnFromTopology(topology);
   }
   events = [];
-  renderTimeline();
-  updateScoreboard({});
-  setStatus('idle');
-  document.getElementById('narrator-text').textContent =
-    `Episode loaded on ${result.snapshot_id || 'unknown'}. Press Play to begin.`;
-  document.getElementById('narrator-text').classList.add('active');
+  document.getElementById('feed').innerHTML = '';
+  document.getElementById('narrator').textContent =
+    `Episode loaded on ${result.snapshot_id || 'unknown'}. Press Play to watch the simulation unfold...`;
 }
 
 async function playEpisode() {
@@ -356,32 +646,25 @@ async function pauseEpisode() {
 }
 
 function setStatus(s) {
-  const badge = document.getElementById('status-badge');
-  badge.className = 'status-badge';
-  if (s === 'running') { badge.classList.add('status-running'); badge.textContent = 'RUNNING'; }
-  else if (s === 'done') { badge.classList.add('status-done'); badge.textContent = 'DONE'; }
-  else if (s === 'loading') { badge.classList.add('status-idle'); badge.textContent = 'LOADING...'; }
-  else { badge.classList.add('status-idle'); badge.textContent = 'IDLE'; }
+  const el = document.getElementById('status');
+  el.className = 'hud-status';
+  if (s === 'running') { el.classList.add('running'); el.textContent = 'SIMULATING'; }
+  else if (s === 'done') { el.classList.add('done'); el.textContent = 'COMPLETE'; }
+  else { el.classList.add('idle'); el.textContent = 'IDLE'; }
 }
 
-/* ── SSE Streams ───────────────────────────────────────────── */
 function startEventStream() {
   if (eventSource) eventSource.close();
   eventSource = new EventSource('/api/events/stream');
-  eventSource.addEventListener('runtime_event', (e) => {
-    const ev = JSON.parse(e.data);
-    events.unshift(ev);
-    if (events.length > 200) events.pop();
-    onEvent(ev);
-  });
+  eventSource.addEventListener('runtime_event', e => onRuntimeEvent(JSON.parse(e.data)));
 }
 
 function startNarrateStream() {
   if (narrateSource) narrateSource.close();
   narrateSource = new EventSource('/api/narrate/stream');
-  narrateSource.addEventListener('narration', (e) => {
+  narrateSource.addEventListener('narration', e => {
     const data = JSON.parse(e.data);
-    const el = document.getElementById('narrator-text');
+    const el = document.getElementById('narrator');
     el.textContent = data.text;
     el.classList.add('active');
   });
@@ -392,214 +675,108 @@ function stopStreams() {
   if (narrateSource) { narrateSource.close(); narrateSource = null; }
 }
 
-/* ── Event Handler ─────────────────────────────────────────── */
-function onEvent(ev) {
-  renderTimeline();
-  highlightNode(ev.target_entity, ev.actor);
-  highlightNode(ev.source_entity, ev.actor);
-  document.getElementById('sim-clock').textContent = `⏱ ${ev.time.toFixed(1)}s`;
-  document.getElementById('event-count').textContent = `${events.length} events`;
+/* ═══════════════════════════════════════════════════════════════
+   ANIMATION LOOP
+   ═══════════════════════════════════════════════════════════════ */
 
-  // Poll state periodically
-  if (events.length % 3 === 0) pollState();
+const clock = new THREE.Clock();
 
-  if (ev.id === 'episode-done') setStatus('done');
-}
+function animate() {
+  requestAnimationFrame(animate);
+  const dt = clock.getDelta();
+  const t = clock.getElapsedTime();
 
-async function pollState() {
-  try {
-    const state = await api('GET', '/api/state');
-    if (!state.error) updateScoreboard(state);
-  } catch(e) {}
-}
+  // ── Animate Characters ──
+  for (const [id, ch] of Object.entries(characters)) {
+    // Plumbob rotation + bob
+    if (ch.plumbob) {
+      ch.plumbob.rotation.y += dt * 2.0;
+      ch.plumbob.position.y = 2.0 + Math.sin(t * 2 + ch.walkPhase) * 0.1;
+    }
 
-/* ── D3 Topology ───────────────────────────────────────────── */
-const zoneColors = {
-  'external': '#ef4444',
-  'dmz': '#f59e0b',
-  'corp': '#3b82f6',
-  'internal': '#8b5cf6',
-  'management': '#10b981',
-  'data': '#06b6d4',
-  'sandbox': '#ec4899',
-};
-
-function renderTopology() {
-  const svg = d3.select('#topology-svg');
-  svg.selectAll('*').remove();
-
-  const container = svg.node().parentElement;
-  const width = container.clientWidth || 600;
-  const height = container.clientHeight || 400;
-  svg.attr('viewBox', `0 0 ${width} ${height}`);
-
-  const nodes = topology.services.map(s => ({
-    id: s.id, kind: s.kind, zone: s.zone, host: s.host, ports: s.ports,
-    x: width / 2, y: height / 2,
-  }));
-
-  const nodeIndex = {};
-  nodes.forEach((n, i) => { nodeIndex[n.id] = i; });
-
-  const links = topology.edges
-    .filter(e => nodeIndex[e.source] !== undefined && nodeIndex[e.target] !== undefined)
-    .map(e => ({ source: e.source, target: e.target, kind: e.kind }));
-
-  const sim = d3.forceSimulation(nodes)
-    .force('link', d3.forceLink(links).id(d => d.id).distance(90))
-    .force('charge', d3.forceManyBody().strength(-250))
-    .force('center', d3.forceCenter(width / 2, height / 2))
-    .force('collision', d3.forceCollide(40));
-
-  // Zone background labels
-  const zonePositions = {};
-  topology.zones.forEach((z, i) => {
-    const angle = (2 * Math.PI * i) / topology.zones.length;
-    zonePositions[z] = { x: width/2 + Math.cos(angle) * 120, y: height/2 + Math.sin(angle) * 120 };
-  });
-
-  const link = svg.append('g')
-    .selectAll('line')
-    .data(links)
-    .enter().append('line')
-    .attr('class', 'edge-line')
-    .attr('data-source', d => d.source)
-    .attr('data-target', d => d.target);
-
-  const nodeG = svg.append('g')
-    .selectAll('g')
-    .data(nodes)
-    .enter().append('g')
-    .attr('cursor', 'pointer')
-    .call(d3.drag()
-      .on('start', (e, d) => { if (!e.active) sim.alphaTarget(0.3).restart(); d.fx = d.x; d.fy = d.y; })
-      .on('drag', (e, d) => { d.fx = e.x; d.fy = e.y; })
-      .on('end', (e, d) => { if (!e.active) sim.alphaTarget(0); d.fx = null; d.fy = null; })
-    );
-
-  // Outer glow ring
-  nodeG.append('circle')
-    .attr('r', 22)
-    .attr('fill', 'none')
-    .attr('stroke', d => zoneColors[d.zone] || '#64748b')
-    .attr('stroke-width', 2)
-    .attr('opacity', 0.3)
-    .attr('class', 'glow-ring');
-
-  // Node circle
-  nodeG.append('circle')
-    .attr('r', 16)
-    .attr('fill', d => zoneColors[d.zone] || '#334155')
-    .attr('stroke', d => zoneColors[d.zone] || '#64748b')
-    .attr('stroke-width', 1.5)
-    .attr('opacity', 0.85);
-
-  // Kind icon
-  const kindIcons = {
-    'web_app': '🌐', 'database': '🗄️', 'mail': '✉️', 'idp': '🔑',
-    'fileshare': '📁', 'siem': '📊', 'firewall': '🛡️', 'jumpbox': '🖥️',
-  };
-  nodeG.append('text')
-    .attr('text-anchor', 'middle')
-    .attr('dominant-baseline', 'central')
-    .attr('font-size', '12px')
-    .text(d => kindIcons[d.kind] || '⬡');
-
-  // Label
-  nodeG.append('text')
-    .attr('class', 'node-label')
-    .attr('y', 28)
-    .text(d => d.id.replace('svc-', ''));
-
-  // Store references for highlighting
-  nodeG.each(function(d) { nodeElements[d.id] = d3.select(this); });
-
-  sim.on('tick', () => {
-    link
-      .attr('x1', d => d.source.x).attr('y1', d => d.source.y)
-      .attr('x2', d => d.target.x).attr('y2', d => d.target.y);
-    nodeG.attr('transform', d => `translate(${d.x},${d.y})`);
-  });
-
-  simulation = sim;
-}
-
-function highlightNode(entityId, actor) {
-  const node = nodeElements[entityId];
-  if (!node) return;
-  const colors = { red: '#f43f5e', blue: '#38bdf8', green: '#4ade80' };
-  const color = colors[actor] || '#fbbf24';
-
-  node.select('.glow-ring')
-    .attr('stroke', color)
-    .attr('opacity', 0.8)
-    .attr('r', 28)
-    .transition().duration(1500)
-    .attr('opacity', 0.3)
-    .attr('r', 22);
-
-  node.select('circle:nth-child(2)')
-    .transition().duration(200)
-    .attr('fill', color)
-    .attr('opacity', 1)
-    .transition().duration(2000)
-    .attr('fill', d => zoneColors[d.zone] || '#334155')
-    .attr('opacity', 0.85);
-}
-
-/* ── Scoreboard ────────────────────────────────────────────── */
-function updateScoreboard(state) {
-  const rr = state.red_reward || 0;
-  const br = state.blue_reward || 0;
-  const cont = state.continuity ?? 1.0;
-
-  document.getElementById('red-bar').style.width = `${Math.min(100, Math.abs(rr) * 100)}%`;
-  document.getElementById('red-score').textContent = rr.toFixed(2);
-  document.getElementById('blue-bar').style.width = `${Math.min(100, Math.abs(br) * 100)}%`;
-  document.getElementById('blue-score').textContent = br.toFixed(2);
-  document.getElementById('continuity-bar').style.width = `${cont * 100}%`;
-  document.getElementById('continuity-score').textContent = cont.toFixed(2);
-
-  document.getElementById('meta-winner').textContent = state.winner || '—';
-  document.getElementById('meta-decisions').textContent = state.decision_count || 0;
-  document.getElementById('meta-red-obj').textContent = (state.red_objectives_satisfied || []).length;
-  document.getElementById('meta-blue-obj').textContent = (state.blue_objectives_satisfied || []).length;
-}
-
-/* ── NPC List ──────────────────────────────────────────────── */
-function renderNPCs() {
-  const el = document.getElementById('npc-list');
-  if (!topology.users || topology.users.length === 0) {
-    el.innerHTML = '<div style="color:var(--text-muted);font-size:12px;">No NPCs in this snapshot</div>';
-    return;
+    // Walk toward target
+    if (ch.target) {
+      const dx = ch.target.x - ch.pos.x;
+      const dz = ch.target.z - ch.pos.z;
+      const dist = Math.sqrt(dx*dx + dz*dz);
+      if (dist > 0.3) {
+        const speed = 3.5;
+        ch.pos.x += (dx / dist) * speed * dt;
+        ch.pos.z += (dz / dist) * speed * dt;
+        ch.group.position.x = ch.pos.x;
+        ch.group.position.z = ch.pos.z;
+        // Face direction
+        ch.group.rotation.y = Math.atan2(dx, dz);
+        // Walk bob
+        ch.walkPhase += dt * 10;
+        ch.group.position.y = 0.15 + Math.abs(Math.sin(ch.walkPhase)) * 0.08;
+      } else {
+        ch.target = null;
+        ch.group.position.y = 0.15;
+      }
+    } else {
+      // Idle sway
+      ch.idleTimer += dt;
+      if (ch.role === 'green' && ch.idleTimer > 5 + Math.random() * 5) {
+        ch.idleTimer = 0;
+        // Random wander within corp
+        const zone = zonePositions['corp'];
+        if (zone) {
+          ch.target = {
+            x: zone.x + (Math.random() - 0.5) * zone.w * 0.7,
+            z: zone.z + (Math.random() - 0.5) * zone.d * 0.4 + 1.5,
+          };
+        }
+      }
+      ch.group.position.y = 0.15 + Math.sin(t * 1.5 + ch.walkPhase) * 0.02;
+    }
   }
-  const activities = ['checking mail ✉️', 'browsing app 🌐', 'reviewing alerts 🔍', 'accessing files 📁', 'idle 💤'];
-  el.innerHTML = topology.users.slice(0, 8).map((u, i) => `
-    <div class="npc-item">
-      <div class="npc-dot"></div>
-      <span class="npc-name">${u.id}</span>
-      <span class="npc-activity">${activities[i % activities.length]}</span>
-    </div>
-  `).join('');
+
+  // ── Animate Particles ──
+  for (let i = particles.length - 1; i >= 0; i--) {
+    const p = particles[i];
+    p.mesh.position.add(p.vel);
+    p.vel.y -= 0.003; // gravity
+    p.life -= p.decay;
+    p.mesh.material.opacity = p.life;
+    p.mesh.scale.setScalar(p.life);
+    if (p.life <= 0) {
+      scene.remove(p.mesh);
+      particles.splice(i, 1);
+    }
+  }
+
+  // ── Animate Beams ──
+  for (let i = beams.length - 1; i >= 0; i--) {
+    const b = beams[i];
+    b.life -= dt * 0.8;
+    b.line.material.opacity = b.life;
+    if (b.life <= 0) {
+      scene.remove(b.line);
+      beams.splice(i, 1);
+    }
+  }
+
+  controls.update();
+  renderer.render(scene, camera);
 }
 
-/* ── Timeline ──────────────────────────────────────────────── */
-const actorEmoji = { red: '🔴', blue: '🔵', green: '🟢' };
+/* ── Resize ────────────────────────────────────────────────── */
+window.addEventListener('resize', () => {
+  const w = window.innerWidth, h = window.innerHeight;
+  const a = w / h;
+  camera.left = -frustum * a;
+  camera.right = frustum * a;
+  camera.top = frustum;
+  camera.bottom = -frustum;
+  camera.updateProjectionMatrix();
+  renderer.setSize(w, h);
+});
 
-function renderTimeline() {
-  const el = document.getElementById('timeline-body');
-  el.innerHTML = events.slice(0, 50).map(ev => `
-    <div class="event-row">
-      <span class="event-time">t=${(ev.time || 0).toFixed(1)}</span>
-      <span class="event-dot ${ev.actor}"></span>
-      <span class="event-type${ev.malicious ? ' event-malicious' : ''}">${actorEmoji[ev.actor] || '⚪'} ${ev.event_type}</span>
-      <span class="event-target">${ev.source_entity} → ${ev.target_entity}</span>
-    </div>
-  `).join('');
-}
-
-/* ── Init ──────────────────────────────────────────────────── */
-window.addEventListener('resize', () => { if (topology.services.length) renderTopology(); });
+/* ── Start ─────────────────────────────────────────────────── */
+// Spawn default characters even before reset
+spawnFromTopology({ users: [] });
+animate();
 </script>
 </body>
 </html>
