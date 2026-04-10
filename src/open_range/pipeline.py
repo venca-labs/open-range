@@ -18,11 +18,9 @@ from open_range.k3d_renderer import K3dRenderer
 from open_range.manifest import EnterpriseSaaSManifest, validate_manifest
 from open_range.render import EnterpriseSaaSKindRenderer
 from open_range.security_integrator import (
-    PayloadPatch,
     SecurityContext,
     SecurityIntegrator,
     SecurityIntegratorConfig,
-    SidecarPatch,
 )
 from open_range.snapshot import KindArtifacts, Snapshot
 from open_range.store import FileSnapshotStore, PoolSplit
@@ -70,8 +68,17 @@ class BuildPipeline:
     ) -> CandidateWorld:
         world = self._prepare_world(source, build_config)
         synth = self.synthesizer.synthesize(world, Path(outdir) / "synth")
-        artifacts = self._renderer_for(build_config).render(world, synth, Path(outdir))
-        artifacts = self._integrate_security(world, artifacts, build_config)
+        security_context = self._security_context(world, Path(outdir), build_config)
+        artifacts = self._renderer_for(build_config).render(
+            world,
+            synth,
+            Path(outdir),
+            extensions=(
+                security_context.render_extensions()
+                if security_context is not None
+                else None
+            ),
+        )
         artifacts = self._integrate_network_policies(artifacts, build_config)
         return CandidateWorld(
             world=world, synth=synth, artifacts=artifacts, build_config=build_config
@@ -135,145 +142,23 @@ class BuildPipeline:
             )
         return self.renderer
 
-    def _integrate_security(
+    def _security_context(
         self,
         world: WorldIR,
-        artifacts: KindArtifacts,
+        outdir: Path,
         build_config: BuildConfig,
-    ) -> KindArtifacts:
+    ) -> SecurityContext | None:
         if not build_config.security_enabled:
-            return artifacts
+            return None
         integrator = self.security_integrator or SecurityIntegrator(
             SecurityIntegratorConfig(enabled=True)
         )
         context = integrator.integrate(
             world,
-            render_dir=Path(artifacts.render_dir),
+            render_dir=outdir,
             tier=build_config.security_tier,
         )
-        if not context.generated_files:
-            return artifacts
-        chart_values = dict(artifacts.chart_values)
-        chart_values["services"] = self._integrate_security_payloads(
-            world,
-            chart_values.get("services", {}),
-            context,
-        )
-        chart_values["security"] = context.model_dump(mode="json")
-        return self._sync_artifacts(
-            artifacts,
-            chart_values=chart_values,
-            rendered_files=context.generated_files,
-            summary_updates={
-                "security_tier": build_config.security_tier,
-                "security_integration_enabled": True,
-            },
-        )
-
-    def _integrate_security_payloads(
-        self,
-        world: WorldIR,
-        services: dict[str, Any],
-        context: SecurityContext,
-    ) -> dict[str, Any]:
-        next_services = {name: dict(spec) for name, spec in services.items()}
-
-        for service_id, patch in context.service_patches.items():
-            if service_id not in next_services:
-                continue
-            if patch.payloads:
-                self._append_payloads(next_services, service_id, patch.payloads)
-            if patch.ports:
-                for port in patch.ports:
-                    self._append_port(next_services, service_id, port)
-            if patch.sidecars:
-                resolved_sidecars = [
-                    self._resolve_sidecar_patch(
-                        next_services[service_id], service_id, sidecar
-                    )
-                    for sidecar in patch.sidecars
-                ]
-                self._set_sidecars(next_services, service_id, resolved_sidecars)
-
-        return next_services
-
-    @staticmethod
-    def _append_payloads(
-        services: dict[str, Any], service_id: str, payloads: list[PayloadPatch | None]
-    ) -> None:
-        service = services.get(service_id)
-        if not isinstance(service, dict):
-            return
-        existing = list(service.get("payloads", []))
-        for payload in payloads:
-            if payload is None:
-                continue
-            existing.append(payload.model_dump(mode="json"))
-        service["payloads"] = existing
-
-    @staticmethod
-    def _append_port(
-        services: dict[str, Any], service_id: str, port: dict[str, Any]
-    ) -> None:
-        service = services.get(service_id)
-        if not isinstance(service, dict):
-            return
-        existing = list(service.get("ports", []))
-        if any(item.get("port") == port["port"] for item in existing):
-            return
-        existing.append(port)
-        service["ports"] = existing
-
-    @staticmethod
-    def _set_sidecars(
-        services: dict[str, Any], service_id: str, sidecars: list[dict[str, Any]]
-    ) -> None:
-        service = services.get(service_id)
-        if not isinstance(service, dict):
-            return
-        service["sidecars"] = sidecars
-
-    @staticmethod
-    def _resolve_sidecar_patch(
-        service: dict[str, Any],
-        service_id: str,
-        sidecar: SidecarPatch,
-    ) -> dict[str, Any]:
-        image = sidecar.image
-        if sidecar.inherit_image_from_service:
-            image = service.get("image", image)
-        if image is None:
-            raise ValueError(
-                f"sidecar {sidecar.name!r} for service {service_id!r} has no image"
-            )
-
-        payloads = [payload.model_dump(mode="json") for payload in sidecar.payloads]
-        if sidecar.inherit_payloads_from_service:
-            payloads = list(service.get("payloads", [])) + payloads
-
-        resolved = sidecar.model_dump(
-            mode="json",
-            exclude={
-                "inherit_image_from_service",
-                "inherit_payloads_from_service",
-            },
-            exclude_none=True,
-        )
-        resolved["image"] = image
-        resolved["payloads"] = payloads
-        return resolved
-
-    @staticmethod
-    def _payload_entry(
-        source_path: Path, key: str, mount_path: str
-    ) -> dict[str, str] | None:
-        if not source_path.exists():
-            return None
-        return {
-            "key": key,
-            "mountPath": mount_path,
-            "content": source_path.read_text(encoding="utf-8"),
-        }
+        return context if context.generated_files else None
 
     def _integrate_network_policies(
         self,

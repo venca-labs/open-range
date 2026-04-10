@@ -12,9 +12,10 @@ Tier mapping (configurable):
 - **Tier 3+**: Full stack -- identity + encryption + mTLS + NPC credential
   lifecycle with authorization policies.
 
-The integrator runs as a post-render enrichment step.  It reads the
-``WorldIR``, generates security artefacts, and writes them as JSON
-config files alongside the rendered Kind/Helm artifacts.
+The integrator builds a deterministic security runtime plan from the
+``WorldIR`` and build tier. It generates the needed artefacts on disk and
+describes the runtime components that render should materialize directly
+into the chart values.
 
 Ported from k3s-istio-vault-platform's orchestration patterns:
 - App-of-apps component ordering (root-chart)
@@ -31,10 +32,17 @@ import random
 from copy import deepcopy
 from importlib.resources import files
 from pathlib import Path
-from typing import Any, Literal
+from typing import Any
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, Field
 
+from open_range.runtime_extensions import (
+    RenderExtensions,
+    RuntimePayload,
+    RuntimePort,
+    RuntimeSidecar,
+    ServiceRuntimeExtension,
+)
 from open_range.world_ir import WorldIR
 
 logger = logging.getLogger(__name__)
@@ -143,64 +151,45 @@ class SecurityContext(BaseModel):
     mtls: dict[str, Any] = Field(default_factory=dict)
     npc_credential_lifecycle: dict[str, Any] = Field(default_factory=dict)
     generated_files: list[str] = Field(default_factory=list)
-    service_patches: dict[str, "ServicePatch"] = Field(default_factory=dict)
+    service_runtime: dict[str, ServiceRuntimeExtension] = Field(default_factory=dict)
 
-    def append_patch(
-        self,
-        service_id: str,
-        patch_type: Literal["payloads", "ports", "sidecars"],
-        item: Any,
-    ) -> None:
-        patch = self.service_patches.setdefault(service_id, ServicePatch())
-        if item is not None:
-            getattr(patch, patch_type).append(item)
+    def service_extension(self, service_id: str) -> ServiceRuntimeExtension:
+        return self.service_runtime.setdefault(service_id, ServiceRuntimeExtension())
 
-    def payload_patch(
+    def append_payload(self, service_id: str, payload: RuntimePayload | None) -> None:
+        if payload is not None:
+            self.service_extension(service_id).payloads.append(payload)
+
+    def append_port(self, service_id: str, port: RuntimePort) -> None:
+        self.service_extension(service_id).ports.append(port)
+
+    def append_sidecar(self, service_id: str, sidecar: RuntimeSidecar) -> None:
+        self.service_extension(service_id).sidecars.append(sidecar)
+
+    def runtime_payload(
         self, source_path: Path, key: str, mount_path: str
-    ) -> PayloadPatch | None:
+    ) -> RuntimePayload | None:
         if not source_path.exists():
             return None
-        return PayloadPatch(
+        return RuntimePayload(
             key=key,
             mountPath=mount_path,
             content=source_path.read_text(encoding="utf-8"),
         )
 
+    def summary(self) -> dict[str, Any]:
+        return self.model_dump(mode="json", exclude={"service_runtime"})
 
-class PayloadPatch(BaseModel):
-    """Mountable content to inject into a service."""
-
-    model_config = ConfigDict(extra="forbid")
-
-    key: str
-    mountPath: str
-    content: str
-
-
-class SidecarPatch(BaseModel):
-    """Additional container attached to a rendered service."""
-
-    model_config = ConfigDict(extra="forbid")
-
-    name: str
-    image: str | None = None
-    command: list[str] = Field(default_factory=list)
-    args: list[str] = Field(default_factory=list)
-    ports: list[dict[str, Any]] = Field(default_factory=list)
-    env: dict[str, str] = Field(default_factory=dict)
-    payloads: list[PayloadPatch] = Field(default_factory=list)
-    inherit_image_from_service: bool = False
-    inherit_payloads_from_service: bool = False
-
-
-class ServicePatch(BaseModel):
-    """Rendered-service mutations produced by an integration pass."""
-
-    model_config = ConfigDict(extra="forbid")
-
-    payloads: list[PayloadPatch] = Field(default_factory=list)
-    ports: list[dict[str, Any]] = Field(default_factory=list)
-    sidecars: list[SidecarPatch] = Field(default_factory=list)
+    def render_extensions(self) -> RenderExtensions:
+        return RenderExtensions(
+            services=self.service_runtime,
+            values={"security": self.summary()},
+            summary_updates={
+                "security_tier": self.tier,
+                "security_integration_enabled": True,
+            },
+            rendered_files=tuple(self.generated_files),
+        )
 
 
 # ---------------------------------------------------------------------------
@@ -365,53 +354,48 @@ class SecurityIntegrator:
         ]
         if idp_targets:
             idp_id = idp_targets[0]
-            ctx.append_patch(
+            ctx.append_payload(
                 idp_id,
-                "payloads",
-                ctx.payload_patch(
+                ctx.runtime_payload(
                     idp_dir / "config.json",
                     "security-idp-config.json",
                     "/etc/openrange/identity-provider.json",
                 ),
             )
-            ctx.append_patch(
+            ctx.append_payload(
                 idp_id,
-                "payloads",
-                ctx.payload_patch(
+                ctx.runtime_payload(
                     idp_dir / "startup.sh",
                     "security-idp-startup.sh",
                     "/opt/openrange/start_identity_provider.sh",
                 ),
             )
-            ctx.append_patch(
+            ctx.append_payload(
                 idp_id,
-                "payloads",
-                ctx.payload_patch(
+                ctx.runtime_payload(
                     idp_dir / "identity_provider_server.py",
                     "security-idp-server.py",
                     "/opt/openrange/identity_provider_server.py",
                 ),
             )
-            ctx.append_patch(
+            ctx.append_port(
                 idp_id,
-                "ports",
-                {
-                    "name": "idp-token",
-                    "port": int(
+                RuntimePort(
+                    name="idp-token",
+                    port=int(
                         idp_config.token_endpoint_port
                         if hasattr(idp_config, "token_endpoint_port")
                         else 8443
                     ),
-                },
+                ),
             )
-            ctx.append_patch(
+            ctx.append_sidecar(
                 idp_id,
-                "sidecars",
-                SidecarPatch(
+                RuntimeSidecar(
                     name="idp-helper",
-                    command=["/bin/sh", "/opt/openrange/start_identity_provider.sh"],
-                    inherit_image_from_service=True,
-                    inherit_payloads_from_service=True,
+                    image_source="service",
+                    command=("/bin/sh", "/opt/openrange/start_identity_provider.sh"),
+                    include_service_payloads=True,
                 ),
             )
 
@@ -508,19 +492,17 @@ class SecurityIntegrator:
             )
 
             for svc_name in services:
-                ctx.append_patch(
+                ctx.append_payload(
                     svc_name,
-                    "payloads",
-                    ctx.payload_patch(
+                    ctx.runtime_payload(
                         enc_dir / "config.json",
                         "security-encryption-config.json",
                         "/etc/openrange/encryption-config.json",
                     ),
                 )
-                ctx.append_patch(
+                ctx.append_payload(
                     svc_name,
-                    "payloads",
-                    ctx.payload_patch(
+                    ctx.runtime_payload(
                         enc_dir / "wrapped_dek.json",
                         "security-wrapped-dek.json",
                         "/etc/openrange/wrapped_dek.json",
@@ -585,28 +567,25 @@ class SecurityIntegrator:
                 (svc_dir / fname).write_text(payload["content"], encoding="utf-8")
                 ctx.generated_files.append(str(svc_dir / fname))
 
-            ctx.append_patch(
+            ctx.append_payload(
                 svc_name,
-                "payloads",
-                ctx.payload_patch(
+                ctx.runtime_payload(
                     svc_dir / "ca.pem",
                     "security-mtls-ca.pem",
                     "/etc/mtls/ca.pem",
                 ),
             )
-            ctx.append_patch(
+            ctx.append_payload(
                 svc_name,
-                "payloads",
-                ctx.payload_patch(
+                ctx.runtime_payload(
                     svc_dir / "cert.pem",
                     "security-mtls-cert.pem",
                     "/etc/mtls/cert.pem",
                 ),
             )
-            ctx.append_patch(
+            ctx.append_payload(
                 svc_name,
-                "payloads",
-                ctx.payload_patch(
+                ctx.runtime_payload(
                     svc_dir / "key.pem",
                     "security-mtls-key.pem",
                     "/etc/mtls/key.pem",

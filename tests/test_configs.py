@@ -8,10 +8,21 @@ from open_range._runtime_store import hydrate_runtime_snapshot
 import pytest
 
 from open_range.build_config import BuildConfig
+from open_range.compiler import EnterpriseSaaSManifestCompiler
 from open_range.episode_config import EpisodeConfig
 from open_range.manifest import validate_manifest
 from open_range.pipeline import BuildPipeline
+from open_range.render import EnterpriseSaaSKindRenderer
+from open_range.runtime_extensions import (
+    RenderExtensions,
+    RuntimePayload,
+    RuntimePort,
+    RuntimeSidecar,
+    ServiceRuntimeExtension,
+)
 from open_range.store import FileSnapshotStore
+from open_range.synth import EnterpriseSaaSWorldSynthesizer
+from open_range.weaknesses import CatalogWeaknessSeeder
 from tests.support import manifest_payload
 
 
@@ -159,6 +170,63 @@ def test_security_integration_renders_idp_runtime_hooks_with_helm(tmp_path: Path
     assert "containerPort: 8443" in rendered
     assert "/opt/openrange/start_identity_provider.sh" in rendered
     assert "name: idp-helper" in rendered
+
+
+def test_renderer_applies_runtime_extensions_during_render(tmp_path: Path):
+    manifest = validate_manifest(_manifest_payload())
+    build_config = BuildConfig(validation_profile="graph_only")
+    world = CatalogWeaknessSeeder().apply(
+        EnterpriseSaaSManifestCompiler().compile(manifest, build_config)
+    )
+    synth = EnterpriseSaaSWorldSynthesizer().synthesize(world, tmp_path / "synth")
+    extensions = RenderExtensions(
+        services={
+            "svc-idp": ServiceRuntimeExtension(
+                payloads=[
+                    RuntimePayload(
+                        key="runtime-helper.sh",
+                        mountPath="/opt/openrange/runtime-helper.sh",
+                        content="#!/bin/sh\nexit 0\n",
+                    )
+                ],
+                ports=[RuntimePort(name="runtime-helper", port=8443)],
+                sidecars=[
+                    RuntimeSidecar(
+                        name="runtime-helper",
+                        image_source="service",
+                        include_service_payloads=True,
+                        command=("/bin/sh", "/opt/openrange/runtime-helper.sh"),
+                    )
+                ],
+            )
+        },
+        values={"security": {"tier": 3}},
+        summary_updates={"security_tier": 3},
+        rendered_files=(str(tmp_path / "security-context.json"),),
+    )
+
+    artifacts = EnterpriseSaaSKindRenderer().render(
+        world,
+        synth,
+        tmp_path / "rendered-with-extensions",
+        extensions=extensions,
+    )
+
+    idp_service = artifacts.chart_values["services"]["svc-idp"]
+    sidecar = idp_service["sidecars"][0]
+
+    assert artifacts.chart_values["security"]["tier"] == 3
+    assert any(
+        payload["mountPath"] == "/opt/openrange/runtime-helper.sh"
+        for payload in idp_service["payloads"]
+    )
+    assert any(port["port"] == 8443 for port in idp_service["ports"])
+    assert sidecar["image"] == idp_service["image"]
+    assert any(
+        payload["mountPath"] == "/opt/openrange/runtime-helper.sh"
+        for payload in sidecar["payloads"]
+    )
+    assert str(tmp_path / "security-context.json") in artifacts.rendered_files
 
 
 def test_build_config_can_select_k3d_and_cilium_outputs(tmp_path: Path):

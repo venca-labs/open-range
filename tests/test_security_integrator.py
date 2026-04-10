@@ -155,12 +155,26 @@ class TestIdentityIntegration:
         integrator = SecurityIntegrator(SecurityIntegratorConfig(enabled=True))
         ctx = integrator.integrate(sample_world, render_dir=render_dir, tier=2)
 
-        idp_sidecar = ctx.service_patches["svc-idp"].sidecars[0]
+        idp_sidecar = ctx.service_runtime["svc-idp"].sidecars[0]
 
         assert idp_sidecar.name == "idp-helper"
-        assert idp_sidecar.image is None
-        assert idp_sidecar.inherit_image_from_service is True
-        assert idp_sidecar.inherit_payloads_from_service is True
+        assert idp_sidecar.image_source == "service"
+        assert idp_sidecar.include_service_payloads is True
+
+    def test_render_extensions_export_security_runtime_and_summary(
+        self, sample_world, render_dir
+    ):
+        integrator = SecurityIntegrator(SecurityIntegratorConfig(enabled=True))
+        ctx = integrator.integrate(sample_world, render_dir=render_dir, tier=2)
+        extensions = ctx.render_extensions()
+
+        assert "svc-idp" in extensions.services
+        assert extensions.values["security"]["tier"] == 2
+        assert extensions.summary_updates["security_tier"] == 2
+        assert any(
+            path.endswith("security/security-context.json")
+            for path in extensions.rendered_files
+        )
 
     def test_spiffe_ids_in_identities(self, sample_world, render_dir):
         integrator = SecurityIntegrator(SecurityIntegratorConfig(enabled=True))

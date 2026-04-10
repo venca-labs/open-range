@@ -15,6 +15,7 @@ from typing import Any
 import yaml
 
 from open_range.render import EnterpriseSaaSKindRenderer
+from open_range.runtime_extensions import RenderExtensions
 from open_range.snapshot import KindArtifacts
 from open_range.synth import SynthArtifacts
 from open_range.world_ir import ServiceSpec, WorldIR
@@ -59,14 +60,19 @@ class K3dRenderer(EnterpriseSaaSKindRenderer):
         self.wait_timeout = wait_timeout
 
     def render(
-        self, world: WorldIR, synth: SynthArtifacts, outdir: Path
+        self,
+        world: WorldIR,
+        synth: SynthArtifacts,
+        outdir: Path,
+        *,
+        extensions: RenderExtensions | None = None,
     ) -> KindArtifacts:
         """Render the Helm chart and k3d config to *outdir*.
 
         Delegates most work to ``EnterpriseSaaSKindRenderer.render()``
         then replaces the Kind config with a k3d config.
         """
-        artifacts = super().render(world, synth, outdir)
+        artifacts = super().render(world, synth, outdir, extensions=extensions)
 
         # Replace kind-config.yaml with k3d-config.yaml
         kind_config_path = Path(artifacts.kind_config_path)
