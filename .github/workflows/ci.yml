@@ -84,10 +84,16 @@ jobs:
       - name: Install package dependencies
         run: uv sync
 
+      - name: Offline CLI build E2E check
+        run: |
+          uv run openrange build \
+            -m manifests/tier1_basic.yaml \
+            -o /tmp/openrange-build
+
       - name: Offline CLI admission E2E check
         run: |
           uv run openrange admit \
             -m manifests/tier1_basic.yaml \
-            -o /tmp/openrange-build \
+            -o /tmp/openrange-admit \
             --store-dir /tmp/openrange-snapshots \
             --validation-profile graph_only
