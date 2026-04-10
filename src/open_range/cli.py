@@ -13,7 +13,9 @@ import click
 import yaml
 
 from open_range.build_config import BuildConfig
+from open_range.cluster import KindBackend
 from open_range.episode_config import EpisodeConfig
+from open_range.k3d_runner import K3dBackend
 from open_range.pipeline import BuildPipeline
 from open_range.service import OpenRange
 from open_range.store import FileSnapshotStore
@@ -63,6 +65,34 @@ def _repo_script(script_name: str) -> Path:
     return script_path
 
 
+def _build_config_from_options(
+    *,
+    validation_profile: str = "full",
+    security_tier: int = 1,
+    cluster_backend: str = "kind",
+    network_policy_backend: str = "kubernetes",
+    k3d_agents: int = 2,
+    k3d_subnet: str = "172.29.0.0/16",
+) -> BuildConfig:
+    return BuildConfig(
+        validation_profile=validation_profile,  # type: ignore[arg-type]
+        security_integration_enabled=security_tier > 1,
+        security_tier=security_tier,
+        cluster_backend=cluster_backend,  # type: ignore[arg-type]
+        network_policy_backend=network_policy_backend,  # type: ignore[arg-type]
+        k3d_agents=k3d_agents,
+        k3d_subnet=k3d_subnet,
+    )
+
+
+def _live_backend_for_option(cluster_backend: str) -> KindBackend | K3dBackend | None:
+    if cluster_backend == "none":
+        return None
+    if cluster_backend == "k3d":
+        return K3dBackend()
+    return KindBackend()
+
+
 @click.group()
 @click.option(
     "-v", "--verbose", is_flag=True, default=False, help="Enable debug logging."
@@ -88,10 +118,63 @@ def cli(verbose: bool) -> None:
     type=click.Path(),
     help="Output directory for rendered candidate artifacts.",
 )
-def build_cmd(manifest: str, output: str) -> None:
+@click.option(
+    "--security-tier",
+    default=1,
+    show_default=True,
+    type=click.IntRange(1, 5),
+    help="Optional security integration tier. Tier 1 keeps the core surface only.",
+)
+@click.option(
+    "--cluster-backend",
+    default="kind",
+    show_default=True,
+    type=click.Choice(["kind", "k3d"]),
+    help="Cluster backend used when rendering install artifacts.",
+)
+@click.option(
+    "--network-policy-backend",
+    default="kubernetes",
+    show_default=True,
+    type=click.Choice(["kubernetes", "cilium"]),
+    help="Network policy surface to render into the chart.",
+)
+@click.option(
+    "--k3d-agents",
+    default=2,
+    show_default=True,
+    type=click.IntRange(0, 16),
+    help="Agent node count when --cluster-backend k3d is selected.",
+)
+@click.option(
+    "--k3d-subnet",
+    default="172.29.0.0/16",
+    show_default=True,
+    help="Cluster subnet when --cluster-backend k3d is selected.",
+)
+def build_cmd(
+    manifest: str,
+    output: str,
+    security_tier: int,
+    cluster_backend: str,
+    network_policy_backend: str,
+    k3d_agents: int,
+    k3d_subnet: str,
+) -> None:
     """Compile and render a candidate world from a manifest."""
     output_dir = Path(output)
-    candidate = BuildPipeline().build(_load_manifest(manifest), output_dir)
+    candidate = BuildPipeline().build(
+        _load_manifest(manifest),
+        output_dir,
+        _build_config_from_options(
+            validation_profile="graph_only",
+            security_tier=security_tier,
+            cluster_backend=cluster_backend,
+            network_policy_backend=network_policy_backend,
+            k3d_agents=k3d_agents,
+            k3d_subnet=k3d_subnet,
+        ),
+    )
     world_path = _write_json(
         candidate.world.model_dump(mode="json"), output_dir / "candidate-world.json"
     )
@@ -136,15 +219,65 @@ def build_cmd(manifest: str, output: str) -> None:
     type=click.Choice(["full", "no_necessity", "graph_plus_live", "graph_only"]),
     help="Admission strictness. Use graph_only for explicit offline admission.",
 )
+@click.option(
+    "--security-tier",
+    default=1,
+    show_default=True,
+    type=click.IntRange(1, 5),
+    help="Optional security integration tier. Tier 1 keeps the core surface only.",
+)
+@click.option(
+    "--cluster-backend",
+    default="kind",
+    show_default=True,
+    type=click.Choice(["kind", "k3d"]),
+    help="Cluster backend used when rendering install artifacts and live checks.",
+)
+@click.option(
+    "--network-policy-backend",
+    default="kubernetes",
+    show_default=True,
+    type=click.Choice(["kubernetes", "cilium"]),
+    help="Network policy surface to render into the chart.",
+)
+@click.option(
+    "--k3d-agents",
+    default=2,
+    show_default=True,
+    type=click.IntRange(0, 16),
+    help="Agent node count when --cluster-backend k3d is selected.",
+)
+@click.option(
+    "--k3d-subnet",
+    default="172.29.0.0/16",
+    show_default=True,
+    help="Cluster subnet when --cluster-backend k3d is selected.",
+)
 def admit_cmd(
-    manifest: str, output: str, store_dir: str, split: str, validation_profile: str
+    manifest: str,
+    output: str,
+    store_dir: str,
+    split: str,
+    validation_profile: str,
+    security_tier: int,
+    cluster_backend: str,
+    network_policy_backend: str,
+    k3d_agents: int,
+    k3d_subnet: str,
 ) -> None:
     """Build and admit a snapshot into the snapshot store."""
     pipeline = BuildPipeline(store=FileSnapshotStore(store_dir))
     candidate = pipeline.build(
         _load_manifest(manifest),
         Path(output),
-        BuildConfig(validation_profile=validation_profile),
+        _build_config_from_options(
+            validation_profile=validation_profile,
+            security_tier=security_tier,
+            cluster_backend=cluster_backend,
+            network_policy_backend=network_policy_backend,
+            k3d_agents=k3d_agents,
+            k3d_subnet=k3d_subnet,
+        ),
     )
     snapshot = pipeline.admit(candidate, split=split)
     snapshot_path = Path(store_dir) / snapshot.snapshot_id / "snapshot.json"
@@ -197,6 +330,13 @@ def admit_cmd(
 @click.option(
     "--horizon", default=25.0, type=float, help="Simulated-time episode horizon."
 )
+@click.option(
+    "--live-cluster-backend",
+    default="none",
+    show_default=True,
+    type=click.Choice(["none", "kind", "k3d"]),
+    help="Optionally boot the admitted snapshot onto a live cluster backend.",
+)
 def reset_cmd(
     store_dir: str,
     snapshot_id: str | None,
@@ -205,9 +345,13 @@ def reset_cmd(
     sample_seed: int,
     mode: str,
     horizon: float,
+    live_cluster_backend: str,
 ) -> None:
     """Reset the runtime against an admitted snapshot and print the initial state."""
-    service = OpenRange(store=FileSnapshotStore(store_dir))
+    service = OpenRange(
+        store=FileSnapshotStore(store_dir),
+        live_backend=_live_backend_for_option(live_cluster_backend),
+    )
     state = service.reset(
         snapshot_id,
         EpisodeConfig(mode=mode, episode_horizon_minutes=horizon),
@@ -260,6 +404,13 @@ def reset_cmd(
 @click.option(
     "--no-sim", is_flag=True, default=False, help="Skip sim-plane bootstrap traces."
 )
+@click.option(
+    "--security-tier",
+    default=1,
+    show_default=True,
+    type=click.IntRange(1, 5),
+    help="Optional security integration tier for the rendered roots and mutations.",
+)
 def traces_cmd(
     manifest: str,
     output: str,
@@ -267,6 +418,7 @@ def traces_cmd(
     mutations: int,
     include_joint_pool: bool,
     no_sim: bool,
+    security_tier: int,
 ) -> None:
     """Generate branch-native trace datasets from admitted snapshots."""
     output_dir = Path(output)
@@ -274,6 +426,10 @@ def traces_cmd(
         _load_manifest(manifest),
         output_dir,
         manifest_source=manifest,
+        build_config=_build_config_from_options(
+            validation_profile="graph_only",
+            security_tier=security_tier,
+        ),
         roots=roots,
         mutations_per_root=mutations,
         include_sim=not no_sim,

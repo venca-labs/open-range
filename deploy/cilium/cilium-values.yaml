@@ -1,0 +1,100 @@
+# Cilium Helm values for open-range cybersecurity gymnasium.
+#
+# Optimized for Kind/k3d local clusters. Does NOT replace kube-proxy for
+# simplicity -- open-range only needs Cilium's eBPF-enforced network policies
+# and Hubble flow visibility.
+
+# ---------------------------------------------------------------------------
+# Core Cilium settings
+# ---------------------------------------------------------------------------
+
+# Do not replace kube-proxy -- keeps the setup simple for Kind/k3d.
+kubeProxyReplacement: false
+
+# IPAM: use Kubernetes-native pod CIDR allocation.
+ipam:
+  mode: kubernetes
+
+# Cilium operator -- single replica is fine for dev/training clusters.
+operator:
+  replicas: 1
+
+# ---------------------------------------------------------------------------
+# CNI configuration
+# ---------------------------------------------------------------------------
+
+# For Kind clusters that already have kindnetd, run Cilium alongside it.
+# Set exclusive=false so Cilium does not remove other CNI plugins.
+cni:
+  exclusive: false
+
+# ---------------------------------------------------------------------------
+# Hubble -- network flow observability
+# ---------------------------------------------------------------------------
+
+hubble:
+  enabled: true
+
+  # Enable L7 HTTP visibility for web-service traffic analysis.
+  # This lets the Blue agent see HTTP method, path, and status codes.
+  httpProtocol: "HTTP/1.1"
+
+  metrics:
+    enabled:
+      - dns
+      - drop
+      - tcp
+      - flow
+      - icmp
+      - "httpV2:exemplars=true;labelsContext=source_ip,source_namespace,destination_ip,destination_namespace"
+
+  relay:
+    enabled: true
+    # Resource limits appropriate for training clusters.
+    resources:
+      limits:
+        memory: 256Mi
+      requests:
+        cpu: 50m
+        memory: 64Mi
+
+  ui:
+    enabled: true
+    replicas: 1
+
+# ---------------------------------------------------------------------------
+# L7 policy visibility -- enables HTTP-aware CiliumNetworkPolicy
+# ---------------------------------------------------------------------------
+
+# Enable per-endpoint visibility annotations for L7 inspection.
+# This allows CiliumNetworkPolicy rules with HTTP path/method matching.
+enablePolicy: "default"
+
+# Enable DNS proxy for FQDN-based policies.
+dnsproxy:
+  enabled: true
+
+# ---------------------------------------------------------------------------
+# Monitoring -- optional Prometheus integration
+# ---------------------------------------------------------------------------
+
+prometheus:
+  enabled: false  # Enable if you have a Prometheus stack in the cluster.
+
+# ---------------------------------------------------------------------------
+# Resource limits -- conservative for local development
+# ---------------------------------------------------------------------------
+
+resources:
+  limits:
+    memory: 512Mi
+  requests:
+    cpu: 100m
+    memory: 128Mi
+
+# ---------------------------------------------------------------------------
+# Security context -- required for eBPF programs
+# ---------------------------------------------------------------------------
+
+securityContext:
+  privileged: true

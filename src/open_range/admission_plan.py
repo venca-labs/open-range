@@ -25,6 +25,14 @@ def admission_stages(build_config: BuildConfig) -> tuple[AdmissionStagePlan, ...
             "topology_workflow_consistency",
         ),
     )
+    security_stage = AdmissionStagePlan(
+        "security",
+        (
+            "identity_enforcement",
+            "encryption_enforcement",
+            "mtls_enforcement",
+        ),
+    )
     live_stage = AdmissionStagePlan(
         "live",
         (
@@ -48,14 +56,16 @@ def admission_stages(build_config: BuildConfig) -> tuple[AdmissionStagePlan, ...
         AdmissionStagePlan("shortcut", ("shortcut_probes",), requires_references=True),
         AdmissionStagePlan("determinism", ("determinism",), requires_references=True),
     )
+    security_stages = (security_stage,) if build_config.security_enabled else ()
 
     if build_config.validation_profile == "graph_only":
-        return (static_stage,)
+        return (static_stage, *security_stages)
     if build_config.validation_profile == "graph_plus_live":
-        return (static_stage, live_stage) + reference_stages
+        return (static_stage, *security_stages, live_stage) + reference_stages
     if build_config.validation_profile == "no_necessity":
         return (
             static_stage,
+            *security_stages,
             live_stage,
             *reference_stages,
             AdmissionStagePlan(
@@ -65,7 +75,13 @@ def admission_stages(build_config: BuildConfig) -> tuple[AdmissionStagePlan, ...
                 "determinism", ("determinism",), requires_references=True
             ),
         )
-    return (static_stage, live_stage, *reference_stages, *advanced_stages)
+    return (
+        static_stage,
+        *security_stages,
+        live_stage,
+        *reference_stages,
+        *advanced_stages,
+    )
 
 
 def profile_requires_live(build_config: BuildConfig) -> bool:

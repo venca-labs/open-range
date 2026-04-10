@@ -1,0 +1,46 @@
+# servicemonitor.yaml -- ServiceMonitor for OpenRange services
+#
+# Discovers services labelled with `app.kubernetes.io/part-of: openrange` across
+# all namespaces and scrapes their /metrics endpoint.
+#
+# Per-service tuning via annotations:
+#   prometheus.io/scrape: "true"       -- opt-in (default: scraped if label matches)
+#   prometheus.io/port: "8080"         -- override the scrape port
+#   prometheus.io/path: "/custom/metrics" -- override the metrics path
+apiVersion: monitoring.coreos.io/v1
+kind: ServiceMonitor
+metadata:
+  name: openrange-services
+  namespace: monitoring
+  labels:
+    app.kubernetes.io/part-of: openrange
+    app.kubernetes.io/managed-by: helm
+spec:
+  # Discover targets across all namespaces where range services live
+  namespaceSelector:
+    any: true
+
+  # Match any Service carrying the openrange part-of label
+  selector:
+    matchLabels:
+      app.kubernetes.io/part-of: openrange
+
+  endpoints:
+    # Default metrics endpoint
+    - port: http
+      path: /metrics
+      interval: 30s
+      scrapeTimeout: 10s
+      honorLabels: true
+
+    # Fallback: named port "metrics" used by custom exporters
+    - port: metrics
+      path: /metrics
+      interval: 30s
+      scrapeTimeout: 10s
+      honorLabels: true
+
+  # Attach useful target labels from the discovered Service
+  targetLabels:
+    - app.kubernetes.io/part-of
+    - openrange/snapshot
