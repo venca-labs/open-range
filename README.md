@@ -35,7 +35,7 @@ training-data generation.
 The fastest way to experience OpenRange locally is directly through the PyPI package. This requires no external dependencies and runs the engine fully offline over a synthetic simulation plane.
 
 ```bash
-pip install openenv-open-range
+pip install open-range
 openrange admit -m manifests/tier1_basic.yaml -o /tmp/openrange-build --validation-profile graph_only
 ```
 
