@@ -37,7 +37,7 @@ jobs:
           from pathlib import Path
           import yaml
 
-          for path in sorted(Path("manifests").glob("*.yaml")):
+          for path in sorted(Path("src/open_range/_resources/manifests").glob("*.yaml")):
               with path.open("r", encoding="utf-8") as handle:
                   yaml.safe_load(handle)
           PY
@@ -86,8 +86,19 @@ jobs:
 
       - name: Offline CLI admission E2E check
         run: |
-          uv run openrange admit \
-            -m manifests/tier1_basic.yaml \
-            -o /tmp/openrange-build \
-            --store-dir /tmp/openrange-snapshots \
-            --validation-profile graph_only
+          tmpdir=$(mktemp -d /tmp/openrange-ci-XXXXXX)
+          uv run -m open_range.cli build \
+            -m src/open_range/_resources/manifests/tier1_basic.yaml \
+            -o "$tmpdir/build" \
+            --security-tier 3 \
+            --cluster-backend k3d \
+            --network-policy-backend cilium
+
+          uv run -m open_range.cli admit \
+            -m src/open_range/_resources/manifests/tier1_basic.yaml \
+            -o "$tmpdir/admit" \
+            --store-dir "$tmpdir/store" \
+            --validation-profile graph_only \
+            --security-tier 3 \
+            --cluster-backend k3d \
+            --network-policy-backend cilium
