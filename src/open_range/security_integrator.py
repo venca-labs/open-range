@@ -143,6 +143,26 @@ class SecurityContext(BaseModel):
     mtls: dict[str, Any] = Field(default_factory=dict)
     npc_credential_lifecycle: dict[str, Any] = Field(default_factory=dict)
     generated_files: list[str] = Field(default_factory=list)
+    service_patches: dict[str, dict[str, list[Any]]] = Field(default_factory=dict)
+
+    def append_patch(self, service_id: str, patch_type: str, item: Any) -> None:
+        if service_id not in self.service_patches:
+            self.service_patches[service_id] = {}
+        if patch_type not in self.service_patches[service_id]:
+            self.service_patches[service_id][patch_type] = []
+        if item is not None:
+            self.service_patches[service_id][patch_type].append(item)
+
+    def payload_patch(
+        self, source_path: Path, key: str, mount_path: str
+    ) -> dict[str, str] | None:
+        if not source_path.exists():
+            return None
+        return {
+            "key": key,
+            "mountPath": mount_path,
+            "content": source_path.read_text(encoding="utf-8"),
+        }
 
 
 # ---------------------------------------------------------------------------
@@ -197,10 +217,10 @@ class SecurityIntegrator:
         security_dir.mkdir(parents=True, exist_ok=True)
 
         if tier_cfg.identity_provider:
-            self._integrate_identity(ctx, services, domain, security_dir)
+            self._integrate_identity(ctx, world, services, domain, security_dir)
 
         if tier_cfg.envelope_encryption:
-            self._integrate_encryption(ctx, world, security_dir, rng)
+            self._integrate_encryption(ctx, world, services, security_dir, rng)
 
         if tier_cfg.mtls:
             self._integrate_mtls(ctx, services, domain, security_dir, rng)
@@ -233,6 +253,7 @@ class SecurityIntegrator:
     def _integrate_identity(
         self,
         ctx: SecurityContext,
+        world: WorldIR,
         services: dict[str, str],
         domain: str,
         security_dir: Path,
@@ -301,6 +322,20 @@ class SecurityIntegrator:
             ]
         )
 
+        idp_targets = [service.id for service in world.services if service.kind == "idp"]
+        if idp_targets:
+            idp_id = idp_targets[0]
+            ctx.append_patch(idp_id, "payloads", ctx.payload_patch(idp_dir / "config.json", "security-idp-config.json", "/etc/openrange/identity-provider.json"))
+            ctx.append_patch(idp_id, "payloads", ctx.payload_patch(idp_dir / "startup.sh", "security-idp-startup.sh", "/opt/openrange/start_identity_provider.sh"))
+            ctx.append_patch(idp_id, "payloads", ctx.payload_patch(idp_dir / "identity_provider_server.py", "security-idp-server.py", "/opt/openrange/identity_provider_server.py"))
+            ctx.append_patch(idp_id, "ports", {"name": "idp-token", "port": int(idp_config.token_endpoint_port if hasattr(idp_config, "token_endpoint_port") else 8443)})
+            ctx.append_patch(idp_id, "sidecars", {
+                "name": "idp-helper",
+                "image": "python:3.11-alpine", # Will be patched dynamically in pipeline.py
+                "command": ["/bin/sh", "/opt/openrange/start_identity_provider.sh"],
+                "payloads": []
+            })
+
         logger.debug(
             "Identity provider integrated: %d service identities", len(identities)
         )
@@ -313,6 +348,7 @@ class SecurityIntegrator:
         self,
         ctx: SecurityContext,
         world: WorldIR,
+        services: dict[str, str],
         security_dir: Path,
         rng: random.Random,
     ) -> None:
@@ -392,6 +428,10 @@ class SecurityIntegrator:
                 ]
             )
 
+            for svc_name in services:
+                ctx.append_patch(svc_name, "payloads", ctx.payload_patch(enc_dir / "config.json", "security-encryption-config.json", "/etc/openrange/encryption-config.json"))
+                ctx.append_patch(svc_name, "payloads", ctx.payload_patch(enc_dir / "wrapped_dek.json", "security-wrapped-dek.json", "/etc/openrange/wrapped_dek.json"))
+
         logger.debug(
             "Encryption integrated: %d credentials encrypted", len(encrypted_refs)
         )
@@ -449,6 +489,10 @@ class SecurityIntegrator:
                 fname = payload["mountPath"].rsplit("/", 1)[-1]
                 (svc_dir / fname).write_text(payload["content"], encoding="utf-8")
                 ctx.generated_files.append(str(svc_dir / fname))
+                
+            ctx.append_patch(svc_name, "payloads", ctx.payload_patch(svc_dir / "ca.pem", "security-mtls-ca.pem", "/etc/mtls/ca.pem"))
+            ctx.append_patch(svc_name, "payloads", ctx.payload_patch(svc_dir / "cert.pem", "security-mtls-cert.pem", "/etc/mtls/cert.pem"))
+            ctx.append_patch(svc_name, "payloads", ctx.payload_patch(svc_dir / "key.pem", "security-mtls-key.pem", "/etc/mtls/key.pem"))
 
         ctx.mtls = mtls_config.model_dump()
 

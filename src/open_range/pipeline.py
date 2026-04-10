@@ -155,7 +155,6 @@ class BuildPipeline:
         chart_values["services"] = self._integrate_security_payloads(
             world,
             chart_values.get("services", {}),
-            Path(artifacts.render_dir),
             context,
         )
         chart_values["security"] = context.model_dump(mode="json")
@@ -173,108 +172,27 @@ class BuildPipeline:
         self,
         world: WorldIR,
         services: dict[str, Any],
-        render_dir: Path,
         context: SecurityContext,
     ) -> dict[str, Any]:
         next_services = {name: dict(spec) for name, spec in services.items()}
-        security_dir = render_dir / "security"
-
-        idp_targets = [
-            service.id for service in world.services if service.kind == "idp"
-        ]
-        if context.identity_provider and idp_targets:
-            self._append_payloads(
-                next_services,
-                idp_targets[0],
-                [
-                    self._payload_entry(
-                        security_dir / "idp" / "config.json",
-                        "security-idp-config.json",
-                        "/etc/openrange/identity-provider.json",
-                    ),
-                    self._payload_entry(
-                        security_dir / "idp" / "startup.sh",
-                        "security-idp-startup.sh",
-                        "/opt/openrange/start_identity_provider.sh",
-                    ),
-                    self._payload_entry(
-                        security_dir / "idp" / "identity_provider_server.py",
-                        "security-idp-server.py",
-                        "/opt/openrange/identity_provider_server.py",
-                    ),
-                ],
-            )
-            self._append_port(
-                next_services,
-                idp_targets[0],
-                {
-                    "name": "idp-token",
-                    "port": int(
-                        context.identity_provider.get("token_endpoint_port", 8443)
-                    ),
-                },
-            )
-
-        if context.encryption:
-            encryption_payloads = [
-                self._payload_entry(
-                    security_dir / "encryption" / "config.json",
-                    "security-encryption-config.json",
-                    "/etc/openrange/encryption-config.json",
-                ),
-                self._payload_entry(
-                    security_dir / "encryption" / "wrapped_dek.json",
-                    "security-wrapped-dek.json",
-                    "/etc/openrange/wrapped_dek.json",
-                ),
-            ]
-            for service_id in next_services:
-                self._append_payloads(next_services, service_id, encryption_payloads)
-
-        mtls_services = context.mtls.get("mtls_services", [])
-        for service_id in mtls_services:
+        
+        for service_id, patches in context.service_patches.items():
             if service_id not in next_services:
                 continue
-            self._append_payloads(
-                next_services,
-                service_id,
-                [
-                    self._payload_entry(
-                        security_dir / "mtls" / service_id / "ca.pem",
-                        "security-mtls-ca.pem",
-                        "/etc/mtls/ca.pem",
-                    ),
-                    self._payload_entry(
-                        security_dir / "mtls" / service_id / "cert.pem",
-                        "security-mtls-cert.pem",
-                        "/etc/mtls/cert.pem",
-                    ),
-                    self._payload_entry(
-                        security_dir / "mtls" / service_id / "key.pem",
-                        "security-mtls-key.pem",
-                        "/etc/mtls/key.pem",
-                    ),
-                ],
-            )
-
-        if context.identity_provider and idp_targets:
-            self._set_sidecars(
-                next_services,
-                idp_targets[0],
-                [
-                    {
-                        "name": "idp-helper",
-                        "image": next_services[idp_targets[0]].get("image"),
-                        "command": [
-                            "/bin/sh",
-                            "/opt/openrange/start_identity_provider.sh",
-                        ],
-                        "payloads": list(
-                            next_services[idp_targets[0]].get("payloads", [])
-                        ),
-                    }
-                ],
-            )
+            if "payloads" in patches:
+                self._append_payloads(next_services, service_id, patches["payloads"])
+            if "ports" in patches:
+                for port in patches["ports"]:
+                    self._append_port(next_services, service_id, port)
+            if "sidecars" in patches:
+                for sidecar in patches["sidecars"]:
+                    # Dynamically adopt the host service's image if we don't have a specific backend
+                    if sidecar.get("image") == "python:3.11-alpine" and "image" in next_services[service_id]:
+                        sidecar["image"] = next_services[service_id]["image"]
+                    # Adopt the host service's payloads into the sidecar
+                    if "payloads" in sidecar and not sidecar["payloads"]:
+                        sidecar["payloads"] = list(next_services[service_id].get("payloads", []))
+                self._set_sidecars(next_services, service_id, patches["sidecars"])
 
         return next_services
 
