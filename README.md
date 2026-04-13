@@ -14,7 +14,7 @@ validates that world with private reference traces and deterministic probes,
 freezes it as an immutable snapshot, and runs episodes with red, blue, and
 green-user dynamics.
 
-> **Project Provenance:** OpenRange is managed by **Vecna** as an open-source project. 
+> **Project Provenance:** OpenRange is managed by **Vecna** as an open-source project.
 > The core evaluation engine and admission concepts in this repository were heavily inspired by the [open-cybernauts/open-range](https://github.com/open-cybernauts/open-range) proof of concept built during the OpenEnv HuggingFace Hackathon in early March.
 
 This branch exposes OpenRange as an installable Python package and CLI. It is
@@ -65,7 +65,7 @@ training-data generation.
 
 ```bash
 uv sync
-uv run openrange --help
+uv run -m open_range.cli --help
 ```
 
 Or install the package directly:
@@ -81,13 +81,13 @@ This is the fastest way to see the package working end to end without setting up
 Kind:
 
 ```bash
-uv run openrange-demo
+uv run -m open_range.examples.demo
 ```
 
 You can also point it at a checked-in manifest:
 
 ```bash
-uv run openrange-demo --manifest manifests/tier1_basic.yaml
+uv run -m open_range.examples.demo --manifest manifests/tier1_basic.yaml
 ```
 
 ### 3. Admit a Snapshot Locally
@@ -95,7 +95,7 @@ uv run openrange-demo --manifest manifests/tier1_basic.yaml
 For a local first run, use the explicit offline profile:
 
 ```bash
-uv run openrange admit \
+uv run -m open_range.cli admit \
   -m manifests/tier1_basic.yaml \
   -o /tmp/openrange-build \
   --store-dir /tmp/openrange-snapshots \
@@ -105,7 +105,7 @@ uv run openrange admit \
 Then reset the runtime onto an admitted snapshot:
 
 ```bash
-uv run openrange reset \
+uv run -m open_range.cli reset \
   --store-dir /tmp/openrange-snapshots \
   --mode blue_only_live \
   --sample-seed 7
@@ -117,7 +117,7 @@ a live Kind-backed setup.
 ### 4. Generate Trace Data
 
 ```bash
-uv run openrange traces \
+uv run -m open_range.cli traces \
   -m manifests/tier1_basic.yaml \
   -o /tmp/openrange-traces \
   --roots 3 \
@@ -184,7 +184,7 @@ The package also ships a bootstrap example that compares a cheap sim-plane trace
 with a runtime episode:
 
 ```bash
-uv run openrange-bootstrap-demo
+uv run -m open_range.examples.bootstrap
 ```
 
 ## License
@@ -219,7 +219,7 @@ uv run scripts/generate_traces.py \
 Or through the CLI:
 
 ```bash
-openrange traces -m manifests/tier1_basic.yaml -o /tmp/openrange-traces --roots 3 --mutations 1
+uv run -m open_range.cli traces -m manifests/tier1_basic.yaml -o /tmp/openrange-traces --roots 3 --mutations 1
 ```
 
 The generator also writes role/source shards such as:
@@ -262,10 +262,10 @@ uv run -m pytest tests -q
 ## Development checks
 
 ```bash
-uv sync
-uv run ruff format .
+uv sync --group dev
+uv run ruff format --check .
 uv run ruff check .
-uv run pytest
+uv run pytest tests/ -v --tb=short
 uv run pre-commit install
 uv run pre-commit run --all-files
 ```

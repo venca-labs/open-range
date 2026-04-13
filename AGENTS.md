@@ -143,7 +143,7 @@ contract, especially around:
 
 Prefer `uv run -m ...` for Python commands in this repo.
 
-- create or refresh the local environment with `uv sync --extra dev`
+- create or refresh the local environment with `uv sync --group dev`
 - run the main test suite with `uv run -m pytest tests -q`
 - run focused tests with `uv run -m pytest tests/test_runtime.py -q`
 - inspect the CLI with `uv run -m open_range.cli --help`
