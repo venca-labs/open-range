@@ -466,6 +466,51 @@ def test_live_service_smoke_check_uses_reachable_zone_runners() -> None:
     assert calls_by_target["svc-db"].startswith("sandbox-green-")
 
 
+def test_live_db_mtls_check_proves_client_cert_required(tmp_path: Path) -> None:
+    pipeline = BuildPipeline(store=FileSnapshotStore(tmp_path / "snapshots"))
+    candidate = pipeline.build(
+        _manifest_payload(),
+        tmp_path / "rendered-security",
+        BuildConfig(
+            validation_profile="graph_only",
+            security_integration_enabled=True,
+            security_tier=3,
+        ),
+    )
+    calls: list[tuple[str, str]] = []
+
+    class FakePods:
+        async def exec(
+            self,
+            service: str,
+            cmd: str,
+            timeout: float = 30.0,
+            *,
+            container: str | None = None,
+        ) -> ExecResult:
+            del timeout
+            calls.append((service, container or "", cmd))
+            if container == "db-client-mtls":
+                return ExecResult(stdout="1\n", stderr="", exit_code=0)
+            if "mysql --protocol=TCP" in cmd:
+                return ExecResult(stdout="", stderr="ERROR 1045 (28000)", exit_code=1)
+            return ExecResult(stdout="", stderr="miss", exit_code=1)
+
+    report = admit_mod._live_db_mtls_check(
+        candidate.world, SimpleNamespace(pods=FakePods())
+    )
+
+    assert report.passed is True
+    assert calls[0][0] == "svc-web"
+    assert calls[0][1] == "db-client-mtls"
+    assert (
+        "--defaults-extra-file=/etc/mysql/conf.d/openrange-client-mtls.cnf"
+        in calls[0][2]
+    )
+    assert calls[1][0] == "sandbox-red"
+    assert "--ssl-cert=/etc/mtls/cert.pem" not in calls[1][2]
+
+
 def test_admission_controller_rejects_world_without_telemetry(tmp_path: Path):
     world = _build_seeded_world()
     broken = world.replace_edges(telemetry=())

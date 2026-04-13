@@ -239,6 +239,93 @@ def test_live_outbound_grader_probes_ssrf_realizations_without_output_tokens() -
     )
 
 
+def test_live_db_read_grader_uses_mtls_mysql_flags() -> None:
+    grader = SimpleNamespace(
+        grader_kind="db_row_read",
+        service_id="svc-db",
+        target_id="finance_docs",
+        expected_ref="seeded-finance_docs",
+    )
+    calls: list[tuple[str, str]] = []
+
+    class _Pods:
+        async def exec(self, service: str, cmd: str, timeout: float = 10.0):
+            del timeout
+            calls.append((service, cmd))
+            return SimpleNamespace(
+                ok=True,
+                stdout="seeded-finance_docs\n",
+                stderr="",
+            )
+
+    snapshot = SimpleNamespace(
+        world=SimpleNamespace(security_runtime=SimpleNamespace(mtls={"enabled": True})),
+        file_assets={},
+        db_seed_state={},
+    )
+
+    assert (
+        evaluate_objective_grader_live(
+            "asset_read(finance_docs)",
+            grader,
+            snapshot=snapshot,
+            pods=_Pods(),
+            events=(),
+            service_health={"svc-db": 1.0},
+            outputs=(),
+        )
+        is True
+    )
+    assert calls == [("svc-db", calls[0][1])]
+    assert "--protocol=TCP" in calls[0][1]
+    assert "--ssl-ca=/etc/mtls/ca.pem" in calls[0][1]
+    assert "--ssl-cert=/etc/mtls/cert.pem" in calls[0][1]
+    assert "--ssl-key=/etc/mtls/key.pem" in calls[0][1]
+
+
+def test_live_db_read_grader_falls_back_without_mtls() -> None:
+    grader = SimpleNamespace(
+        grader_kind="db_row_read",
+        service_id="svc-db",
+        target_id="finance_docs",
+        expected_ref="seeded-finance_docs",
+    )
+    calls: list[tuple[str, str]] = []
+
+    class _Pods:
+        async def exec(self, service: str, cmd: str, timeout: float = 10.0):
+            del timeout
+            calls.append((service, cmd))
+            return SimpleNamespace(
+                ok=True,
+                stdout="seeded-finance_docs\n",
+                stderr="",
+            )
+
+    snapshot = SimpleNamespace(
+        world=SimpleNamespace(security_runtime=SimpleNamespace(mtls={})),
+        file_assets={},
+        db_seed_state={},
+    )
+
+    assert (
+        evaluate_objective_grader_live(
+            "asset_read(finance_docs)",
+            grader,
+            snapshot=snapshot,
+            pods=_Pods(),
+            events=(),
+            service_health={"svc-db": 1.0},
+            outputs=(),
+        )
+        is True
+    )
+    assert calls == [("svc-db", calls[0][1])]
+    assert "--ssl-ca=/etc/mtls/ca.pem" not in calls[0][1]
+    assert "--ssl-cert=/etc/mtls/cert.pem" not in calls[0][1]
+    assert "--ssl-key=/etc/mtls/key.pem" not in calls[0][1]
+
+
 def test_live_outbound_grader_requires_probe_when_ssrf_realization_exists() -> None:
     payload = manifest_payload()
     payload["objectives"]["red"] = [{"predicate": "outbound_service(svc-web)"}]

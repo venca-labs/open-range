@@ -47,14 +47,23 @@ class PodSet:
     pod_ids: dict[str, str] = field(default_factory=dict)
     kubectl_cmd: tuple[str, ...] = ("kubectl",)
 
-    async def exec(self, service: str, cmd: str, timeout: float = 30.0) -> ExecResult:
+    async def exec(
+        self,
+        service: str,
+        cmd: str,
+        timeout: float = 30.0,
+        *,
+        container: str | None = None,
+    ) -> ExecResult:
         namespace, pod = self._resolve(service)
+        container_args = ["-c", container] if container else []
         proc = await asyncio.create_subprocess_exec(
             *self.kubectl_cmd,
             "exec",
             pod,
             "-n",
             namespace,
+            *container_args,
             "--",
             "sh",
             "-c",

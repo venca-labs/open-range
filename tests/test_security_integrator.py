@@ -238,6 +238,15 @@ class TestMTLSIntegration:
         assert ctx.mtls["enabled"] is True
         cert_files = list((render_dir / "security" / "mtls").glob("*/*.pem"))
         assert len(cert_files) >= 3
+        assert any(
+            payload.mount_path == "/etc/mysql/conf.d/openrange-client-mtls.cnf"
+            for payload in ctx.service_runtime["svc-web"].payloads
+        )
+        web_sidecar = ctx.service_runtime["svc-web"].sidecars[0]
+        assert web_sidecar.name == "db-client-mtls"
+        assert web_sidecar.image == "wbitt/network-multitool:alpine-extra"
+        assert web_sidecar.command == ("/bin/sh", "-lc", "sleep infinity")
+        assert web_sidecar.include_service_payloads is True
         assert ctx.service_runtime["svc-idp"].env["LDAP_TLS_VERIFY_CLIENT"] == "demand"
         assert ctx.service_runtime["svc-idp"].env["LDAP_TLS_CRT_FILENAME"] == "ldap.crt"
         assert any(
@@ -247,6 +256,10 @@ class TestMTLSIntegration:
         assert any(port.port == 636 for port in ctx.service_runtime["svc-idp"].ports)
         assert any(
             payload.mount_path == "/etc/mysql/conf.d/openrange-mtls.cnf"
+            for payload in ctx.service_runtime["svc-db"].payloads
+        )
+        assert any(
+            payload.mount_path == "/docker-entrypoint-initdb.d/02-openrange-mtls.sql"
             for payload in ctx.service_runtime["svc-db"].payloads
         )
 

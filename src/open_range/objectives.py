@@ -321,10 +321,11 @@ def evaluate_objective_grader_live(
             grader.expected_ref in combined_output or bool(linked_events)
         )
     if grader.grader_kind == "db_row_read":
-        query = "mysql -uapp -papp-pass app -Nse " + shlex.quote(
+        query = _db_query_command(
+            snapshot,
             "SELECT contents FROM assets "
             f"WHERE asset_id = '{grader.target_id}' "
-            "LIMIT 1;"
+            "LIMIT 1;",
         )
         result = run_async(
             pods.exec(grader.service_id or "svc-db", query, timeout=10.0)
@@ -338,10 +339,11 @@ def evaluate_objective_grader_live(
             )
         )
     if grader.grader_kind == "db_row_write":
-        query = "mysql -uapp -papp-pass app -Nse " + shlex.quote(
+        query = _db_query_command(
+            snapshot,
             "SELECT COUNT(*) FROM assets "
             f"WHERE asset_id = '{grader.target_id}' "
-            "LIMIT 1;"
+            "LIMIT 1;",
         )
         result = run_async(
             pods.exec(grader.service_id or "svc-db", query, timeout=10.0)
@@ -356,6 +358,41 @@ def evaluate_objective_grader_live(
             return True
         return _probe_live_objective_effect(snapshot, pods, grader)
     return False
+
+
+def _db_query_command(snapshot: object, query: str) -> str:
+    if _snapshot_mtls_enabled(snapshot):
+        return _mtls_mysql_query_command(query)
+    return "mysql -uapp -papp-pass app -Nse " + shlex.quote(query)
+
+
+def _snapshot_mtls_enabled(snapshot: object) -> bool:
+    world = getattr(snapshot, "world", None)
+    security_runtime = getattr(world, "security_runtime", None)
+    mtls = getattr(security_runtime, "mtls", None)
+    if isinstance(mtls, Mapping):
+        return bool(mtls.get("enabled"))
+    return False
+
+
+def _mtls_mysql_query_command(query: str) -> str:
+    return shlex.join(
+        [
+            "mysql",
+            "--protocol=TCP",
+            "-h",
+            "127.0.0.1",
+            "--ssl-mode=VERIFY_CA",
+            "--ssl-ca=/etc/mtls/ca.pem",
+            "--ssl-cert=/etc/mtls/cert.pem",
+            "--ssl-key=/etc/mtls/key.pem",
+            "-uapp",
+            "-papp-pass",
+            "app",
+            "-Nse",
+            query,
+        ]
+    )
 
 
 def evaluate_red_objectives(
