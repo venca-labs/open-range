@@ -262,6 +262,7 @@ class KindBackend:
         chart_dir = artifacts_dir / "openrange"
         if not chart_dir.exists():
             chart_dir = artifacts_dir
+        self.validate_runtime_env(artifacts_dir)
         self.prepare_images(chart_dir)
         self._helm_install(release_name, chart_dir)
         pod_map = self._discover_pods(release_name)
@@ -312,6 +313,17 @@ class KindBackend:
     def prepare_images(self, chart_dir: Path) -> None:
         for image in self._chart_images(chart_dir):
             self._ensure_image_loaded(image)
+
+    def validate_runtime_env(self, artifacts_dir: Path) -> None:
+        chart_dir = artifacts_dir / "openrange"
+        if not chart_dir.exists():
+            chart_dir = artifacts_dir
+        if self._chart_requires_cilium(chart_dir) and not self._cilium_ready():
+            raise RuntimeError(
+                "rendered chart requires Cilium, but the live cluster does not have "
+                "a ready Cilium installation. Install Cilium first or render with "
+                "the default Kubernetes network-policy backend."
+            )
 
     @staticmethod
     def release_name_for(snapshot_id: str) -> str:
@@ -382,6 +394,48 @@ class KindBackend:
         collect("services")
         collect("sandboxes")
         return images
+
+    @staticmethod
+    def _chart_requires_cilium(chart_dir: Path) -> bool:
+        values_path = chart_dir / "values.yaml"
+        if not values_path.exists():
+            return False
+        values = yaml.safe_load(values_path.read_text(encoding="utf-8")) or {}
+        cilium = values.get("cilium", {})
+        return isinstance(cilium, dict) and bool(cilium.get("enabled"))
+
+    def _cilium_ready(self) -> bool:
+        try:
+            self._run(
+                [
+                    *self.kubectl_cmd,
+                    "get",
+                    "crd",
+                    "ciliumnetworkpolicies.cilium.io",
+                ],
+                timeout=10.0,
+            )
+            daemonset = self._run(
+                [
+                    *self.kubectl_cmd,
+                    "-n",
+                    "kube-system",
+                    "get",
+                    "daemonset",
+                    "cilium",
+                    "-o",
+                    "jsonpath={.status.numberReady}/{.status.desiredNumberScheduled}",
+                ],
+                timeout=10.0,
+            )
+        except RuntimeError:
+            return False
+
+        status = daemonset.stdout.strip()
+        if "/" not in status:
+            return False
+        ready, desired = status.split("/", 1)
+        return desired != "0" and ready == desired
 
     def _ensure_image_loaded(self, image: str) -> None:
         if not image:

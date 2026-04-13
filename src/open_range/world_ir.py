@@ -16,6 +16,7 @@ from open_range.manifest import (
     WeaknessTargetKind,
 )
 from open_range.objectives import StandardAttackObjective
+from open_range.security_runtime import SecurityRuntimeSpec
 
 
 class _StrictModel(BaseModel):
@@ -199,6 +200,7 @@ class WorldIR(_StrictModel):
     blue_objectives: tuple[ObjectiveSpec, ...] = Field(default_factory=tuple)
     green_personas: tuple[GreenPersona, ...] = Field(default_factory=tuple)
     green_workload: GreenWorkloadSpec
+    security_runtime: SecurityRuntimeSpec = Field(default_factory=SecurityRuntimeSpec)
     mutation_bounds: MutationBoundsSpec = Field(default_factory=MutationBoundsSpec)
     lineage: LineageSpec
 

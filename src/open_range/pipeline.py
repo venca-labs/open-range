@@ -2,16 +2,23 @@
 
 from __future__ import annotations
 
+import hashlib
+import json
 from pathlib import Path
 from typing import Any
 
 from pydantic import BaseModel, ConfigDict
+import yaml
 
 from open_range.admit import LocalAdmissionController
 from open_range.build_config import BuildConfig, DEFAULT_BUILD_CONFIG
+from open_range.cilium_policies import CiliumPolicyGenerator
 from open_range.compiler import EnterpriseSaaSManifestCompiler
+from open_range.k3d_renderer import K3dRenderer
 from open_range.manifest import EnterpriseSaaSManifest, validate_manifest
 from open_range.render import EnterpriseSaaSKindRenderer
+from open_range.security_runtime import SecurityRuntimeSpec
+from open_range.security_integrator import SecurityIntegrator, SecurityIntegratorConfig
 from open_range.snapshot import KindArtifacts, Snapshot
 from open_range.store import FileSnapshotStore, PoolSplit
 from open_range.synth import EnterpriseSaaSWorldSynthesizer, SynthArtifacts
@@ -38,6 +45,7 @@ class BuildPipeline:
         seeder: CatalogWeaknessSeeder | None = None,
         synthesizer: EnterpriseSaaSWorldSynthesizer | None = None,
         renderer: EnterpriseSaaSKindRenderer | None = None,
+        security_integrator: SecurityIntegrator | None = None,
         admission: LocalAdmissionController | None = None,
         store: FileSnapshotStore | None = None,
     ) -> None:
@@ -45,6 +53,7 @@ class BuildPipeline:
         self.seeder = seeder or CatalogWeaknessSeeder()
         self.synthesizer = synthesizer or EnterpriseSaaSWorldSynthesizer()
         self.renderer = renderer or EnterpriseSaaSKindRenderer()
+        self.security_integrator = security_integrator
         self.admission = admission or LocalAdmissionController(mode="fail_fast")
         self.store = store or FileSnapshotStore()
 
@@ -56,7 +65,8 @@ class BuildPipeline:
     ) -> CandidateWorld:
         world = self._prepare_world(source, build_config)
         synth = self.synthesizer.synthesize(world, Path(outdir) / "synth")
-        artifacts = self.renderer.render(world, synth, Path(outdir))
+        artifacts = self._renderer_for(build_config).render(world, synth, Path(outdir))
+        artifacts = self._integrate_network_policies(artifacts, build_config)
         return CandidateWorld(
             world=world, synth=synth, artifacts=artifacts, build_config=build_config
         )
@@ -98,14 +108,109 @@ class BuildPipeline:
         build_config: BuildConfig,
     ) -> WorldIR:
         if isinstance(source, WorldIR):
-            return source if source.weaknesses else self.seeder.apply(source)
+            world = source if source.weaknesses else self.seeder.apply(source)
+            return self._attach_security_runtime(world, build_config)
         parsed = (
             source
             if isinstance(source, EnterpriseSaaSManifest)
             else validate_manifest(source)
         )
         world = self.compiler.compile(parsed, build_config)
-        return self.seeder.apply(world)
+        return self._attach_security_runtime(self.seeder.apply(world), build_config)
+
+    def _renderer_for(self, build_config: BuildConfig) -> EnterpriseSaaSKindRenderer:
+        if self.renderer is not None and not isinstance(
+            self.renderer, EnterpriseSaaSKindRenderer
+        ):
+            return self.renderer
+        if build_config.cluster_backend == "k3d":
+            return K3dRenderer(
+                agents=build_config.k3d_agents,
+                subnet=build_config.k3d_subnet,
+            )
+        return self.renderer
+
+    def _attach_security_runtime(
+        self,
+        world: WorldIR,
+        build_config: BuildConfig,
+    ) -> WorldIR:
+        if not build_config.security_enabled:
+            return world.model_copy(update={"security_runtime": SecurityRuntimeSpec()})
+        integrator = self.security_integrator or SecurityIntegrator(
+            SecurityIntegratorConfig(enabled=True)
+        )
+        runtime = integrator.plan(world, tier=build_config.security_tier)
+        return world.model_copy(update={"security_runtime": runtime})
+
+    def _integrate_network_policies(
+        self,
+        artifacts: KindArtifacts,
+        build_config: BuildConfig,
+    ) -> KindArtifacts:
+        if build_config.network_policy_backend != "cilium":
+            return artifacts
+        chart_values = dict(artifacts.chart_values)
+        generator = CiliumPolicyGenerator(
+            name_prefix=chart_values["global"]["namePrefix"]
+        )
+        policies = generator.generate_zone_policies(
+            chart_values["zones"],
+            chart_values["firewallRules"],
+        )
+        cilium_path = Path(artifacts.chart_dir) / "templates" / "cilium-policies.yaml"
+        cilium_path.write_text(
+            yaml.safe_dump_all(policies, sort_keys=False),
+            encoding="utf-8",
+        )
+        chart_values["cilium"] = {
+            "enabled": True,
+            "policyCount": len(policies),
+        }
+        return self._sync_artifacts(
+            artifacts,
+            chart_values=chart_values,
+            rendered_files=[str(cilium_path)],
+            summary_updates={
+                "network_policy_backend": build_config.network_policy_backend,
+            },
+        )
+
+    def _sync_artifacts(
+        self,
+        artifacts: KindArtifacts,
+        *,
+        chart_values: dict[str, Any],
+        rendered_files: list[str] | tuple[str, ...] = (),
+        summary_updates: dict[str, Any] | None = None,
+    ) -> KindArtifacts:
+        values_path = Path(artifacts.values_path)
+        values_path.write_text(
+            yaml.safe_dump(chart_values, sort_keys=False),
+            encoding="utf-8",
+        )
+
+        summary_path = Path(artifacts.manifest_summary_path)
+        summary = json.loads(summary_path.read_text(encoding="utf-8"))
+        summary["values_hash"] = hashlib.sha256(
+            json.dumps(chart_values, sort_keys=True, separators=(",", ":")).encode(
+                "utf-8"
+            )
+        ).hexdigest()
+        if summary_updates:
+            summary.update(summary_updates)
+        summary_path.write_text(
+            json.dumps(summary, indent=2, sort_keys=True) + "\n",
+            encoding="utf-8",
+        )
+
+        next_files = tuple(dict.fromkeys((*artifacts.rendered_files, *rendered_files)))
+        return artifacts.model_copy(
+            update={
+                "rendered_files": next_files,
+                "chart_values": chart_values,
+            }
+        )
 
 
 def build(

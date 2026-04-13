@@ -1,0 +1,72 @@
+# Argo CD Helm values for open-range local dev clusters (k3d / Kind).
+#
+# Optimised for single-node local development -- minimal resource requests,
+# no HA, no Dex.  Based on k3s-istio-vault-platform argocd-values-k3d.yaml.
+
+controller:
+  replicas: 1
+  resources:
+    requests:
+      cpu: 100m
+      memory: 256Mi
+    limits:
+      memory: 512Mi
+
+repoServer:
+  replicas: 1
+  resources:
+    requests:
+      cpu: 50m
+      memory: 128Mi
+    limits:
+      memory: 256Mi
+
+server:
+  replicas: 1
+  autoscaling:
+    enabled: false
+  service:
+    type: ClusterIP
+  resources:
+    requests:
+      cpu: 50m
+      memory: 128Mi
+    limits:
+      memory: 256Mi
+
+applicationSet:
+  replicas: 1
+  resources:
+    requests:
+      cpu: 50m
+      memory: 64Mi
+    limits:
+      memory: 128Mi
+
+redis-ha:
+  enabled: false
+
+redis:
+  enabled: true
+  resources:
+    requests:
+      cpu: 50m
+      memory: 64Mi
+    limits:
+      memory: 128Mi
+
+dex:
+  enabled: false
+
+notifications:
+  enabled: false
+
+configs:
+  params:
+    # Serve the UI without TLS so port-forward / ingress can terminate TLS.
+    server.insecure: "true"
+  cm:
+    # Fast reconciliation for rapid range turnover during RL training.
+    timeout.reconciliation: 30s
+    # Allow the open-range Helm charts through without strict schema checks.
+    resource.exclusions: ""

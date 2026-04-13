@@ -1,0 +1,15 @@
+# Patch for Hubble relay deployment to use hostNetwork.
+#
+# Required for k3d clusters and useful for Kind clusters where the relay
+# service is not directly reachable from the host. With hostNetwork, the
+# relay binds to the node's network namespace so port-forwarding and the
+# Hubble CLI can connect without extra Service configuration.
+#
+# Apply with:
+#   kubectl -n kube-system patch deployment hubble-relay \
+#     --type=merge --patch-file hubble-relay-patch.yaml
+spec:
+  template:
+    spec:
+      hostNetwork: true
+      dnsPolicy: ClusterFirstWithHostNet

@@ -10,6 +10,12 @@ from typing import Any, Protocol
 
 import yaml
 
+from open_range.runtime_extensions import (
+    RenderExtensions,
+    apply_service_runtime_extensions,
+    merge_render_extensions,
+)
+from open_range.security_runtime import materialize_security_runtime
 from open_range.snapshot import KindArtifacts
 from open_range.synth import SynthArtifacts
 from open_range.world_ir import GreenPersona, ServiceSpec, WorldIR
@@ -37,7 +43,12 @@ _SANDBOX_IMAGE_BY_ROLE = {
 
 class KindRenderer(Protocol):
     def render(
-        self, world: WorldIR, synth: SynthArtifacts, outdir: Path
+        self,
+        world: WorldIR,
+        synth: SynthArtifacts,
+        outdir: Path,
+        *,
+        extensions: RenderExtensions | None = None,
     ) -> KindArtifacts: ...
 
 
@@ -48,7 +59,12 @@ class EnterpriseSaaSKindRenderer:
         self.chart_dir = chart_dir or _CHART_DIR
 
     def render(
-        self, world: WorldIR, synth: SynthArtifacts, outdir: Path
+        self,
+        world: WorldIR,
+        synth: SynthArtifacts,
+        outdir: Path,
+        *,
+        extensions: RenderExtensions | None = None,
     ) -> KindArtifacts:
         outdir = Path(outdir)
         outdir.mkdir(parents=True, exist_ok=True)
@@ -58,9 +74,19 @@ class EnterpriseSaaSKindRenderer:
             shutil.rmtree(chart_out)
         shutil.copytree(self.chart_dir, chart_out)
 
-        values = self._build_values(world, synth)
+        combined_extensions = merge_render_extensions(
+            materialize_security_runtime(world, outdir),
+            extensions,
+        )
+        values = self._build_values(world, synth, extensions=combined_extensions)
         kind_config = self._build_kind_config(world)
-        summary = self._build_summary(world, values)
+        summary = self._build_summary(
+            world,
+            values,
+            summary_updates=(
+                combined_extensions.summary_updates if combined_extensions else None
+            ),
+        )
 
         values_path = chart_out / "values.yaml"
         values_path.write_text(
@@ -92,6 +118,11 @@ class EnterpriseSaaSKindRenderer:
                     str(kind_config_path),
                     str(summary_path),
                     *synth.generated_files,
+                    *(
+                        combined_extensions.rendered_files
+                        if combined_extensions
+                        else ()
+                    ),
                 ]
             ),
             chart_values=values,
@@ -99,7 +130,12 @@ class EnterpriseSaaSKindRenderer:
         )
 
     @staticmethod
-    def _build_values(world: WorldIR, synth: SynthArtifacts) -> dict[str, Any]:
+    def _build_values(
+        world: WorldIR,
+        synth: SynthArtifacts,
+        *,
+        extensions: RenderExtensions | None = None,
+    ) -> dict[str, Any]:
         host_by_id = {host.id: host for host in world.hosts}
         service_by_id = {service.id: service for service in world.services}
         zones: dict[str, dict[str, Any]] = {}
@@ -162,7 +198,7 @@ class EnterpriseSaaSKindRenderer:
             for user in world.users
         ]
 
-        return {
+        values = {
             "global": {
                 "namePrefix": _name_prefix(world.world_id),
                 "snapshotId": world.world_id,
@@ -190,6 +226,13 @@ class EnterpriseSaaSKindRenderer:
                 edge.model_dump(mode="json") for edge in world.telemetry_edges
             ],
         }
+        if extensions is not None:
+            values["services"] = apply_service_runtime_extensions(
+                values["services"],
+                extensions.services,
+            )
+            values.update(extensions.values)
+        return values
 
     @staticmethod
     def _build_kind_config(world: WorldIR) -> dict[str, Any]:
@@ -209,8 +252,13 @@ class EnterpriseSaaSKindRenderer:
         }
 
     @staticmethod
-    def _build_summary(world: WorldIR, values: dict[str, Any]) -> dict[str, Any]:
-        return {
+    def _build_summary(
+        world: WorldIR,
+        values: dict[str, Any],
+        *,
+        summary_updates: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        summary = {
             "world_id": world.world_id,
             "service_count": len(world.services),
             "zone_count": len(world.zones),
@@ -223,6 +271,9 @@ class EnterpriseSaaSKindRenderer:
                 )
             ).hexdigest(),
         }
+        if summary_updates:
+            summary.update(summary_updates)
+        return summary
 
     @staticmethod
     def _image_digest_for(kind: str) -> str:
@@ -258,6 +309,10 @@ def _service_env(service: ServiceSpec) -> dict[str, str]:
 
 
 def _service_command(service: ServiceSpec) -> list[str]:
+    if service.kind == "idp":
+        # The osixia/openldap image expects mounted certs to be copied into a
+        # writable service directory before startup mutates ownership.
+        return ["/container/tool/run", "--copy-service"]
     if service.kind == "siem":
         return [
             "/bin/sh",

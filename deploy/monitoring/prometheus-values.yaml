@@ -1,0 +1,147 @@
+# prometheus-values.yaml -- kube-prometheus-stack Helm values for OpenRange
+#
+# Optimized for local dev clusters (kind / k3s).  Mirrors the structure used
+# in k3s-istio-vault-platform but with minimal resource requests.
+#
+# Chart: prometheus-community/kube-prometheus-stack ~80.13.3
+
+# ---------------------------------------------------------------------------
+# Global
+# ---------------------------------------------------------------------------
+fullnameOverride: ""
+namespaceOverride: ""
+
+# ---------------------------------------------------------------------------
+# Prometheus
+# ---------------------------------------------------------------------------
+prometheus:
+  prometheusSpec:
+    replicas: 1
+    retention: 6h
+    scrapeInterval: 30s
+
+    # Discover ServiceMonitors and PodMonitors from ALL namespaces, not just
+    # those created by this Helm release.
+    serviceMonitorSelectorNilUsesHelmValues: false
+    podMonitorSelectorNilUsesHelmValues: false
+    ruleSelectorNilUsesHelmValues: false
+
+    # Minimal resources for local dev clusters
+    resources:
+      requests:
+        cpu: 100m
+        memory: 256Mi
+      limits:
+        cpu: 500m
+        memory: 512Mi
+
+    # Ephemeral storage is fine for dev; set a PVC for production
+    storageSpec: {}
+
+# ---------------------------------------------------------------------------
+# Grafana
+# ---------------------------------------------------------------------------
+grafana:
+  enabled: true
+  adminPassword: prom-operator
+
+  resources:
+    requests:
+      cpu: 50m
+      memory: 128Mi
+    limits:
+      cpu: 200m
+      memory: 256Mi
+
+  # Load default Kubernetes dashboards
+  defaultDashboardsEnabled: true
+  defaultDashboardsTimezone: utc
+
+  sidecar:
+    dashboards:
+      enabled: true
+      searchNamespace: ALL
+
+# ---------------------------------------------------------------------------
+# AlertManager
+# ---------------------------------------------------------------------------
+alertmanager:
+  enabled: true
+  alertmanagerSpec:
+    replicas: 1
+    resources:
+      requests:
+        cpu: 25m
+        memory: 64Mi
+      limits:
+        cpu: 100m
+        memory: 128Mi
+
+  # Basic config -- alerts go to a null receiver by default.
+  # Override for production with Slack / PagerDuty / email receivers.
+  config:
+    global:
+      resolve_timeout: 5m
+    route:
+      group_by: ["alertname", "namespace"]
+      group_wait: 30s
+      group_interval: 5m
+      repeat_interval: 4h
+      receiver: "null"
+      routes:
+        - match:
+            severity: critical
+          receiver: "null"
+          continue: true
+    receivers:
+      - name: "null"
+
+# ---------------------------------------------------------------------------
+# Disabled components -- not relevant to OpenRange dev clusters
+# ---------------------------------------------------------------------------
+# These targets are unreachable or not meaningful on kind / k3s.
+kubeEtcd:
+  enabled: false
+kubeControllerManager:
+  enabled: false
+kubeScheduler:
+  enabled: false
+kubeProxy:
+  enabled: false
+
+# ---------------------------------------------------------------------------
+# Node exporter -- lightweight; keep it for host-level metrics
+# ---------------------------------------------------------------------------
+nodeExporter:
+  enabled: true
+  resources:
+    requests:
+      cpu: 25m
+      memory: 32Mi
+    limits:
+      cpu: 100m
+      memory: 64Mi
+
+# ---------------------------------------------------------------------------
+# kube-state-metrics
+# ---------------------------------------------------------------------------
+kube-state-metrics:
+  resources:
+    requests:
+      cpu: 25m
+      memory: 32Mi
+    limits:
+      cpu: 100m
+      memory: 128Mi
+
+# ---------------------------------------------------------------------------
+# Prometheus Operator
+# ---------------------------------------------------------------------------
+prometheusOperator:
+  resources:
+    requests:
+      cpu: 50m
+      memory: 64Mi
+    limits:
+      cpu: 200m
+      memory: 256Mi

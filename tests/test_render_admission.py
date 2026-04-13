@@ -7,9 +7,11 @@ from types import SimpleNamespace
 from open_range._runtime_store import load_runtime_snapshot
 from open_range.cluster import ExecResult
 from open_range.admit import LocalAdmissionController
+from open_range.build_config import BuildConfig
 from open_range.code_web import code_web_payload
 from open_range.compiler import EnterpriseSaaSManifestCompiler
 from open_range.curriculum import FrontierMutationPolicy, PopulationStats
+from open_range.pipeline import BuildPipeline
 from open_range.predicates import PredicateEngine
 from open_range.render import EnterpriseSaaSKindRenderer
 from open_range.store import FileSnapshotStore
@@ -164,6 +166,33 @@ def test_admission_controller_admits_seeded_world(tmp_path: Path):
     )
     assert reference_bundle.reference_attack_traces
     assert reference_bundle.reference_defense_traces
+
+
+def test_admission_controller_registers_security_stage_when_enabled(tmp_path: Path):
+    pipeline = BuildPipeline(store=FileSnapshotStore(tmp_path / "snapshots"))
+    candidate = pipeline.build(
+        _manifest_payload(),
+        tmp_path / "rendered-security",
+        BuildConfig(
+            validation_profile="graph_only",
+            security_integration_enabled=True,
+            security_tier=3,
+        ),
+    )
+
+    _reference_bundle, report = LocalAdmissionController(mode="fail_fast").admit(
+        candidate.world,
+        candidate.artifacts,
+        candidate.build_config,
+    )
+
+    security_stage = next(stage for stage in report.stages if stage.name == "security")
+
+    assert {check.name for check in security_stage.checks} == {
+        "identity_enforcement",
+        "encryption_enforcement",
+        "mtls_enforcement",
+    }
 
 
 def test_admission_controller_offline_witness_can_ground_pinned_non_code_weakness(
@@ -371,6 +400,42 @@ def test_no_necessity_profile_skips_auto_live_backend_probe(
     assert all(stage.name != "kind_live" for stage in report.stages)
     assert which_calls == []
     assert run_calls == []
+
+
+def test_k3d_profile_uses_k3d_auto_live_backend(tmp_path: Path, monkeypatch) -> None:
+    _world = _build_seeded_world()
+    _ = EnterpriseSaaSKindRenderer().render(
+        _world, _synth(_world, tmp_path), tmp_path / "rendered-k3d"
+    )
+    which_calls: list[str] = []
+    run_calls: list[tuple[object, ...]] = []
+
+    def fake_which(cmd: str) -> str:
+        which_calls.append(cmd)
+        return f"/usr/bin/{cmd}"
+
+    def fake_run(*args, **kwargs):
+        del kwargs
+        run_calls.append(args)
+        cmd = args[0]
+        if cmd[:4] == ["k3d", "cluster", "list", "-o"]:
+            return SimpleNamespace(
+                returncode=0, stdout='[{"name":"openrange"}]', stderr=""
+            )
+        return SimpleNamespace(returncode=0, stdout="", stderr="")
+
+    monkeypatch.setattr(admit_mod.shutil, "which", fake_which)
+    monkeypatch.setattr(admit_mod.subprocess, "run", fake_run)
+
+    controller = LocalAdmissionController(mode="analysis")
+    backend = controller._auto_live_backend(
+        BuildConfig(cluster_backend="k3d", validation_profile="graph_plus_live")
+    )
+
+    assert backend is not None
+    assert backend.__class__.__name__ == "K3dBackend"
+    assert which_calls[:3] == ["helm", "k3d", "docker"]
+    assert any(call[0][:4] == ["k3d", "cluster", "list", "-o"] for call in run_calls)
 
 
 def test_live_service_smoke_check_uses_reachable_zone_runners() -> None:
