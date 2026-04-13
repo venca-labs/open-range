@@ -7,13 +7,13 @@ from pathlib import Path
 
 import pytest
 
-from open_range.security_runtime import materialize_security_runtime
 from open_range.security_integrator import (
     DEFAULT_TIER_MAP,
     SecurityIntegrator,
     SecurityIntegratorConfig,
     _default_scopes_for_service,
 )
+from open_range.security_runtime import materialize_security_runtime
 
 
 def _has_cryptography() -> bool:
@@ -33,9 +33,8 @@ def _has_cryptography() -> bool:
 @pytest.fixture
 def sample_world():
     """Minimal WorldIR for testing."""
-    from tests.support import manifest_payload
-
     from open_range.pipeline import BuildPipeline
+    from tests.support import manifest_payload
 
     pipeline = BuildPipeline()
     candidate = pipeline.build(manifest_payload(), Path("/tmp/test-integrator"))

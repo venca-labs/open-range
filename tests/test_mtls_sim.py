@@ -10,7 +10,9 @@ pytest.importorskip("cryptography", reason="cryptography not installed")
 
 from cryptography import x509  # noqa: E402
 from cryptography.hazmat.primitives.asymmetric import rsa  # noqa: E402
-from cryptography.hazmat.primitives.serialization import load_pem_private_key  # noqa: E402
+from cryptography.hazmat.primitives.serialization import (
+    load_pem_private_key,  # noqa: E402
+)
 from cryptography.x509.oid import ExtendedKeyUsageOID  # noqa: E402
 
 from open_range.mtls_sim import (  # noqa: E402
@@ -19,7 +21,6 @@ from open_range.mtls_sim import (  # noqa: E402
     MTLSConfig,
     MTLSSimulator,
 )
-
 
 # ---------------------------------------------------------------------------
 # Helpers
