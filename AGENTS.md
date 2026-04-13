@@ -141,13 +141,15 @@ contract, especially around:
 
 ## Build, Test, and Dev Commands
 
-Prefer `uv run -m ...` for Python commands in this repo.
+Prefer the public CLI entry points for user-facing package commands, such as
+`uv run openrange` and the demo scripts. Use `uv run -m ...` for module-only
+repo commands.
 
 - create or refresh the local environment with `uv sync --group dev`
 - run the main test suite with `uv run -m pytest tests -q`
 - run focused tests with `uv run -m pytest tests/test_runtime.py -q`
-- inspect the CLI with `uv run -m open_range.cli --help`
-- run demos with `uv run -m open_range.examples.demo` and `uv run -m open_range.examples.bootstrap`
+- inspect the CLI with `uv run openrange --help`
+- run demos with `uv run openrange-demo` and `uv run openrange-bootstrap-demo`
 - do not use `source .venv/bin/activate` for normal development flows
 - do not fall back to raw `python -m ...` when `uv run -m ...` is available
 - if `uv` is not on `PATH`, resolve the machine's local `uv` path first instead of falling back to venv activation

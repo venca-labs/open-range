@@ -65,7 +65,7 @@ training-data generation.
 
 ```bash
 uv sync
-uv run -m open_range.cli --help
+uv run openrange --help
 ```
 
 Or install the package directly:
@@ -81,13 +81,13 @@ This is the fastest way to see the package working end to end without setting up
 Kind:
 
 ```bash
-uv run -m open_range.examples.demo
+uv run openrange-demo
 ```
 
 You can also point it at a checked-in manifest:
 
 ```bash
-uv run -m open_range.examples.demo --manifest manifests/tier1_basic.yaml
+uv run openrange-demo --manifest manifests/tier1_basic.yaml
 ```
 
 ### 3. Admit a Snapshot Locally
@@ -95,7 +95,7 @@ uv run -m open_range.examples.demo --manifest manifests/tier1_basic.yaml
 For a local first run, use the explicit offline profile:
 
 ```bash
-uv run -m open_range.cli admit \
+uv run openrange admit \
   -m manifests/tier1_basic.yaml \
   -o /tmp/openrange-build \
   --store-dir /tmp/openrange-snapshots \
@@ -105,7 +105,7 @@ uv run -m open_range.cli admit \
 Then reset the runtime onto an admitted snapshot:
 
 ```bash
-uv run -m open_range.cli reset \
+uv run openrange reset \
   --store-dir /tmp/openrange-snapshots \
   --mode blue_only_live \
   --sample-seed 7
@@ -117,7 +117,7 @@ a live Kind-backed setup.
 ### 4. Generate Trace Data
 
 ```bash
-uv run -m open_range.cli traces \
+uv run openrange traces \
   -m manifests/tier1_basic.yaml \
   -o /tmp/openrange-traces \
   --roots 3 \
@@ -184,7 +184,7 @@ The package also ships a bootstrap example that compares a cheap sim-plane trace
 with a runtime episode:
 
 ```bash
-uv run -m open_range.examples.bootstrap
+uv run openrange-bootstrap-demo
 ```
 
 ## License
@@ -219,7 +219,7 @@ uv run scripts/generate_traces.py \
 Or through the CLI:
 
 ```bash
-uv run -m open_range.cli traces -m manifests/tier1_basic.yaml -o /tmp/openrange-traces --roots 3 --mutations 1
+uv run openrange traces -m manifests/tier1_basic.yaml -o /tmp/openrange-traces --roots 3 --mutations 1
 ```
 
 The generator also writes role/source shards such as:

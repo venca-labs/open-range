@@ -28,9 +28,9 @@ uv sync --group dev
 Useful smoke checks:
 
 ```bash
-uv run -m open_range.cli --help
-uv run -m open_range.examples.demo
-uv run -m open_range.examples.bootstrap
+uv run openrange --help
+uv run openrange-demo
+uv run openrange-bootstrap-demo
 ```
 
 Training dependencies are optional:
