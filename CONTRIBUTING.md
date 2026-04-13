@@ -78,7 +78,7 @@ Good pull requests are usually:
 - backed by tests when behavior changes
 - accompanied by doc updates when public behavior or workflows change
 
-Target `v1` by default unless a maintainer asks for a different base branch.
+Target `dev` by default unless a maintainer asks for a different base branch.
 
 Use the repository PR template in
 [.github/PULL_REQUEST_TEMPLATE.md](.github/PULL_REQUEST_TEMPLATE.md).

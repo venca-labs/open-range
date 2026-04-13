@@ -1,6 +1,6 @@
 # AGENTS.md
 
-Guidance for coding agents working on the current `v1` OpenRange branch.
+Guidance for coding agents working on the current OpenRange codebase.
 
 ## What OpenRange Is
 
@@ -155,7 +155,7 @@ Prefer `uv run -m ...` for Python commands in this repo.
 
 ## PR Guidelines
 
-- default pull requests for this repo should target `v1`, not `main`, unless the user explicitly asks otherwise
+- default pull requests for this repo should target `dev`, not `main`, unless the user explicitly asks otherwise
 - keep each PR focused on one theme
 - follow `.github/PULL_REQUEST_TEMPLATE.md`
 - keep the `Testing` section terse and factual
