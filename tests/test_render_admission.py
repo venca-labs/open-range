@@ -24,6 +24,7 @@ from tests.support import (
 )
 
 admit_mod = importlib.import_module("open_range.admit")
+live_checks_mod = importlib.import_module("open_range.live_checks")
 
 
 def _manifest_payload() -> dict:
@@ -450,7 +451,7 @@ def test_live_service_smoke_check_uses_reachable_zone_runners() -> None:
             calls.append((service, cmd))
             return ExecResult(stdout="ok", stderr="", exit_code=0)
 
-    report = admit_mod._live_service_smoke_check(
+    report = live_checks_mod.check_live_service_smoke(
         world, SimpleNamespace(pods=FakePods())
     )
     calls_by_target = {
@@ -496,7 +497,7 @@ def test_live_db_mtls_check_proves_client_cert_required(tmp_path: Path) -> None:
                 return ExecResult(stdout="", stderr="ERROR 1045 (28000)", exit_code=1)
             return ExecResult(stdout="", stderr="miss", exit_code=1)
 
-    report = admit_mod._live_db_mtls_check(
+    report = live_checks_mod.check_live_db_mtls(
         candidate.world, SimpleNamespace(pods=FakePods())
     )
 
