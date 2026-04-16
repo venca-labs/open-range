@@ -63,6 +63,8 @@ DISALLOWED_TOP_LEVEL_PACKAGES = {
 
 MULTI_MODULE_STAGE_PACKAGES = {
     "admission",
+    "compiler",
+    "manifest",
     "runtime",
     "training",
     "catalog",
