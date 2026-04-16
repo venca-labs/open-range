@@ -14,7 +14,7 @@ from open_range.catalog.weaknesses import (
     instantiation_mode_for_family,
     is_supported_weakness_kind,
     observability_surfaces_for_weakness,
-    precondition_mode_for_family,
+    preconditions_for_weakness,
     supported_weakness_kinds_for_family,
     weakness_family_contract,
 )
@@ -40,7 +40,37 @@ def test_weakness_family_catalog_keeps_current_family_defaults() -> None:
     assert default_target_kind_for_family("workflow_abuse") == "workflow"
     assert benchmark_tags_for_family("code_web") == ("cve_bench", "xbow", "cybench_web")
     assert instantiation_mode_for_family("telemetry_blindspot") == "exact_config"
-    assert precondition_mode_for_family("secret_exposure") == "secret_exposure"
+    assert preconditions_for_weakness(
+        "secret_exposure",
+        kind="credential_in_share",
+        target_ref="asset-finance-docs",
+    ) == (
+        "sensitive_material_present",
+        "asset-finance-docs",
+        "credential_in_share",
+    )
+
+
+def test_weakness_family_catalog_keeps_concrete_precondition_templates() -> None:
+    assert preconditions_for_weakness(
+        "code_web",
+        kind="sql_injection",
+        target_ref="svc-web",
+    ) == ("public_reachability", "user_input_surface", "sql_injection")
+    assert preconditions_for_weakness(
+        "workflow_abuse",
+        kind="phishing_credential_capture",
+        target_ref="wf-helpdesk-ticketing",
+    ) == (
+        "wf-helpdesk-ticketing",
+        "approval_path_exists",
+        "phishing_credential_capture",
+    )
+    assert preconditions_for_weakness(
+        "telemetry_blindspot",
+        kind="silent_mail_rule",
+        target_ref="svc-email",
+    ) == ("critical_action_exists", "silent_mail_rule")
 
 
 def test_weakness_family_catalog_keeps_expected_event_rules() -> None:
@@ -217,8 +247,19 @@ def test_family_registry_keeps_current_target_normalization_and_build_outputs() 
     assert any(
         realization.kind == "mailbox" for realization in workflow_abuse.realization
     )
+    assert workflow_abuse.preconditions == (
+        world.workflows[0].id,
+        "approval_path_exists",
+        "phishing_credential_capture",
+    )
     assert config_identity.target == "svc-idp"
     assert config_identity.realization[0].path.endswith("admin-surface.json")
+    assert config_identity.preconditions == (
+        "interactive_login",
+        "identity_surface_present",
+        "admin_surface_exposed",
+    )
     assert telemetry.target == "svc-email"
     assert telemetry.target_kind == "telemetry"
     assert telemetry.realization[0].path.endswith("silent_mail_rule.json")
+    assert telemetry.preconditions == ("critical_action_exists", "silent_mail_rule")

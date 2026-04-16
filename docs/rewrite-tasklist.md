@@ -44,6 +44,7 @@ Some current private helper files are transitional seams, not the end-state pack
 - [x] define service catalog contracts
 - [x] define weakness family contracts
 - [x] move weakness kind inventory into catalog and shared helpers
+- [x] move weakness precondition templates into catalog
 - [x] define objective rule contracts
 - [x] define probe default contracts
 - [x] define observability surface contracts
@@ -74,7 +75,7 @@ The next real win is:
 
 1. finish the remaining blue-side fallback and readback policy in `probe_planner.py`
 2. finish the weakness subsystem move and shrink `open_range.weaknesses`
-3. move objectives fully onto catalog-backed resolution instead of leaving mixed dispatch behind
+3. move pinned target resolution and selection policy out of `open_range.weaknesses`
 4. keep behavior stable with parity tests before deleting the old logic
 
 ## Next Large Targets

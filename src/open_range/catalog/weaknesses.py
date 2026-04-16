@@ -7,7 +7,7 @@ from open_range.catalog.contracts import (
     WeaknessFamilyContract,
     WeaknessKindSpec,
     WeaknessObservabilitySurfaceSpec,
-    WeaknessPreconditionMode,
+    WeaknessPreconditionSpec,
 )
 
 WEAKNESS_KIND_SPECS: tuple[WeaknessKindSpec, ...] = (
@@ -46,7 +46,6 @@ WEAKNESS_FAMILY_CONTRACTS: tuple[WeaknessFamilyContract, ...] = (
         available_when_any_service_kinds=("web_app",),
         benchmark_tags=("cve_bench", "xbow", "cybench_web"),
         instantiation_mode="exact_code",
-        precondition_mode="code_web",
     ),
     WeaknessFamilyContract(
         family="workflow_abuse",
@@ -54,7 +53,6 @@ WEAKNESS_FAMILY_CONTRACTS: tuple[WeaknessFamilyContract, ...] = (
         available_when_any_service_kinds=("web_app",),
         benchmark_tags=("enterprise_blue", "workflow", "cybench_web"),
         instantiation_mode="exact_workflow",
-        precondition_mode="workflow_abuse",
     ),
     WeaknessFamilyContract(
         family="secret_exposure",
@@ -62,7 +60,6 @@ WEAKNESS_FAMILY_CONTRACTS: tuple[WeaknessFamilyContract, ...] = (
         available_when_any_service_kinds=("fileshare", "db", "idp"),
         benchmark_tags=("enterprise_blue", "secrets", "cybench_web"),
         instantiation_mode="exact_config",
-        precondition_mode="secret_exposure",
     ),
     WeaknessFamilyContract(
         family="config_identity",
@@ -70,7 +67,6 @@ WEAKNESS_FAMILY_CONTRACTS: tuple[WeaknessFamilyContract, ...] = (
         available_when_any_service_kinds=("idp",),
         benchmark_tags=("enterprise_blue", "identity", "cybench_web"),
         instantiation_mode="exact_config",
-        precondition_mode="config_identity",
     ),
     WeaknessFamilyContract(
         family="telemetry_blindspot",
@@ -78,7 +74,29 @@ WEAKNESS_FAMILY_CONTRACTS: tuple[WeaknessFamilyContract, ...] = (
         available_when_any_service_kinds=("email", "siem"),
         benchmark_tags=("enterprise_blue", "detection"),
         instantiation_mode="exact_config",
-        precondition_mode="telemetry_blindspot",
+    ),
+)
+
+WEAKNESS_PRECONDITION_SPECS: tuple[WeaknessPreconditionSpec, ...] = (
+    WeaknessPreconditionSpec(
+        family="code_web",
+        tokens=("public_reachability", "user_input_surface", "{kind}"),
+    ),
+    WeaknessPreconditionSpec(
+        family="workflow_abuse",
+        tokens=("{target_ref}", "approval_path_exists", "{kind}"),
+    ),
+    WeaknessPreconditionSpec(
+        family="secret_exposure",
+        tokens=("sensitive_material_present", "{target_ref}", "{kind}"),
+    ),
+    WeaknessPreconditionSpec(
+        family="config_identity",
+        tokens=("interactive_login", "identity_surface_present", "{kind}"),
+    ),
+    WeaknessPreconditionSpec(
+        family="telemetry_blindspot",
+        tokens=("critical_action_exists", "{kind}"),
     ),
 )
 
@@ -332,6 +350,9 @@ _WEAKNESS_EVENTS_BY_KEY = {
     (spec.family, spec.kind): spec.expected_event_signatures
     for spec in WEAKNESS_EXPECTED_EVENT_SPECS
 }
+_WEAKNESS_PRECONDITIONS_BY_FAMILY = {
+    spec.family: spec.tokens for spec in WEAKNESS_PRECONDITION_SPECS
+}
 _WEAKNESS_SURFACE_SPECS_BY_FAMILY: dict[
     str, tuple[WeaknessObservabilitySurfaceSpec, ...]
 ] = {}
@@ -390,15 +411,27 @@ def instantiation_mode_for_family(family: str) -> str:
     return contract.instantiation_mode
 
 
-def precondition_mode_for_family(family: str) -> WeaknessPreconditionMode:
-    contract = weakness_family_contract(family)
-    if contract is None:
-        return "telemetry_blindspot"
-    return contract.precondition_mode
-
-
 def expected_events_for_weakness(family: str, kind: str) -> tuple[str, ...]:
     return _WEAKNESS_EVENTS_BY_KEY.get((family, kind), ())
+
+
+def preconditions_for_weakness(
+    family: str,
+    *,
+    kind: str,
+    target_ref: str,
+) -> tuple[str, ...]:
+    template = _WEAKNESS_PRECONDITIONS_BY_FAMILY.get(
+        family,
+        ("critical_action_exists", "{kind}"),
+    )
+    return tuple(
+        token.format(
+            kind=kind,
+            target_ref=target_ref,
+        )
+        for token in template
+    )
 
 
 def observability_surfaces_for_weakness(

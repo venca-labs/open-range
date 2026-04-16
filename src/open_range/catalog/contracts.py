@@ -113,15 +113,6 @@ class WorkflowTemplateSpec:
     steps: tuple[WorkflowTemplateStepSpec, ...]
 
 
-WeaknessPreconditionMode = Literal[
-    "code_web",
-    "config_identity",
-    "secret_exposure",
-    "workflow_abuse",
-    "telemetry_blindspot",
-]
-
-
 @dataclass(frozen=True, slots=True)
 class WeaknessFamilyContract:
     family: str
@@ -129,13 +120,18 @@ class WeaknessFamilyContract:
     available_when_any_service_kinds: tuple[str, ...]
     benchmark_tags: tuple[str, ...]
     instantiation_mode: str
-    precondition_mode: WeaknessPreconditionMode
 
 
 @dataclass(frozen=True, slots=True)
 class WeaknessKindSpec:
     family: str
     kind: str
+
+
+@dataclass(frozen=True, slots=True)
+class WeaknessPreconditionSpec:
+    family: str
+    tokens: tuple[str, ...]
 
 
 @dataclass(frozen=True, slots=True)

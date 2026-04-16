@@ -13,7 +13,7 @@ from open_range.catalog.weaknesses import (
     instantiation_mode_for_family,
     is_supported_weakness_kind,
     observability_surfaces_for_weakness,
-    precondition_mode_for_family,
+    preconditions_for_weakness,
     supported_weakness_kinds_for_family,
 )
 from open_range.manifest import (
@@ -155,7 +155,11 @@ def build_catalog_weakness(
             weakness_id=weak_id,
             benchmark_tags=benchmark_tags_for_family(family),
             objective_tags=weakness_objective_tags(family, kind),
-            preconditions=_preconditions(family, kind, target_ref),
+            preconditions=preconditions_for_weakness(
+                family,
+                kind=kind,
+                target_ref=target_ref,
+            ),
             expected_event_signatures=_expected_events(family, kind),
             blue_observability_surfaces=observability_surfaces_for_weakness(
                 family, kind=kind, target=target
@@ -248,21 +252,6 @@ def _weakness_id(
 ) -> str:
     suffix = target_ref or target
     return f"wk-{kind.replace('_', '-')}-{suffix}"
-
-
-def _preconditions(
-    family: WeaknessFamily, kind: str, target_ref: str
-) -> tuple[str, ...]:
-    mode = precondition_mode_for_family(family)
-    if mode == "code_web":
-        return ("public_reachability", "user_input_surface", kind)
-    if mode == "config_identity":
-        return ("interactive_login", "identity_surface_present", kind)
-    if mode == "secret_exposure":
-        return ("sensitive_material_present", target_ref, kind)
-    if mode == "workflow_abuse":
-        return (target_ref, "approval_path_exists", kind)
-    return ("critical_action_exists", kind)
 
 
 def _expected_events(family: WeaknessFamily, kind: str) -> tuple[str, ...]:
