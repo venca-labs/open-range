@@ -10,6 +10,7 @@ The branch can be long-lived. The rule is simple: do not trust chat context to h
 - move repeated world facts into `open_range.catalog` before rewriting the biggest switchboards
 - add parity tests before deleting old paths
 - keep public imports stable until the new package layout is ready
+- do not add new top-level helper modules under `src/open_range`; new internals go under subsystem packages
 - the issue comment examples still define the intended patterns:
   - admission check registry
   - objective rule registry
@@ -27,8 +28,6 @@ This is the target, not the current state:
 - `open_range.runtime`
 - `open_range.training`
 - `open_range.world`
-
-Some current private helper files are transitional seams, not the end-state package layout. They should be folded into real subsystem packages later.
 
 ## Rewrite Order
 
@@ -76,6 +75,7 @@ Some current private helper files are transitional seams, not the end-state pack
 - [x] move runtime audit and event side effects behind runtime hooks
 - [x] move runtime reference playback behind private replay helpers
 - [x] move runtime opponent mode and internal action selection behind reducers
+- [x] move runtime internals under a real `open_range.runtime` package
 - [x] finish the weakness subsystem move and shrink `open_range.weaknesses`
 - [x] move objectives fully onto catalog-backed resolution
 - [ ] move runtime onto hooks and reducers
@@ -88,25 +88,25 @@ Some current private helper files are transitional seams, not the end-state pack
 
 - [ ] remove duplicated switchboards
 - [ ] remove stale compatibility helpers
+- [x] add a test guardrail so new top-level helper modules fail fast
 - [ ] shrink the top-level package surface
 
 ## Immediate Next Slice
 
 The next real win is:
 
-1. keep pushing runtime state changes behind reducers and hooks
-2. keep pushing the `code_web` subsystem split until offline simulation and remediation semantics are no longer flattened into one surface
-3. keep behavior stable with parity tests before deleting the old logic
-4. collapse any remaining root-module compatibility seams that no longer buy us anything
+1. keep pushing the `code_web` subsystem split until offline simulation and remediation semantics are no longer flattened into one surface
+2. keep behavior stable with parity tests before deleting the old logic
+3. collapse any remaining root-module compatibility seams that no longer buy us anything
 
 ## Next Large Targets
 
 - `src/open_range/probe_planner.py`
   - finish any last generic fallback logic that still lives inline now that blue detection, containment, and readback payload policy are catalog-backed
   - keep the planner as orchestration over catalog policy and family-owned handlers
-- `src/open_range/runtime.py`
-  - keep moving action, observation, event-visibility, and blue-opponent policy behind reducers and helpers now that continuity, red action reduction, blue control transitions, blue finding, read-side observation updates, and runtime event projection already have shared seams
-  - keep the decision loop and public runtime surface stable while deleting inline side-effect policy
+- `src/open_range/runtime/`
+  - keep the public runtime surface stable while continuing to delete internal coordination bulk from `core.py`
+  - avoid adding new runtime helpers back at the root package
 - `src/open_range/training_data.py`
   - move the remaining model-facing action serialization and trace-formatting helpers behind the training package boundary now that SFT prompt formatting already lives in `open_range.training`
   - keep runtime types and trace rows in core, but stop leaving training-facing adapters in the root package

@@ -4,7 +4,7 @@ from itertools import count
 
 from open_range.admission.models import ReferenceAction
 from open_range.execution import ActionExecution
-from open_range.runtime_reducers import (
+from open_range.runtime.reducers import (
     BLUE_CONTAINMENT_OBJECTIVE,
     BLUE_DETECTION_OBJECTIVE,
     OBSERVATION_ALERT_EVENT_TYPES,

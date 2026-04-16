@@ -9,10 +9,6 @@ from pathlib import Path
 from tempfile import TemporaryDirectory
 from typing import Any
 
-from open_range._reference_replay import (
-    action_for_reference_step,
-    reference_trace_pairs,
-)
 from open_range._reference_sim import ReferenceSimPlane
 from open_range._runtime_store import hydrate_runtime_snapshot
 from open_range.build_config import OFFLINE_BUILD_CONFIG
@@ -21,6 +17,10 @@ from open_range.episode_config import EpisodeConfig
 from open_range.pipeline import BuildPipeline
 from open_range.resources import load_bundled_manifest
 from open_range.runtime import OpenRangeRuntime
+from open_range.runtime.replay import (
+    action_for_reference_step,
+    reference_trace_pairs,
+)
 from open_range.runtime_types import EpisodeScore
 from open_range.snapshot import RuntimeSnapshot
 from open_range.store import FileSnapshotStore

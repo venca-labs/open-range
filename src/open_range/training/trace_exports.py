@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 from urllib.parse import urlencode
 
-from open_range.runtime_events import control_directive, finding_event_type
+from open_range.runtime.events import control_directive, finding_event_type
 from open_range.runtime_types import Action, RuntimeEvent
 from open_range.snapshot import RuntimeSnapshot
 from open_range.training_data import TraceWeakness

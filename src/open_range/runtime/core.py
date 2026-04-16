@@ -6,13 +6,6 @@ from math import inf
 from typing import Literal
 from uuid import uuid4
 
-from open_range._reference_replay import (
-    ReferencePlayback,
-    action_for_reference_step,
-    matches_reference_step,
-    prefix_satisfied,
-)
-from open_range._runtime_hooks import RuntimeHooks
 from open_range.episode_config import DEFAULT_EPISODE_CONFIG, EpisodeConfig
 from open_range.execution import (
     ActionBackend,
@@ -23,7 +16,7 @@ from open_range.execution import (
 from open_range.green import GreenScheduler, ScriptedGreenScheduler
 from open_range.predicates import PredicateEngine
 from open_range.rewards import RewardEngine
-from open_range.runtime_events import (
+from open_range.runtime.events import (
     RuntimeEventLog,
     action_target,
     control_directive,
@@ -31,7 +24,8 @@ from open_range.runtime_events import (
     green_events_for_action,
     telemetry_blindspots,
 )
-from open_range.runtime_reducers import (
+from open_range.runtime.hooks import RuntimeHooks
+from open_range.runtime.reducers import (
     BLUE_CONTAINMENT_OBJECTIVE,
     blue_objectives_after_continuity,
     continuity_for_service_health,
@@ -42,6 +36,12 @@ from open_range.runtime_reducers import (
     reduce_red_action,
     resolved_opponent_mode,
     select_internal_opponent_action,
+)
+from open_range.runtime.replay import (
+    ReferencePlayback,
+    action_for_reference_step,
+    matches_reference_step,
+    prefix_satisfied,
 )
 from open_range.runtime_types import (
     Action,

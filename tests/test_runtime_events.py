@@ -3,7 +3,7 @@ from __future__ import annotations
 from math import isinf
 from types import SimpleNamespace
 
-from open_range.runtime_events import (
+from open_range.runtime.events import (
     control_directive,
     control_directive_from_payload,
     emit_runtime_event,

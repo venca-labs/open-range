@@ -24,8 +24,29 @@ def test_top_level_package_keeps_internal_runtime_and_sft_helpers_private() -> N
 def test_internal_reference_helpers_are_not_exposed_as_public_modules() -> None:
     assert not hasattr(runtime_module, "ReferenceDrivenRuntime")
     assert importlib.util.find_spec("open_range._decision_sft") is None
+    assert importlib.util.find_spec("open_range._reference_replay") is None
+    assert importlib.util.find_spec("open_range._runtime_hooks") is None
+    assert importlib.util.find_spec("open_range.runtime_events") is None
+    assert importlib.util.find_spec("open_range.runtime_reducers") is None
     assert importlib.util.find_spec("open_range.driver") is None
     assert importlib.util.find_spec("open_range.sim") is None
+
+
+def test_top_level_private_helper_module_allowlist_only_shrinks() -> None:
+    root = Path(open_range.__file__).resolve().parent
+    private_helpers = {
+        path.name for path in root.glob("_*.py") if path.name != "__init__.py"
+    }
+
+    assert private_helpers == {
+        "_code_web_common.py",
+        "_code_web_remediation.py",
+        "_code_web_render.py",
+        "_code_web_specs.py",
+        "_episode_driver.py",
+        "_reference_sim.py",
+        "_runtime_store.py",
+    }
 
 
 def test_public_docs_avoid_candidate_action_menu_language() -> None:

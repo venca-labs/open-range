@@ -12,7 +12,7 @@ from typing import Any, Callable
 
 from pydantic import BaseModel, ConfigDict, Field
 
-from open_range.runtime_events import (
+from open_range.runtime.events import (
     action_target,
     control_directive,
     finding_event_type,

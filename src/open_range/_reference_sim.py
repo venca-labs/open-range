@@ -6,9 +6,9 @@ from typing import Protocol
 
 from pydantic import BaseModel, ConfigDict, Field
 
-from open_range._reference_replay import action_for_reference_step
 from open_range.episode_config import EpisodeConfig
 from open_range.runtime import OpenRangeRuntime
+from open_range.runtime.replay import action_for_reference_step
 from open_range.runtime_types import Action
 from open_range.snapshot import RuntimeSnapshot
 

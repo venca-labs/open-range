@@ -5,13 +5,13 @@ from __future__ import annotations
 from collections.abc import Mapping
 from dataclasses import dataclass
 
-from open_range._reference_replay import action_for_reference_step
 from open_range.execution import ActionExecution
-from open_range.runtime_events import (
+from open_range.runtime.events import (
     EmitEvent,
     ServiceSurfaceResolver,
     red_events_for_step,
 )
+from open_range.runtime.replay import action_for_reference_step
 from open_range.runtime_types import Action, ExternalRole, RuntimeEvent
 from open_range.snapshot import RuntimeSnapshot
 

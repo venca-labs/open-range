@@ -10,7 +10,7 @@ from open_range.audit import (
 )
 from open_range.execution import ActionBackend, ActionExecution
 from open_range.green import GreenScheduler
-from open_range.runtime_events import EmitEvent, action_target
+from open_range.runtime.events import EmitEvent, action_target
 from open_range.runtime_types import (
     Action,
     EpisodeAudit,

@@ -6,7 +6,7 @@ from dataclasses import dataclass
 from typing import Any
 
 from open_range.probe_planner import runtime_action
-from open_range.runtime_events import (
+from open_range.runtime.events import (
     action_target,
     control_directive,
     control_directive_from_payload,
