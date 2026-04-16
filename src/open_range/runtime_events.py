@@ -14,6 +14,7 @@ class RedEventBatch:
     events: tuple[RuntimeEvent, ...]
     satisfied_objectives: tuple[str, ...]
     last_red_target: str
+    footholds: tuple[str, ...] = ()
 
 
 EmitEvent = Callable[..., RuntimeEvent]
@@ -112,6 +113,7 @@ def red_events_for_step(
             ),
             satisfied_objectives=(),
             last_red_target=target,
+            footholds=(target,),
         )
     if step_action == "traverse":
         return RedEventBatch(
@@ -127,6 +129,7 @@ def red_events_for_step(
             ),
             satisfied_objectives=(),
             last_red_target=target,
+            footholds=(target,),
         )
     if step_action == "collect_secret":
         return _secret_collection_events(
@@ -158,7 +161,62 @@ def red_events_for_step(
             emit_event=emit_event,
             service_surfaces=service_surfaces,
         )
-    return RedEventBatch(events=(), satisfied_objectives=(), last_red_target=target)
+    return RedEventBatch(
+        events=(),
+        satisfied_objectives=(),
+        last_red_target=target,
+    )
+
+
+def red_events_for_weakness_effect(
+    weakness: object,
+    action: Action,
+    *,
+    objective: str,
+    last_red_target: str,
+    emit_event: EmitEvent,
+    service_surfaces: ServiceSurfaceResolver,
+) -> RedEventBatch:
+    target = str(getattr(weakness, "target", "")) or action_target(action)
+    target_ref = str(getattr(weakness, "target_ref", ""))
+    family = str(getattr(weakness, "family", ""))
+    if family == "secret_exposure":
+        return _secret_collection_events(
+            target=target,
+            asset_id=target_ref,
+            objective=objective,
+            emit_event=emit_event,
+            service_surfaces=service_surfaces,
+        )
+    if family == "config_identity":
+        return _identity_abuse_events(
+            target=target,
+            objective=objective,
+            emit_event=emit_event,
+            service_surfaces=service_surfaces,
+        )
+    if family == "workflow_abuse":
+        return _workflow_abuse_events(
+            target=target,
+            objective=objective,
+            emit_event=emit_event,
+            service_surfaces=service_surfaces,
+        )
+    return RedEventBatch(
+        events=(
+            emit_event(
+                event_type="InitialAccess",
+                actor="red",
+                source_entity=action.actor_id,
+                target_entity=target,
+                malicious=True,
+                observability_surfaces=service_surfaces(target),
+            ),
+        ),
+        satisfied_objectives=(),
+        last_red_target=target,
+        footholds=(target,) if target else (),
+    )
 
 
 def objective_events(
@@ -170,7 +228,12 @@ def objective_events(
     service_surfaces: ServiceSurfaceResolver,
 ) -> RedEventBatch:
     if not objective and not asset_id:
-        return RedEventBatch(events=(), satisfied_objectives=(), last_red_target=target)
+        return RedEventBatch(
+            events=(),
+            satisfied_objectives=(),
+            last_red_target=target,
+            footholds=(target,) if target else (),
+        )
     resolved_objective = objective or (
         f"credential_obtained({asset_id})"
         if "cred" in asset_id
@@ -208,6 +271,7 @@ def objective_events(
         events=(event,),
         satisfied_objectives=(resolved_objective,),
         last_red_target=target,
+        footholds=(target,) if target else (),
     )
 
 
@@ -237,7 +301,10 @@ def _secret_collection_events(
             observability_surfaces=service_surfaces(target),
         )
         return RedEventBatch(
-            events=(event,), satisfied_objectives=(), last_red_target=target
+            events=(event,),
+            satisfied_objectives=(),
+            last_red_target=target,
+            footholds=(target,) if target else (),
         )
     if "cred" in asset_id or "token" in asset_id:
         objective = f"credential_obtained({asset_id})"
@@ -251,7 +318,10 @@ def _secret_collection_events(
             linked_objective_predicates=(objective,),
         )
         return RedEventBatch(
-            events=(event,), satisfied_objectives=(objective,), last_red_target=target
+            events=(event,),
+            satisfied_objectives=(objective,),
+            last_red_target=target,
+            footholds=(target,) if target else (),
         )
     objective = f"asset_read({asset_id})"
     event = emit_event(
@@ -264,7 +334,10 @@ def _secret_collection_events(
         linked_objective_predicates=(objective,),
     )
     return RedEventBatch(
-        events=(event,), satisfied_objectives=(objective,), last_red_target=target
+        events=(event,),
+        satisfied_objectives=(objective,),
+        last_red_target=target,
+        footholds=(target,) if target else (),
     )
 
 
@@ -301,7 +374,12 @@ def _identity_abuse_events(
             observability_surfaces=service_surfaces(target),
         ),
     )
-    return RedEventBatch(events=events, satisfied_objectives=(), last_red_target=target)
+    return RedEventBatch(
+        events=events,
+        satisfied_objectives=(),
+        last_red_target=target,
+        footholds=(target,) if target else (),
+    )
 
 
 def _workflow_abuse_events(
@@ -328,5 +406,8 @@ def _workflow_abuse_events(
         observability_surfaces=service_surfaces(target),
     )
     return RedEventBatch(
-        events=(event,), satisfied_objectives=(), last_red_target=target
+        events=(event,),
+        satisfied_objectives=(),
+        last_red_target=target,
+        footholds=(target,) if target else (),
     )

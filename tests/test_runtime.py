@@ -161,6 +161,106 @@ def test_runtime_keeps_green_internal_and_never_exposes_green_decisions(tmp_path
     assert any(event.actor == "green" for event in runtime.export_events())
 
 
+def test_runtime_red_progresses_via_public_effects_without_reference_steps(
+    tmp_path: Path,
+):
+    snapshot = _snapshot(tmp_path)
+    runtime = OpenRangeRuntime()
+    runtime.reset(
+        snapshot,
+        EpisodeConfig(
+            mode="red_only",
+            opponent_blue="none",
+            green_enabled=False,
+        ),
+    )
+
+    assert runtime.next_decision().actor == "red"
+    foothold = runtime.act(
+        "red",
+        Action(
+            actor_id="red",
+            role="red",
+            kind="api",
+            payload={
+                "target": "svc-web",
+                "path": "/search.php",
+                "query": {
+                    "q": "' UNION SELECT 'OPENRANGE-FOOTHOLD:test' -- ",
+                    "asset": "finance_docs",
+                },
+            },
+        ),
+    )
+    assert any(event.event_type == "InitialAccess" for event in foothold.emitted_events)
+
+    assert runtime.next_decision().actor == "red"
+    credential = runtime.act(
+        "red",
+        Action(
+            actor_id="red",
+            role="red",
+            kind="api",
+            payload={"target": "svc-idp", "path": "/"},
+        ),
+    )
+    assert {event.event_type for event in credential.emitted_events} >= {
+        "CrossZoneTraversal",
+        "CredentialObtained",
+    }
+
+    assert runtime.next_decision().actor == "red"
+    asset = runtime.act(
+        "red",
+        Action(
+            actor_id="red",
+            role="red",
+            kind="api",
+            payload={"target": "svc-fileshare", "path": "/"},
+        ),
+    )
+    assert asset.done is True
+    assert any(
+        event.event_type == "SensitiveAssetRead" for event in asset.emitted_events
+    )
+
+    score = runtime.score()
+    assert score.winner == "red"
+    assert score.red_objectives_satisfied == (
+        "asset_read(finance_docs)",
+        "credential_obtained(idp_admin_cred)",
+    )
+
+
+def test_runtime_red_cannot_score_internal_objectives_before_public_foothold(
+    tmp_path: Path,
+):
+    snapshot = _snapshot(tmp_path)
+    runtime = OpenRangeRuntime()
+    runtime.reset(
+        snapshot,
+        EpisodeConfig(
+            mode="red_only",
+            opponent_blue="none",
+            green_enabled=False,
+        ),
+    )
+
+    assert runtime.next_decision().actor == "red"
+    premature = runtime.act(
+        "red",
+        Action(
+            actor_id="red",
+            role="red",
+            kind="api",
+            payload={"target": "svc-idp", "path": "/"},
+        ),
+    )
+
+    assert not premature.emitted_events
+    assert runtime.score().red_objectives_satisfied == ()
+
+
 def test_one_day_prompt_mode_exposes_high_level_risky_surfaces(tmp_path: Path):
     snapshot = _snapshot(tmp_path)
     runtime = OpenRangeRuntime()

@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import shlex
 import textwrap
+from collections.abc import Mapping
 from dataclasses import dataclass
 from urllib.parse import quote
 
@@ -120,6 +121,54 @@ def code_web_payload(world: WorldIR, weakness: WeaknessSpec) -> dict[str, object
         "exploit_kind": weakness.kind,
         "expect_contains": template.expected_contains,
     }
+
+
+def code_web_simulated_output(
+    world: WorldIR,
+    weakness: WeaknessSpec,
+    *,
+    path: str,
+    query: Mapping[str, object] | None,
+) -> str | None:
+    template = code_web_template(world, weakness)
+    if _normalized_route(path) != template.route_path:
+        return None
+    params = {str(key): str(value) for key, value in (query or {}).items()}
+    if weakness.kind == "sql_injection":
+        needle = params.get("q", "").lower()
+        if "union select" in needle or "' or '1'='1" in needle:
+            return f"{_foothold_token(world, weakness)}\n"
+        return None
+    if weakness.kind == "broken_authorization":
+        if params.get("record") != "admin-console":
+            return None
+        return textwrap.dedent(
+            f"""\
+            admin_console=enabled
+            world_id={world.world_id}
+            token={_foothold_token(world, weakness)}
+            """
+        )
+    if weakness.kind == "auth_bypass":
+        debug = params.get("debug", "0")
+        user = params.get("as", "user")
+        impersonate = params.get("impersonate", "")
+        if (debug == "1" or impersonate == "it_admin") and user == "admin":
+            return effect_marker_content(weakness)
+        return "denied"
+    if weakness.kind == "path_traversal":
+        requested = params.get("path", "")
+        if requested == _foothold_path(weakness):
+            return f"{_foothold_token(world, weakness)}\n"
+        return "missing"
+    if weakness.kind == "ssrf":
+        if params.get("url") == _egress_canary_url(weakness):
+            return effect_marker_token(weakness)
+        return "fetch failed"
+    host = params.get("host", "")
+    if _foothold_path(weakness) in host:
+        return effect_marker_content(weakness)
+    return f"scan={host}\n" if host else "scan=127.0.0.1\n"
 
 
 def code_web_realization_content(
@@ -328,3 +377,9 @@ def _egress_canary_url(weakness: WeaknessSpec) -> str:
 
 def _php_string_literal(text: str) -> str:
     return json.dumps(text)
+
+
+def _normalized_route(path: str) -> str:
+    if not path:
+        return "/"
+    return path if path.startswith("/") else f"/{path}"

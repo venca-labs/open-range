@@ -41,9 +41,7 @@ def test_parse_action_response_accepts_json_fenced_json_and_flat_payload() -> No
         "src/open_range/eval_remote_model_rollouts.py",
     )
 
-    action, error = mod.parse_action_response(
-        '{"kind":"sleep","payload":{},"timeout_s":5}'
-    )
+    action, error = mod.parse_action_response('{"operation":"wait","timeout_s":5}')
     assert error == ""
     assert action == Action(
         actor_id="red",
@@ -54,7 +52,7 @@ def test_parse_action_response_accepts_json_fenced_json_and_flat_payload() -> No
     )
 
     action, error = mod.parse_action_response(
-        '```json\n{"kind":"api","target":"svc-idp","path":"/"}\n```'
+        '```json\n{"operation":"http_request","target":"svc-idp","path":"/"}\n```'
     )
     assert error == ""
     assert action == Action(
@@ -66,7 +64,7 @@ def test_parse_action_response_accepts_json_fenced_json_and_flat_payload() -> No
     )
 
     action, error = mod.parse_action_response(
-        '{"action":{"kind":"shell","payload":{"target":"svc-web","command":"id"}}}'
+        '{"action":{"operation":"run_command","target":"svc-web","command":"id"}}'
     )
     assert error == ""
     assert action == Action(
@@ -75,6 +73,19 @@ def test_parse_action_response_accepts_json_fenced_json_and_flat_payload() -> No
         kind="shell",
         payload={"target": "svc-web", "command": "id"},
         timeout_s=30.0,
+    )
+
+    action, error = mod.parse_action_response(
+        "Reasoning: probe the web tier first.\n"
+        '<final_action>{"operation":"http_request","target":"svc-web","path":"/health","timeout_s":9}</final_action>'
+    )
+    assert error == ""
+    assert action == Action(
+        actor_id="red",
+        role="red",
+        kind="api",
+        payload={"target": "svc-web", "path": "/health"},
+        timeout_s=9.0,
     )
 
 
@@ -107,6 +118,9 @@ def test_remote_chat_client_falls_back_to_sleep_for_invalid_action(monkeypatch) 
             assert endpoint == "http://example.test/v1/chat/completions"
             assert json["model"] == "gemma"
             assert "messages" in json
+            assert json["max_tokens"] == mod.DEFAULT_MAX_OUTPUT_TOKENS
+            assert json["tool_choice"]["function"]["name"] == "submit_action"
+            assert json["parallel_tool_calls"] is False
             assert "Content-Type" in headers
             return FakeResponse()
 
@@ -124,6 +138,79 @@ def test_remote_chat_client_falls_back_to_sleep_for_invalid_action(monkeypatch) 
     assert result.valid is False
     assert result.action == Action(actor_id="red", role="red", kind="sleep", payload={})
     assert result.parse_error
+    assert result.request_mode == "tool_calling"
+    assert result.request_messages == [{"role": "user", "content": "pick one"}]
+    assert result.response_message == {"content": "not-json"}
+
+
+def test_remote_chat_client_parses_named_tool_call(monkeypatch) -> None:
+    mod = _load_module(
+        "eval_remote_model_rollouts_tool_call",
+        "src/open_range/eval_remote_model_rollouts.py",
+    )
+
+    class FakeResponse:
+        def raise_for_status(self) -> None:
+            return None
+
+        def json(self) -> dict:
+            return {
+                "choices": [
+                    {
+                        "message": {
+                            "content": "",
+                            "tool_calls": [
+                                {
+                                    "id": "call_1",
+                                    "type": "function",
+                                    "function": {
+                                        "name": "submit_action",
+                                        "arguments": '{"operation":"http_request","target":"svc-web","path":"/health","timeout_s":11}',
+                                    },
+                                }
+                            ],
+                        },
+                        "finish_reason": "tool_calls",
+                    }
+                ],
+                "usage": {"completion_tokens": 9},
+            }
+
+    class FakeClient:
+        def __init__(self, *args, **kwargs) -> None:
+            del args, kwargs
+
+        def post(self, endpoint: str, json: dict, headers: dict) -> FakeResponse:
+            assert endpoint == "http://example.test/v1/chat/completions"
+            assert json["tool_choice"]["function"]["name"] == "submit_action"
+            assert json["tools"][0]["function"]["name"] == "submit_action"
+            assert "Content-Type" in headers
+            return FakeResponse()
+
+        def close(self) -> None:
+            return None
+
+    monkeypatch.setattr(mod.httpx, "Client", FakeClient)
+
+    with mod.RemoteChatClient(
+        endpoint="http://example.test/v1/chat/completions",
+        model="gemma",
+    ) as client:
+        result = client.choose(messages=[{"role": "user", "content": "pick one"}])
+
+    assert result.valid is True
+    assert result.finish_reason == "tool_calls"
+    assert result.action == Action(
+        actor_id="red",
+        role="red",
+        kind="api",
+        payload={"target": "svc-web", "path": "/health"},
+        timeout_s=11.0,
+    )
+    assert result.request_mode == "tool_calling"
+    assert (
+        result.response_message["tool_calls"][0]["function"]["name"] == "submit_action"
+    )
 
 
 def test_evaluate_remote_model_rollouts_with_stubbed_actions() -> None:
@@ -133,14 +220,18 @@ def test_evaluate_remote_model_rollouts_with_stubbed_actions() -> None:
     )
 
     def _choose(self, *, messages):
-        del self, messages
+        del self
         return mod.RemoteChoice(
             action=Action(actor_id="red", role="red", kind="sleep", payload={}),
-            raw_text='{"kind":"sleep","payload":{}}',
+            raw_text='{"operation":"wait","timeout_s":30}',
             valid=True,
             latency_ms=12.5,
             finish_reason="stop",
             usage={"completion_tokens": 3},
+            request_messages=messages,
+            request_payload={"model": "gemma"},
+            request_mode="tool_calling",
+            response_message={"content": "", "tool_calls": []},
         )
 
     mod.RemoteChatClient.choose = _choose
@@ -159,10 +250,17 @@ def test_evaluate_remote_model_rollouts_with_stubbed_actions() -> None:
     assert report["model"] == "gemma"
     assert report["validation_profile"] == "graph_only"
     assert report["valid_action_rate"] == 1.0
-    assert 0.0 <= report["reference_match_rate"] <= 1.0
+    assert "reference_match_rate" not in report
+    assert 0.0 <= report["objective_progress_rate"] <= 1.0
     assert report["reports"][0]["pairs"]
     assert report["reports"][0]["weakness_count"] >= 1
     assert "weaknesses" not in report["reports"][0]
+    pick = report["reports"][0]["pairs"][0]["picks"][0]
+    assert pick["request_mode"] == "tool_calling"
+    assert pick["request_messages"][0]["role"] == "system"
+    assert isinstance(pick["request_payload"], dict)
+    assert isinstance(pick["response_message"], dict)
+    assert "reference_action" not in pick
 
 
 @pytest.mark.live_model

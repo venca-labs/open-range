@@ -7,6 +7,8 @@ from typing import Literal
 from uuid import uuid4
 
 from open_range.audit import ActionAuditor, command_text_for_action
+from open_range.code_web import code_web_payload, code_web_simulated_output
+from open_range.effect_markers import effect_marker_token
 from open_range.episode_config import DEFAULT_EPISODE_CONFIG, EpisodeConfig
 from open_range.execution import ActionBackend, ActionExecution
 from open_range.green import GreenScheduler, ScriptedGreenScheduler
@@ -14,9 +16,11 @@ from open_range.predicates import PredicateEngine
 from open_range.probe_planner import runtime_action as reference_runtime_action
 from open_range.rewards import RewardEngine
 from open_range.runtime_events import (
+    RedEventBatch,
     action_target,
     green_events_for_action,
-    red_events_for_step,
+    objective_events,
+    red_events_for_weakness_effect,
 )
 from open_range.runtime_types import (
     Action,
@@ -475,7 +479,6 @@ class OpenRangeRuntime:
         stdout = live.stdout or "red action had no strategic effect"
         stderr = live.stderr
 
-        expected = self._next_red_step()
         blocked_reason = self._path_block_reason(target)
         if blocked_reason:
             blocked_msg = f"target {target} is {blocked_reason}"
@@ -483,27 +486,22 @@ class OpenRangeRuntime:
                 line.strip() for line in stderr.splitlines() if line.strip()
             }:
                 stderr = "\n".join(filter(None, [stderr, blocked_msg])).strip()
-        elif (
-            expected is not None
-            and live.ok
-            and self._matches_step(action, expected, live.stdout)
-        ):
-            self._red_progress += 1
-            stdout = f"red advanced on {target}"
-            batch = red_events_for_step(
-                expected,
-                action,
-                last_red_target=self._last_red_target,
-                emit_event=emit_event,
-                service_surfaces=self._service_surfaces,
-            )
-            emitted = list(batch.events)
-            self._red_objectives_satisfied.update(batch.satisfied_objectives)
-            self._last_red_target = batch.last_red_target
-            if batch.last_red_target:
-                self._red_footholds.add(batch.last_red_target)
         else:
-            stdout = live.stdout or f"red executed on {target or 'unknown target'}"
+            batch = self._public_red_effects(
+                action,
+                live,
+                emit_event=emit_event,
+            )
+            if batch.events or batch.satisfied_objectives or batch.footholds:
+                self._red_progress += 1
+                stdout = live.stdout or f"red advanced on {target or 'unknown target'}"
+                emitted = list(batch.events)
+                self._red_objectives_satisfied.update(batch.satisfied_objectives)
+                if batch.last_red_target:
+                    self._last_red_target = batch.last_red_target
+                self._red_footholds.update(batch.footholds)
+            else:
+                stdout = live.stdout or f"red executed on {target or 'unknown target'}"
 
         reward_delta = self.reward_engine.on_red_action(
             action,
@@ -525,6 +523,245 @@ class OpenRangeRuntime:
             emitted_events=tuple(emitted),
             reward_delta=reward_delta,
             done=self._state.done,
+        )
+
+    def _public_red_effects(
+        self,
+        action: Action,
+        live: ActionExecution,
+        *,
+        emit_event,
+    ) -> RedEventBatch:
+        if self._snapshot is None or self._predicates is None or not live.ok:
+            return self._empty_red_event_batch()
+
+        target = action_target(action)
+        if not target:
+            return self._empty_red_event_batch()
+
+        batches: list[RedEventBatch] = []
+        satisfied = set(self._red_objectives_satisfied)
+        for weakness in self._matched_red_weaknesses(action, live.stdout):
+            objective = self._objective_for_target(
+                weakness.target,
+                preferred_ref=weakness.target_ref,
+                exclude=satisfied,
+            )
+            batch = red_events_for_weakness_effect(
+                weakness,
+                action,
+                objective=objective,
+                last_red_target=self._last_red_target,
+                emit_event=emit_event,
+                service_surfaces=self._service_surfaces,
+            )
+            batches.append(batch)
+            satisfied.update(batch.satisfied_objectives)
+
+        origin = self._reachable_red_origin(target)
+        if origin:
+            if (
+                target not in self._red_footholds
+                and origin != target
+                and self._service_zone(origin)
+                and self._service_zone(origin) != self._service_zone(target)
+            ):
+                batches.append(
+                    RedEventBatch(
+                        events=(
+                            emit_event(
+                                event_type="CrossZoneTraversal",
+                                actor="red",
+                                source_entity=origin,
+                                target_entity=target,
+                                malicious=True,
+                                observability_surfaces=self._service_surfaces(target),
+                            ),
+                        ),
+                        satisfied_objectives=(),
+                        last_red_target=target,
+                        footholds=(target,),
+                    )
+                )
+            objective = self._objective_for_target(target, exclude=satisfied)
+            if objective:
+                batches.append(
+                    objective_events(
+                        target=target,
+                        objective=objective,
+                        asset_id="",
+                        emit_event=emit_event,
+                        service_surfaces=self._service_surfaces,
+                    )
+                )
+        return self._merge_red_event_batches(batches)
+
+    def _matched_red_weaknesses(
+        self, action: Action, live_stdout: str
+    ) -> tuple[object, ...]:
+        if self._predicates is None:
+            return ()
+        target = action_target(action)
+        weakness_id = str(
+            action.payload.get("weakness_id", action.payload.get("weakness", ""))
+        ).strip()
+        matches: list[object] = []
+        for weakness in self._predicates.active_weaknesses():
+            if weakness_id and weakness.id == weakness_id:
+                if self._weakness_matches_live_result(weakness, action, live_stdout):
+                    matches.append(weakness)
+                continue
+            if target and weakness.target != target:
+                continue
+            if self._weakness_matches_live_result(weakness, action, live_stdout):
+                matches.append(weakness)
+        return tuple(matches)
+
+    def _weakness_matches_live_result(
+        self,
+        weakness,
+        action: Action,
+        live_stdout: str,
+    ) -> bool:
+        text = live_stdout.lower()
+        if not text.strip():
+            return False
+        if weakness.family == "code_web":
+            expected = str(
+                code_web_payload(self._snapshot.world, weakness)["expect_contains"]
+            )
+            if expected and expected.lower() in text:
+                return True
+            return (
+                weakness.kind == "broken_authorization"
+                and "admin_console=enabled" in text
+            )
+        marker = effect_marker_token(weakness).lower()
+        if marker and marker in text:
+            return True
+        expected = str(action.payload.get("expect_contains", "")).strip().lower()
+        if expected and expected in text:
+            return True
+        if weakness.family == "secret_exposure":
+            return any(
+                token in text for token in self._secret_exposure_tokens(weakness)
+            )
+        return False
+
+    def _secret_exposure_tokens(self, weakness) -> tuple[str, ...]:
+        base = {
+            "env_file_leak": ("openrange_app_secret",),
+            "hardcoded_app_secret": ("openrange_app_secret",),
+            "backup_leak": ("insert into leaked_credentials",),
+            "token_in_email": ("secret_material=",),
+            "credential_in_share": ("secret_material=", "seeded-"),
+        }.get(weakness.kind, ())
+        target_ref = str(getattr(weakness, "target_ref", "")).lower()
+        return tuple(token for token in (*base, target_ref) if token)
+
+    def _objective_for_target(
+        self,
+        target: str,
+        *,
+        preferred_ref: str = "",
+        exclude: set[str] | None = None,
+    ) -> str:
+        if self._snapshot is None or self._predicates is None:
+            return ""
+        excluded = exclude or set()
+        exact_match = next(
+            (
+                objective.predicate
+                for objective in self._snapshot.world.red_objectives
+                if objective.predicate not in excluded
+                and preferred_ref
+                and preferred_ref in objective.predicate
+            ),
+            "",
+        )
+        if exact_match:
+            return exact_match
+        return next(
+            (
+                objective.predicate
+                for objective in self._snapshot.world.red_objectives
+                if objective.predicate not in excluded
+                and self._predicates.objective_target_service(objective.predicate)
+                == target
+            ),
+            "",
+        )
+
+    def _reachable_red_origin(self, target: str) -> str:
+        if self._snapshot is None or self._predicates is None or not target:
+            return ""
+        service_ids = {service.id for service in self._snapshot.world.services}
+        candidate_ids = service_ids & self._red_footholds
+        if self._last_red_target in candidate_ids:
+            candidate_ids.add(self._last_red_target)
+        reachable = {
+            origin
+            for origin in candidate_ids
+            if self._foothold_can_reach_target(origin, target)
+        }
+        if target in candidate_ids:
+            reachable.add(target)
+        if not reachable:
+            return ""
+        return min(
+            reachable,
+            key=lambda origin: (
+                len(self._predicates.shortest_path(origin, target)),
+                origin,
+            ),
+        )
+
+    def _merge_red_event_batches(self, batches: list[RedEventBatch]) -> RedEventBatch:
+        if not batches:
+            return self._empty_red_event_batch()
+        events: list[RuntimeEvent] = []
+        seen_events: set[tuple[str, str, str, tuple[str, ...]]] = set()
+        satisfied: list[str] = []
+        seen_objectives: set[str] = set()
+        footholds: list[str] = []
+        seen_footholds: set[str] = set()
+        last_target = self._last_red_target
+        for batch in batches:
+            for event in batch.events:
+                key = (
+                    event.event_type,
+                    event.source_entity,
+                    event.target_entity,
+                    tuple(event.linked_objective_predicates),
+                )
+                if key in seen_events:
+                    continue
+                seen_events.add(key)
+                events.append(event)
+            for predicate in batch.satisfied_objectives:
+                if predicate in seen_objectives:
+                    continue
+                seen_objectives.add(predicate)
+                satisfied.append(predicate)
+            for foothold in batch.footholds:
+                if foothold in seen_footholds:
+                    continue
+                seen_footholds.add(foothold)
+                footholds.append(foothold)
+            if batch.last_red_target:
+                last_target = batch.last_red_target
+        return RedEventBatch(
+            events=tuple(events),
+            satisfied_objectives=tuple(satisfied),
+            last_red_target=last_target,
+            footholds=tuple(footholds),
+        )
+
+    def _empty_red_event_batch(self) -> RedEventBatch:
+        return RedEventBatch(
+            events=(),
+            satisfied_objectives=(),
+            last_red_target=self._last_red_target,
         )
 
     def _act_blue(self, action: Action, *, internal: bool = False) -> ActionResult:
@@ -843,10 +1080,24 @@ class OpenRangeRuntime:
         return None
 
     def _remaining_red_targets(self) -> set[str]:
-        if self._snapshot is None:
+        if self._snapshot is None or self._predicates is None:
             return set()
-        trace = self._reference_attack_trace()
-        return {step.target for step in trace.steps[self._red_progress :]}
+        targets = {
+            service_id
+            for objective in self._snapshot.world.red_objectives
+            if objective.predicate not in self._red_objectives_satisfied
+            for service_id in (
+                self._predicates.objective_target_service(objective.predicate) or "",
+            )
+            if service_id
+        }
+        if not self._red_footholds:
+            targets.update(
+                service.id
+                for service in self._snapshot.world.services
+                if self._predicates.is_public_service(service)
+            )
+        return targets
 
     def _path_block_reason(self, target: str) -> str:
         if not target:
@@ -1075,6 +1326,36 @@ class OpenRangeRuntime:
             weakness_id = str(
                 action.payload.get("weakness_id", action.payload.get("weakness", ""))
             ).strip()
+            if (
+                self._snapshot is not None
+                and action.kind == "api"
+                and action.role == "red"
+                and action_target(action)
+            ):
+                target = action_target(action)
+                query = action.payload.get("query", {})
+                query_map = query if isinstance(query, dict) else {}
+                for weakness in (
+                    self._predicates.active_weaknesses() if self._predicates else ()
+                ):
+                    if weakness.family != "code_web" or weakness.target != target:
+                        continue
+                    simulated = code_web_simulated_output(
+                        self._snapshot.world,
+                        weakness,
+                        path=str(action.payload.get("path", "/") or "/"),
+                        query=query_map,
+                    )
+                    if simulated is None:
+                        continue
+                    return ActionExecution(
+                        stdout=simulated.strip(),
+                        executed_command=command_text_for_action(action),
+                        runner_service=str(
+                            action.payload.get("origin", action.actor_id)
+                        ),
+                        target_service=target,
+                    )
             if action.kind in {"api", "shell", "mail"} and weakness_id:
                 weakness = self._active_weakness(weakness_id)
                 if weakness is None:

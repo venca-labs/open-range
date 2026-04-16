@@ -18,6 +18,7 @@ from open_range.cluster import KindBackend
 from open_range.episode_config import EpisodeConfig
 from open_range.eval_remote_model_rollouts import (
     DEFAULT_ENDPOINT,
+    DEFAULT_MAX_OUTPUT_TOKENS,
     DEFAULT_MODEL,
     evaluate_remote_model_rollouts,
 )
@@ -547,6 +548,13 @@ def traces_cmd(
     help="HTTP timeout in seconds for remote model calls.",
 )
 @click.option(
+    "--max-output-tokens",
+    default=DEFAULT_MAX_OUTPUT_TOKENS,
+    show_default=True,
+    type=int,
+    help="Maximum completion tokens to allow for reasoning plus the final action.",
+)
+@click.option(
     "-o",
     "--output",
     "output_path",
@@ -564,6 +572,7 @@ def eval_cmd(
     mutations: int,
     max_turns: int,
     timeout: float,
+    max_output_tokens: int,
     output_path: str,
 ) -> None:
     """Run the remote model rollout eval against admitted OpenRange snapshots."""
@@ -576,15 +585,15 @@ def eval_cmd(
         mutations=mutations,
         max_turns=max_turns,
         timeout_s=timeout,
+        max_output_tokens=max_output_tokens,
         quiet=True,
     )
     report_path = _write_json(result, Path(output_path))
-    reference_match_rate = float(
-        result.get("reference_match_rate", result.get("exact_pick_rate", 0.0))
-    )
     valid_action_rate = float(
         result.get("valid_action_rate", result.get("valid_response_rate", 0.0))
     )
+    avg_red_reward = float(result.get("avg_red_reward", 0.0))
+    objective_progress_rate = float(result.get("objective_progress_rate", 0.0))
 
     click.echo(f"Remote model eval written to {report_path}")
     click.echo(f"  Endpoint: {result['endpoint']}")
@@ -592,7 +601,8 @@ def eval_cmd(
     click.echo(f"  Validation Profile: {result['validation_profile']}")
     click.echo(f"  Snapshots: {result['snapshot_count']}")
     click.echo(f"  Red Win Rate: {result['red_win_rate']:.3f}")
-    click.echo(f"  Reference Match Rate: {reference_match_rate:.3f}")
+    click.echo(f"  Avg Red Reward: {avg_red_reward:.3f}")
+    click.echo(f"  Objective Progress Rate: {objective_progress_rate:.3f}")
     click.echo(f"  Valid Action Rate: {valid_action_rate:.3f}")
     click.echo(f"  Avg Latency (ms): {result['avg_latency_ms']:.1f}")
 

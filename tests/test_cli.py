@@ -176,7 +176,8 @@ def test_eval_command_runs_remote_model_eval(monkeypatch, tmp_path: Path):
             "validation_profile": kwargs["validation_profile"],
             "snapshot_count": 1,
             "red_win_rate": 0.25,
-            "reference_match_rate": 0.5,
+            "avg_red_reward": 0.5,
+            "objective_progress_rate": 0.75,
             "valid_action_rate": 0.75,
             "avg_latency_ms": 123.4,
             "reports": [],
@@ -202,6 +203,8 @@ def test_eval_command_runs_remote_model_eval(monkeypatch, tmp_path: Path):
             "2",
             "--timeout",
             "15",
+            "--max-output-tokens",
+            "320",
             "--output",
             str(out),
         ],
@@ -218,6 +221,7 @@ def test_eval_command_runs_remote_model_eval(monkeypatch, tmp_path: Path):
         "mutations": 1,
         "max_turns": 2,
         "timeout_s": 15.0,
+        "max_output_tokens": 320,
         "quiet": True,
     }
     assert out.exists()
@@ -225,7 +229,8 @@ def test_eval_command_runs_remote_model_eval(monkeypatch, tmp_path: Path):
     assert payload["model"] == "gemma"
     assert payload["validation_profile"] == "full"
     assert "Remote model eval written to" in result.output
-    assert "Reference Match Rate: 0.500" in result.output
+    assert "Avg Red Reward: 0.500" in result.output
+    assert "Objective Progress Rate: 0.750" in result.output
     assert "Valid Action Rate: 0.750" in result.output
 
 
