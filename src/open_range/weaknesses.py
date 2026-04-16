@@ -5,6 +5,7 @@ from __future__ import annotations
 import random
 from typing import Protocol
 
+from open_range.catalog.objectives import weakness_objective_tags_for_kind
 from open_range.catalog.weaknesses import (
     available_weakness_families_for_service_kinds,
     benchmark_tags_for_family,
@@ -22,7 +23,6 @@ from open_range.manifest import (
     PinnedWeaknessSpec,
     WeaknessFamily,
 )
-from open_range.objectives import weakness_objective_tags
 from open_range.weakness_families import (
     WeaknessBuildContext,
     build_family_weakness,
@@ -149,7 +149,7 @@ def build_catalog_weakness(
             target_ref=target_ref,
             weakness_id=weak_id,
             benchmark_tags=benchmark_tags_for_family(family),
-            objective_tags=weakness_objective_tags(family, kind),
+            objective_tags=weakness_objective_tags_for_kind(family, kind),
             preconditions=preconditions_for_weakness(
                 family,
                 kind=kind,
