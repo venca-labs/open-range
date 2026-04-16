@@ -404,6 +404,15 @@ def available_weakness_families_for_service_kinds(
     }
 
 
+def available_seed_families_for_world(world) -> tuple[str, ...]:
+    available = available_weakness_families_for_service_kinds(
+        {service.kind for service in world.services}
+    )
+    if world.allowed_weakness_families:
+        available &= set(world.allowed_weakness_families)
+    return tuple(sorted(available))
+
+
 def supported_weakness_kinds_for_family(family: str) -> tuple[str, ...]:
     return WEAKNESS_KIND_CATALOG.get(family, ())
 
@@ -480,6 +489,18 @@ def select_seed_families(
         return tuple(auto_selected)
     selected = sorted(rng.sample(remaining, k=remainder_count))
     return tuple(auto_selected + selected)
+
+
+def selected_seed_families_for_world(world, *, rng: Random) -> tuple[str, ...]:
+    available = available_seed_families_for_world(world)
+    if not available:
+        return ()
+    weakness_count = min(world.target_weakness_count, len(available))
+    return select_seed_families(
+        available,
+        weakness_count=weakness_count,
+        rng=rng,
+    )
 
 
 def resolve_pinned_target(world, pinned_target: str) -> tuple[str, str, str]:

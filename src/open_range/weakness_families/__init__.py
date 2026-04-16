@@ -4,6 +4,12 @@ from __future__ import annotations
 
 from collections.abc import Callable
 
+from open_range.catalog.weaknesses import (
+    default_target_kind_for_family,
+    is_supported_weakness_kind,
+    weakness_build_defaults,
+    weakness_id_for,
+)
 from open_range.predicates import PredicateEngine
 from open_range.weakness_families import (
     code_web,
@@ -119,6 +125,65 @@ def build_family_weakness(context: WeaknessBuildContext) -> WeaknessSpec:
     return _family_callable(context.family, _FAMILY_BUILDERS, label="builder")(context)
 
 
+def build_catalog_weakness_for_family(
+    world: WorldIR,
+    family: str,
+    *,
+    kind: str,
+    target: str,
+    target_kind: str,
+    target_ref: str,
+    weakness_id: str | None = None,
+) -> WeaknessSpec:
+    if not is_supported_weakness_kind(family, kind):
+        raise ValueError(f"unsupported kind {kind!r} for family {family!r}")
+    target, target_kind, target_ref = normalize_target_for_family(
+        world,
+        family,
+        kind,
+        target,
+        target_kind,
+        target_ref,
+    )
+    defaults = weakness_build_defaults(
+        family,
+        kind=kind,
+        target=target,
+        target_ref=target_ref,
+    )
+    return build_family_weakness(
+        WeaknessBuildContext(
+            world=world,
+            family=family,
+            kind=kind,
+            target=target,
+            target_kind=target_kind,
+            target_ref=target_ref,
+            weakness_id=weakness_id
+            or weakness_id_for(kind, target=target, target_ref=target_ref),
+            benchmark_tags=defaults.benchmark_tags,
+            objective_tags=defaults.objective_tags,
+            preconditions=defaults.preconditions,
+            expected_event_signatures=defaults.expected_event_signatures,
+            blue_observability_surfaces=defaults.blue_observability_surfaces,
+            instantiation_mode=defaults.instantiation_mode,
+            remediation=defaults.remediation,
+        )
+    )
+
+
+def seed_catalog_weakness(world: WorldIR, family: str) -> WeaknessSpec:
+    target, target_ref = seed_family_target(world, family)
+    return build_catalog_weakness_for_family(
+        world,
+        family,
+        kind=default_kind_for_family(world, family, target, target_ref),
+        target=target,
+        target_kind=default_target_kind_for_family(family),
+        target_ref=target_ref,
+    )
+
+
 def mutation_target_service_for_family(world: WorldIR, family: str) -> str | None:
     return _family_callable(
         family, _FAMILY_MUTATION_TARGET_SERVICES, label="mutation target service"
@@ -172,6 +237,7 @@ def render_realization_content_for_family(
 __all__ = [
     "RedReferencePlan",
     "WeaknessBuildContext",
+    "build_catalog_weakness_for_family",
     "build_family_weakness",
     "build_red_reference_plan_for_family",
     "default_kind_for_family",
@@ -181,5 +247,6 @@ __all__ = [
     "mutation_target_service_for_family",
     "normalize_target_for_family",
     "render_realization_content_for_family",
+    "seed_catalog_weakness",
     "seed_family_target",
 ]

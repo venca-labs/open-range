@@ -8,6 +8,7 @@ from pydantic import ValidationError
 
 from open_range.catalog.weaknesses import (
     all_supported_weakness_kinds,
+    available_seed_families_for_world,
     available_weakness_families_for_service_kinds,
     benchmark_tags_for_family,
     default_target_kind_for_family,
@@ -20,6 +21,7 @@ from open_range.catalog.weaknesses import (
     resolve_pinned_target,
     seed_selection_for_family,
     select_seed_families,
+    selected_seed_families_for_world,
     supported_weakness_kinds_for_family,
     weakness_build_defaults,
     weakness_family_contract,
@@ -35,6 +37,7 @@ from open_range.manifest import (
     TelemetryBlindspotKind,
     WorkflowAbuseKind,
 )
+from open_range.weakness_families import seed_catalog_weakness
 from open_range.weaknesses import (
     CatalogWeaknessSeeder,
     build_catalog_weakness,
@@ -180,6 +183,25 @@ def test_weakness_family_catalog_keeps_seed_selection_policy() -> None:
     assert len(selected) == 2
 
 
+def test_weakness_family_catalog_selects_seed_families_from_world_contracts() -> None:
+    world = (
+        EnterpriseSaaSManifestCompiler()
+        .compile(manifest_payload())
+        .model_copy(
+            update={
+                "allowed_weakness_families": ("code_web", "config_identity"),
+                "target_weakness_count": 2,
+            }
+        )
+    )
+
+    assert available_seed_families_for_world(world) == ("code_web", "config_identity")
+    assert selected_seed_families_for_world(world, rng=random.Random(7)) == (
+        "code_web",
+        "config_identity",
+    )
+
+
 def test_weakness_catalog_keeps_pinned_target_resolution_rules() -> None:
     payload = manifest_payload()
     world = EnterpriseSaaSManifestCompiler().compile(payload)
@@ -270,8 +292,8 @@ def test_family_registry_keeps_seed_defaults_for_small_family_handlers() -> None
     payload = manifest_payload()
     world = EnterpriseSaaSManifestCompiler().compile(payload)
 
-    config_identity = CatalogWeaknessSeeder._seed_family(world, "config_identity")
-    telemetry = CatalogWeaknessSeeder._seed_family(world, "telemetry_blindspot")
+    config_identity = seed_catalog_weakness(world, "config_identity")
+    telemetry = seed_catalog_weakness(world, "telemetry_blindspot")
 
     assert config_identity.target == "svc-idp"
     assert config_identity.target_ref == "svc-idp"

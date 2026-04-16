@@ -68,7 +68,7 @@ Some current private helper files are transitional seams, not the end-state pack
 - [x] move blue control transitions behind runtime reducers
 - [x] move read-side observation state updates behind runtime reducers
 - [x] centralize runtime control and finding payload parsing
-- [ ] finish the weakness subsystem move and shrink `open_range.weaknesses`
+- [x] finish the weakness subsystem move and shrink `open_range.weaknesses`
 - [x] move objectives fully onto catalog-backed resolution
 - [ ] move runtime onto hooks and reducers
 
@@ -82,19 +82,16 @@ Some current private helper files are transitional seams, not the end-state pack
 
 The next real win is:
 
-1. finish the weakness subsystem move and shrink `open_range.weaknesses`
-2. keep pushing runtime state changes behind reducers and hooks
-3. move runtime event emission and visibility timing onto clearer hook boundaries
-4. keep behavior stable with parity tests before deleting the old logic
+1. keep pushing runtime state changes behind reducers and hooks
+2. move runtime event emission and visibility timing onto clearer hook boundaries
+3. keep behavior stable with parity tests before deleting the old logic
+4. collapse any remaining root-module compatibility seams that no longer buy us anything
 
 ## Next Large Targets
 
 - `src/open_range/probe_planner.py`
   - finish any last generic fallback logic that still lives inline now that blue detection, containment, and readback payload policy are catalog-backed
   - keep the planner as orchestration over catalog policy and family-owned handlers
-- `src/open_range/weaknesses.py`
-  - finish deleting the remaining family heuristics now that the family registry owns builders, mutators, probe/render hooks, and the pinned-target/selection policy is gone
-  - keep the file focused on orchestration and public seeding entry points
 - `src/open_range/runtime.py`
   - keep moving action and observation state changes behind reducers now that continuity, red action reduction, blue control transitions, and read-side observation updates already have shared seams
   - keep the decision loop and public runtime surface stable while deleting inline side-effect policy
