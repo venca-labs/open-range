@@ -135,6 +135,13 @@ class WeaknessPreconditionSpec:
 
 
 @dataclass(frozen=True, slots=True)
+class WeaknessSeedSelectionSpec:
+    family: str
+    auto_include: bool = False
+    priority: int = 1
+
+
+@dataclass(frozen=True, slots=True)
 class WeaknessExpectedEventsSpec:
     family: str
     kind: str

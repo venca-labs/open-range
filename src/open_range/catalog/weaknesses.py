@@ -2,12 +2,16 @@
 
 from __future__ import annotations
 
+from collections.abc import Callable
+from random import Random
+
 from open_range.catalog.contracts import (
     WeaknessExpectedEventsSpec,
     WeaknessFamilyContract,
     WeaknessKindSpec,
     WeaknessObservabilitySurfaceSpec,
     WeaknessPreconditionSpec,
+    WeaknessSeedSelectionSpec,
 )
 
 WEAKNESS_KIND_SPECS: tuple[WeaknessKindSpec, ...] = (
@@ -97,6 +101,14 @@ WEAKNESS_PRECONDITION_SPECS: tuple[WeaknessPreconditionSpec, ...] = (
     WeaknessPreconditionSpec(
         family="telemetry_blindspot",
         tokens=("critical_action_exists", "{kind}"),
+    ),
+)
+
+WEAKNESS_SEED_SELECTION_SPECS: tuple[WeaknessSeedSelectionSpec, ...] = (
+    WeaknessSeedSelectionSpec(
+        family="code_web",
+        auto_include=True,
+        priority=0,
     ),
 )
 
@@ -353,6 +365,9 @@ _WEAKNESS_EVENTS_BY_KEY = {
 _WEAKNESS_PRECONDITIONS_BY_FAMILY = {
     spec.family: spec.tokens for spec in WEAKNESS_PRECONDITION_SPECS
 }
+_WEAKNESS_SEED_SELECTION_BY_FAMILY = {
+    spec.family: spec for spec in WEAKNESS_SEED_SELECTION_SPECS
+}
 _WEAKNESS_SURFACE_SPECS_BY_FAMILY: dict[
     str, tuple[WeaknessObservabilitySurfaceSpec, ...]
 ] = {}
@@ -363,9 +378,18 @@ for spec in WEAKNESS_OBSERVABILITY_SURFACE_SPECS:
         spec,
     )
 
+PinnedTargetResolver = Callable[[object, str], tuple[str, str, str]]
+
 
 def weakness_family_contract(family: str) -> WeaknessFamilyContract | None:
     return _WEAKNESS_FAMILY_BY_NAME.get(family)
+
+
+def seed_selection_for_family(family: str) -> WeaknessSeedSelectionSpec:
+    return _WEAKNESS_SEED_SELECTION_BY_FAMILY.get(
+        family,
+        WeaknessSeedSelectionSpec(family=family),
+    )
 
 
 def available_weakness_families_for_service_kinds(
@@ -434,6 +458,41 @@ def preconditions_for_weakness(
     )
 
 
+def select_seed_families(
+    available_families: tuple[str, ...] | list[str],
+    *,
+    weakness_count: int,
+    rng: Random,
+) -> tuple[str, ...]:
+    if weakness_count <= 0:
+        return ()
+    available = tuple(sorted(dict.fromkeys(available_families)))
+    if not available:
+        return ()
+    auto_selected = [
+        family for family in available if seed_selection_for_family(family).auto_include
+    ][:weakness_count]
+    remaining = [family for family in available if family not in auto_selected]
+    remainder_count = weakness_count - len(auto_selected)
+    if remainder_count <= 0:
+        return tuple(auto_selected)
+    selected = sorted(rng.sample(remaining, k=remainder_count))
+    return tuple(auto_selected + selected)
+
+
+def resolve_pinned_target(world, pinned_target: str) -> tuple[str, str, str]:
+    target_kind, _, target_value = pinned_target.partition(":")
+    if not target_value:
+        target_kind = "service"
+        target_value = pinned_target
+    try:
+        return _PINNED_TARGET_RESOLVERS[target_kind](world, target_value)
+    except KeyError as exc:
+        raise ValueError(
+            f"unsupported pinned weakness target kind: {target_kind}"
+        ) from exc
+
+
 def observability_surfaces_for_weakness(
     family: str,
     *,
@@ -447,3 +506,73 @@ def observability_surfaces_for_weakness(
             continue
         return spec.surfaces
     return ()
+
+
+def _resolve_service_pinned_target(world, target_value: str) -> tuple[str, str, str]:
+    if any(service.id == target_value for service in world.services):
+        return (target_value, "service", target_value)
+    match = next(
+        (service.id for service in world.services if service.kind == target_value),
+        None,
+    )
+    if match:
+        return (match, "service", match)
+    raise ValueError(f"unknown pinned service target: {target_value}")
+
+
+def _resolve_workflow_pinned_target(world, target_value: str) -> tuple[str, str, str]:
+    workflow = next(
+        (
+            workflow
+            for workflow in world.workflows
+            if workflow.id == target_value
+            or workflow.name == target_value
+            or workflow.id == f"wf-{target_value}"
+        ),
+        None,
+    )
+    if workflow is None:
+        raise ValueError(f"unknown pinned workflow target: {target_value}")
+    target = next((step.service for step in workflow.steps if step.service), "svc-web")
+    return (target, "workflow", workflow.id)
+
+
+def _resolve_asset_pinned_target(world, target_value: str) -> tuple[str, str, str]:
+    asset = next((asset for asset in world.assets if asset.id == target_value), None)
+    if asset is None:
+        raise ValueError(f"unknown pinned asset target: {target_value}")
+    return (asset.owner_service, "asset", asset.id)
+
+
+def _resolve_credential_pinned_target(world, target_value: str) -> tuple[str, str, str]:
+    credential = next(
+        (
+            credential
+            for credential in world.credentials
+            if credential.id == target_value or credential.subject == target_value
+        ),
+        None,
+    )
+    if credential is None:
+        raise ValueError(f"unknown pinned credential target: {target_value}")
+    service = credential.scope[0] if credential.scope else "svc-idp"
+    return (service, "credential", credential.id)
+
+
+def _resolve_telemetry_pinned_target(world, target_value: str) -> tuple[str, str, str]:
+    service = next(
+        (edge.source for edge in world.telemetry_edges if edge.source == target_value),
+        None,
+    )
+    if service is None:
+        raise ValueError(f"unknown pinned telemetry target: {target_value}")
+    return (service, "telemetry", service)
+
+
+_PINNED_TARGET_RESOLVERS: dict[str, PinnedTargetResolver] = {
+    "service": _resolve_service_pinned_target,
+    "workflow": _resolve_workflow_pinned_target,
+    "asset": _resolve_asset_pinned_target,
+    "credential": _resolve_credential_pinned_target,
+    "telemetry": _resolve_telemetry_pinned_target,
+}

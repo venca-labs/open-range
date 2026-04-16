@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import random
 from typing import get_args
 
 import pytest
@@ -15,6 +16,9 @@ from open_range.catalog.weaknesses import (
     is_supported_weakness_kind,
     observability_surfaces_for_weakness,
     preconditions_for_weakness,
+    resolve_pinned_target,
+    seed_selection_for_family,
+    select_seed_families,
     supported_weakness_kinds_for_family,
     weakness_family_contract,
 )
@@ -123,6 +127,58 @@ def test_weakness_family_catalog_drives_family_availability() -> None:
         "secret_exposure",
     }
     assert weakness_family_contract("telemetry_blindspot") is not None
+
+
+def test_weakness_family_catalog_keeps_seed_selection_policy() -> None:
+    policy = seed_selection_for_family("code_web")
+
+    assert policy.auto_include is True
+    assert policy.priority == 0
+
+    selected = select_seed_families(
+        ("workflow_abuse", "secret_exposure", "code_web"),
+        weakness_count=2,
+        rng=random.Random(7),
+    )
+
+    assert selected[0] == "code_web"
+    assert len(selected) == 2
+
+
+def test_weakness_catalog_keeps_pinned_target_resolution_rules() -> None:
+    payload = manifest_payload()
+    world = EnterpriseSaaSManifestCompiler().compile(payload)
+    workflow = world.workflows[0]
+    workflow_target = next(
+        (step.service for step in workflow.steps if step.service),
+        "svc-web",
+    )
+    asset = world.assets[0]
+    credential = world.credentials[0]
+    telemetry_source = world.telemetry_edges[0].source
+
+    assert resolve_pinned_target(world, "svc-web") == ("svc-web", "service", "svc-web")
+    assert resolve_pinned_target(world, "web_app") == ("svc-web", "service", "svc-web")
+    assert resolve_pinned_target(world, f"workflow:{workflow.name}") == (
+        workflow_target,
+        "workflow",
+        workflow.id,
+    )
+    assert resolve_pinned_target(world, f"asset:{asset.id}") == (
+        asset.owner_service,
+        "asset",
+        asset.id,
+    )
+    assert resolve_pinned_target(world, f"credential:{credential.subject}") == (
+        credential.scope[0] if credential.scope else "svc-idp",
+        "credential",
+        credential.id,
+    )
+    assert resolve_pinned_target(world, f"telemetry:{telemetry_source}") == (
+        telemetry_source,
+        "telemetry",
+        telemetry_source,
+    )
 
 
 def test_weakness_kind_catalog_stays_in_sync_with_public_manifest_types() -> None:

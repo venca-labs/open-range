@@ -14,6 +14,8 @@ from open_range.catalog.weaknesses import (
     is_supported_weakness_kind,
     observability_surfaces_for_weakness,
     preconditions_for_weakness,
+    resolve_pinned_target,
+    select_seed_families,
     supported_weakness_kinds_for_family,
 )
 from open_range.manifest import (
@@ -49,18 +51,11 @@ class CatalogWeaknessSeeder:
             if not available:
                 return world
             weakness_count = min(world.target_weakness_count, len(available))
-            selected_families: list[WeaknessFamily] = []
-            remaining = list(available)
-            if "code_web" in remaining and weakness_count > 0:
-                selected_families.append("code_web")
-                remaining.remove("code_web")
-            if len(selected_families) < weakness_count:
-                selected_families.extend(
-                    sorted(
-                        rng.sample(remaining, k=weakness_count - len(selected_families))
-                    )
-                )
-            selected = tuple(selected_families)
+            selected = select_seed_families(
+                available,
+                weakness_count=weakness_count,
+                rng=rng,
+            )
             weaknesses = tuple(self._seed_family(world, family) for family in selected)
         lineage = world.lineage.model_copy(
             update={
@@ -82,7 +77,7 @@ class CatalogWeaknessSeeder:
 
     @staticmethod
     def _seed_pinned(world: WorldIR, pinned: PinnedWeaknessSpec) -> WeaknessSpec:
-        target, target_kind, target_ref = _resolve_pinned_target(world, pinned.target)
+        target, target_kind, target_ref = resolve_pinned_target(world, pinned.target)
         return CatalogWeaknessSeeder._build_weakness(
             world,
             pinned.family,
@@ -98,9 +93,9 @@ class CatalogWeaknessSeeder:
         return CatalogWeaknessSeeder._build_weakness(
             world,
             family,
-            kind=_default_kind(world, family, target, target_ref),
+            kind=default_kind_for_family(world, family, target, target_ref),
             target=target,
-            target_kind=_default_target_kind(family),
+            target_kind=default_target_kind_for_family(family),
             target_ref=target_ref,
         )
 
@@ -160,7 +155,7 @@ def build_catalog_weakness(
                 kind=kind,
                 target_ref=target_ref,
             ),
-            expected_event_signatures=_expected_events(family, kind),
+            expected_event_signatures=expected_events_for_weakness(family, kind),
             blue_observability_surfaces=observability_surfaces_for_weakness(
                 family, kind=kind, target=target
             ),
@@ -170,92 +165,11 @@ def build_catalog_weakness(
     )
 
 
-def _default_target_kind(family: WeaknessFamily) -> str:
-    return default_target_kind_for_family(family)
-
-
-def _default_kind(
-    world: WorldIR, family: WeaknessFamily, target: str, target_ref: str
-) -> str:
-    return default_kind_for_family(world, family, target, target_ref)
-
-
-def _resolve_pinned_target(world: WorldIR, pinned_target: str) -> tuple[str, str, str]:
-    target_kind, _, target_value = pinned_target.partition(":")
-    if not target_value:
-        target_kind = "service"
-        target_value = pinned_target
-    if target_kind == "service":
-        if any(service.id == target_value for service in world.services):
-            return target_value, target_kind, target_value
-        match = next(
-            (service.id for service in world.services if service.kind == target_value),
-            None,
-        )
-        if match:
-            return match, target_kind, match
-        raise ValueError(f"unknown pinned service target: {target_value}")
-    if target_kind == "workflow":
-        workflow = next(
-            (
-                workflow
-                for workflow in world.workflows
-                if workflow.id == target_value
-                or workflow.name == target_value
-                or workflow.id == f"wf-{target_value}"
-            ),
-            None,
-        )
-        if workflow is None:
-            raise ValueError(f"unknown pinned workflow target: {target_value}")
-        target = next(
-            (step.service for step in workflow.steps if step.service), "svc-web"
-        )
-        return target, target_kind, workflow.id
-    if target_kind == "asset":
-        asset = next(
-            (asset for asset in world.assets if asset.id == target_value), None
-        )
-        if asset is None:
-            raise ValueError(f"unknown pinned asset target: {target_value}")
-        return asset.owner_service, target_kind, asset.id
-    if target_kind == "credential":
-        credential = next(
-            (
-                credential
-                for credential in world.credentials
-                if credential.id == target_value or credential.subject == target_value
-            ),
-            None,
-        )
-        if credential is None:
-            raise ValueError(f"unknown pinned credential target: {target_value}")
-        service = credential.scope[0] if credential.scope else "svc-idp"
-        return service, target_kind, credential.id
-    if target_kind == "telemetry":
-        service = next(
-            (
-                edge.source
-                for edge in world.telemetry_edges
-                if edge.source == target_value
-            ),
-            None,
-        )
-        if service is None:
-            raise ValueError(f"unknown pinned telemetry target: {target_value}")
-        return service, target_kind, service
-    raise ValueError(f"unsupported pinned weakness target kind: {target_kind}")
-
-
 def _weakness_id(
     family: WeaknessFamily, kind: str, target: str, target_ref: str
 ) -> str:
     suffix = target_ref or target
     return f"wk-{kind.replace('_', '-')}-{suffix}"
-
-
-def _expected_events(family: WeaknessFamily, kind: str) -> tuple[str, ...]:
-    return expected_events_for_weakness(family, kind)
 
 
 def _remediation_text(kind: str) -> str:

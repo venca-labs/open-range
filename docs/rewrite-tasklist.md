@@ -45,6 +45,7 @@ Some current private helper files are transitional seams, not the end-state pack
 - [x] define weakness family contracts
 - [x] move weakness kind inventory into catalog and shared helpers
 - [x] move weakness precondition templates into catalog
+- [x] move weakness seed selection and pinned target resolution policy into catalog helpers
 - [x] define objective rule contracts
 - [x] define probe default contracts
 - [x] define observability surface contracts
@@ -75,7 +76,7 @@ The next real win is:
 
 1. finish the remaining blue-side fallback and readback policy in `probe_planner.py`
 2. finish the weakness subsystem move and shrink `open_range.weaknesses`
-3. move pinned target resolution and selection policy out of `open_range.weaknesses`
+3. move objectives fully onto catalog-backed resolution instead of leaving mixed dispatch behind
 4. keep behavior stable with parity tests before deleting the old logic
 
 ## Next Large Targets
@@ -84,7 +85,7 @@ The next real win is:
   - finish the remaining blue-side fallback policy and any readback expectations that still live inline
   - keep the planner as orchestration over catalog policy and family-owned handlers
 - `src/open_range/weaknesses.py`
-  - finish deleting the remaining family heuristics now that the family registry owns builders, mutators, and probe/render hooks
+  - finish deleting the remaining family heuristics now that the family registry owns builders, mutators, probe/render hooks, and the pinned-target/selection policy is gone
   - keep the file focused on orchestration and public seeding entry points
 - `src/open_range/compiler.py`
   - finish deleting transitional compiler helpers now that workflow templates, asset placement rules, and persona defaults live under `open_range.catalog`
