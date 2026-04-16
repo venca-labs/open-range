@@ -1,17 +1,34 @@
 from __future__ import annotations
 
+from typing import get_args
+
+import pytest
+from pydantic import ValidationError
+
 from open_range.catalog.weaknesses import (
+    all_supported_weakness_kinds,
     available_weakness_families_for_service_kinds,
     benchmark_tags_for_family,
     default_target_kind_for_family,
     expected_events_for_weakness,
     instantiation_mode_for_family,
+    is_supported_weakness_kind,
     observability_surfaces_for_weakness,
     precondition_mode_for_family,
+    supported_weakness_kinds_for_family,
     weakness_family_contract,
 )
 from open_range.compiler import EnterpriseSaaSManifestCompiler
-from open_range.weaknesses import CatalogWeaknessSeeder
+from open_range.manifest import (
+    CodeFlawKind,
+    ConfigIdentityKind,
+    PinnedWeaknessSpec,
+    SecretExposureKind,
+    SupportedWeaknessKind,
+    TelemetryBlindspotKind,
+    WorkflowAbuseKind,
+)
+from open_range.weaknesses import CatalogWeaknessSeeder, supported_weakness_kinds
 from tests.support import manifest_payload
 
 
@@ -72,6 +89,43 @@ def test_weakness_family_catalog_drives_family_availability() -> None:
         "secret_exposure",
     }
     assert weakness_family_contract("telemetry_blindspot") is not None
+
+
+def test_weakness_kind_catalog_stays_in_sync_with_public_manifest_types() -> None:
+    assert supported_weakness_kinds_for_family("code_web") == get_args(CodeFlawKind)
+    assert supported_weakness_kinds_for_family("config_identity") == get_args(
+        ConfigIdentityKind
+    )
+    assert supported_weakness_kinds_for_family("secret_exposure") == get_args(
+        SecretExposureKind
+    )
+    assert supported_weakness_kinds_for_family("workflow_abuse") == get_args(
+        WorkflowAbuseKind
+    )
+    assert supported_weakness_kinds_for_family("telemetry_blindspot") == get_args(
+        TelemetryBlindspotKind
+    )
+    assert supported_weakness_kinds("workflow_abuse") == get_args(WorkflowAbuseKind)
+    assert all_supported_weakness_kinds() == get_args(SupportedWeaknessKind)
+    assert is_supported_weakness_kind("workflow_abuse", "document_share_abuse")
+    assert not is_supported_weakness_kind("workflow_abuse", "sql_injection")
+
+
+def test_pinned_weakness_validation_reads_catalog_kind_inventory() -> None:
+    pinned = PinnedWeaknessSpec(
+        family="workflow_abuse",
+        kind="document_share_abuse",
+        target="svc-fileshare",
+    )
+
+    assert pinned.kind == "document_share_abuse"
+
+    with pytest.raises(ValidationError):
+        PinnedWeaknessSpec(
+            family="workflow_abuse",
+            kind="sql_injection",
+            target="svc-web",
+        )
 
 
 def test_seeded_world_keeps_catalog_backed_family_metadata() -> None:

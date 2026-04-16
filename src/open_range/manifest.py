@@ -10,6 +10,12 @@ from typing import Annotated, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, PositiveInt, model_validator
 
+from open_range.catalog.weaknesses import (
+    WEAKNESS_KIND_CATALOG as CATALOG_WEAKNESS_KIND_CATALOG,
+)
+from open_range.catalog.weaknesses import (
+    is_supported_weakness_kind,
+)
 from open_range.objectives import PUBLIC_OBJECTIVE_PREDICATE_NAMES
 from open_range.predicate_expr import parse_predicate
 
@@ -96,44 +102,7 @@ AssetClass = Literal["crown_jewel", "sensitive", "operational"]
 WeaknessTargetKind = Literal["service", "workflow", "asset", "credential", "telemetry"]
 Probability = Annotated[float, Field(ge=0.0, le=1.0)]
 
-WEAKNESS_KIND_CATALOG: dict[WeaknessFamily, tuple[str, ...]] = {
-    "code_web": (
-        "sql_injection",
-        "broken_authorization",
-        "auth_bypass",
-        "path_traversal",
-        "ssrf",
-        "command_injection",
-    ),
-    "config_identity": (
-        "weak_password",
-        "default_credential",
-        "overbroad_service_account",
-        "admin_surface_exposed",
-        "trust_edge_misconfig",
-    ),
-    "secret_exposure": (
-        "env_file_leak",
-        "credential_in_share",
-        "backup_leak",
-        "token_in_email",
-        "hardcoded_app_secret",
-    ),
-    "workflow_abuse": (
-        "helpdesk_reset_bypass",
-        "approval_chain_bypass",
-        "document_share_abuse",
-        "phishing_credential_capture",
-        "internal_request_impersonation",
-    ),
-    "telemetry_blindspot": (
-        "missing_web_logs",
-        "missing_idp_logs",
-        "delayed_siem_ingest",
-        "unmonitored_admin_action",
-        "silent_mail_rule",
-    ),
-}
+WEAKNESS_KIND_CATALOG = CATALOG_WEAKNESS_KIND_CATALOG
 
 
 class BusinessSpec(_StrictModel):
@@ -195,7 +164,7 @@ class PinnedWeaknessSpec(_StrictModel):
 
     @model_validator(mode="after")
     def _validate_family_kind_pair(self) -> "PinnedWeaknessSpec":
-        if self.kind not in WEAKNESS_KIND_CATALOG[self.family]:
+        if not is_supported_weakness_kind(self.family, self.kind):
             raise ValueError(
                 f"unsupported kind {self.kind!r} for family {self.family!r}"
             )

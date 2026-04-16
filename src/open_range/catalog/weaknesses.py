@@ -5,8 +5,38 @@ from __future__ import annotations
 from open_range.catalog.contracts import (
     WeaknessExpectedEventsSpec,
     WeaknessFamilyContract,
+    WeaknessKindSpec,
     WeaknessObservabilitySurfaceSpec,
     WeaknessPreconditionMode,
+)
+
+WEAKNESS_KIND_SPECS: tuple[WeaknessKindSpec, ...] = (
+    WeaknessKindSpec("code_web", "sql_injection"),
+    WeaknessKindSpec("code_web", "broken_authorization"),
+    WeaknessKindSpec("code_web", "auth_bypass"),
+    WeaknessKindSpec("code_web", "path_traversal"),
+    WeaknessKindSpec("code_web", "ssrf"),
+    WeaknessKindSpec("code_web", "command_injection"),
+    WeaknessKindSpec("config_identity", "weak_password"),
+    WeaknessKindSpec("config_identity", "default_credential"),
+    WeaknessKindSpec("config_identity", "overbroad_service_account"),
+    WeaknessKindSpec("config_identity", "admin_surface_exposed"),
+    WeaknessKindSpec("config_identity", "trust_edge_misconfig"),
+    WeaknessKindSpec("secret_exposure", "env_file_leak"),
+    WeaknessKindSpec("secret_exposure", "credential_in_share"),
+    WeaknessKindSpec("secret_exposure", "backup_leak"),
+    WeaknessKindSpec("secret_exposure", "token_in_email"),
+    WeaknessKindSpec("secret_exposure", "hardcoded_app_secret"),
+    WeaknessKindSpec("workflow_abuse", "helpdesk_reset_bypass"),
+    WeaknessKindSpec("workflow_abuse", "approval_chain_bypass"),
+    WeaknessKindSpec("workflow_abuse", "document_share_abuse"),
+    WeaknessKindSpec("workflow_abuse", "phishing_credential_capture"),
+    WeaknessKindSpec("workflow_abuse", "internal_request_impersonation"),
+    WeaknessKindSpec("telemetry_blindspot", "missing_web_logs"),
+    WeaknessKindSpec("telemetry_blindspot", "missing_idp_logs"),
+    WeaknessKindSpec("telemetry_blindspot", "delayed_siem_ingest"),
+    WeaknessKindSpec("telemetry_blindspot", "unmonitored_admin_action"),
+    WeaknessKindSpec("telemetry_blindspot", "silent_mail_rule"),
 )
 
 WEAKNESS_FAMILY_CONTRACTS: tuple[WeaknessFamilyContract, ...] = (
@@ -286,6 +316,18 @@ WEAKNESS_OBSERVABILITY_SURFACE_SPECS: tuple[WeaknessObservabilitySurfaceSpec, ..
 _WEAKNESS_FAMILY_BY_NAME = {
     contract.family: contract for contract in WEAKNESS_FAMILY_CONTRACTS
 }
+_WEAKNESS_KIND_SPECS_BY_FAMILY: dict[str, tuple[WeaknessKindSpec, ...]] = {}
+for spec in WEAKNESS_KIND_SPECS:
+    _WEAKNESS_KIND_SPECS_BY_FAMILY.setdefault(spec.family, ())
+    _WEAKNESS_KIND_SPECS_BY_FAMILY[spec.family] = (
+        *_WEAKNESS_KIND_SPECS_BY_FAMILY[spec.family],
+        spec,
+    )
+WEAKNESS_KIND_CATALOG: dict[str, tuple[str, ...]] = {
+    family: tuple(spec.kind for spec in specs)
+    for family, specs in _WEAKNESS_KIND_SPECS_BY_FAMILY.items()
+}
+_ALL_SUPPORTED_WEAKNESS_KINDS = tuple(spec.kind for spec in WEAKNESS_KIND_SPECS)
 _WEAKNESS_EVENTS_BY_KEY = {
     (spec.family, spec.kind): spec.expected_event_signatures
     for spec in WEAKNESS_EXPECTED_EVENT_SPECS
@@ -313,6 +355,18 @@ def available_weakness_families_for_service_kinds(
         for contract in WEAKNESS_FAMILY_CONTRACTS
         if set(contract.available_when_any_service_kinds) & service_kinds
     }
+
+
+def supported_weakness_kinds_for_family(family: str) -> tuple[str, ...]:
+    return WEAKNESS_KIND_CATALOG.get(family, ())
+
+
+def is_supported_weakness_kind(family: str, kind: str) -> bool:
+    return kind in supported_weakness_kinds_for_family(family)
+
+
+def all_supported_weakness_kinds() -> tuple[str, ...]:
+    return _ALL_SUPPORTED_WEAKNESS_KINDS
 
 
 def default_target_kind_for_family(family: str) -> str:

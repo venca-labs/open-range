@@ -12,12 +12,13 @@ from open_range.catalog.weaknesses import (
     default_target_kind_for_family,
     expected_events_for_weakness,
     instantiation_mode_for_family,
+    is_supported_weakness_kind,
     observability_surfaces_for_weakness,
     precondition_mode_for_family,
+    supported_weakness_kinds_for_family,
 )
 from open_range.code_web import code_web_realizations, code_web_remediation_command
 from open_range.manifest import (
-    WEAKNESS_KIND_CATALOG,
     PinnedWeaknessSpec,
     WeaknessFamily,
 )
@@ -149,7 +150,7 @@ class CatalogWeaknessSeeder:
 
 
 def supported_weakness_kinds(family: WeaknessFamily) -> tuple[str, ...]:
-    return WEAKNESS_KIND_CATALOG[family]
+    return supported_weakness_kinds_for_family(family)
 
 
 def build_catalog_weakness(
@@ -162,7 +163,7 @@ def build_catalog_weakness(
     target_ref: str,
     weakness_id: str | None = None,
 ) -> WeaknessSpec:
-    if kind not in WEAKNESS_KIND_CATALOG[family]:
+    if not is_supported_weakness_kind(family, kind):
         raise ValueError(f"unsupported kind {kind!r} for family {family!r}")
     target, target_kind, target_ref = _normalize_target_for_kind(
         world, family, kind, target, target_kind, target_ref

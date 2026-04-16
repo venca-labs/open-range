@@ -43,6 +43,7 @@ Some current private helper files are transitional seams, not the end-state pack
 
 - [x] define service catalog contracts
 - [x] define weakness family contracts
+- [x] move weakness kind inventory into catalog and shared helpers
 - [x] define objective rule contracts
 - [ ] define probe default contracts
 - [x] define observability surface contracts
@@ -64,7 +65,7 @@ Some current private helper files are transitional seams, not the end-state pack
 
 The next real win is not another `admit.py` split. The next win is:
 
-1. move the weakness kind inventory out of `manifest.py` and into `open_range.catalog`
-2. make `manifest.py` validation and `weaknesses.py` seeding read from the same catalog source
-3. keep the public manifest type surface stable while the internals move
-4. lock the behavior with parity tests before deleting the old switchboard
+1. move probe defaults and targeting presets into `open_range.catalog`
+2. make the current planners and builders read those defaults instead of local switchboards
+3. keep public behavior stable while the internals move
+4. lock the behavior with parity tests before deleting the old logic

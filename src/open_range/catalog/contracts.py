@@ -97,6 +97,12 @@ class WeaknessFamilyContract:
 
 
 @dataclass(frozen=True, slots=True)
+class WeaknessKindSpec:
+    family: str
+    kind: str
+
+
+@dataclass(frozen=True, slots=True)
 class WeaknessExpectedEventsSpec:
     family: str
     kind: str
