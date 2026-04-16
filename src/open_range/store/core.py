@@ -13,6 +13,16 @@ from open_range.snapshot import KindArtifacts, Snapshot, world_hash
 from open_range.synth import SynthArtifacts
 from open_range.world_ir import WorldIR
 
+from .paths import (
+    metadata_path,
+    reference_bundle_path,
+    snapshot_dir,
+    snapshot_path,
+    validator_report_path,
+    world_path,
+)
+from .seed_state import build_seed_state
+
 PoolSplit = Literal["train", "eval"]
 
 
@@ -55,36 +65,7 @@ class FileSnapshotStore:
         *,
         split: PoolSplit = "train",
     ) -> Snapshot:
-        db_seed_state = {
-            "services": [svc.id for svc in world.services if svc.kind == "db"]
-        }
-        mail_state = {
-            "mailboxes": [
-                persona.mailbox for persona in world.green_personas if persona.mailbox
-            ]
-        }
-        file_assets = {asset.id: asset.location for asset in world.assets}
-        identity_seed = {"users": [user.id for user in world.users]}
-        state_seed_dir = artifacts.render_dir
-        if synth is not None:
-            db_seed_state = {
-                "services": [svc.id for svc in world.services if svc.kind == "db"],
-                "payload_files": [
-                    item.key for item in synth.service_payloads.get("svc-db", ())
-                ],
-            }
-            mail_state = {
-                mailbox: list(messages) for mailbox, messages in synth.mailboxes.items()
-            }
-            file_assets = {
-                synth_file.key: synth_file.mount_path
-                for synth_file in synth.service_payloads.get("svc-fileshare", ())
-            }
-            identity_seed = {
-                "users": [user.id for user in world.users],
-                "mailboxes": sorted(synth.mailboxes),
-            }
-            state_seed_dir = synth.outdir
+        seed_state = build_seed_state(world, artifacts, synth)
         snapshot_id = f"{world.world_id}-{world_hash(world)[:8]}"
         snap_dir = self._snapshot_dir(snapshot_id)
         snap_dir.mkdir(parents=True, exist_ok=True)
@@ -100,13 +81,13 @@ class FileSnapshotStore:
             seed=world.seed,
             artifacts_dir=artifacts.render_dir,
             image_digests=artifacts.pinned_image_digests,
-            state_seed_dir=state_seed_dir,
+            state_seed_dir=seed_state.state_seed_dir,
             validator_report_path=str(validator_report_path),
             artifacts=artifacts,
-            db_seed_state=db_seed_state,
-            mail_state=mail_state,
-            file_assets=file_assets,
-            identity_seed=identity_seed,
+            db_seed_state=seed_state.db_seed_state,
+            mail_state=seed_state.mail_state,
+            file_assets=seed_state.file_assets,
+            identity_seed=seed_state.identity_seed,
             validator_report=vr,
             world_hash=world_hash(world),
             parent_snapshot_id=None,
@@ -180,19 +161,19 @@ class FileSnapshotStore:
         return json.loads(metadata_path.read_text(encoding="utf-8"))
 
     def _snapshot_dir(self, snapshot_id: str) -> Path:
-        return self.store_dir / snapshot_id
+        return snapshot_dir(self.store_dir, snapshot_id)
 
     def _snapshot_path(self, snapshot_id: str) -> Path:
-        return self._snapshot_dir(snapshot_id) / "snapshot.json"
+        return snapshot_path(self.store_dir, snapshot_id)
 
     def _metadata_path(self, snapshot_id: str) -> Path:
-        return self._snapshot_dir(snapshot_id) / "metadata.json"
+        return metadata_path(self.store_dir, snapshot_id)
 
     def _world_path(self, snapshot_id: str) -> Path:
-        return self._snapshot_dir(snapshot_id) / "world.json"
+        return world_path(self.store_dir, snapshot_id)
 
     def _reference_bundle_path(self, snapshot_id: str) -> Path:
-        return self._snapshot_dir(snapshot_id) / "reference_bundle.json"
+        return reference_bundle_path(self.store_dir, snapshot_id)
 
     def _validator_report_path(self, snapshot_id: str) -> Path:
-        return self._snapshot_dir(snapshot_id) / "validator_report.json"
+        return validator_report_path(self.store_dir, snapshot_id)
