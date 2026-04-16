@@ -41,7 +41,7 @@ dependencies = [
 
 [project.urls]
 Homepage = "https://github.com/vecna-labs/open-range"
-Documentation = "https://github.com/vecna-labs/open-range/tree/main/docs"
+Documentation = "https://github.com/vecna-labs/open-range#documentation"
 Issues = "https://github.com/vecna-labs/open-range/issues"
 Repository = "https://github.com/vecna-labs/open-range"
 
