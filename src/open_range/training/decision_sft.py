@@ -6,6 +6,7 @@ import json
 from typing import Any, Literal
 
 from open_range.runtime_types import Action, Observation, RuntimeEvent
+from open_range.training.trace_exports import public_trace_action
 from open_range.training_data import (
     ActionSource,
     TraceDecisionRow,
@@ -13,7 +14,6 @@ from open_range.training_data import (
     TraceSource,
     TraceSplit,
     TraceWeakness,
-    public_trace_action,
 )
 
 

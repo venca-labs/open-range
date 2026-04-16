@@ -76,7 +76,7 @@ Some current private helper files are transitional seams, not the end-state pack
 - [x] move objectives fully onto catalog-backed resolution
 - [ ] move runtime onto hooks and reducers
 - [x] move SFT prompt and system-prompt formatting out of core `src/open_range`
-- [ ] move remaining model-facing trace and action-formatting helpers out of core `src/open_range`
+- [x] move remaining model-facing trace and action-formatting helpers out of core `src/open_range`
 - [x] split `code_web.py` into specs, renderers, and remediation helpers
 - [ ] move remaining code-web offline simulation semantics behind focused helpers
 

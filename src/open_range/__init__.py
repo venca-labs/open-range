@@ -55,11 +55,11 @@ from open_range.service import OpenRange
 from open_range.snapshot import Snapshot, world_hash
 from open_range.store import FileSnapshotStore
 from open_range.tracegen import TraceDatasetGenerator, generate_trace_dataset
+from open_range.training.trace_exports import render_action_text
 from open_range.training_data import (
     TraceDatasetReport,
     TraceDecisionRow,
     TraceLineage,
-    render_action_text,
 )
 from open_range.world_ir import WorldIR
 

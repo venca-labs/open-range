@@ -14,7 +14,7 @@ from open_range.runtime_events import (
 )
 from open_range.runtime_types import Action
 from open_range.snapshot import RuntimeSnapshot
-from open_range.training_data import normalize_trace_action
+from open_range.training.trace_exports import normalize_trace_action
 
 
 def action_for_reference_step(
