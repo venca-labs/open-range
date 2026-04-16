@@ -9,7 +9,10 @@ from open_range.admission import (
     ValidatorReport,
     ValidatorStageReport,
 )
-from open_range.admit import AdmissionController, LocalAdmissionController
+from open_range.admission.controller import (
+    AdmissionController,
+    LocalAdmissionController,
+)
 from open_range.build_config import (
     DEFAULT_BUILD_CONFIG,
     OFFLINE_BUILD_CONFIG,

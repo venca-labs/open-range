@@ -1,7 +1,7 @@
 from __future__ import annotations
 
-from open_range._admission_registry import registered_admission_checks
-from open_range.admission_plan import admission_stages
+from open_range.admission.plan import admission_stages
+from open_range.admission.registry import registered_admission_checks
 from open_range.build_config import BuildConfig
 
 

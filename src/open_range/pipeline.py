@@ -10,7 +10,7 @@ from typing import Any
 import yaml
 from pydantic import BaseModel, ConfigDict
 
-from open_range.admit import LocalAdmissionController
+from open_range.admission.controller import LocalAdmissionController
 from open_range.build_config import DEFAULT_BUILD_CONFIG, BuildConfig
 from open_range.cilium_policies import CiliumPolicyGenerator
 from open_range.compiler import EnterpriseSaaSManifestCompiler
