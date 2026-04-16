@@ -9,6 +9,8 @@ from typing import Literal, Protocol
 from pydantic import BaseModel, ConfigDict, Field
 
 from open_range._runtime_store import load_world_ir
+from open_range.catalog.roles import home_service_for_role, routine_for_role
+from open_range.catalog.services import host_for_service, service_catalog_entry_for_kind
 from open_range.predicate_expr import predicate_inner
 from open_range.store import FileSnapshotStore
 from open_range.weakness_families import (
@@ -225,7 +227,7 @@ class FrontierMutationPolicy:
             parent.mutation_bounds.max_new_hosts > 0
             and parent.mutation_bounds.max_new_services > 0
         ):
-            objective_service = _first_objective_service(parent)
+            objective_service = first_objective_service(parent)
             if objective_service:
                 ops.append(MutationOp(kind="add_service", target=objective_service))
         elif parent.mutation_bounds.max_new_hosts > 0:
@@ -309,10 +311,6 @@ def _op_token(op: MutationOp) -> str:
 def _stable_seed(*parts: object) -> int:
     payload = "|".join(str(part) for part in parts)
     return int(hashlib.sha256(payload.encode("utf-8")).hexdigest()[:8], 16)
-
-
-def _first_objective_service(world: WorldIR) -> str:
-    return first_objective_service(world)
 
 
 def _least_populated_role(world: WorldIR) -> str:
@@ -457,7 +455,9 @@ def _add_user(world: WorldIR, *, role: str) -> WorldIR | None:
 
     user_id = _next_user_id(role, {user.id for user in world.users})
     home_host = template_user.primary_host or (
-        world.hosts[0].id if world.hosts else "web-1"
+        world.hosts[0].id
+        if world.hosts
+        else host_for_service(home_service_for_role(role))
     )
     group_id = f"group-{role}"
 
@@ -485,7 +485,7 @@ def _add_user(world: WorldIR, *, role: str) -> WorldIR | None:
         susceptibility=template_persona.susceptibility if template_persona else {},
         routine=template_persona.routine
         if template_persona
-        else ("check_mail", "browse_app"),
+        else routine_for_role(role),
     )
 
     groups = list(world.groups)
@@ -496,7 +496,11 @@ def _add_user(world: WorldIR, *, role: str) -> WorldIR | None:
         break
     else:
         groups.append(
-            GroupSpec(id=group_id, members=(user_id,), privileges=("svc-web",))
+            GroupSpec(
+                id=group_id,
+                members=(user_id,),
+                privileges=(home_service_for_role(role),),
+            )
         )
 
     return world.model_copy(
@@ -517,7 +521,7 @@ def _add_workflow_branch(world: WorldIR) -> WorldIR | None:
         (item for item in world.assets if item.confidentiality in {"critical", "high"}),
         None,
     )
-    service_id = _first_objective_service(world)
+    service_id = first_objective_service(world)
     new_step = WorkflowStepSpec(
         id=f"{workflow.id}-branch-{len(workflow.steps) + 1}",
         actor_role=world.users[0].role if world.users else "sales",
@@ -554,7 +558,7 @@ def _add_workflow_branch(world: WorldIR) -> WorldIR | None:
 
 
 def _add_trust_edge(world: WorldIR) -> WorldIR | None:
-    objective_service = _first_objective_service(world)
+    objective_service = first_objective_service(world)
     public_service = next(
         (
             service.id
@@ -626,7 +630,7 @@ def _seed_additional_weakness(world: WorldIR) -> WorldIR | None:
     )
     if family is None:
         return None
-    target_service = _weakness_target(world, family)
+    target_service = mutation_target_service_for_family(world, family)
     if target_service is None:
         return None
     weakness = _make_weakness(world, family, target_service, existing_ids=existing_ids)
@@ -672,7 +676,7 @@ def _harden_route_expose_alternate(world: WorldIR) -> WorldIR | None:
         ),
         "",
     )
-    objective = _first_objective_service(world)
+    objective = first_objective_service(world)
     route_target = _route_hardening_target(world, start, objective)
     if (
         not start
@@ -747,15 +751,8 @@ def _route_hardening_target(world: WorldIR, start: str, objective: str) -> str:
 
 
 def _next_host_id(prefix: str, existing: set[str]) -> str:
-    base = {
-        "workstation": "workstation",
-        "web_app": "web",
-        "email": "mail",
-        "idp": "idp",
-        "fileshare": "files",
-        "db": "db",
-        "siem": "siem",
-    }.get(prefix, prefix)
+    entry = service_catalog_entry_for_kind(prefix)
+    base = entry.host_id.rsplit("-", 1)[0] if entry is not None else prefix
     idx = 1
     while f"{base}-{idx}" in existing:
         idx += 1
@@ -788,10 +785,6 @@ def _moved_asset_location(location: str, new_service_id: str) -> str:
     return f"{new_service_id}:{location}"
 
 
-def _weakness_target(world: WorldIR, family: str) -> str | None:
-    return mutation_target_service_for_family(world, family)
-
-
 def _make_weakness(
     world: WorldIR,
     family: str,
@@ -804,7 +797,9 @@ def _make_weakness(
     while weak_id in existing_ids:
         suffix += 1
         weak_id = f"wk-{family.replace('_', '-')}-{suffix}"
-    kind, target_kind, target_ref = _mutation_kind_target(world, family, target_service)
+    kind, target_kind, target_ref = mutation_spec_for_family(
+        world, family, target_service
+    )
     return build_catalog_weakness(
         world,
         family,
@@ -814,12 +809,6 @@ def _make_weakness(
         target_ref=target_ref,
         weakness_id=weak_id,
     )
-
-
-def _mutation_kind_target(
-    world: WorldIR, family: str, target_service: str
-) -> tuple[str, str, str]:
-    return mutation_spec_for_family(world, family, target_service)
 
 
 def mutation_summary(world: WorldIR) -> dict[str, object]:
