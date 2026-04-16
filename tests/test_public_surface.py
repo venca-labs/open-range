@@ -25,6 +25,7 @@ def test_internal_reference_helpers_are_not_exposed_as_public_modules() -> None:
     assert not hasattr(runtime_module, "ReferenceDrivenRuntime")
     assert importlib.util.find_spec("open_range.driver") is None
     assert importlib.util.find_spec("open_range.sim") is None
+    assert importlib.util.find_spec("open_range.eval_remote_model_rollouts") is None
 
 
 def test_public_docs_avoid_candidate_action_menu_language() -> None:

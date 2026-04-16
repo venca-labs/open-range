@@ -164,74 +164,11 @@ def test_traces_command_writes_branch_native_datasets(tmp_path: Path):
     assert "Trace dataset written to" in result.output
 
 
-def test_eval_command_runs_remote_model_eval(monkeypatch, tmp_path: Path):
-    calls: list[dict[str, object]] = []
-
-    def _fake_eval(**kwargs) -> dict:
-        calls.append(kwargs)
-        return {
-            "manifest_source": "tier1_basic.yaml",
-            "endpoint": "http://endpoint/v1/chat/completions",
-            "model": "gemma",
-            "validation_profile": kwargs["validation_profile"],
-            "snapshot_count": 1,
-            "red_win_rate": 0.25,
-            "avg_red_reward": 0.5,
-            "objective_progress_rate": 0.75,
-            "valid_action_rate": 0.75,
-            "avg_latency_ms": 123.4,
-            "reports": [],
-        }
-
-    monkeypatch.setattr(cli_module, "evaluate_remote_model_rollouts", _fake_eval)
-    monkeypatch.setenv("OPENAI_API_KEY", "env-secret")
-
-    out = tmp_path / "eval.json"
-    result = CliRunner().invoke(
-        cli,
-        [
-            "eval",
-            "--endpoint",
-            "http://endpoint/v1/chat/completions",
-            "--model",
-            "gemma",
-            "--manifest",
-            "tier1_basic.yaml",
-            "--mutations",
-            "1",
-            "--max-turns",
-            "2",
-            "--timeout",
-            "15",
-            "--max-output-tokens",
-            "320",
-            "--output",
-            str(out),
-        ],
-    )
+def test_help_omits_agent_runner_commands() -> None:
+    result = CliRunner().invoke(cli, ["--help"])
 
     assert result.exit_code == 0, result.output
-    assert len(calls) == 1
-    assert calls[0] == {
-        "endpoint": "http://endpoint/v1/chat/completions",
-        "model": "gemma",
-        "api_key": "env-secret",
-        "validation_profile": "full",
-        "manifest": "tier1_basic.yaml",
-        "mutations": 1,
-        "max_turns": 2,
-        "timeout_s": 15.0,
-        "max_output_tokens": 320,
-        "quiet": True,
-    }
-    assert out.exists()
-    payload = json.loads(out.read_text(encoding="utf-8"))
-    assert payload["model"] == "gemma"
-    assert payload["validation_profile"] == "full"
-    assert "Remote model eval written to" in result.output
-    assert "Avg Red Reward: 0.500" in result.output
-    assert "Objective Progress Rate: 0.750" in result.output
-    assert "Valid Action Rate: 0.750" in result.output
+    assert "eval" not in result.output
 
 
 def test_grpo_command_invokes_standalone_runner(monkeypatch):
