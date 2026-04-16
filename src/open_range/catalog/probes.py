@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from collections.abc import Mapping
+
 from open_range.catalog.contracts import (
     BlueReferencePlanSpec,
     ProbeTemplateSpec,
@@ -87,6 +89,7 @@ _PRIMARY_RED_REFERENCE_FAMILY_ALLOWLIST = frozenset(
     for family in _RED_REFERENCE_FAMILY_PRIORITY
     if family != "telemetry_blindspot"
 )
+_BLUE_REFERENCE_EXPECTED_EVENTS = ("DetectionAlertRaised", "ContainmentApplied")
 _IDENTITY_EFFECT_MARKERS_BY_KIND = {
     "weak_password": ('"min_password_length": 6', '"password_reuse_allowed": true'),
     "default_credential": (
@@ -210,6 +213,42 @@ def blue_reference_plan_for_trace(
         contain_target=red_trace.steps[-1].target if red_trace.steps else "svc-siem",
         observe_step_count=max(1, detect_index + 1),
     )
+
+
+def blue_reference_expected_events() -> tuple[str, str]:
+    return _BLUE_REFERENCE_EXPECTED_EVENTS
+
+
+def blue_observe_reference_payload() -> dict[str, str]:
+    return {"action": "observe_events"}
+
+
+def blue_submit_finding_payload(*, detect_event: str) -> dict[str, str]:
+    return {"event": detect_event}
+
+
+def blue_containment_payload() -> dict[str, str]:
+    return {"action": "contain"}
+
+
+def runtime_payload_for_reference_action(
+    actor: str,
+    kind: str,
+    *,
+    target: str = "",
+    payload: Mapping[str, object] | None = None,
+) -> dict[str, object]:
+    next_payload: dict[str, object] = dict(payload or {})
+    if target:
+        next_payload.setdefault("target", target)
+    if actor == "blue" and kind == "submit_finding":
+        next_payload["event_type"] = str(
+            next_payload.get(
+                "event",
+                next_payload.get("event_type", "InitialAccess"),
+            )
+        )
+    return next_payload
 
 
 def workflow_kind_uses_email_delivery(kind: str) -> bool:

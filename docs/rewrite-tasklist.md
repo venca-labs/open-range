@@ -59,6 +59,7 @@ Some current private helper files are transitional seams, not the end-state pack
 - [x] start moving family-specific red reference planning out of `probe_planner.py`
 - [x] move planner family ranking and red-side fallback policy behind catalog and family handlers
 - [x] move blue-side detection and containment policy behind catalog probe helpers
+- [x] move blue-side readback payload policy behind catalog probe helpers
 - [x] start moving family-specific realization content out of `synth.py`
 - [x] finish moving family-specific realization content out of `synth.py`
 - [ ] finish the weakness subsystem move and shrink `open_range.weaknesses`
@@ -75,7 +76,7 @@ Some current private helper files are transitional seams, not the end-state pack
 
 The next real win is:
 
-1. finish the remaining blue-side fallback and readback policy in `probe_planner.py`
+1. finish any last generic fallback logic in `probe_planner.py`
 2. finish the weakness subsystem move and shrink `open_range.weaknesses`
 3. move objectives fully onto catalog-backed resolution instead of leaving mixed dispatch behind
 4. keep behavior stable with parity tests before deleting the old logic
@@ -83,7 +84,7 @@ The next real win is:
 ## Next Large Targets
 
 - `src/open_range/probe_planner.py`
-  - finish the remaining blue-side readback expectations and any last generic fallback logic that still live inline
+  - finish any last generic fallback logic that still lives inline now that blue detection, containment, and readback payload policy are catalog-backed
   - keep the planner as orchestration over catalog policy and family-owned handlers
 - `src/open_range/weaknesses.py`
   - finish deleting the remaining family heuristics now that the family registry owns builders, mutators, probe/render hooks, and the pinned-target/selection policy is gone

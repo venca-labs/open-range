@@ -16,10 +16,15 @@ from open_range.catalog.contracts import ProbeTemplateSpec
 from open_range.catalog.probes import (
     DEFAULT_DETERMINISM_PROBE_TEMPLATES,
     DEFAULT_SHORTCUT_PROBE_TEMPLATES,
+    blue_containment_payload,
+    blue_observe_reference_payload,
+    blue_reference_expected_events,
     blue_reference_plan_for_trace,
+    blue_submit_finding_payload,
     family_supports_primary_red_reference,
     necessity_probe_template,
     red_reference_family_priority,
+    runtime_payload_for_reference_action,
     smoke_probe_template,
     telemetry_blindspot_targets,
 )
@@ -214,7 +219,7 @@ class ProbePlanner:
                 actor="blue",
                 kind="shell",
                 target="svc-siem",
-                payload={"action": "observe_events"},
+                payload=blue_observe_reference_payload(),
             )
             for _ in range(plan.observe_step_count)
         )
@@ -224,20 +229,20 @@ class ProbePlanner:
             objective_ids=tuple(
                 objective.id for objective in self.world.blue_objectives
             ),
-            expected_events=("DetectionAlertRaised", "ContainmentApplied"),
+            expected_events=blue_reference_expected_events(),
             steps=observe_steps
             + (
                 ReferenceAction(
                     actor="blue",
                     kind="submit_finding",
                     target=plan.detect_target,
-                    payload={"event": plan.detect_event},
+                    payload=blue_submit_finding_payload(detect_event=plan.detect_event),
                 ),
                 ReferenceAction(
                     actor="blue",
                     kind="control",
                     target=plan.contain_target,
-                    payload={"action": "contain"},
+                    payload=blue_containment_payload(),
                 ),
             ),
         )
@@ -250,14 +255,12 @@ def build_reference_bundle(
 
 
 def runtime_action(actor: str, step: ReferenceAction) -> Action:
-    payload = dict(step.payload)
-    if step.target:
-        payload.setdefault("target", step.target)
-    if actor == "blue" and step.kind == "submit_finding":
-        event_type = str(
-            payload.get("event", payload.get("event_type", "InitialAccess"))
-        )
-        payload["event_type"] = event_type
+    payload = runtime_payload_for_reference_action(
+        actor,
+        step.kind,
+        target=step.target,
+        payload=step.payload,
+    )
     return Action(actor_id=actor, role=actor, kind=step.kind, payload=payload)
 
 

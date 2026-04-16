@@ -5,7 +5,11 @@ from open_range.catalog.probes import (
     DEFAULT_DETERMINISM_PROBE_TEMPLATES,
     DEFAULT_SHORTCUT_PROBE_TEMPLATES,
     SHORTCUT_WEB_ROUTE_PROBE_SPECS,
+    blue_containment_payload,
+    blue_observe_reference_payload,
+    blue_reference_expected_events,
     blue_reference_plan_for_trace,
+    blue_submit_finding_payload,
     detection_for_reference_step_action,
     family_supports_primary_red_reference,
     identity_effect_markers_for_kind,
@@ -13,6 +17,7 @@ from open_range.catalog.probes import (
     necessity_probe_template,
     red_reference_family_priority,
     reference_action_for_weakness_family,
+    runtime_payload_for_reference_action,
     smoke_probe_template,
     telemetry_blindspot_targets,
     workflow_effect_markers_for_kind,
@@ -221,6 +226,49 @@ def test_catalog_blue_reference_plan_skips_blindspot_steps() -> None:
     assert plan.detect_target == "finance_docs"
     assert plan.contain_target == "svc-db"
     assert plan.observe_step_count == 3
+
+
+def test_catalog_blue_reference_payload_helpers_keep_current_defaults() -> None:
+    assert blue_reference_expected_events() == (
+        "DetectionAlertRaised",
+        "ContainmentApplied",
+    )
+    assert blue_observe_reference_payload() == {"action": "observe_events"}
+    assert blue_submit_finding_payload(detect_event="CredentialObtained") == {
+        "event": "CredentialObtained"
+    }
+    assert blue_containment_payload() == {"action": "contain"}
+
+
+def test_catalog_runtime_payload_helper_keeps_blue_readback_rules() -> None:
+    assert runtime_payload_for_reference_action(
+        "red",
+        "api",
+        target="svc-web",
+        payload={"action": "initial_access"},
+    ) == {
+        "target": "svc-web",
+        "action": "initial_access",
+    }
+    assert runtime_payload_for_reference_action(
+        "blue",
+        "submit_finding",
+        target="svc-db",
+        payload={"event": "SensitiveAssetRead"},
+    ) == {
+        "target": "svc-db",
+        "event": "SensitiveAssetRead",
+        "event_type": "SensitiveAssetRead",
+    }
+    assert runtime_payload_for_reference_action(
+        "blue",
+        "submit_finding",
+        target="svc-web",
+        payload={"event_type": "InitialAccess"},
+    ) == {
+        "target": "svc-web",
+        "event_type": "InitialAccess",
+    }
 
 
 def test_shortcut_route_catalog_matches_code_web_templates() -> None:
@@ -575,3 +623,4 @@ def test_probe_planner_blue_reference_uses_catalog_blue_policy() -> None:
     assert finding_step.target == plan.detect_target
     assert finding_step.payload["event"] == plan.detect_event
     assert contain_step.target == plan.contain_target
+    assert tuple(blue_trace.expected_events) == blue_reference_expected_events()
