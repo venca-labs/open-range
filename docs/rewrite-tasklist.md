@@ -71,6 +71,7 @@ Some current private helper files are transitional seams, not the end-state pack
 - [x] move read-side observation state updates behind runtime reducers
 - [x] centralize runtime control and finding payload parsing
 - [x] move runtime event visibility and telemetry-delay policy behind runtime event helpers
+- [x] move runtime event storage and visibility behind a runtime event log
 - [x] move blue finding and scripted internal blue-opponent policy behind runtime reducers
 - [x] move runtime audit and event side effects behind runtime hooks
 - [x] finish the weakness subsystem move and shrink `open_range.weaknesses`
@@ -92,7 +93,7 @@ Some current private helper files are transitional seams, not the end-state pack
 The next real win is:
 
 1. keep pushing runtime state changes behind reducers and hooks
-2. move the remaining runtime event-log and reference-playback policy out of `runtime.py`
+2. move the remaining runtime reference-playback and opponent policy out of `runtime.py`
 3. keep pushing the `code_web` subsystem split until offline simulation and remediation semantics are no longer flattened into one surface
 4. keep behavior stable with parity tests before deleting the old logic
 5. collapse any remaining root-module compatibility seams that no longer buy us anything

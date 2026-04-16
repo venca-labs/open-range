@@ -20,13 +20,12 @@ from open_range.predicates import PredicateEngine
 from open_range.probe_planner import runtime_action as reference_runtime_action
 from open_range.rewards import RewardEngine
 from open_range.runtime_events import (
+    RuntimeEventLog,
     action_target,
     control_directive,
-    emit_runtime_event,
     finding_event_type,
     green_events_for_action,
     telemetry_blindspots,
-    visible_events_for_actor,
 )
 from open_range.runtime_reducers import (
     BLUE_CONTAINMENT_OBJECTIVE,
@@ -69,8 +68,7 @@ class OpenRangeRuntime:
         self._predicates: PredicateEngine | None = None
         self._episode_config = DEFAULT_EPISODE_CONFIG
         self._state = EpisodeState(snapshot_id="", episode_id="")
-        self._events: list[RuntimeEvent] = []
-        self._event_visibility: dict[str, dict[str, float]] = {}
+        self._event_log = RuntimeEventLog()
         self._observed_event_ids = {"red": set(), "blue": set()}
         self._last_reward_delta = {"red": 0.0, "blue": 0.0}
         self._red_reward_shaping = 0.0
@@ -86,7 +84,6 @@ class OpenRangeRuntime:
         self._detected_event_ids: set[str] = set()
         self._red_footholds: set[str] = set()
         self._last_red_target = ""
-        self._event_seq = 0
         self._decision_seq = 0
         self._reset_seq = 0
         self._pending_actor: ExternalRole | Literal[""] = ""
@@ -111,8 +108,7 @@ class OpenRangeRuntime:
         self._episode_config = episode_config
         self._reset_seq += 1
         self.reward_engine.reset()
-        self._events = []
-        self._event_visibility = {}
+        self._event_log.reset()
         self._observed_event_ids = {"red": set(), "blue": set()}
         self._last_reward_delta = {"red": 0.0, "blue": 0.0}
         self._red_reward_shaping = 0.0
@@ -128,7 +124,6 @@ class OpenRangeRuntime:
         self._detected_event_ids = set()
         self._red_footholds = set()
         self._last_red_target = ""
-        self._event_seq = 0
         self._decision_seq = 0
         self._pending_actor = ""
         self._next_due_time = _initial_due_times(episode_config)
@@ -246,7 +241,7 @@ class OpenRangeRuntime:
             blue_reward=round(self._blue_reward_shaping + blue_terminal, 4),
             red_objectives_satisfied=tuple(sorted(self._red_objectives_satisfied)),
             blue_objectives_satisfied=tuple(sorted(self._blue_objectives_satisfied)),
-            event_count=len(self._events),
+            event_count=len(self._event_log),
             audit=self._hooks.build_audit_summary(),
         )
 
@@ -269,7 +264,7 @@ class OpenRangeRuntime:
         self._state.next_actor = ""
 
     def export_events(self) -> tuple[RuntimeEvent, ...]:
-        return tuple(self._events)
+        return self._event_log.export()
 
     def reference_step(self, actor: ExternalRole):
         if actor == "red":
@@ -553,7 +548,12 @@ class OpenRangeRuntime:
         if action.kind == "submit_finding":
             event_type = finding_event_type(action)
             target = str(action.payload.get("target", ""))
-            matched = self._find_detectable_event(event_type, target, visible_only=True)
+            matched = self._event_log.find_detectable_event(
+                event_type,
+                target,
+                sim_time=self._state.sim_time,
+                visible_only=True,
+            )
             transition = reduce_blue_finding(
                 matched_event=matched,
                 detected_event_ids=self._detected_event_ids,
@@ -691,28 +691,6 @@ class OpenRangeRuntime:
             return None
         return trace.steps[self._blue_progress]
 
-    def _find_detectable_event(
-        self,
-        event_type: str,
-        target: str,
-        *,
-        visible_only: bool,
-    ) -> RuntimeEvent | None:
-        for event in self._events:
-            if not event.malicious:
-                continue
-            if event.event_type != event_type:
-                continue
-            if target and event.target_entity != target:
-                continue
-            visible_at = self._event_visibility.get(event.id, {}).get(
-                "blue", float("inf")
-            )
-            if visible_only and visible_at > self._state.sim_time:
-                continue
-            return event
-        return None
-
     def _remaining_red_targets(self) -> set[str]:
         if self._snapshot is None:
             return set()
@@ -785,11 +763,9 @@ class OpenRangeRuntime:
         )
 
     def _visible_events(self, actor: ExternalRole) -> tuple[RuntimeEvent, ...]:
-        return visible_events_for_actor(
+        return self._event_log.visible_events(
             actor,
-            events=self._events,
             observed_event_ids=self._observed_event_ids[actor],
-            event_visibility=self._event_visibility,
             sim_time=self._state.sim_time,
         )
 
@@ -807,12 +783,10 @@ class OpenRangeRuntime:
         suspicious_reasons: tuple[str, ...] = (),
         green_reactive: bool = True,
     ) -> RuntimeEvent:
-        self._event_seq += 1
         active_weaknesses = (
             self._predicates.active_weaknesses() if self._predicates is not None else ()
         )
-        emission = emit_runtime_event(
-            event_id=f"evt-{self._event_seq}",
+        return self._event_log.emit(
             sim_time=self._state.sim_time,
             event_type=event_type,
             actor=actor,
@@ -828,12 +802,9 @@ class OpenRangeRuntime:
                 active_weaknesses,
                 patched_targets=self._patched_targets,
             ),
+            green_reactive=green_reactive,
+            publish_event=self._hooks.publish_event,
         )
-        event = emission.event
-        self._events.append(event)
-        self._event_visibility[event.id] = emission.visibility
-        self._hooks.publish_event(event, green_reactive=green_reactive)
-        return event
 
     def _service_surfaces(self, target: str) -> tuple[str, ...]:
         if self._snapshot is None:
@@ -848,7 +819,7 @@ class OpenRangeRuntime:
             return
         self._red_objectives_satisfied = self._predicates.evaluate_red_objectives(
             snapshot=self._snapshot,
-            events=tuple(self._events),
+            events=self._event_log.export(),
             service_health=self._state.service_health,
         )
 

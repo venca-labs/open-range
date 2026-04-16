@@ -37,6 +37,102 @@ _RED_VISIBLE_EVENT_TYPES = frozenset(
 )
 
 
+class RuntimeEventLog:
+    """Own runtime event storage, visibility, and export state."""
+
+    def __init__(self) -> None:
+        self.reset()
+
+    def reset(self) -> None:
+        self._events: list[RuntimeEvent] = []
+        self._event_visibility: dict[str, dict[str, float]] = {}
+        self._event_seq = 0
+
+    def emit(
+        self,
+        *,
+        sim_time: float,
+        event_type: str,
+        actor: str,
+        source_entity: str,
+        target_entity: str,
+        malicious: bool,
+        observability_surfaces: tuple[str, ...],
+        linked_objective_predicates: tuple[str, ...] = (),
+        suspicious: bool = False,
+        suspicious_reasons: tuple[str, ...] = (),
+        telemetry_delay: float,
+        blindspots: set[str] | frozenset[str],
+        green_reactive: bool,
+        publish_event: Callable[..., None],
+    ) -> RuntimeEvent:
+        self._event_seq += 1
+        emission = emit_runtime_event(
+            event_id=f"evt-{self._event_seq}",
+            sim_time=sim_time,
+            event_type=event_type,
+            actor=actor,
+            source_entity=source_entity,
+            target_entity=target_entity,
+            malicious=malicious,
+            observability_surfaces=observability_surfaces,
+            linked_objective_predicates=linked_objective_predicates,
+            suspicious=suspicious,
+            suspicious_reasons=suspicious_reasons,
+            telemetry_delay=telemetry_delay,
+            blindspots=blindspots,
+        )
+        event = emission.event
+        self._events.append(event)
+        self._event_visibility[event.id] = emission.visibility
+        publish_event(event, green_reactive=green_reactive)
+        return event
+
+    def visible_events(
+        self,
+        actor: ExternalRole,
+        *,
+        observed_event_ids: set[str] | frozenset[str],
+        sim_time: float,
+    ) -> tuple[RuntimeEvent, ...]:
+        return visible_events_for_actor(
+            actor,
+            events=self._events,
+            observed_event_ids=observed_event_ids,
+            event_visibility=self._event_visibility,
+            sim_time=sim_time,
+        )
+
+    def find_detectable_event(
+        self,
+        event_type: str,
+        target: str,
+        *,
+        sim_time: float,
+        visible_only: bool,
+    ) -> RuntimeEvent | None:
+        for event in self._events:
+            if not event.malicious:
+                continue
+            if event.event_type != event_type:
+                continue
+            if target and event.target_entity != target:
+                continue
+            visible_at = self._event_visibility.get(event.id, {}).get(
+                "blue", float("inf")
+            )
+            if visible_only and visible_at > sim_time:
+                continue
+            return event
+        return None
+
+    def export(self) -> tuple[RuntimeEvent, ...]:
+        return tuple(self._events)
+
+    def __len__(self) -> int:
+        return len(self._events)
+
+
 def action_target(action: Action) -> str:
     target = action.payload.get("target")
     if isinstance(target, str) and target:
