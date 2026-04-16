@@ -5,7 +5,7 @@ from __future__ import annotations
 import importlib
 from collections.abc import Callable
 
-from open_range.admission import ReferenceBundle, ValidatorCheckReport
+from open_range.admission.models import ReferenceBundle, ValidatorCheckReport
 from open_range.snapshot import KindArtifacts
 from open_range.world_ir import WorldIR
 

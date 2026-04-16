@@ -8,14 +8,19 @@ from pathlib import Path
 from typing import Protocol
 from urllib.parse import urlencode
 
-from open_range.admission import (
+from open_range.admission.checks import _ephemeral_snapshot, _reference_weakness_id
+from open_range.admission.models import (
     ReferenceBundle,
     ValidatorCheckReport,
     ValidatorReport,
     ValidatorStageReport,
 )
-from open_range.admission.checks import _ephemeral_snapshot, _reference_weakness_id
 from open_range.admission.plan import admission_stages, profile_requires_live
+from open_range.admission.references import (
+    build_reference_bundle,
+    run_blue_reference,
+    run_red_reference,
+)
 from open_range.admission.registry import get_admission_check
 from open_range.admission.scoring import report_summary
 from open_range.async_utils import run_async
@@ -28,7 +33,6 @@ from open_range.k3d_runner import K3dBackend
 from open_range.live_checks import check_live_db_mtls, check_live_service_smoke
 from open_range.objectives import evaluate_objective_grader_live
 from open_range.predicates import PredicateEngine
-from open_range.probe_runner import run_blue_reference, run_red_reference
 from open_range.snapshot import KindArtifacts, RuntimeSnapshot, world_hash
 from open_range.world_ir import ServiceSpec, WorldIR
 
@@ -81,8 +85,6 @@ class LocalAdmissionController:
                 if not continue_running:
                     break
                 if reference_bundle is None and stage.requires_references:
-                    from open_range.probe_planner import build_reference_bundle
-
                     reference_bundle = build_reference_bundle(world, build_config)
                 result = get_admission_check(check_name)(
                     world,
@@ -108,8 +110,6 @@ class LocalAdmissionController:
                 break
 
         if reference_bundle is None:
-            from open_range.probe_planner import build_reference_bundle
-
             reference_bundle = build_reference_bundle(world, build_config)
 
         if continue_running and live_backend is not None:

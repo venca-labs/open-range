@@ -9,6 +9,7 @@ from types import SimpleNamespace
 import pytest
 
 from open_range._runtime_store import hydrate_runtime_snapshot
+from open_range.admission.references import runtime_action
 from open_range.admit import LocalAdmissionController
 from open_range.cluster import ExecResult
 from open_range.code_web import code_web_payload
@@ -16,7 +17,6 @@ from open_range.compiler import EnterpriseSaaSManifestCompiler
 from open_range.episode_config import EpisodeConfig
 from open_range.execution import PodActionBackend
 from open_range.green import ScriptedGreenScheduler
-from open_range.probe_planner import runtime_action
 from open_range.render import EnterpriseSaaSKindRenderer
 from open_range.runtime import OpenRangeRuntime
 from open_range.runtime_types import Action, RuntimeEvent

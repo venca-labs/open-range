@@ -3,6 +3,7 @@ from __future__ import annotations
 from types import SimpleNamespace
 
 from open_range.admission import ReferenceAction, ReferenceTrace
+from open_range.admission.references import ReferencePlanner, build_reference_bundle
 from open_range.catalog.probes import (
     DEFAULT_DETERMINISM_PROBE_TEMPLATES,
     DEFAULT_SHORTCUT_PROBE_TEMPLATES,
@@ -31,7 +32,6 @@ from open_range.catalog.probes import (
 from open_range.code_web import code_web_template
 from open_range.compiler import EnterpriseSaaSManifestCompiler
 from open_range.effect_markers import effect_marker_path, effect_marker_token
-from open_range.probe_planner import ProbePlanner, build_reference_bundle
 from open_range.weaknesses import CatalogWeaknessSeeder, build_catalog_weakness
 from tests.support import manifest_payload
 
@@ -396,7 +396,7 @@ def test_probe_planner_keeps_code_web_reference_payload_details() -> None:
         weakness_id="test-sqli",
     )
     planned_world = world.model_copy(update={"weaknesses": (weakness,)})
-    trace = ProbePlanner(planned_world).build_red_reference(
+    trace = ReferencePlanner(planned_world).build_red_reference(
         start="svc-email",
         exploit=weakness,
         ordinal=1,
@@ -426,7 +426,7 @@ def test_probe_planner_uses_catalog_reference_presets_for_phishing_workflow() ->
         weakness_id="test-phish",
     )
     planned_world = world.model_copy(update={"weaknesses": (weakness,)})
-    trace = ProbePlanner(planned_world).build_red_reference(
+    trace = ReferencePlanner(planned_world).build_red_reference(
         start="svc-web",
         exploit=weakness,
         ordinal=1,
@@ -458,7 +458,7 @@ def test_probe_planner_uses_catalog_reference_action_names_for_family_steps() ->
             weakness_id=f"test-{kind}",
         )
         planned_world = world.model_copy(update={"weaknesses": (weakness,)})
-        trace = ProbePlanner(planned_world).build_red_reference(
+        trace = ReferencePlanner(planned_world).build_red_reference(
             start="svc-web",
             exploit=weakness,
             ordinal=1,
@@ -508,7 +508,7 @@ def test_probe_planner_keeps_secret_reference_payload_details() -> None:
             weakness_id=f"test-{kind}",
         )
         planned_world = world.model_copy(update={"weaknesses": (weakness,)})
-        trace = ProbePlanner(planned_world).build_red_reference(
+        trace = ReferencePlanner(planned_world).build_red_reference(
             start="svc-web",
             exploit=weakness,
             ordinal=1,
@@ -553,7 +553,7 @@ def test_probe_planner_keeps_effect_marker_commands_for_shell_families() -> None
             weakness_id=f"test-{kind}",
         )
         planned_world = world.model_copy(update={"weaknesses": (weakness,)})
-        trace = ProbePlanner(planned_world).build_red_reference(
+        trace = ReferencePlanner(planned_world).build_red_reference(
             start="svc-web",
             exploit=weakness,
             ordinal=1,
@@ -580,7 +580,7 @@ def test_probe_planner_keeps_default_api_reference_for_telemetry_blindspots() ->
         weakness_id="test-telemetry",
     )
     planned_world = world.model_copy(update={"weaknesses": (weakness,)})
-    trace = ProbePlanner(planned_world).build_red_reference(
+    trace = ReferencePlanner(planned_world).build_red_reference(
         start="svc-web",
         exploit=weakness,
         ordinal=1,
@@ -616,7 +616,7 @@ def test_probe_planner_prefers_code_web_when_public_start_bias_is_equal() -> Non
         weakness_id="rank-workflow",
     )
     planned_world = world.model_copy(update={"weaknesses": (workflow, code_web)})
-    traces = ProbePlanner(planned_world).build_red_references()
+    traces = ReferencePlanner(planned_world).build_red_references()
 
     assert traces[0].steps[0].payload["weakness_id"] == code_web.id
 
@@ -644,7 +644,7 @@ def test_probe_planner_primary_selection_prefers_target_locality_over_family_bia
         weakness_id="local-secret",
     )
     planned_world = world.model_copy(update={"weaknesses": (code_web, secret)})
-    trace = ProbePlanner(planned_world).build_red_reference(
+    trace = ReferencePlanner(planned_world).build_red_reference(
         start="svc-email",
         exploit=None,
         ordinal=1,
@@ -671,7 +671,7 @@ def test_probe_planner_primary_selection_falls_back_to_telemetry_only_worlds() -
         weakness_id="only-telemetry",
     )
     planned_world = world.model_copy(update={"weaknesses": (weakness,)})
-    trace = ProbePlanner(planned_world).build_red_reference(
+    trace = ReferencePlanner(planned_world).build_red_reference(
         start="svc-email",
         exploit=None,
         ordinal=1,
@@ -688,8 +688,8 @@ def test_probe_planner_primary_selection_falls_back_to_telemetry_only_worlds() -
 
 def test_probe_planner_blue_reference_uses_catalog_blue_policy() -> None:
     world = _seeded_world()
-    red_trace = ProbePlanner(world).build_red_reference(ordinal=1)
-    blue_trace = ProbePlanner(world).build_blue_reference(red_trace, ordinal=1)
+    red_trace = ReferencePlanner(world).build_red_reference(ordinal=1)
+    blue_trace = ReferencePlanner(world).build_blue_reference(red_trace, ordinal=1)
     plan = blue_reference_plan_for_trace(
         red_trace,
         blindspot_targets=telemetry_blindspot_targets(world),
@@ -715,7 +715,7 @@ def test_probe_planner_uses_resolved_objective_events_for_red_trace() -> None:
         EnterpriseSaaSManifestCompiler().compile(payload)
     )
 
-    trace = ProbePlanner(world).build_red_reference(ordinal=1)
+    trace = ReferencePlanner(world).build_red_reference(ordinal=1)
 
     assert "PersistenceEstablished" in trace.expected_events
     assert trace.expected_events[-1] == "PersistenceEstablished"

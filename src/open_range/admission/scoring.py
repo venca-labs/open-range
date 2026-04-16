@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from open_range.admission import (
+from open_range.admission.models import (
     ReferenceBundle,
     ValidatorCheckReport,
     ValidatorStageReport,

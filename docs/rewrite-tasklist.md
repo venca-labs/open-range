@@ -57,7 +57,7 @@ This is the target, not the current state:
 - [x] move admission onto real subsystem packages
 - [x] start weakness family registry and family modules backed by catalog data
 - [x] route curriculum weakness mutations through the family registry
-- [x] start moving family-specific red reference planning out of `probe_planner.py`
+- [x] move admission-owned reference planning under `open_range.admission`
 - [x] move planner family ranking and red-side fallback policy behind catalog and family handlers
 - [x] move blue-side detection and containment policy behind catalog probe helpers
 - [x] move blue-side readback payload policy behind catalog probe helpers
@@ -93,7 +93,7 @@ This is the target, not the current state:
 - [x] add a test guardrail so new top-level helper modules fail fast
 - [ ] shrink the top-level package surface
   - current branch state: root `src/open_range/*.py` files are down to `42`
-  - recent cuts moved `runtime`, `code_web`, `admit`, `weaknesses`, `tracegen`, `audit`, `execution`, `predicates`, `probe_planner`, `synth`, `compiler`, `curriculum`, `manifest`, and `pipeline` behind subsystem packages
+  - recent cuts moved `runtime`, `code_web`, `admit`, `weaknesses`, `tracegen`, `audit`, `execution`, `predicates`, `synth`, `compiler`, `curriculum`, `manifest`, and `pipeline` behind subsystem packages, and folded reference planning into `open_range.admission`
 
 ## Immediate Next Slice
 
@@ -105,9 +105,9 @@ The next real win is:
 
 ## Next Large Targets
 
-- `src/open_range/probe_planner.py`
-  - finish any last generic fallback logic that still lives inline now that blue detection, containment, and readback payload policy are catalog-backed
-  - keep the planner as orchestration over catalog policy and family-owned handlers
+- `src/open_range/admission/`
+  - keep reference planning and reference execution inside admission instead of re-growing side packages
+  - keep the controller thin while checks and references own the detailed behavior
 - `src/open_range/runtime/`
   - keep the public runtime surface stable while continuing to delete internal coordination bulk from `core.py`
   - avoid adding new runtime helpers back at the root package
