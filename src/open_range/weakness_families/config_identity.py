@@ -2,13 +2,30 @@
 
 from __future__ import annotations
 
+from open_range.admission import ReferenceAction
+from open_range.catalog.probes import (
+    identity_effect_markers_for_kind,
+    reference_action_for_weakness_family,
+)
+from open_range.effect_markers import (
+    effect_marker_content,
+    effect_marker_path,
+    effect_marker_token,
+)
+from open_range.predicates import PredicateEngine
 from open_range.weakness_families.common import (
+    RedReferencePlan,
     WeaknessBuildContext,
     assemble_weakness_spec,
+    effect_marker_command,
+    first_realization_path,
     realization_summary,
+    shell_payload,
+    target_ref_objective,
+    traverse_to_target,
     write_text_command,
 )
-from open_range.world_ir import WeaknessRealizationSpec, WorldIR
+from open_range.world_ir import WeaknessRealizationSpec, WeaknessSpec, WorldIR
 
 
 def mutation_target_service(world: WorldIR) -> str | None:
@@ -30,6 +47,48 @@ def mutation_spec(world: WorldIR, target_service: str) -> tuple[str, str, str]:
         if credential is not None:
             return ("weak_password", "credential", credential.id)
     return ("admin_surface_exposed", "service", target_service)
+
+
+def build_red_reference_plan(
+    world: WorldIR,
+    engine: PredicateEngine,
+    start: str,
+    weakness: WeaknessSpec,
+) -> RedReferencePlan:
+    realization_path = first_realization_path(weakness)
+    payload = shell_payload(
+        action=reference_action_for_weakness_family(weakness.family),
+        weakness_id=weakness.id,
+        target=weakness.target,
+        path=realization_path,
+        expect_contains=effect_marker_token(weakness) or weakness.kind,
+    )
+    live_command = effect_marker_command(
+        realization_path=realization_path or "",
+        effect_path=effect_marker_path(weakness),
+        effect_content=effect_marker_content(weakness),
+        markers=identity_effect_markers_for_kind(weakness.kind),
+    )
+    payload["command"] = live_command
+    payload["service_command"] = live_command
+    satisfied: list[str] = []
+    objective = target_ref_objective(world, weakness.target_ref)
+    if objective is not None:
+        payload["objective"] = objective
+        satisfied.append(objective)
+    return RedReferencePlan(
+        steps=traverse_to_target(engine, start, weakness.target)
+        + (
+            ReferenceAction(
+                actor="red",
+                kind="shell",
+                target=weakness.target,
+                payload=payload,
+            ),
+        ),
+        current=weakness.target,
+        satisfied_predicates=tuple(satisfied),
+    )
 
 
 def build(context: WeaknessBuildContext):

@@ -5,8 +5,10 @@ from __future__ import annotations
 import shlex
 from dataclasses import dataclass
 
+from open_range.admission import ReferenceAction
 from open_range.manifest import WeaknessFamily
 from open_range.predicate_expr import predicate_inner
+from open_range.predicates import PredicateEngine
 from open_range.world_ir import WeaknessRealizationSpec, WeaknessSpec, WorldIR
 
 
@@ -28,6 +30,13 @@ class WeaknessBuildContext:
     remediation: str
 
 
+@dataclass(frozen=True, slots=True)
+class RedReferencePlan:
+    steps: tuple[ReferenceAction, ...]
+    current: str
+    satisfied_predicates: tuple[str, ...] = ()
+
+
 def first_objective_service(world: WorldIR) -> str:
     objective = next(iter(world.red_objectives), None)
     if objective is None:
@@ -37,6 +46,116 @@ def first_objective_service(world: WorldIR) -> str:
     if asset is not None:
         return asset.owner_service
     return "svc-siem"
+
+
+def traverse_to_target(
+    engine: PredicateEngine,
+    start: str,
+    target: str,
+) -> tuple[ReferenceAction, ...]:
+    if start == target:
+        return ()
+    steps = [
+        ReferenceAction(
+            actor="red",
+            kind="api",
+            target=start,
+            payload={"action": "initial_access"},
+        )
+    ]
+    path = engine.shortest_path(start, target)
+    for service_id in path[1:]:
+        steps.append(
+            ReferenceAction(
+                actor="red",
+                kind="api",
+                target=service_id,
+                payload={"action": "traverse"},
+            )
+        )
+    return tuple(steps)
+
+
+def shell_payload(
+    *,
+    action: str,
+    weakness_id: str,
+    target: str,
+    path: str | None,
+    expect_contains: str,
+) -> dict[str, object]:
+    payload: dict[str, object] = {
+        "action": action,
+        "weakness_id": weakness_id,
+        "target": target,
+        "origin": target,
+        "expect_contains": expect_contains,
+    }
+    if path:
+        payload["path"] = path
+        payload["command"] = f"cat {shlex.quote(path)}"
+    return payload
+
+
+def first_realization_path(
+    weakness: WeaknessSpec,
+    *,
+    kind: str | None = None,
+) -> str | None:
+    for realization in weakness.realization:
+        if kind is not None and realization.kind != kind:
+            continue
+        return realization.path
+    return None
+
+
+def target_ref_objective(world: WorldIR, target_ref: str) -> str | None:
+    for objective in world.red_objectives:
+        if target_ref and target_ref in objective.predicate:
+            return objective.predicate
+    return None
+
+
+def mailbox_from_path(path: str) -> str:
+    slug = path.split("/mailboxes/", 1)[1].split("/", 1)[0]
+    return slug.replace("_at_", "@").replace("_", ".")
+
+
+def effect_marker_command(
+    *,
+    realization_path: str,
+    effect_path: str,
+    effect_content: str,
+    markers: tuple[str, ...],
+) -> str:
+    tests = " && ".join(
+        [f"test -f {shlex.quote(realization_path)}"]
+        + [
+            f"grep -Fq {shlex.quote(marker)} {shlex.quote(realization_path)}"
+            for marker in markers
+        ]
+    )
+    return (
+        f"{tests} && mkdir -p {shlex.quote(effect_path.rsplit('/', 1)[0])} && "
+        f"printf %s {shlex.quote(effect_content)} > {shlex.quote(effect_path)} && "
+        f"cat {shlex.quote(effect_path)}"
+    )
+
+
+def secret_material(world: WorldIR, target_ref: str) -> str:
+    asset = next((item for item in world.assets if item.id == target_ref), None)
+    if asset is not None:
+        return f"seeded-{asset.asset_class}-{asset.id}"
+    user = next((item for item in world.users if item.id == target_ref), None)
+    if user is not None:
+        return f"{user.id}-pass"
+    credential = next(
+        (item for item in world.credentials if item.id == target_ref),
+        None,
+    )
+    if credential is not None:
+        return f"seeded-secret-{credential.id}"
+    return target_ref
 
 
 def assemble_weakness_spec(

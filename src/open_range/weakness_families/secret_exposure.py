@@ -2,18 +2,27 @@
 
 from __future__ import annotations
 
+from open_range.admission import ReferenceAction
+from open_range.catalog.probes import reference_action_for_weakness_family
 from open_range.predicate_expr import predicate_inner
+from open_range.predicates import PredicateEngine
 from open_range.weakness_families.common import (
+    RedReferencePlan,
     WeaknessBuildContext,
     assemble_weakness_spec,
     first_objective_service,
+    first_realization_path,
     mailbox_for_ref,
     mailbox_remediated_message,
     mailbox_slug,
     realization_summary,
+    secret_material,
+    shell_payload,
+    target_ref_objective,
+    traverse_to_target,
     write_text_command,
 )
-from open_range.world_ir import WeaknessRealizationSpec, WorldIR
+from open_range.world_ir import WeaknessRealizationSpec, WeaknessSpec, WorldIR
 
 
 def mutation_target_service(world: WorldIR) -> str | None:
@@ -40,6 +49,40 @@ def mutation_spec(world: WorldIR, target_service: str) -> tuple[str, str, str]:
     if target_service == "svc-fileshare":
         return ("backup_leak", "asset", exposed_asset)
     return ("hardcoded_app_secret", "asset", exposed_asset)
+
+
+def build_red_reference_plan(
+    world: WorldIR,
+    engine: PredicateEngine,
+    start: str,
+    weakness: WeaknessSpec,
+) -> RedReferencePlan:
+    payload = shell_payload(
+        action=reference_action_for_weakness_family(weakness.family),
+        weakness_id=weakness.id,
+        target=weakness.target,
+        path=first_realization_path(weakness),
+        expect_contains=_secret_expectation(world, weakness),
+    )
+    satisfied: list[str] = []
+    objective = target_ref_objective(world, weakness.target_ref)
+    if objective is not None:
+        payload["asset"] = weakness.target_ref
+        payload["objective"] = objective
+        satisfied.append(objective)
+    return RedReferencePlan(
+        steps=traverse_to_target(engine, start, weakness.target)
+        + (
+            ReferenceAction(
+                actor="red",
+                kind="shell",
+                target=weakness.target,
+                payload=payload,
+            ),
+        ),
+        current=weakness.target,
+        satisfied_predicates=tuple(satisfied),
+    )
 
 
 def build(context: WeaknessBuildContext):
@@ -176,3 +219,13 @@ def normalize_target(
     ):
         return ("svc-fileshare", target_kind, target_ref)
     return (target, target_kind, target_ref)
+
+
+def _secret_expectation(world: WorldIR, weakness: WeaknessSpec) -> str:
+    if weakness.kind in {"env_file_leak", "hardcoded_app_secret"}:
+        return "OPENRANGE_APP_SECRET"
+    if weakness.kind == "backup_leak":
+        return "INSERT INTO leaked_credentials"
+    if weakness.kind in {"token_in_email", "credential_in_share"}:
+        return secret_material(world, weakness.target_ref or weakness.target)
+    return weakness.kind

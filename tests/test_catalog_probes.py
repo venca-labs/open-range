@@ -15,6 +15,7 @@ from open_range.catalog.probes import (
 )
 from open_range.code_web import code_web_template
 from open_range.compiler import EnterpriseSaaSManifestCompiler
+from open_range.effect_markers import effect_marker_path, effect_marker_token
 from open_range.probe_planner import ProbePlanner, build_reference_bundle
 from open_range.weaknesses import CatalogWeaknessSeeder, build_catalog_weakness
 from tests.support import manifest_payload
@@ -177,8 +178,11 @@ def test_probe_planner_uses_catalog_reference_presets_for_phishing_workflow() ->
         ordinal=1,
     )
 
-    assert trace.steps[0].payload["action"] == "deliver_phish"
-    assert any(step.payload.get("action") == "click_lure" for step in trace.steps)
+    assert [step.payload["action"] for step in trace.steps[:3]] == [
+        "deliver_phish",
+        "click_lure",
+        "abuse_workflow",
+    ]
 
 
 def test_probe_planner_uses_catalog_reference_action_names_for_family_steps() -> None:
@@ -209,3 +213,129 @@ def test_probe_planner_uses_catalog_reference_action_names_for_family_steps() ->
         assert any(
             step.payload.get("action") == expected_action for step in trace.steps
         )
+
+
+def test_probe_planner_keeps_secret_reference_payload_details() -> None:
+    world = _seeded_world()
+    cases = (
+        (
+            "backup_leak",
+            "svc-fileshare",
+            "asset",
+            "finance_docs",
+            "INSERT INTO leaked_credentials",
+            "asset_read(finance_docs)",
+        ),
+        (
+            "token_in_email",
+            "svc-email",
+            "asset",
+            "idp_admin_cred",
+            "seeded-sensitive-idp_admin_cred",
+            "credential_obtained(idp_admin_cred)",
+        ),
+    )
+
+    for (
+        kind,
+        target,
+        target_kind,
+        target_ref,
+        expected_contains,
+        expected_objective,
+    ) in cases:
+        weakness = build_catalog_weakness(
+            world,
+            "secret_exposure",
+            kind=kind,
+            target=target,
+            target_kind=target_kind,
+            target_ref=target_ref,
+            weakness_id=f"test-{kind}",
+        )
+        planned_world = world.model_copy(update={"weaknesses": (weakness,)})
+        trace = ProbePlanner(planned_world).build_red_reference(
+            start="svc-web",
+            exploit=weakness,
+            ordinal=1,
+        )
+
+        secret_step = next(step for step in trace.steps if step.kind == "shell")
+        assert secret_step.payload["action"] == "collect_secret"
+        assert secret_step.payload["expect_contains"] == expected_contains
+        assert secret_step.payload["asset"] == target_ref
+        assert secret_step.payload["objective"] == expected_objective
+
+
+def test_probe_planner_keeps_effect_marker_commands_for_shell_families() -> None:
+    world = _seeded_world()
+    cases = (
+        (
+            "config_identity",
+            "weak_password",
+            "svc-idp",
+            "credential",
+            "cred-it_admin-01",
+            identity_effect_markers_for_kind("weak_password"),
+        ),
+        (
+            "workflow_abuse",
+            "helpdesk_reset_bypass",
+            "svc-web",
+            "workflow",
+            "wf-helpdesk_ticketing",
+            workflow_effect_markers_for_kind("helpdesk_reset_bypass"),
+        ),
+    )
+
+    for family, kind, target, target_kind, target_ref, markers in cases:
+        weakness = build_catalog_weakness(
+            world,
+            family,
+            kind=kind,
+            target=target,
+            target_kind=target_kind,
+            target_ref=target_ref,
+            weakness_id=f"test-{kind}",
+        )
+        planned_world = world.model_copy(update={"weaknesses": (weakness,)})
+        trace = ProbePlanner(planned_world).build_red_reference(
+            start="svc-web",
+            exploit=weakness,
+            ordinal=1,
+        )
+
+        shell_step = next(step for step in trace.steps if step.kind == "shell")
+        assert shell_step.payload["expect_contains"] == effect_marker_token(weakness)
+        assert shell_step.payload["command"] == shell_step.payload["service_command"]
+        assert effect_marker_path(weakness) in shell_step.payload["service_command"]
+        assert all(
+            marker in shell_step.payload["service_command"] for marker in markers
+        )
+
+
+def test_probe_planner_keeps_default_api_reference_for_telemetry_blindspots() -> None:
+    world = _seeded_world()
+    weakness = build_catalog_weakness(
+        world,
+        "telemetry_blindspot",
+        kind="silent_mail_rule",
+        target="svc-email",
+        target_kind="telemetry",
+        target_ref="svc-email",
+        weakness_id="test-telemetry",
+    )
+    planned_world = world.model_copy(update={"weaknesses": (weakness,)})
+    trace = ProbePlanner(planned_world).build_red_reference(
+        start="svc-web",
+        exploit=weakness,
+        ordinal=1,
+    )
+
+    weakness_step = next(
+        step
+        for step in trace.steps
+        if step.target == "svc-email" and step.payload.get("weakness_id") == weakness.id
+    )
+    assert weakness_step.kind == "api"
+    assert weakness_step.payload["action"] == "initial_access"

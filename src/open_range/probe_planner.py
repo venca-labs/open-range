@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import json
-import shlex
 from dataclasses import dataclass
 
 from open_range.admission import (
@@ -18,22 +17,17 @@ from open_range.catalog.probes import (
     DEFAULT_DETERMINISM_PROBE_TEMPLATES,
     DEFAULT_SHORTCUT_PROBE_TEMPLATES,
     detection_for_reference_step_action,
-    identity_effect_markers_for_kind,
     is_blue_detectable_action,
     necessity_probe_template,
-    reference_action_for_weakness_family,
     smoke_probe_template,
-    workflow_effect_markers_for_kind,
-    workflow_kind_uses_email_delivery,
 )
 from open_range.code_web import code_web_payload
-from open_range.effect_markers import (
-    effect_marker_content,
-    effect_marker_path,
-    effect_marker_token,
-)
 from open_range.predicates import PredicateEngine
 from open_range.runtime_types import Action
+from open_range.weakness_families import (
+    build_red_reference_plan_for_family,
+    has_red_reference_plan_for_family,
+)
 from open_range.world_ir import WorldIR
 
 
@@ -346,136 +340,30 @@ def _weakness_red_steps(
         )
         return steps, weakness.target, satisfied
 
-    if weakness.family == "workflow_abuse" and workflow_kind_uses_email_delivery(
-        weakness.kind
-    ):
-        mailbox_path = _first_realization_path(weakness, kind="mailbox")
-        mailbox = (
-            _mailbox_from_path(mailbox_path) if mailbox_path else "user@corp.local"
-        )
+    if has_red_reference_plan_for_family(weakness.family):
+        plan = build_red_reference_plan_for_family(world, engine, start, weakness)
+        return list(plan.steps), plan.current, set(plan.satisfied_predicates)
+
+    if current != weakness.target:
         steps.append(
             ReferenceAction(
                 actor="red",
-                kind="mail",
-                target="svc-email",
-                payload={
-                    "action": "deliver_phish",
-                    "weakness_id": weakness.id,
-                    "target": "svc-email",
-                    "to": mailbox,
-                    "subject": weakness.kind,
-                    "expect_contains": weakness.kind,
-                },
+                kind="api",
+                target=current,
+                payload={"action": "initial_access"},
             )
         )
-        if mailbox_path:
-            steps.append(
-                ReferenceAction(
-                    actor="red",
-                    kind="shell",
-                    target="svc-email",
-                    payload=_shell_payload(
-                        action="click_lure",
-                        weakness_id=weakness.id,
-                        target="svc-email",
-                        path=mailbox_path,
-                        expect_contains=weakness.kind,
-                    ),
-                )
-            )
-        current = "svc-email"
-    else:
-        if current != weakness.target:
+        path = engine.shortest_path(current, weakness.target)
+        for service_id in path[1:]:
             steps.append(
                 ReferenceAction(
                     actor="red",
                     kind="api",
-                    target=current,
-                    payload={"action": "initial_access"},
+                    target=service_id,
+                    payload={"action": "traverse"},
                 )
             )
-            path = engine.shortest_path(current, weakness.target)
-            for service_id in path[1:]:
-                steps.append(
-                    ReferenceAction(
-                        actor="red",
-                        kind="api",
-                        target=service_id,
-                        payload={"action": "traverse"},
-                    )
-                )
-            current = weakness.target
-
-    if weakness.family == "secret_exposure":
-        realization_path = _first_realization_path(weakness)
-        expect_contains = _secret_expectation(world, weakness)
-        payload = _shell_payload(
-            action=reference_action_for_weakness_family(weakness.family),
-            weakness_id=weakness.id,
-            target=weakness.target,
-            path=realization_path,
-            expect_contains=expect_contains,
-        )
-        if _target_ref_objective(world, weakness.target_ref) is not None:
-            payload["asset"] = weakness.target_ref
-            payload["objective"] = _target_ref_objective(world, weakness.target_ref)
-            satisfied.add(_target_ref_objective(world, weakness.target_ref))
-        steps.append(
-            ReferenceAction(
-                actor="red", kind="shell", target=weakness.target, payload=payload
-            )
-        )
-        return steps, weakness.target, satisfied
-
-    if weakness.family == "config_identity":
-        realization_path = _first_realization_path(weakness)
-        payload = _shell_payload(
-            action=reference_action_for_weakness_family(weakness.family),
-            weakness_id=weakness.id,
-            target=weakness.target,
-            path=realization_path,
-            expect_contains=effect_marker_token(weakness) or weakness.kind,
-        )
-        live_command = _identity_effect_command(weakness, realization_path or "")
-        payload["command"] = live_command
-        payload["service_command"] = live_command
-        objective = _target_ref_objective(world, weakness.target_ref)
-        if objective is not None:
-            payload["objective"] = objective
-            satisfied.add(objective)
-        steps.append(
-            ReferenceAction(
-                actor="red", kind="shell", target=weakness.target, payload=payload
-            )
-        )
-        return steps, weakness.target, satisfied
-
-    if weakness.family == "workflow_abuse":
-        realization_path = _first_realization_path(
-            weakness, kind="workflow"
-        ) or _first_realization_path(weakness)
-        effect_token = effect_marker_token(weakness)
-        payload = _shell_payload(
-            action=reference_action_for_weakness_family(weakness.family),
-            weakness_id=weakness.id,
-            target=weakness.target,
-            path=realization_path,
-            expect_contains=effect_token or weakness.kind,
-        )
-        if effect_token:
-            live_command = _workflow_effect_command(weakness, realization_path or "")
-            payload["command"] = live_command
-            payload["service_command"] = live_command
-        objective = _target_ref_objective(world, weakness.target_ref)
-        if objective is not None:
-            payload["objective"] = objective
-            satisfied.add(objective)
-        steps.append(
-            ReferenceAction(
-                actor="red", kind="shell", target=weakness.target, payload=payload
-            )
-        )
-        return steps, weakness.target, satisfied
+        current = weakness.target
 
     steps.append(
         ReferenceAction(
@@ -486,107 +374,3 @@ def _weakness_red_steps(
         )
     )
     return steps, current, satisfied
-
-
-def _shell_payload(
-    *,
-    action: str,
-    weakness_id: str,
-    target: str,
-    path: str | None,
-    expect_contains: str,
-) -> dict[str, object]:
-    payload: dict[str, object] = {
-        "action": action,
-        "weakness_id": weakness_id,
-        "target": target,
-        "origin": target,
-        "expect_contains": expect_contains,
-    }
-    if path:
-        payload["path"] = path
-        payload["command"] = f"cat {shlex.quote(path)}"
-    return payload
-
-
-def _first_realization_path(weakness, *, kind: str | None = None) -> str | None:
-    for realization in weakness.realization:
-        if kind is not None and realization.kind != kind:
-            continue
-        return realization.path
-    return None
-
-
-def _secret_expectation(world, weakness) -> str:
-    if weakness.kind in {"env_file_leak", "hardcoded_app_secret"}:
-        return "OPENRANGE_APP_SECRET"
-    if weakness.kind == "backup_leak":
-        return "INSERT INTO leaked_credentials"
-    if weakness.kind == "token_in_email":
-        return _secret_material(world, weakness.target_ref or weakness.target)
-    if weakness.kind == "credential_in_share":
-        return _secret_material(world, weakness.target_ref or weakness.target)
-    return weakness.kind
-
-
-def _secret_material(world, target_ref: str) -> str:
-    asset = next((item for item in world.assets if item.id == target_ref), None)
-    if asset is not None:
-        return f"seeded-{asset.asset_class}-{asset.id}"
-    user = next((item for item in world.users if item.id == target_ref), None)
-    if user is not None:
-        return f"{user.id}-pass"
-    credential = next(
-        (item for item in world.credentials if item.id == target_ref), None
-    )
-    if credential is not None:
-        return f"seeded-secret-{credential.id}"
-    return target_ref
-
-
-def _target_ref_objective(world, target_ref: str) -> str | None:
-    for objective in world.red_objectives:
-        if target_ref and target_ref in objective.predicate:
-            return objective.predicate
-    return None
-
-
-def _mailbox_from_path(path: str) -> str:
-    slug = path.split("/mailboxes/", 1)[1].split("/", 1)[0]
-    return slug.replace("_at_", "@").replace("_", ".")
-
-
-def _identity_effect_command(weakness, realization_path: str) -> str:
-    effect_path = effect_marker_path(weakness)
-    effect_content = effect_marker_content(weakness)
-    markers = identity_effect_markers_for_kind(weakness.kind)
-    tests = " && ".join(
-        [f"test -f {shlex.quote(realization_path)}"]
-        + [
-            f"grep -Fq {shlex.quote(marker)} {shlex.quote(realization_path)}"
-            for marker in markers
-        ]
-    )
-    return (
-        f"{tests} && mkdir -p {shlex.quote(effect_path.rsplit('/', 1)[0])} && "
-        f"printf %s {shlex.quote(effect_content)} > {shlex.quote(effect_path)} && "
-        f"cat {shlex.quote(effect_path)}"
-    )
-
-
-def _workflow_effect_command(weakness, realization_path: str) -> str:
-    effect_path = effect_marker_path(weakness)
-    effect_content = effect_marker_content(weakness)
-    markers = workflow_effect_markers_for_kind(weakness.kind)
-    tests = " && ".join(
-        [f"test -f {shlex.quote(realization_path)}"]
-        + [
-            f"grep -Fq {shlex.quote(marker)} {shlex.quote(realization_path)}"
-            for marker in markers
-        ]
-    )
-    return (
-        f"{tests} && mkdir -p {shlex.quote(effect_path.rsplit('/', 1)[0])} && "
-        f"printf %s {shlex.quote(effect_content)} > {shlex.quote(effect_path)} && "
-        f"cat {shlex.quote(effect_path)}"
-    )

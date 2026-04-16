@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from collections.abc import Callable
 
+from open_range.predicates import PredicateEngine
 from open_range.weakness_families import (
     code_web,
     config_identity,
@@ -11,7 +12,7 @@ from open_range.weakness_families import (
     telemetry_blindspot,
     workflow_abuse,
 )
-from open_range.weakness_families.common import WeaknessBuildContext
+from open_range.weakness_families.common import RedReferencePlan, WeaknessBuildContext
 from open_range.world_ir import WeaknessSpec, WorldIR
 
 _FAMILY_BUILDERS: dict[str, Callable[[WeaknessBuildContext], WeaknessSpec]] = {
@@ -57,6 +58,13 @@ _FAMILY_MUTATION_SPECS: dict[str, Callable[[WorldIR, str], tuple[str, str, str]]
     "secret_exposure": secret_exposure.mutation_spec,
     "config_identity": config_identity.mutation_spec,
     "telemetry_blindspot": telemetry_blindspot.mutation_spec,
+}
+_FAMILY_RED_REFERENCE_BUILDERS: dict[
+    str, Callable[[WorldIR, PredicateEngine, str, WeaknessSpec], RedReferencePlan]
+] = {
+    "workflow_abuse": workflow_abuse.build_red_reference_plan,
+    "secret_exposure": secret_exposure.build_red_reference_plan,
+    "config_identity": config_identity.build_red_reference_plan,
 }
 
 
@@ -118,10 +126,30 @@ def mutation_spec_for_family(
     )
 
 
+def has_red_reference_plan_for_family(family: str) -> bool:
+    return family in _FAMILY_RED_REFERENCE_BUILDERS
+
+
+def build_red_reference_plan_for_family(
+    world: WorldIR,
+    engine: PredicateEngine,
+    start: str,
+    weakness: WeaknessSpec,
+) -> RedReferencePlan:
+    return _family_callable(
+        weakness.family,
+        _FAMILY_RED_REFERENCE_BUILDERS,
+        label="red reference builder",
+    )(world, engine, start, weakness)
+
+
 __all__ = [
+    "RedReferencePlan",
     "WeaknessBuildContext",
     "build_family_weakness",
+    "build_red_reference_plan_for_family",
     "default_kind_for_family",
+    "has_red_reference_plan_for_family",
     "mutation_spec_for_family",
     "mutation_target_service_for_family",
     "normalize_target_for_family",
