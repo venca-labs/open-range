@@ -161,6 +161,17 @@ class WeaknessObservabilitySurfaceSpec:
 
 
 @dataclass(frozen=True, slots=True)
+class WeaknessBuildDefaultsSpec:
+    benchmark_tags: tuple[str, ...]
+    objective_tags: tuple[str, ...]
+    preconditions: tuple[str, ...]
+    expected_event_signatures: tuple[str, ...]
+    blue_observability_surfaces: tuple[str, ...]
+    instantiation_mode: str
+    remediation: str
+
+
+@dataclass(frozen=True, slots=True)
 class ProbeTemplateSpec:
     id: str
     kind: ProbeTemplateKind

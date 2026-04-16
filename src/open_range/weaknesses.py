@@ -5,19 +5,15 @@ from __future__ import annotations
 import random
 from typing import Protocol
 
-from open_range.catalog.objectives import weakness_objective_tags_for_kind
 from open_range.catalog.weaknesses import (
     available_weakness_families_for_service_kinds,
-    benchmark_tags_for_family,
     default_target_kind_for_family,
-    expected_events_for_weakness,
-    instantiation_mode_for_family,
     is_supported_weakness_kind,
-    observability_surfaces_for_weakness,
-    preconditions_for_weakness,
     resolve_pinned_target,
     select_seed_families,
     supported_weakness_kinds_for_family,
+    weakness_build_defaults,
+    weakness_id_for,
 )
 from open_range.manifest import (
     PinnedWeaknessSpec,
@@ -138,7 +134,17 @@ def build_catalog_weakness(
     target, target_kind, target_ref = normalize_target_for_family(
         world, family, kind, target, target_kind, target_ref
     )
-    weak_id = weakness_id or _weakness_id(family, kind, target, target_ref)
+    defaults = weakness_build_defaults(
+        family,
+        kind=kind,
+        target=target,
+        target_ref=target_ref,
+    )
+    weak_id = weakness_id or weakness_id_for(
+        kind,
+        target=target,
+        target_ref=target_ref,
+    )
     return build_family_weakness(
         WeaknessBuildContext(
             world=world,
@@ -148,29 +154,12 @@ def build_catalog_weakness(
             target_kind=target_kind,
             target_ref=target_ref,
             weakness_id=weak_id,
-            benchmark_tags=benchmark_tags_for_family(family),
-            objective_tags=weakness_objective_tags_for_kind(family, kind),
-            preconditions=preconditions_for_weakness(
-                family,
-                kind=kind,
-                target_ref=target_ref,
-            ),
-            expected_event_signatures=expected_events_for_weakness(family, kind),
-            blue_observability_surfaces=observability_surfaces_for_weakness(
-                family, kind=kind, target=target
-            ),
-            instantiation_mode=instantiation_mode_for_family(family),
-            remediation=_remediation_text(kind),
+            benchmark_tags=defaults.benchmark_tags,
+            objective_tags=defaults.objective_tags,
+            preconditions=defaults.preconditions,
+            expected_event_signatures=defaults.expected_event_signatures,
+            blue_observability_surfaces=defaults.blue_observability_surfaces,
+            instantiation_mode=defaults.instantiation_mode,
+            remediation=defaults.remediation,
         )
     )
-
-
-def _weakness_id(
-    family: WeaknessFamily, kind: str, target: str, target_ref: str
-) -> str:
-    suffix = target_ref or target
-    return f"wk-{kind.replace('_', '-')}-{suffix}"
-
-
-def _remediation_text(kind: str) -> str:
-    return f"apply remediation for {kind.replace('_', ' ')}"

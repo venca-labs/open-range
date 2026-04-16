@@ -16,11 +16,14 @@ from open_range.catalog.weaknesses import (
     is_supported_weakness_kind,
     observability_surfaces_for_weakness,
     preconditions_for_weakness,
+    remediation_text_for_kind,
     resolve_pinned_target,
     seed_selection_for_family,
     select_seed_families,
     supported_weakness_kinds_for_family,
+    weakness_build_defaults,
     weakness_family_contract,
+    weakness_id_for,
 )
 from open_range.compiler import EnterpriseSaaSManifestCompiler
 from open_range.manifest import (
@@ -75,6 +78,38 @@ def test_weakness_family_catalog_keeps_concrete_precondition_templates() -> None
         kind="silent_mail_rule",
         target_ref="svc-email",
     ) == ("critical_action_exists", "silent_mail_rule")
+
+
+def test_weakness_family_catalog_keeps_context_defaults_in_one_place() -> None:
+    defaults = weakness_build_defaults(
+        "secret_exposure",
+        kind="token_in_email",
+        target="svc-email",
+        target_ref="idp_admin_cred",
+    )
+
+    assert defaults.objective_tags == ("file_access",)
+    assert defaults.expected_event_signatures == (
+        "CredentialObtained",
+        "SensitiveAssetRead",
+    )
+    assert defaults.blue_observability_surfaces == ("smtp", "imap", "audit", "ingest")
+    assert defaults.instantiation_mode == "exact_config"
+    assert defaults.remediation == "apply remediation for token in email"
+
+
+def test_weakness_family_catalog_keeps_default_id_and_remediation_helpers() -> None:
+    assert (
+        weakness_id_for(
+            "sql_injection",
+            target="svc-web",
+            target_ref="svc-web",
+        )
+        == "wk-sql-injection-svc-web"
+    )
+    assert remediation_text_for_kind("admin_surface_exposed") == (
+        "apply remediation for admin surface exposed"
+    )
 
 
 def test_weakness_family_catalog_keeps_expected_event_rules() -> None:

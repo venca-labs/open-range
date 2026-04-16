@@ -6,6 +6,7 @@ from collections.abc import Callable
 from random import Random
 
 from open_range.catalog.contracts import (
+    WeaknessBuildDefaultsSpec,
     WeaknessExpectedEventsSpec,
     WeaknessFamilyContract,
     WeaknessKindSpec,
@@ -13,6 +14,7 @@ from open_range.catalog.contracts import (
     WeaknessPreconditionSpec,
     WeaknessSeedSelectionSpec,
 )
+from open_range.catalog.objectives import weakness_objective_tags_for_kind
 
 WEAKNESS_KIND_SPECS: tuple[WeaknessKindSpec, ...] = (
     WeaknessKindSpec("code_web", "sql_injection"),
@@ -506,6 +508,41 @@ def observability_surfaces_for_weakness(
             continue
         return spec.surfaces
     return ()
+
+
+def weakness_id_for(kind: str, *, target: str, target_ref: str) -> str:
+    suffix = target_ref or target
+    return f"wk-{kind.replace('_', '-')}-{suffix}"
+
+
+def remediation_text_for_kind(kind: str) -> str:
+    return f"apply remediation for {kind.replace('_', ' ')}"
+
+
+def weakness_build_defaults(
+    family: str,
+    *,
+    kind: str,
+    target: str,
+    target_ref: str,
+) -> WeaknessBuildDefaultsSpec:
+    return WeaknessBuildDefaultsSpec(
+        benchmark_tags=benchmark_tags_for_family(family),
+        objective_tags=weakness_objective_tags_for_kind(family, kind),
+        preconditions=preconditions_for_weakness(
+            family,
+            kind=kind,
+            target_ref=target_ref,
+        ),
+        expected_event_signatures=expected_events_for_weakness(family, kind),
+        blue_observability_surfaces=observability_surfaces_for_weakness(
+            family,
+            kind=kind,
+            target=target,
+        ),
+        instantiation_mode=instantiation_mode_for_family(family),
+        remediation=remediation_text_for_kind(kind),
+    )
 
 
 def _resolve_service_pinned_target(world, target_value: str) -> tuple[str, str, str]:
