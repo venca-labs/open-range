@@ -2,6 +2,9 @@
 
 from __future__ import annotations
 
+import json
+import textwrap
+
 from open_range.admission import ReferenceAction
 from open_range.catalog.probes import (
     reference_action_for_weakness_family,
@@ -257,3 +260,54 @@ def normalize_target(
     ):
         return ("svc-web", target_kind, target_ref)
     return (target, target_kind, target_ref)
+
+
+def render_realization_content(
+    world: WorldIR,
+    weakness: WeaknessSpec,
+    realization: WeaknessRealizationSpec,
+) -> str:
+    if realization.kind == "mailbox":
+        subject = "Password reset verification"
+        body = "Confirm your account details to complete the request."
+        if weakness.kind == "internal_request_impersonation":
+            subject = "Urgent internal request"
+            body = "Please share the requested file and credentials for the finance review."
+        return textwrap.dedent(
+            f"""\
+            Subject: {subject}
+
+            OpenRange workflow message for {world.world_id}
+            weakness_id={weakness.id}
+            kind={weakness.kind}
+            mailbox_path={realization.path}
+            action={body}
+            """
+        )
+
+    payload = {
+        "world_id": world.world_id,
+        "weakness_id": weakness.id,
+        "kind": weakness.kind,
+        "target_ref": weakness.target_ref,
+        "approval_guard": "disabled",
+    }
+    if weakness.kind == "helpdesk_reset_bypass":
+        payload.update(
+            {"identity_verification": "none", "reset_without_ticket_owner": True}
+        )
+    elif weakness.kind == "approval_chain_bypass":
+        payload.update({"required_approvals": 1, "secondary_approval_skipped": True})
+    elif weakness.kind == "document_share_abuse":
+        payload.update(
+            {"share_visibility": "public_link", "expiration_required": False}
+        )
+    elif weakness.kind == "phishing_credential_capture":
+        payload.update(
+            {"mail_filtering": "allow", "credential_capture_landing": "/login"}
+        )
+    elif weakness.kind == "internal_request_impersonation":
+        payload.update(
+            {"sender_verification": "disabled", "internal_alias_trust": True}
+        )
+    return json.dumps(payload, indent=2, sort_keys=True) + "\n"

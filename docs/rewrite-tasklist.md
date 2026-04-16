@@ -56,6 +56,7 @@ Some current private helper files are transitional seams, not the end-state pack
 - [x] route curriculum weakness mutations through the family registry
 - [x] start moving family-specific red reference planning out of `probe_planner.py`
 - [x] start moving family-specific realization content out of `synth.py`
+- [x] finish moving family-specific realization content out of `synth.py`
 - [ ] finish the weakness subsystem move and shrink `open_range.weaknesses`
 - [ ] move objectives fully onto catalog-backed resolution
 - [ ] move runtime onto hooks and reducers
@@ -70,9 +71,9 @@ Some current private helper files are transitional seams, not the end-state pack
 
 The next real win is not another `admit.py` split. The next win is:
 
-1. move the remaining `workflow_abuse` and `secret_exposure` realization content builders out of `synth.py`
-2. move compiler workflow, asset placement, and persona defaults into catalog data
-3. finish the remaining `probe_planner.py` ranking and fallback switchboards after the family step builders settle
+1. move compiler workflow, asset placement, and persona defaults into catalog data
+2. finish the remaining `probe_planner.py` ranking and fallback switchboards after the family step builders settle
+3. move admission onto real subsystem packages instead of root helper files
 4. keep behavior stable with parity tests before deleting the old logic
 
 ## Next Large Targets
@@ -80,9 +81,6 @@ The next real win is not another `admit.py` split. The next win is:
 - `src/open_range/probe_planner.py`
   - move family ranking, exploit steps, effect markers, and readback expectations out of the giant planner switchboards
   - likely boundary: extend `open_range.weakness_families` or add `open_range.reference_families`
-- `src/open_range/synth.py`
-  - move realization content builders for config, workflow, telemetry, and secret families into family-owned renderers
-  - keep `Synthesizer` as a dispatcher, not a family-specific content author
 - `src/open_range/compiler.py`
   - move workflow templates, asset placement rules, and persona routines into catalog data
   - keep the compiler focused on assembling `WorldIR` from declared contracts

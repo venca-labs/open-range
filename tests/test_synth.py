@@ -485,6 +485,99 @@ def test_synthesizer_keeps_full_telemetry_json_payloads(tmp_path: Path):
         assert all(field not in data for field in forbidden_fields)
 
 
+def test_synthesizer_keeps_full_workflow_json_payloads(tmp_path: Path):
+    cases = (
+        (
+            "helpdesk_reset_bypass",
+            "workflow:helpdesk_ticketing",
+            "svc-web",
+            {
+                "approval_guard": "disabled",
+                "identity_verification": "none",
+                "kind": "helpdesk_reset_bypass",
+                "reset_without_ticket_owner": True,
+                "target_ref": "wf-helpdesk_ticketing",
+            },
+            {"mail_filtering", "share_visibility", "internal_alias_trust"},
+        ),
+        (
+            "approval_chain_bypass",
+            "workflow:payroll_approval",
+            "svc-web",
+            {
+                "approval_guard": "disabled",
+                "kind": "approval_chain_bypass",
+                "required_approvals": 1,
+                "secondary_approval_skipped": True,
+                "target_ref": "wf-payroll_approval",
+            },
+            {"mail_filtering", "share_visibility", "internal_alias_trust"},
+        ),
+        (
+            "document_share_abuse",
+            "workflow:document_sharing",
+            "svc-fileshare",
+            {
+                "approval_guard": "disabled",
+                "expiration_required": False,
+                "kind": "document_share_abuse",
+                "share_visibility": "public_link",
+                "target_ref": "wf-document_sharing",
+            },
+            {"mail_filtering", "required_approvals", "internal_alias_trust"},
+        ),
+        (
+            "phishing_credential_capture",
+            "workflow:internal_email",
+            "svc-email",
+            {
+                "approval_guard": "disabled",
+                "credential_capture_landing": "/login",
+                "kind": "phishing_credential_capture",
+                "mail_filtering": "allow",
+                "target_ref": "wf-internal_email",
+            },
+            {"share_visibility", "required_approvals", "internal_alias_trust"},
+        ),
+        (
+            "internal_request_impersonation",
+            "workflow:internal_email",
+            "svc-email",
+            {
+                "approval_guard": "disabled",
+                "internal_alias_trust": True,
+                "kind": "internal_request_impersonation",
+                "sender_verification": "disabled",
+                "target_ref": "wf-internal_email",
+            },
+            {"share_visibility", "required_approvals", "mail_filtering"},
+        ),
+    )
+
+    for kind, target, service_id, expected_fields, forbidden_fields in cases:
+        payload = _manifest_payload()
+        payload["security"]["pinned_weaknesses"] = [
+            {"family": "workflow_abuse", "kind": kind, "target": target}
+        ]
+        world = CatalogWeaknessSeeder().apply(
+            EnterpriseSaaSManifestCompiler().compile(payload)
+        )
+        synth = EnterpriseSaaSWorldSynthesizer().synthesize(world, tmp_path / kind)
+        file = next(
+            item
+            for item in synth.service_payloads[service_id]
+            if item.mount_path.endswith(f"{kind}.json")
+        )
+
+        data = json.loads(file.content)
+
+        assert data["world_id"] == world.world_id
+        assert data["weakness_id"] == world.weaknesses[0].id
+        for key, value in expected_fields.items():
+            assert data[key] == value
+        assert all(field not in data for field in forbidden_fields)
+
+
 def test_synthesizer_seeds_mailbox_realizations_for_email_borne_kinds(tmp_path: Path):
     cases = (
         (
@@ -521,3 +614,122 @@ def test_synthesizer_seeds_mailbox_realizations_for_email_borne_kinds(tmp_path: 
         email_payloads = synth.service_payloads["svc-email"]
         assert any(file.mount_path.endswith(suffix) for file in email_payloads)
         assert any(kind in "\n".join(messages) for messages in synth.mailboxes.values())
+
+
+def test_synthesizer_keeps_workflow_mailbox_templates(tmp_path: Path):
+    cases = (
+        (
+            "phishing_credential_capture",
+            "Subject: Password reset verification",
+            "action=Confirm your account details to complete the request.",
+        ),
+        (
+            "internal_request_impersonation",
+            "Subject: Urgent internal request",
+            "action=Please share the requested file and credentials for the finance review.",
+        ),
+    )
+
+    for kind, expected_subject, expected_action in cases:
+        payload = _manifest_payload()
+        payload["security"]["pinned_weaknesses"] = [
+            {
+                "family": "workflow_abuse",
+                "kind": kind,
+                "target": "workflow:internal_email",
+            }
+        ]
+        world = CatalogWeaknessSeeder().apply(
+            EnterpriseSaaSManifestCompiler().compile(payload)
+        )
+        synth = EnterpriseSaaSWorldSynthesizer().synthesize(
+            world, tmp_path / f"mail-{kind}"
+        )
+
+        mailbox_file = next(
+            file
+            for file in synth.service_payloads["svc-email"]
+            if file.mount_path.endswith(f"{kind}.eml")
+        )
+        assert expected_subject in mailbox_file.content
+        assert expected_action in mailbox_file.content
+        assert any(
+            expected_subject in "\n".join(messages)
+            for messages in synth.mailboxes.values()
+        )
+
+
+def test_synthesizer_keeps_secret_material_content_templates(tmp_path: Path):
+    cases = (
+        (
+            "credential_in_share",
+            "asset:finance_docs",
+            "svc-fileshare",
+            "exposed-finance_docs.txt",
+            (
+                "exposed_ref=finance_docs",
+                "secret_material=seeded-crown_jewel-finance_docs",
+            ),
+        ),
+        (
+            "token_in_email",
+            "asset:idp_admin_cred",
+            "svc-email",
+            "token-idp_admin_cred.eml",
+            (
+                "Subject: Security review follow-up",
+                "secret_material=seeded-sensitive-idp_admin_cred",
+            ),
+        ),
+        (
+            "env_file_leak",
+            "service:web_app",
+            "svc-web",
+            ".env",
+            (
+                "OPENRANGE_WORLD_ID=enterprise_saas_v1-1337",
+                "OPENRANGE_APP_SECRET=svc-web",
+            ),
+        ),
+        (
+            "backup_leak",
+            "asset:payroll_db",
+            "svc-fileshare",
+            "backup-payroll_db.sql",
+            ("INSERT INTO leaked_credentials", "seeded-crown_jewel-payroll_db"),
+        ),
+        (
+            "hardcoded_app_secret",
+            "service:web_app",
+            "svc-web",
+            "app-secret.php",
+            (
+                "define('OPENRANGE_WORLD_ID', 'enterprise_saas_v1-1337');",
+                "define('OPENRANGE_APP_SECRET', 'svc-web');",
+            ),
+        ),
+    )
+
+    for kind, target, service_id, suffix, snippets in cases:
+        payload = _manifest_payload()
+        payload["security"]["pinned_weaknesses"] = [
+            {"family": "secret_exposure", "kind": kind, "target": target}
+        ]
+        world = CatalogWeaknessSeeder().apply(
+            EnterpriseSaaSManifestCompiler().compile(payload)
+        )
+        synth = EnterpriseSaaSWorldSynthesizer().synthesize(
+            world, tmp_path / f"secret-{kind}"
+        )
+
+        file = next(
+            item
+            for item in synth.service_payloads[service_id]
+            if item.mount_path.endswith(suffix)
+        )
+        assert all(snippet in file.content for snippet in snippets)
+        if service_id == "svc-email":
+            assert any(
+                all(snippet in "\n".join(messages) for snippet in snippets)
+                for messages in synth.mailboxes.values()
+            )

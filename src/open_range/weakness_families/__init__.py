@@ -69,6 +69,8 @@ _FAMILY_RED_REFERENCE_BUILDERS: dict[
 _FAMILY_REALIZATION_RENDERERS: dict[
     str, Callable[[WorldIR, WeaknessSpec, WeaknessRealizationSpec], str]
 ] = {
+    "workflow_abuse": workflow_abuse.render_realization_content,
+    "secret_exposure": secret_exposure.render_realization_content,
     "config_identity": config_identity.render_realization_content,
     "telemetry_blindspot": telemetry_blindspot.render_realization_content,
 }

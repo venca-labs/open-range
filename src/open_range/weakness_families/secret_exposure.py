@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import textwrap
+
 from open_range.admission import ReferenceAction
 from open_range.catalog.probes import reference_action_for_weakness_family
 from open_range.predicate_expr import predicate_inner
@@ -219,6 +221,68 @@ def normalize_target(
     ):
         return ("svc-fileshare", target_kind, target_ref)
     return (target, target_kind, target_ref)
+
+
+def render_realization_content(
+    world: WorldIR,
+    weakness: WeaknessSpec,
+    realization: WeaknessRealizationSpec,
+) -> str:
+    if realization.kind == "mailbox":
+        secret_value = secret_material(world, weakness.target_ref or weakness.target)
+        return textwrap.dedent(
+            f"""\
+            Subject: Security review follow-up
+
+            OpenRange mailbox message for {world.world_id}
+            weakness_id={weakness.id}
+            kind={weakness.kind}
+            mailbox_path={realization.path}
+            secret_material={secret_value}
+            """
+        )
+    if weakness.kind == "env_file_leak":
+        secret_value = secret_material(world, weakness.target_ref or weakness.target)
+        return textwrap.dedent(
+            f"""\
+            APP_ENV=production
+            APP_DEBUG=false
+            OPENRANGE_WORLD_ID={world.world_id}
+            OPENRANGE_APP_SECRET={secret_value}
+            """
+        )
+    if weakness.kind == "backup_leak":
+        secret_value = secret_material(world, weakness.target_ref or weakness.target)
+        return textwrap.dedent(
+            f"""\
+            -- OpenRange backup export
+            -- world_id={world.world_id}
+            INSERT INTO leaked_credentials(secret_ref, secret_value) VALUES ('{weakness.target_ref}', '{secret_value}');
+            """
+        )
+    if weakness.kind == "hardcoded_app_secret":
+        secret_value = secret_material(world, weakness.target_ref or weakness.target)
+        return textwrap.dedent(
+            f"""\
+            <?php
+            define('OPENRANGE_WORLD_ID', '{world.world_id}');
+            define('OPENRANGE_APP_SECRET', '{secret_value}');
+            ?>
+            """
+        )
+    exposed = weakness.target_ref or weakness.target
+    secret_value = secret_material(world, exposed)
+    return textwrap.dedent(
+        f"""\
+        OpenRange exposed material
+        world_id={world.world_id}
+        weakness_id={weakness.id}
+        kind={weakness.kind}
+        exposed_ref={exposed}
+        secret_material={secret_value}
+        remediation={weakness.remediation}
+        """
+    )
 
 
 def _secret_expectation(world: WorldIR, weakness: WeaknessSpec) -> str:
