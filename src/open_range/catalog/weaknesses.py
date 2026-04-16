@@ -5,6 +5,7 @@ from __future__ import annotations
 from open_range.catalog.contracts import (
     WeaknessExpectedEventsSpec,
     WeaknessFamilyContract,
+    WeaknessObservabilitySurfaceSpec,
     WeaknessPreconditionMode,
 )
 
@@ -184,6 +185,104 @@ WEAKNESS_EXPECTED_EVENT_SPECS: tuple[WeaknessExpectedEventsSpec, ...] = (
     ),
 )
 
+WEAKNESS_OBSERVABILITY_SURFACE_SPECS: tuple[WeaknessObservabilitySurfaceSpec, ...] = (
+    WeaknessObservabilitySurfaceSpec(
+        family="code_web",
+        surfaces=("web_access", "ingest"),
+    ),
+    WeaknessObservabilitySurfaceSpec(
+        family="workflow_abuse",
+        kind="document_share_abuse",
+        surfaces=("share_access", "audit", "ingest"),
+    ),
+    WeaknessObservabilitySurfaceSpec(
+        family="workflow_abuse",
+        target="svc-fileshare",
+        surfaces=("share_access", "audit", "ingest"),
+    ),
+    WeaknessObservabilitySurfaceSpec(
+        family="workflow_abuse",
+        kind="phishing_credential_capture",
+        surfaces=("smtp", "imap", "audit", "ingest"),
+    ),
+    WeaknessObservabilitySurfaceSpec(
+        family="workflow_abuse",
+        kind="internal_request_impersonation",
+        surfaces=("smtp", "imap", "audit", "ingest"),
+    ),
+    WeaknessObservabilitySurfaceSpec(
+        family="workflow_abuse",
+        target="svc-email",
+        surfaces=("smtp", "imap", "audit", "ingest"),
+    ),
+    WeaknessObservabilitySurfaceSpec(
+        family="workflow_abuse",
+        surfaces=("web_access", "audit", "ingest"),
+    ),
+    WeaknessObservabilitySurfaceSpec(
+        family="secret_exposure",
+        kind="token_in_email",
+        surfaces=("smtp", "imap", "audit", "ingest"),
+    ),
+    WeaknessObservabilitySurfaceSpec(
+        family="secret_exposure",
+        target="svc-email",
+        surfaces=("smtp", "imap", "audit", "ingest"),
+    ),
+    WeaknessObservabilitySurfaceSpec(
+        family="secret_exposure",
+        target="svc-fileshare",
+        surfaces=("share_access", "audit", "ingest"),
+    ),
+    WeaknessObservabilitySurfaceSpec(
+        family="secret_exposure",
+        target="svc-web",
+        surfaces=("web_access", "audit", "ingest"),
+    ),
+    WeaknessObservabilitySurfaceSpec(
+        family="secret_exposure",
+        surfaces=("audit", "ingest"),
+    ),
+    WeaknessObservabilitySurfaceSpec(
+        family="config_identity",
+        kind="admin_surface_exposed",
+        surfaces=("auth", "audit", "web_access"),
+    ),
+    WeaknessObservabilitySurfaceSpec(
+        family="config_identity",
+        kind="trust_edge_misconfig",
+        surfaces=("auth", "audit", "web_access"),
+    ),
+    WeaknessObservabilitySurfaceSpec(
+        family="config_identity",
+        surfaces=("auth", "audit", "ingest"),
+    ),
+    WeaknessObservabilitySurfaceSpec(
+        family="telemetry_blindspot",
+        kind="missing_web_logs",
+        surfaces=("web_access", "web_error", "ingest"),
+    ),
+    WeaknessObservabilitySurfaceSpec(
+        family="telemetry_blindspot",
+        kind="missing_idp_logs",
+        surfaces=("auth", "audit", "ingest"),
+    ),
+    WeaknessObservabilitySurfaceSpec(
+        family="telemetry_blindspot",
+        kind="unmonitored_admin_action",
+        surfaces=("auth", "audit", "ingest"),
+    ),
+    WeaknessObservabilitySurfaceSpec(
+        family="telemetry_blindspot",
+        kind="silent_mail_rule",
+        surfaces=("smtp", "imap", "ingest"),
+    ),
+    WeaknessObservabilitySurfaceSpec(
+        family="telemetry_blindspot",
+        surfaces=("ingest",),
+    ),
+)
+
 _WEAKNESS_FAMILY_BY_NAME = {
     contract.family: contract for contract in WEAKNESS_FAMILY_CONTRACTS
 }
@@ -191,6 +290,15 @@ _WEAKNESS_EVENTS_BY_KEY = {
     (spec.family, spec.kind): spec.expected_event_signatures
     for spec in WEAKNESS_EXPECTED_EVENT_SPECS
 }
+_WEAKNESS_SURFACE_SPECS_BY_FAMILY: dict[
+    str, tuple[WeaknessObservabilitySurfaceSpec, ...]
+] = {}
+for spec in WEAKNESS_OBSERVABILITY_SURFACE_SPECS:
+    _WEAKNESS_SURFACE_SPECS_BY_FAMILY.setdefault(spec.family, ())
+    _WEAKNESS_SURFACE_SPECS_BY_FAMILY[spec.family] = (
+        *_WEAKNESS_SURFACE_SPECS_BY_FAMILY[spec.family],
+        spec,
+    )
 
 
 def weakness_family_contract(family: str) -> WeaknessFamilyContract | None:
@@ -237,3 +345,18 @@ def precondition_mode_for_family(family: str) -> WeaknessPreconditionMode:
 
 def expected_events_for_weakness(family: str, kind: str) -> tuple[str, ...]:
     return _WEAKNESS_EVENTS_BY_KEY.get((family, kind), ())
+
+
+def observability_surfaces_for_weakness(
+    family: str,
+    *,
+    kind: str = "",
+    target: str = "",
+) -> tuple[str, ...]:
+    for spec in _WEAKNESS_SURFACE_SPECS_BY_FAMILY.get(family, ()):
+        if spec.kind and spec.kind != kind:
+            continue
+        if spec.target and spec.target != target:
+            continue
+        return spec.surfaces
+    return ()

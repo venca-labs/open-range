@@ -6,6 +6,7 @@ from open_range.catalog.weaknesses import (
     default_target_kind_for_family,
     expected_events_for_weakness,
     instantiation_mode_for_family,
+    observability_surfaces_for_weakness,
     precondition_mode_for_family,
     weakness_family_contract,
 )
@@ -36,6 +37,31 @@ def test_weakness_family_catalog_keeps_expected_event_rules() -> None:
     ) == ("InitialAccess", "DetectionAlertRaised")
 
 
+def test_weakness_family_catalog_keeps_observability_surface_rules() -> None:
+    assert observability_surfaces_for_weakness("code_web", kind="ssrf") == (
+        "web_access",
+        "ingest",
+    )
+    assert observability_surfaces_for_weakness(
+        "workflow_abuse",
+        kind="document_share_abuse",
+        target="svc-web",
+    ) == ("share_access", "audit", "ingest")
+    assert observability_surfaces_for_weakness(
+        "secret_exposure",
+        kind="hardcoded_app_secret",
+        target="svc-fileshare",
+    ) == ("share_access", "audit", "ingest")
+    assert observability_surfaces_for_weakness(
+        "config_identity",
+        kind="admin_surface_exposed",
+    ) == ("auth", "audit", "web_access")
+    assert observability_surfaces_for_weakness(
+        "telemetry_blindspot",
+        kind="silent_mail_rule",
+    ) == ("smtp", "imap", "ingest")
+
+
 def test_weakness_family_catalog_drives_family_availability() -> None:
     assert available_weakness_families_for_service_kinds({"web_app"}) == {
         "code_web",
@@ -58,3 +84,4 @@ def test_seeded_world_keeps_catalog_backed_family_metadata() -> None:
     assert all(weak.expected_event_signatures for weak in world.weaknesses)
     assert all(weak.benchmark_tags for weak in world.weaknesses)
     assert all(weak.instantiation_mode for weak in world.weaknesses)
+    assert all(weak.blue_observability_surfaces for weak in world.weaknesses)

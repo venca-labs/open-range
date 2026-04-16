@@ -9,6 +9,7 @@ from open_range.catalog.contracts import (
     ServiceCatalogEntry,
     StandardAttackObjective,
     WeaknessObjectiveTagSpec,
+    WeaknessObservabilitySurfaceSpec,
 )
 from open_range.catalog.objectives import (
     OBJECTIVE_RULE_SPECS,
@@ -28,11 +29,13 @@ from open_range.catalog.services import (
 from open_range.catalog.weaknesses import (
     WEAKNESS_EXPECTED_EVENT_SPECS,
     WEAKNESS_FAMILY_CONTRACTS,
+    WEAKNESS_OBSERVABILITY_SURFACE_SPECS,
     available_weakness_families_for_service_kinds,
     benchmark_tags_for_family,
     default_target_kind_for_family,
     expected_events_for_weakness,
     instantiation_mode_for_family,
+    observability_surfaces_for_weakness,
     precondition_mode_for_family,
     weakness_family_contract,
 )
@@ -44,6 +47,7 @@ __all__ = [
     "WEAKNESS_OBJECTIVE_TAG_SPECS",
     "WEAKNESS_EXPECTED_EVENT_SPECS",
     "WEAKNESS_FAMILY_CONTRACTS",
+    "WEAKNESS_OBSERVABILITY_SURFACE_SPECS",
     "ObjectiveGraderKind",
     "ObjectiveResolutionKind",
     "ObjectiveRuleSpec",
@@ -51,6 +55,7 @@ __all__ = [
     "SERVICE_CATALOG",
     "ServiceCatalogEntry",
     "StandardAttackObjective",
+    "WeaknessObservabilitySurfaceSpec",
     "WeaknessObjectiveTagSpec",
     "available_weakness_families_for_service_kinds",
     "benchmark_tags_for_family",
@@ -59,6 +64,7 @@ __all__ = [
     "host_for_service",
     "instantiation_mode_for_family",
     "objective_rule_for_predicate_name",
+    "observability_surfaces_for_weakness",
     "precondition_mode_for_family",
     "public_objective_predicate_names",
     "service_catalog_entry_for_id",

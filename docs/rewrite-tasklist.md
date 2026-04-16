@@ -45,7 +45,7 @@ Some current private helper files are transitional seams, not the end-state pack
 - [x] define weakness family contracts
 - [x] define objective rule contracts
 - [ ] define probe default contracts
-- [ ] define observability surface contracts
+- [x] define observability surface contracts
 
 ### Phase 3: Subsystem rewrites
 
@@ -64,7 +64,7 @@ Some current private helper files are transitional seams, not the end-state pack
 
 The next real win is not another `admit.py` split. The next win is:
 
-1. create `open_range.catalog` contracts
-2. move objective predicate rules and weakness objective tags into that package
-3. make the current public objective helpers read from it
-4. lock the behavior with parity tests
+1. move the weakness kind inventory out of `manifest.py` and into `open_range.catalog`
+2. make `manifest.py` validation and `weaknesses.py` seeding read from the same catalog source
+3. keep the public manifest type surface stable while the internals move
+4. lock the behavior with parity tests before deleting the old switchboard

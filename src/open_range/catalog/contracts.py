@@ -101,3 +101,11 @@ class WeaknessExpectedEventsSpec:
     family: str
     kind: str
     expected_event_signatures: tuple[str, ...]
+
+
+@dataclass(frozen=True, slots=True)
+class WeaknessObservabilitySurfaceSpec:
+    family: str
+    kind: str = ""
+    target: str = ""
+    surfaces: tuple[str, ...] = ()

@@ -12,6 +12,7 @@ from open_range.catalog.weaknesses import (
     default_target_kind_for_family,
     expected_events_for_weakness,
     instantiation_mode_for_family,
+    observability_surfaces_for_weakness,
     precondition_mode_for_family,
 )
 from open_range.code_web import code_web_realizations, code_web_remediation_command
@@ -169,6 +170,9 @@ def build_catalog_weakness(
     weak_id = weakness_id or _weakness_id(family, kind, target, target_ref)
     benchmark_tags = benchmark_tags_for_family(family)
     instantiation_mode = instantiation_mode_for_family(family)
+    observability_surfaces = observability_surfaces_for_weakness(
+        family, kind=kind, target=target
+    )
     if family == "code_web":
         base = WeaknessSpec(
             id=weak_id,
@@ -181,7 +185,7 @@ def build_catalog_weakness(
             objective_tags=weakness_objective_tags(family, kind),
             preconditions=_preconditions(family, kind, target_ref),
             expected_event_signatures=_expected_events(family, kind),
-            blue_observability_surfaces=("web_access", "ingest"),
+            blue_observability_surfaces=observability_surfaces,
             realization=(),
             remediation=_remediation_text(kind),
             remediation_id=f"remediate-{kind}",
@@ -214,7 +218,7 @@ def build_catalog_weakness(
             objective_tags=weakness_objective_tags(family, kind),
             preconditions=_preconditions(family, kind, target_ref),
             expected_event_signatures=_expected_events(family, kind),
-            blue_observability_surfaces=_workflow_surfaces(kind, target),
+            blue_observability_surfaces=observability_surfaces,
             realization=realizations,
             remediation=_remediation_text(kind),
             remediation_id=f"remediate-{kind}",
@@ -235,7 +239,7 @@ def build_catalog_weakness(
             objective_tags=weakness_objective_tags(family, kind),
             preconditions=_preconditions(family, kind, target_ref),
             expected_event_signatures=_expected_events(family, kind),
-            blue_observability_surfaces=_secret_exposure_surfaces(kind, target),
+            blue_observability_surfaces=observability_surfaces,
             realization=realizations,
             remediation=_remediation_text(kind),
             remediation_id=f"remediate-{kind}",
@@ -258,7 +262,7 @@ def build_catalog_weakness(
             objective_tags=weakness_objective_tags(family, kind),
             preconditions=_preconditions(family, kind, target_ref),
             expected_event_signatures=_expected_events(family, kind),
-            blue_observability_surfaces=_config_identity_surfaces(kind),
+            blue_observability_surfaces=observability_surfaces,
             realization=realizations,
             remediation=_remediation_text(kind),
             remediation_id=f"remediate-{kind}",
@@ -280,7 +284,7 @@ def build_catalog_weakness(
         objective_tags=weakness_objective_tags(family, kind),
         preconditions=_preconditions(family, kind, target_ref),
         expected_event_signatures=_expected_events(family, kind),
-        blue_observability_surfaces=_telemetry_surfaces(kind),
+        blue_observability_surfaces=observability_surfaces,
         realization=realizations,
         remediation=_remediation_text(kind),
         remediation_id=f"remediate-{kind}",
@@ -482,43 +486,6 @@ def _realization_summary(family: WeaknessFamily, kind: str) -> str:
 
 def _remediation_text(kind: str) -> str:
     return f"apply remediation for {kind.replace('_', ' ')}"
-
-
-def _workflow_surfaces(kind: str, target: str) -> tuple[str, ...]:
-    if kind == "document_share_abuse" or target == "svc-fileshare":
-        return ("share_access", "audit", "ingest")
-    if (
-        kind in {"phishing_credential_capture", "internal_request_impersonation"}
-        or target == "svc-email"
-    ):
-        return ("smtp", "imap", "audit", "ingest")
-    return ("web_access", "audit", "ingest")
-
-
-def _secret_exposure_surfaces(kind: str, target: str) -> tuple[str, ...]:
-    if kind == "token_in_email" or target == "svc-email":
-        return ("smtp", "imap", "audit", "ingest")
-    if target == "svc-fileshare":
-        return ("share_access", "audit", "ingest")
-    if target == "svc-web":
-        return ("web_access", "audit", "ingest")
-    return ("audit", "ingest")
-
-
-def _config_identity_surfaces(kind: str) -> tuple[str, ...]:
-    if kind in {"admin_surface_exposed", "trust_edge_misconfig"}:
-        return ("auth", "audit", "web_access")
-    return ("auth", "audit", "ingest")
-
-
-def _telemetry_surfaces(kind: str) -> tuple[str, ...]:
-    if kind == "missing_web_logs":
-        return ("web_access", "web_error", "ingest")
-    if kind in {"missing_idp_logs", "unmonitored_admin_action"}:
-        return ("auth", "audit", "ingest")
-    if kind == "silent_mail_rule":
-        return ("smtp", "imap", "ingest")
-    return ("ingest",)
 
 
 def _workflow_realizations(
