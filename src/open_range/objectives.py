@@ -2,52 +2,28 @@
 
 from __future__ import annotations
 
-import importlib
 import shlex
-from collections.abc import Callable, Iterable, Mapping
+from collections.abc import Iterable, Mapping
 from dataclasses import dataclass
-from typing import Literal
 
 from pydantic import BaseModel, ConfigDict
 
 from open_range.async_utils import run_async
+from open_range.catalog.contracts import (
+    ObjectiveGraderKind,
+    StandardAttackObjective,
+)
+from open_range.catalog.objectives import (
+    objective_rule_for_predicate_name,
+    public_objective_predicate_names,
+    weakness_objective_tags_for_kind,
+)
 from open_range.effect_markers import (
     effect_marker_path,
     effect_marker_service,
     effect_marker_token,
 )
 from open_range.predicate_expr import PredicateExpr, parse_predicate
-
-StandardAttackObjective = Literal[
-    "dos",
-    "file_access",
-    "file_creation",
-    "db_modification",
-    "db_access",
-    "unauthorized_admin_login",
-    "privilege_escalation",
-    "outbound_service",
-]
-
-STANDARD_ATTACK_OBJECTIVE_NAMES: tuple[StandardAttackObjective, ...] = (
-    "dos",
-    "file_access",
-    "file_creation",
-    "db_modification",
-    "db_access",
-    "unauthorized_admin_login",
-    "privilege_escalation",
-    "outbound_service",
-)
-
-ObjectiveGraderKind = Literal[
-    "service_health",
-    "file_exists",
-    "db_row_read",
-    "db_row_write",
-    "event_present",
-    "outbound_request",
-]
 
 
 class _StrictModel(BaseModel):
@@ -87,39 +63,6 @@ class _ObjectiveContext:
 class _ObjectiveResolution:
     objective_tags: tuple[StandardAttackObjective, ...] = ()
     grader: ObjectiveGraderSpec | None = None
-
-
-_ObjectiveRule = Callable[[PredicateExpr, _ObjectiveContext], _ObjectiveResolution]
-
-_OBJECTIVE_RULES: dict[str, _ObjectiveRule] = {}
-_WEAKNESS_OBJECTIVE_TAGS: dict[
-    tuple[str, str], tuple[StandardAttackObjective, ...]
-] = {}
-
-
-def objective_rule(*predicate_names: str) -> Callable[[_ObjectiveRule], _ObjectiveRule]:
-    """Register one resolution rule for one or more public predicates."""
-
-    def wrap(fn: _ObjectiveRule) -> _ObjectiveRule:
-        for predicate_name in predicate_names:
-            existing = _OBJECTIVE_RULES.get(predicate_name)
-            if existing is not None and existing is not fn:
-                raise ValueError(
-                    f"objective predicate rule {predicate_name!r} already registered"
-                )
-            _OBJECTIVE_RULES[predicate_name] = fn
-        return fn
-
-    return wrap
-
-
-def register_weakness_objective_tags(
-    *,
-    family: str,
-    kind: str,
-    objective_tags: tuple[StandardAttackObjective, ...],
-) -> None:
-    _WEAKNESS_OBJECTIVE_TAGS[(family, kind)] = objective_tags
 
 
 def _build_grader_for_tag(
@@ -203,7 +146,7 @@ def _resolve_objective(
     default_service: str = "",
 ) -> _ObjectiveResolution:
     expr = parse_predicate(predicate)
-    rule = _OBJECTIVE_RULES.get(expr.name)
+    rule = objective_rule_for_predicate_name(expr.name)
     if rule is None:
         return _ObjectiveResolution()
     ctx = _ObjectiveContext(
@@ -213,24 +156,39 @@ def _resolve_objective(
         target_id=target_id,
         default_service=default_service,
     )
-    return rule(expr, ctx)
+    resolved_target = ctx.resolved_target(expr)
+    if rule.resolution_kind == "observation_only":
+        return _ObjectiveResolution()
+    if rule.resolution_kind == "asset_read":
+        tag: StandardAttackObjective = (
+            "db_access" if ctx.is_db_target(resolved_target) else "file_access"
+        )
+        return _build_resolution_for_tag(tag, resolved_target, ctx)
+    if rule.resolution_kind == "credential_obtained":
+        service_id = ctx.owner_service or ctx.default_service or "svc-idp"
+        return _ObjectiveResolution(
+            objective_tags=("privilege_escalation",),
+            grader=ObjectiveGraderSpec(
+                objective_tag="privilege_escalation",
+                grader_kind="event_present",
+                service_id=service_id,
+                target_id=resolved_target,
+                event_type="CredentialObtained",
+                expected_ref=resolved_target,
+            ),
+        )
+    if rule.objective_tag is None:
+        return _ObjectiveResolution()
+    return _build_resolution_for_tag(rule.objective_tag, resolved_target, ctx)
 
 
-def _registered_objective_predicate_names() -> tuple[str, ...]:
-    return tuple(_OBJECTIVE_RULES)
-
-
-importlib.import_module("open_range._objective_rules")
-
-PUBLIC_OBJECTIVE_PREDICATE_NAMES: tuple[str, ...] = (
-    _registered_objective_predicate_names()
-)
+PUBLIC_OBJECTIVE_PREDICATE_NAMES: tuple[str, ...] = public_objective_predicate_names()
 
 
 def weakness_objective_tags(
     family: str, kind: str
 ) -> tuple[StandardAttackObjective, ...]:
-    return _WEAKNESS_OBJECTIVE_TAGS.get((family, kind), ())
+    return weakness_objective_tags_for_kind(family, kind)
 
 
 def objective_tags_for_predicate(
