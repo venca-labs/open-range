@@ -18,6 +18,10 @@ from open_range.runtime_events import (
     green_events_for_action,
     red_events_for_step,
 )
+from open_range.runtime_reducers import (
+    blue_objectives_after_continuity,
+    continuity_for_service_health,
+)
 from open_range.runtime_types import (
     Action,
     ActionResult,
@@ -127,11 +131,7 @@ class OpenRangeRuntime:
             live_health = self.action_backend.service_health()
             if live_health:
                 service_health.update(live_health)
-        continuity = (
-            sum(service_health.values()) / len(service_health)
-            if service_health
-            else 1.0
-        )
+        continuity = continuity_for_service_health(service_health)
         self._state = EpisodeState(
             snapshot_id=snapshot.snapshot_id,
             episode_id=f"ep-{uuid4()}",
@@ -897,19 +897,15 @@ class OpenRangeRuntime:
         )
 
     def _update_continuity(self) -> None:
-        if not self._state.service_health:
-            self._state.continuity = 1.0
-            return
-        self._state.continuity = sum(self._state.service_health.values()) / len(
+        self._state.continuity = continuity_for_service_health(
             self._state.service_health
         )
-        if (
-            self._episode_config.continuity_enforced
-            and self._state.continuity < self._episode_config.continuity_threshold
-        ):
-            self._blue_objectives_satisfied.discard("service_health_above(0.9)")
-        elif self._episode_config.continuity_enforced:
-            self._blue_objectives_satisfied.add("service_health_above(0.9)")
+        self._blue_objectives_satisfied = blue_objectives_after_continuity(
+            self._blue_objectives_satisfied,
+            continuity=self._state.continuity,
+            continuity_threshold=self._episode_config.continuity_threshold,
+            continuity_enforced=self._episode_config.continuity_enforced,
+        )
 
     def _service_health_tuple(self) -> tuple[ServiceHealth, ...]:
         return tuple(

@@ -63,6 +63,7 @@ Some current private helper files are transitional seams, not the end-state pack
 - [x] move objective target, grader, and event resolution behind one objective registry contract
 - [x] start moving family-specific realization content out of `synth.py`
 - [x] finish moving family-specific realization content out of `synth.py`
+- [x] start the runtime reducer split with shared continuity reducers
 - [ ] finish the weakness subsystem move and shrink `open_range.weaknesses`
 - [x] move objectives fully onto catalog-backed resolution
 - [ ] move runtime onto hooks and reducers
