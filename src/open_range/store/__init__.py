@@ -1,13 +1,13 @@
 """Immutable snapshot persistence and explicit runtime hydration."""
 
-from open_range.store.core import FileSnapshotStore, PoolSplit, SnapshotStore
-from open_range.store.pipeline import (
+from open_range.store.build import (
     BuildPipeline,
     CandidateWorld,
     admit,
     admit_child,
     build,
 )
+from open_range.store.core import FileSnapshotStore, PoolSplit, SnapshotStore
 from open_range.store.runtime import (
     hydrate_runtime_snapshot,
     load_runtime_snapshot,
