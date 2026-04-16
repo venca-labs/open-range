@@ -2,8 +2,8 @@ from __future__ import annotations
 
 from types import SimpleNamespace
 
-from open_range.runtime_types import Action
 from open_range.rewards import RewardEngine
+from open_range.runtime_types import Action
 
 
 def test_red_reward_keeps_tick_cost_and_milestone_bonus():

@@ -25,7 +25,6 @@ Useful smoke checks:
 
 ```bash
 uv run openrange --help
-uv run openrange-demo
 ```
 
 Training dependencies are optional:

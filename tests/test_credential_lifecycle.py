@@ -15,10 +15,10 @@ import pytest
 jwt = pytest.importorskip("jwt", reason="PyJWT not installed")
 
 from open_range.credential_lifecycle import (  # noqa: E402
+    _DEFAULT_JWT_SECRET,
     CredentialLifecycleConfig,
     CredentialLifecycleManager,
     NPCSession,
-    _DEFAULT_JWT_SECRET,
     reset_predictable_counter,
 )
 from open_range.session_traffic import (  # noqa: E402
@@ -26,7 +26,6 @@ from open_range.session_traffic import (  # noqa: E402
     generate_session_cleanup_script,
     generate_token_refresh_script,
 )
-
 
 # ===================================================================
 # Fixtures

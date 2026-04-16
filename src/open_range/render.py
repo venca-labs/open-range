@@ -24,7 +24,6 @@ from open_range.snapshot import KindArtifacts
 from open_range.synth import SynthArtifacts
 from open_range.world_ir import GreenPersona, ServiceSpec, WorldIR
 
-
 _CHART_DIR = Path(__file__).resolve().parent / "chart"
 
 

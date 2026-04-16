@@ -25,7 +25,6 @@ from open_range.world_ir import (
     WorldIR,
 )
 
-
 PoolSplit = Literal["train", "eval"]
 MutationKind = Literal[
     "add_host",

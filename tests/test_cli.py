@@ -73,6 +73,30 @@ def test_admit_command_persists_snapshot(tmp_path: Path):
     assert "Admitted snapshot written to" in result.output
 
 
+def test_admit_command_accepts_bundled_manifest_name(tmp_path: Path):
+    store_dir = tmp_path / "snapshots"
+    render_dir = tmp_path / "rendered"
+
+    result = CliRunner().invoke(
+        cli,
+        [
+            "admit",
+            "--manifest",
+            "tier1_basic.yaml",
+            "--output",
+            str(render_dir),
+            "--store-dir",
+            str(store_dir),
+            "--validation-profile",
+            "graph_only",
+        ],
+    )
+
+    assert result.exit_code == 0, result.output
+    snapshot_dirs = [path for path in store_dir.iterdir() if path.is_dir()]
+    assert len(snapshot_dirs) == 1
+
+
 def test_reset_command_loads_snapshot_from_store(tmp_path: Path):
     manifest_path = _write_manifest(tmp_path)
     store_dir = tmp_path / "snapshots"
@@ -141,10 +165,20 @@ def test_traces_command_writes_branch_native_datasets(tmp_path: Path):
 
 
 def test_grpo_command_invokes_standalone_runner(monkeypatch):
-    commands: list[list[str]] = []
+    for key in (
+        "OPENRANGE_MODEL_ID",
+        "OPENRANGE_BASE_URL",
+        "OPENRANGE_ASR_URL",
+        "OPENRANGE_TTS_URL",
+    ):
+        monkeypatch.delenv(key, raising=False)
 
-    def _fake_run(command: list[str], check: bool) -> subprocess.CompletedProcess[str]:
-        commands.append(command)
+    commands: list[tuple[list[str], dict[str, str] | None]] = []
+
+    def _fake_run(
+        command: list[str], check: bool, env: dict[str, str] | None = None
+    ) -> subprocess.CompletedProcess[str]:
+        commands.append((command, env))
         assert check is False
         return subprocess.CompletedProcess(command, 0)
 
@@ -177,7 +211,7 @@ def test_grpo_command_invokes_standalone_runner(monkeypatch):
 
     assert result.exit_code == 0, result.output
     assert len(commands) == 1
-    command = commands[0]
+    command, env = commands[0]
     assert command[0] == sys.executable
     assert command[1].endswith("scripts/run_grpo.py")
     assert command[2:] == [
@@ -200,3 +234,79 @@ def test_grpo_command_invokes_standalone_runner(monkeypatch):
         "--epochs",
         "2",
     ]
+    assert env is None
+
+
+def test_grpo_command_forwards_root_backend_overrides(monkeypatch):
+    for key in (
+        "OPENRANGE_MODEL_ID",
+        "OPENRANGE_BASE_URL",
+        "OPENRANGE_ASR_URL",
+        "OPENRANGE_TTS_URL",
+    ):
+        monkeypatch.delenv(key, raising=False)
+
+    commands: list[tuple[list[str], dict[str, str] | None]] = []
+
+    def _fake_run(
+        command: list[str], check: bool, env: dict[str, str] | None = None
+    ) -> subprocess.CompletedProcess[str]:
+        commands.append((command, env))
+        assert check is False
+        return subprocess.CompletedProcess(command, 0)
+
+    monkeypatch.setattr(cli_module.subprocess, "run", _fake_run)
+
+    result = CliRunner().invoke(
+        cli,
+        [
+            "--model",
+            "moonshotai/kimi-k2-instruct",
+            "--base-url",
+            "https://integrate.api.nvidia.com/v1/",
+            "--asr-url",
+            "http://asr.local",
+            "--tts-url",
+            "http://tts.local",
+            "grpo",
+            "--model",
+            "/tmp/model",
+            "--data",
+            "/tmp/data.jsonl",
+        ],
+    )
+
+    assert result.exit_code == 0, result.output
+    assert len(commands) == 1
+    command, env = commands[0]
+    assert command[0] == sys.executable
+    assert command[1].endswith("scripts/run_grpo.py")
+    assert command[2:] == [
+        "--model",
+        "/tmp/model",
+        "--data",
+        "/tmp/data.jsonl",
+        "--output",
+        "./grpo-output",
+        "--reward",
+        "online",
+        "--env-url",
+        "http://localhost:8000",
+        "--seq",
+        "4096",
+        "--comp-len",
+        "2048",
+        "--num-gen",
+        "4",
+        "--epochs",
+        "1",
+        "--backend-model",
+        "moonshotai/kimi-k2-instruct",
+        "--base-url",
+        "https://integrate.api.nvidia.com/v1/",
+        "--asr-url",
+        "http://asr.local",
+        "--tts-url",
+        "http://tts.local",
+    ]
+    assert env is None

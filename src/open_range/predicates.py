@@ -3,9 +3,8 @@
 from __future__ import annotations
 
 from collections import deque
-from dataclasses import dataclass
-
 from collections.abc import Mapping
+from dataclasses import dataclass
 
 from open_range.objectives import (
     ObjectiveGraderSpec,

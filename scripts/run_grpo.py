@@ -2,7 +2,7 @@
 """Standalone GRPO training script for remote GPU instances.
 
 Runs Unsloth GRPO with progressive + binary reward functions on
-Qwen3.5-4B (from SFT checkpoint). Self-contained -- no open-range imports needed.
+Qwen3.5-4B (from SFT checkpoint).
 
 Usage:
     python3 run_grpo.py
@@ -20,6 +20,12 @@ import random
 import re
 import sys
 from pathlib import Path
+
+try:
+    from open_range.backend_overrides import BackendOverrides
+except ModuleNotFoundError:
+    sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
+    from open_range.backend_overrides import BackendOverrides
 
 logging.basicConfig(
     level=logging.INFO,
@@ -368,8 +374,8 @@ def online_reward_fn(completions, **kwargs):
     against the OpenEnv /reset + /step endpoints, returns cumulative reward.
     Falls back to progressive_reward_fn on connection errors.
     """
-    import urllib.request
     import urllib.error
+    import urllib.request
 
     env_url = os.environ.get("OPENENV_URL", "http://localhost:8000")
     gts = kwargs.get("ground_truth", [])
@@ -606,8 +612,12 @@ def convert_messages(messages):
 def main():
     parser = argparse.ArgumentParser(description="Unsloth GRPO for CTF training")
     parser.add_argument("--model", default=MODEL)
+    parser.add_argument("--backend-model", default=None, help=argparse.SUPPRESS)
     parser.add_argument("--data", default=DATA)
     parser.add_argument("--output", default=OUTPUT)
+    parser.add_argument("--base-url", default=None, help=argparse.SUPPRESS)
+    parser.add_argument("--asr-url", default=None, help=argparse.SUPPRESS)
+    parser.add_argument("--tts-url", default=None, help=argparse.SUPPRESS)
     parser.add_argument(
         "--reward",
         default="online",
@@ -623,11 +633,20 @@ def main():
     parser.add_argument("--num-gen", type=int, default=NUM_GEN)
     parser.add_argument("--epochs", type=int, default=EPOCHS)
     args = parser.parse_args()
+    backend_overrides = BackendOverrides(
+        model=args.backend_model,
+        base_url=args.base_url,
+        asr_url=args.asr_url,
+        tts_url=args.tts_url,
+    )
+    applied_backend_env = backend_overrides.apply(os.environ)
 
     logger.info("=== Unsloth GRPO Training ===")
     logger.info("Model: %s", args.model)
     logger.info("Data: %s", args.data)
     logger.info("Reward: %s", args.reward)
+    if applied_backend_env:
+        logger.info("Backend overrides: %s", ", ".join(sorted(applied_backend_env)))
 
     # Check model exists
     if not Path(args.model).exists():
@@ -765,7 +784,7 @@ def main():
     logger.info("Reward functions: %s", [f.__name__ for f in reward_funcs])
 
     # Train
-    from trl import GRPOTrainer, GRPOConfig
+    from trl import GRPOConfig, GRPOTrainer
 
     logger.info("Starting GRPO training...")
     trainer = GRPOTrainer(

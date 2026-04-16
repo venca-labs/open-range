@@ -8,7 +8,7 @@ from pathlib import Path
 from typing import Any
 
 from open_range._runtime_store import hydrate_runtime_snapshot
-from open_range.build_config import BuildConfig, OFFLINE_BUILD_CONFIG
+from open_range.build_config import OFFLINE_BUILD_CONFIG, BuildConfig
 from open_range.curriculum import FrontierMutationPolicy, PopulationStats
 from open_range.decision_surface import (
     candidate_actions,
@@ -35,7 +35,6 @@ from open_range.training_data import (
     trace_benchmark_tags,
     trace_weaknesses,
 )
-
 
 DEFAULT_RUNTIME_MODES = ("red_only", "blue_only_live", "blue_only_from_prefix")
 MAX_MUTATION_ATTEMPTS = 4
