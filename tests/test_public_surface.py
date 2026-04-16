@@ -33,6 +33,13 @@ def test_internal_reference_helpers_are_not_exposed_as_public_modules() -> None:
     assert importlib.util.find_spec("open_range._runtime_hooks") is None
     assert importlib.util.find_spec("open_range.encryption_enforcement") is None
     assert importlib.util.find_spec("open_range.identity_enforcement") is None
+    assert importlib.util.find_spec("open_range.render.credential_lifecycle") is None
+    assert importlib.util.find_spec("open_range.render.envelope_crypto") is None
+    assert importlib.util.find_spec("open_range.render.identity_provider") is None
+    assert importlib.util.find_spec("open_range.render.mtls") is None
+    assert importlib.util.find_spec("open_range.render.security_integrator") is None
+    assert importlib.util.find_spec("open_range.render.session_traffic") is None
+    assert importlib.util.find_spec("open_range.render.vault") is None
     assert importlib.util.find_spec("open_range.runtime_events") is None
     assert importlib.util.find_spec("open_range.runtime_reducers") is None
     assert importlib.util.find_spec("open_range.driver") is None

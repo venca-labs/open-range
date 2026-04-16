@@ -13,7 +13,7 @@ from __future__ import annotations
 
 import shlex
 
-from open_range.render.credential_lifecycle import (
+from open_range.render.security.credential_lifecycle import (
     CredentialLifecycleConfig,
     NPCSession,
 )

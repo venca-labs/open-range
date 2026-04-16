@@ -36,12 +36,12 @@ from pydantic import BaseModel, Field
 
 from open_range.world_ir import WorldIR
 
-from .extensions import (
+from ..extensions import (
     RuntimePort,
     RuntimeSidecar,
 )
-from .images import DB_MTLS_HELPER_IMAGE
-from .security import (
+from ..images import DB_MTLS_HELPER_IMAGE
+from .runtime import (
     SecurityPayloadSpec,
     SecurityRuntimeSpec,
     SecurityServiceRuntimeSpec,
@@ -424,7 +424,7 @@ class SecurityIntegrator:
         """Declare envelope encryption runtime intent."""
         try:
             EncryptionConfig = getattr(
-                import_module("open_range.render.envelope_crypto"),
+                import_module("open_range.render.security.envelope_crypto"),
                 "EncryptionConfig",
             )
         except (AttributeError, ImportError):
@@ -498,7 +498,7 @@ class SecurityIntegrator:
     ) -> None:
         """Declare mTLS artifacts plus supported runtime hooks for services."""
         try:
-            mtls_sim = import_module("open_range.render.mtls")
+            mtls_sim = import_module("open_range.render.security.mtls")
             MTLSConfig = getattr(mtls_sim, "MTLSConfig")
             MTLSSimulator = getattr(mtls_sim, "MTLSSimulator")
         except (AttributeError, ImportError):
@@ -631,7 +631,7 @@ class SecurityIntegrator:
         """Declare NPC credential lifecycle runtime intent."""
         try:
             CredentialLifecycleConfig = getattr(
-                import_module("open_range.render.credential_lifecycle"),
+                import_module("open_range.render.security.credential_lifecycle"),
                 "CredentialLifecycleConfig",
             )
         except (AttributeError, ImportError):

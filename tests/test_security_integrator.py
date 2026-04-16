@@ -14,7 +14,7 @@ from open_range.render import (
     SecurityIntegratorConfig,
     materialize_security_runtime,
 )
-from open_range.render.security_integrator import _default_scopes_for_service
+from open_range.render.security.integrator import _default_scopes_for_service
 
 
 def _has_cryptography() -> bool:

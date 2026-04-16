@@ -21,7 +21,7 @@ import pytest
 
 pytest.importorskip("cryptography", reason="cryptography not installed")
 
-from open_range.render.envelope_crypto import (
+from open_range.render.security.envelope_crypto import (
     EncryptedBundle,
     EncryptionConfig,
     EnvelopeCrypto,

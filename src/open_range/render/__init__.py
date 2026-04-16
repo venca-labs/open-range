@@ -28,16 +28,14 @@ if TYPE_CHECKING:
     from .k3d import K3dRenderer
     from .kind import EnterpriseSaaSKindRenderer, KindRenderer
     from .security import (
-        SecurityPayloadSpec,
-        SecurityRuntimeSpec,
-        SecurityServiceRuntimeSpec,
-        materialize_security_runtime,
-    )
-    from .security_integrator import (
         DEFAULT_TIER_MAP,
         SecurityIntegrator,
         SecurityIntegratorConfig,
+        SecurityPayloadSpec,
+        SecurityRuntimeSpec,
+        SecurityServiceRuntimeSpec,
         SecurityTierConfig,
+        materialize_security_runtime,
     )
 
 __all__ = [
@@ -74,7 +72,7 @@ _EXPORT_MODULES = {
     "CiliumPolicyConfig": "cilium",
     "CiliumPolicyGenerator": "cilium",
     "DB_MTLS_HELPER_IMAGE": "images",
-    "DEFAULT_TIER_MAP": "security_integrator",
+    "DEFAULT_TIER_MAP": "security",
     "DEFAULT_SERVICE_IMAGE": "images",
     "EnterpriseSaaSKindRenderer": "kind",
     "K3dRenderer": "k3d",
@@ -87,11 +85,11 @@ _EXPORT_MODULES = {
     "SANDBOX_MULTITOOL_IMAGE": "images",
     "SERVICE_IMAGE_BY_KIND": "images",
     "SecurityPayloadSpec": "security",
-    "SecurityIntegrator": "security_integrator",
-    "SecurityIntegratorConfig": "security_integrator",
+    "SecurityIntegrator": "security",
+    "SecurityIntegratorConfig": "security",
     "SecurityRuntimeSpec": "security",
     "SecurityServiceRuntimeSpec": "security",
-    "SecurityTierConfig": "security_integrator",
+    "SecurityTierConfig": "security",
     "ServiceRuntimeExtension": "extensions",
     "apply_service_runtime_extensions": "extensions",
     "materialize_security_runtime": "security",
