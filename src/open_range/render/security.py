@@ -261,7 +261,7 @@ def _identity_provider_files(
     if not security_runtime.identity_provider:
         return {}
     try:
-        identity_provider = import_module("open_range.identity_provider")
+        identity_provider = import_module("open_range.render.identity_provider")
         IdentityProviderConfig = getattr(identity_provider, "IdentityProviderConfig")
         SimulatedIdentityProvider = getattr(
             identity_provider,
@@ -295,7 +295,7 @@ def _encryption_files(
     if not security_runtime.encryption:
         return {}
     try:
-        envelope_crypto = import_module("open_range.envelope_crypto")
+        envelope_crypto = import_module("open_range.render.envelope_crypto")
         EncryptedBundle = getattr(envelope_crypto, "EncryptedBundle")
         EncryptionConfig = getattr(envelope_crypto, "EncryptionConfig")
         aes_gcm_encrypt = getattr(envelope_crypto, "_aes_gcm_encrypt")
@@ -379,7 +379,7 @@ def _mtls_files(
         from cryptography.hazmat.primitives.asymmetric import rsa
         from cryptography.x509.oid import ExtendedKeyUsageOID, NameOID
 
-        MTLSConfig = getattr(import_module("open_range.mtls_sim"), "MTLSConfig")
+        MTLSConfig = getattr(import_module("open_range.render.mtls"), "MTLSConfig")
     except (ImportError, AttributeError):  # pragma: no cover - optional dependency
         return {}
 

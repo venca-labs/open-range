@@ -13,7 +13,7 @@ from typing import Protocol
 
 import yaml
 
-from open_range.async_utils import run_async
+from open_range.runtime.async_utils import run_async
 
 logger = logging.getLogger(__name__)
 

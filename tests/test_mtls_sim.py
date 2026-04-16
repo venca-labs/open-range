@@ -15,7 +15,7 @@ from cryptography.hazmat.primitives.serialization import (
 )
 from cryptography.x509.oid import ExtendedKeyUsageOID  # noqa: E402
 
-from open_range.mtls_sim import (  # noqa: E402
+from open_range.render.mtls import (  # noqa: E402
     SUPPORTED_WEAKNESSES,
     CertificateBundle,
     MTLSConfig,

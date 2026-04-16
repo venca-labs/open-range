@@ -12,15 +12,16 @@ from pydantic import BaseModel, ConfigDict
 
 from open_range.admission.controller import LocalAdmissionController
 from open_range.build_config import DEFAULT_BUILD_CONFIG, BuildConfig
-from open_range.cilium_policies import CiliumPolicyGenerator
 from open_range.compiler import EnterpriseSaaSManifestCompiler
 from open_range.manifest import EnterpriseSaaSManifest, validate_manifest
 from open_range.render import (
+    CiliumPolicyGenerator,
     EnterpriseSaaSKindRenderer,
     K3dRenderer,
+    SecurityIntegrator,
+    SecurityIntegratorConfig,
     SecurityRuntimeSpec,
 )
-from open_range.security_integrator import SecurityIntegrator, SecurityIntegratorConfig
 from open_range.snapshot import KindArtifacts, Snapshot
 from open_range.synth import EnterpriseSaaSWorldSynthesizer, SynthArtifacts
 from open_range.weaknesses import CatalogWeaknessSeeder

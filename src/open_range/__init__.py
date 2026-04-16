@@ -19,7 +19,6 @@ from open_range.build_config import (
     OFFLINE_REFERENCE_BUILD_CONFIG,
     BuildConfig,
 )
-from open_range.cluster import ExecResult
 from open_range.compiler import EnterpriseSaaSManifestCompiler
 from open_range.episode_config import DEFAULT_EPISODE_CONFIG, EpisodeConfig
 from open_range.manifest import (
@@ -40,6 +39,7 @@ from open_range.resources import (
     load_bundled_schema,
     resource_root,
 )
+from open_range.runtime.cluster import ExecResult
 from open_range.runtime_types import (
     Action,
     Decision,

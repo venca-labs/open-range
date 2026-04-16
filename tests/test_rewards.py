@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from types import SimpleNamespace
 
-from open_range.rewards import RewardEngine
+from open_range.runtime.rewards import RewardEngine
 from open_range.runtime_types import Action
 
 

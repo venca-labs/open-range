@@ -28,21 +28,25 @@ import logging
 import os
 import random
 from copy import deepcopy
+from importlib import import_module
 from pathlib import Path
 from typing import Any
 
 from pydantic import BaseModel, Field
 
-from open_range.render import (
-    DB_MTLS_HELPER_IMAGE,
+from open_range.world_ir import WorldIR
+
+from .extensions import (
     RuntimePort,
     RuntimeSidecar,
+)
+from .images import DB_MTLS_HELPER_IMAGE
+from .security import (
     SecurityPayloadSpec,
     SecurityRuntimeSpec,
     SecurityServiceRuntimeSpec,
     materialize_security_runtime,
 )
-from open_range.world_ir import WorldIR
 
 logger = logging.getLogger(__name__)
 
@@ -320,7 +324,7 @@ class SecurityIntegrator:
     ) -> None:
         """Declare identity provider runtime intent."""
         try:
-            from open_range.identity_provider import (
+            from .identity_provider import (
                 IdentityProviderConfig,
                 ServiceIdentity,
                 build_spiffe_id,
@@ -419,8 +423,11 @@ class SecurityIntegrator:
     ) -> None:
         """Declare envelope encryption runtime intent."""
         try:
-            from open_range.envelope_crypto import EncryptionConfig
-        except ImportError:
+            EncryptionConfig = getattr(
+                import_module("open_range.render.envelope_crypto"),
+                "EncryptionConfig",
+            )
+        except (AttributeError, ImportError):
             logger.warning(
                 "envelope_crypto module not available; skipping encryption integration"
             )
@@ -491,8 +498,10 @@ class SecurityIntegrator:
     ) -> None:
         """Declare mTLS artifacts plus supported runtime hooks for services."""
         try:
-            from open_range.mtls_sim import MTLSConfig, MTLSSimulator
-        except ImportError:
+            mtls_sim = import_module("open_range.render.mtls")
+            MTLSConfig = getattr(mtls_sim, "MTLSConfig")
+            MTLSSimulator = getattr(mtls_sim, "MTLSSimulator")
+        except (AttributeError, ImportError):
             logger.warning("mtls_sim module not available; skipping mTLS integration")
             return
 
@@ -621,8 +630,11 @@ class SecurityIntegrator:
     ) -> None:
         """Declare NPC credential lifecycle runtime intent."""
         try:
-            from open_range.credential_lifecycle import CredentialLifecycleConfig
-        except ImportError:
+            CredentialLifecycleConfig = getattr(
+                import_module("open_range.render.credential_lifecycle"),
+                "CredentialLifecycleConfig",
+            )
+        except (AttributeError, ImportError):
             logger.warning(
                 "credential_lifecycle module not available; skipping NPC lifecycle integration"
             )

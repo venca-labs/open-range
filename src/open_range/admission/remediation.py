@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from open_range.async_utils import run_async
+from open_range.runtime.async_utils import run_async
 from open_range.weaknesses import cleanup_steps_for_weakness
 from open_range.world_ir import WeaknessSpec, WorldIR
 

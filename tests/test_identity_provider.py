@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from open_range.identity_provider import (
+from open_range.render.identity_provider import (
     IdentityProviderConfig,
     ServiceIdentity,
     SimulatedIdentityProvider,

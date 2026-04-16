@@ -18,8 +18,8 @@ from open_range.admission.references import build_reference_bundle
 from open_range.admission.registry import get_admission_check
 from open_range.admission.scoring import report_summary
 from open_range.build_config import DEFAULT_BUILD_CONFIG, BuildConfig
-from open_range.cluster import KindBackend, LiveBackend
-from open_range.k3d_runner import K3dBackend
+from open_range.runtime.cluster import KindBackend, LiveBackend
+from open_range.runtime.k3d import K3dBackend
 from open_range.snapshot import KindArtifacts, world_hash
 from open_range.world_ir import WorldIR
 

@@ -121,7 +121,7 @@ def check_identity_enforcement(
 
     # Token smoke test
     try:
-        from open_range.identity_provider import (
+        from open_range.render.identity_provider import (
             IdentityProviderConfig,
             ServiceIdentity,
             SimulatedIdentityProvider,
