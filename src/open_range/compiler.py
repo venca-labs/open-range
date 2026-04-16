@@ -5,6 +5,11 @@ from __future__ import annotations
 from typing import Protocol
 
 from open_range.build_config import DEFAULT_BUILD_CONFIG, BuildConfig
+from open_range.catalog.services import (
+    ROLE_HOME_SERVICE_BY_ROLE,
+    host_for_service,
+    service_catalog_entry_for_kind,
+)
 from open_range.manifest import (
     EnterpriseSaaSManifest,
     ManifestAsset,
@@ -43,70 +48,6 @@ class ManifestCompiler(Protocol):
 class EnterpriseSaaSManifestCompiler:
     """Compile the strict manifest into a hand-checkable WorldIR."""
 
-    _SERVICE_LAYOUT = {
-        "web_app": {
-            "host_id": "web-1",
-            "service_id": "svc-web",
-            "zone": "dmz",
-            "exposure": "public",
-            "ports": (80, 443),
-            "dependencies": ("svc-db", "svc-idp", "svc-fileshare"),
-            "telemetry": ("web_access", "web_error"),
-        },
-        "email": {
-            "host_id": "mail-1",
-            "service_id": "svc-email",
-            "zone": "dmz",
-            "exposure": "public",
-            "ports": (25, 587, 993),
-            "dependencies": ("svc-idp",),
-            "telemetry": ("smtp", "imap"),
-        },
-        "idp": {
-            "host_id": "idp-1",
-            "service_id": "svc-idp",
-            "zone": "management",
-            "exposure": "management",
-            "ports": (389,),
-            "dependencies": (),
-            "telemetry": ("auth", "audit"),
-        },
-        "fileshare": {
-            "host_id": "files-1",
-            "service_id": "svc-fileshare",
-            "zone": "corp",
-            "exposure": "corp",
-            "ports": (445,),
-            "dependencies": ("svc-idp",),
-            "telemetry": ("share_access",),
-        },
-        "db": {
-            "host_id": "db-1",
-            "service_id": "svc-db",
-            "zone": "data",
-            "exposure": "data",
-            "ports": (3306,),
-            "dependencies": (),
-            "telemetry": ("query", "slow_query"),
-        },
-        "siem": {
-            "host_id": "siem-1",
-            "service_id": "svc-siem",
-            "zone": "management",
-            "exposure": "management",
-            "ports": (514, 9200, 9201),
-            "dependencies": (),
-            "telemetry": ("ingest", "alert"),
-        },
-    }
-
-    _ROLE_HOME_SERVICE = {
-        "sales": "svc-web",
-        "engineer": "svc-web",
-        "finance": "svc-fileshare",
-        "it_admin": "svc-idp",
-    }
-
     def compile(
         self,
         manifest: dict | EnterpriseSaaSManifest,
@@ -133,60 +74,60 @@ class EnterpriseSaaSManifestCompiler:
         edges = []
 
         for service_name in service_names:
-            if service_name not in self._SERVICE_LAYOUT:
+            layout = service_catalog_entry_for_kind(service_name)
+            if layout is None:
                 raise ValueError(
                     f"unsupported enterprise_saas_v1 service: {service_name}"
                 )
-            layout = self._SERVICE_LAYOUT[service_name]
-            zone = self._resolve_zone(parsed.topology.zones, layout["zone"])
-            telemetry = layout["telemetry"]
+            zone = self._resolve_zone(parsed.topology.zones, layout.zone)
+            telemetry = layout.telemetry_surfaces
             if allowed_surfaces:
                 telemetry = tuple(
                     surface for surface in telemetry if surface in allowed_surfaces
                 )
             hosts.append(
                 HostSpec(
-                    id=layout["host_id"],
+                    id=layout.host_id,
                     zone=zone,
-                    exposure=layout["exposure"],
-                    services=(layout["service_id"],),
+                    exposure=layout.exposure,
+                    services=(layout.service_id,),
                 )
             )
             services.append(
                 ServiceSpec(
-                    id=layout["service_id"],
+                    id=layout.service_id,
                     kind=service_name,
-                    host=layout["host_id"],
-                    ports=layout["ports"],
-                    dependencies=layout["dependencies"],
+                    host=layout.host_id,
+                    ports=layout.ports,
+                    dependencies=layout.dependencies,
                     telemetry_surfaces=telemetry,
                 )
             )
-            for dep in layout["dependencies"]:
+            for dep in layout.dependencies:
                 edges.append(
                     EdgeSpec(
-                        id=f"net-{layout['service_id']}-to-{dep}",
+                        id=f"net-{layout.service_id}-to-{dep}",
                         kind="network",
-                        source=layout["service_id"],
+                        source=layout.service_id,
                         target=dep,
                         label="service_dependency",
                     )
                 )
                 edges.append(
                     EdgeSpec(
-                        id=f"trust-{layout['service_id']}-to-{dep}",
+                        id=f"trust-{layout.service_id}-to-{dep}",
                         kind="trust",
-                        source=layout["service_id"],
+                        source=layout.service_id,
                         target=dep,
                         label="service_trust",
                     )
                 )
-            if service_name != "siem" and (not allowed_surfaces or telemetry):
+            if layout.kind != "siem" and (not allowed_surfaces or telemetry):
                 edges.append(
                     EdgeSpec(
-                        id=f"telemetry-{layout['service_id']}-to-siem",
+                        id=f"telemetry-{layout.service_id}-to-siem",
                         kind="telemetry",
-                        source=layout["service_id"],
+                        source=layout.service_id,
                         target="svc-siem",
                         label="log_ship",
                     )
@@ -370,7 +311,7 @@ class EnterpriseSaaSManifestCompiler:
             else:
                 scaled_count = count
             member_ids = []
-            home_service = self._ROLE_HOME_SERVICE.get(role, "svc-web")
+            home_service = ROLE_HOME_SERVICE_BY_ROLE.get(role, "svc-web")
             home_host = self._host_for_service(home_service)
             for idx in range(1, scaled_count + 1):
                 user_id = f"{role}-{idx:02d}"
@@ -545,10 +486,7 @@ class EnterpriseSaaSManifestCompiler:
 
     @staticmethod
     def _host_for_service(service_id: str) -> str:
-        for layout in EnterpriseSaaSManifestCompiler._SERVICE_LAYOUT.values():
-            if layout["service_id"] == service_id:
-                return layout["host_id"]
-        return "web-1"
+        return host_for_service(service_id)
 
     @classmethod
     def _validate_npc_profiles(cls, manifest: EnterpriseSaaSManifest) -> None:

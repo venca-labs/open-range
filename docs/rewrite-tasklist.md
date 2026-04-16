@@ -41,7 +41,7 @@ Some current private helper files are transitional seams, not the end-state pack
 
 ### Phase 2: World facts into data
 
-- [ ] define service catalog contracts
+- [x] define service catalog contracts
 - [ ] define weakness family contracts
 - [ ] define objective rule contracts
 - [ ] define probe default contracts

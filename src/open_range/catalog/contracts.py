@@ -63,3 +63,15 @@ class WeaknessObjectiveTagSpec:
     family: str
     kind: str
     objective_tags: tuple[StandardAttackObjective, ...]
+
+
+@dataclass(frozen=True, slots=True)
+class ServiceCatalogEntry:
+    kind: str
+    host_id: str
+    service_id: str
+    zone: str
+    exposure: str
+    ports: tuple[int, ...]
+    dependencies: tuple[str, ...]
+    telemetry_surfaces: tuple[str, ...]

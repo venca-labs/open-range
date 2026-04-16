@@ -12,6 +12,7 @@ from open_range.admission import (
     ValidatorReport,
 )
 from open_range.build_config import BuildConfig
+from open_range.catalog.services import service_kind_names
 from open_range.counterfactuals import remediation_command
 from open_range.encryption_enforcement import check_encryption_enforcement
 from open_range.identity_enforcement import check_identity_enforcement
@@ -27,7 +28,7 @@ from open_range.world_ir import WorldIR
 def _check_manifest_compliance(
     world: WorldIR, _artifacts: KindArtifacts, _wb: ReferenceBundle | None
 ) -> ValidatorCheckReport:
-    allowed = {"web_app", "email", "idp", "fileshare", "db", "siem"}
+    allowed = set(service_kind_names())
     invalid = sorted(
         service.kind for service in world.services if service.kind not in allowed
     )
