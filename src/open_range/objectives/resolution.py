@@ -14,8 +14,9 @@ from open_range.catalog.objectives import (
     public_objective_predicate_names,
     weakness_objective_tags_for_kind,
 )
-from open_range.objectives.models import ObjectiveGraderSpec, ResolvedObjectiveSpec
-from open_range.predicate_expr import PredicateExpr, parse_predicate
+
+from .expr import PredicateExpr, parse_predicate
+from .models import ObjectiveGraderSpec, ResolvedObjectiveSpec
 
 
 @dataclass(frozen=True, slots=True)

@@ -4,18 +4,19 @@ from __future__ import annotations
 
 import textwrap
 
-from open_range.code_web.common import (
+from open_range.objectives.effects import (
+    effect_marker_content,
+    effect_marker_path,
+)
+from open_range.world_ir import WeaknessRealizationSpec, WeaknessSpec, WorldIR
+
+from .common import (
     foothold_path,
     foothold_token,
     guard_path,
     php_string_literal,
     protected_record_path,
 )
-from open_range.effect_markers import (
-    effect_marker_content,
-    effect_marker_path,
-)
-from open_range.world_ir import WeaknessRealizationSpec, WeaknessSpec, WorldIR
 
 
 def code_web_realization_content(

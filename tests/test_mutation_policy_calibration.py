@@ -6,11 +6,11 @@ from pathlib import Path
 import yaml
 from click.testing import CliRunner
 
-from open_range.curriculum import FrontierMutationPolicy, PopulationStats
 from open_range.devtools.mutation_policy_calibration import (
     build_score_report,
     main,
 )
+from open_range.training.curriculum import FrontierMutationPolicy, PopulationStats
 
 
 def _population_entries() -> list[dict[str, object]]:

@@ -37,10 +37,10 @@ from open_range.manifest import (
     TelemetryBlindspotKind,
     WorkflowAbuseKind,
 )
-from open_range.weakness_families import seed_catalog_weakness
 from open_range.weaknesses import (
     CatalogWeaknessSeeder,
     build_catalog_weakness,
+    seed_catalog_weakness,
     supported_weakness_kinds,
 )
 from tests.support import manifest_payload

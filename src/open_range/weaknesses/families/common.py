@@ -5,10 +5,10 @@ from __future__ import annotations
 import shlex
 from dataclasses import dataclass
 
-from open_range.admission import ReferenceAction
+from open_range.admission.models import ReferenceAction
 from open_range.manifest import WeaknessFamily
-from open_range.predicate_expr import predicate_inner
-from open_range.predicates import PredicateEngine
+from open_range.objectives.engine import PredicateEngine
+from open_range.objectives.expr import predicate_inner
 from open_range.world_ir import WeaknessRealizationSpec, WeaknessSpec, WorldIR
 
 

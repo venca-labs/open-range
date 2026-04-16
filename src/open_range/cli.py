@@ -17,10 +17,9 @@ from open_range.build_config import BuildConfig
 from open_range.cluster import KindBackend
 from open_range.episode_config import EpisodeConfig
 from open_range.k3d_runner import K3dBackend
-from open_range.pipeline import BuildPipeline
 from open_range.resources import load_bundled_manifest
 from open_range.service import OpenRange
-from open_range.store import FileSnapshotStore
+from open_range.store import BuildPipeline, FileSnapshotStore
 from open_range.training.tracegen import generate_trace_dataset
 
 LOG_FORMAT = "%(asctime)s [%(levelname)s] %(name)s: %(message)s"

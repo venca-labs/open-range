@@ -33,7 +33,7 @@ def _has_cryptography() -> bool:
 @pytest.fixture
 def sample_world():
     """Minimal WorldIR for testing."""
-    from open_range.pipeline import BuildPipeline
+    from open_range.store import BuildPipeline
     from tests.support import manifest_payload
 
     pipeline = BuildPipeline()

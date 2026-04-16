@@ -7,19 +7,18 @@ from types import SimpleNamespace
 from open_range.admission.controller import LocalAdmissionController
 from open_range.build_config import BuildConfig
 from open_range.cluster import ExecResult
-from open_range.code_web import code_web_payload
 from open_range.compiler import EnterpriseSaaSManifestCompiler
-from open_range.curriculum import FrontierMutationPolicy, PopulationStats
-from open_range.pipeline import BuildPipeline
-from open_range.predicates import PredicateEngine
+from open_range.objectives.engine import PredicateEngine
 from open_range.render import (
     SANDBOX_IMAGE_BY_ROLE,
     EnterpriseSaaSKindRenderer,
     service_image_for_kind,
 )
-from open_range.store import FileSnapshotStore, load_runtime_snapshot
+from open_range.store import BuildPipeline, FileSnapshotStore, load_runtime_snapshot
 from open_range.synth import EnterpriseSaaSWorldSynthesizer
+from open_range.training.curriculum import FrontierMutationPolicy, PopulationStats
 from open_range.weaknesses import CatalogWeaknessSeeder
+from open_range.weaknesses.code_web import code_web_payload
 from tests.support import (
     OFFLINE_BUILD_CONFIG,
     OFFLINE_REFERENCE_BUILD_CONFIG,

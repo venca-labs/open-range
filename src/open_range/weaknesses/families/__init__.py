@@ -10,16 +10,17 @@ from open_range.catalog.weaknesses import (
     weakness_build_defaults,
     weakness_id_for,
 )
-from open_range.predicates import PredicateEngine
-from open_range.weakness_families import (
+from open_range.objectives.engine import PredicateEngine
+from open_range.world_ir import WeaknessRealizationSpec, WeaknessSpec, WorldIR
+
+from . import (
     code_web,
     config_identity,
     secret_exposure,
     telemetry_blindspot,
     workflow_abuse,
 )
-from open_range.weakness_families.common import RedReferencePlan, WeaknessBuildContext
-from open_range.world_ir import WeaknessRealizationSpec, WeaknessSpec, WorldIR
+from .common import RedReferencePlan, WeaknessBuildContext
 
 _FAMILY_BUILDERS: dict[str, Callable[[WeaknessBuildContext], WeaknessSpec]] = {
     "code_web": code_web.build,

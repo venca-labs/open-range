@@ -21,7 +21,6 @@ from open_range.build_config import (
 )
 from open_range.cluster import ExecResult
 from open_range.compiler import EnterpriseSaaSManifestCompiler
-from open_range.curriculum import FrontierMutationPolicy, PopulationStats
 from open_range.episode_config import DEFAULT_EPISODE_CONFIG, EpisodeConfig
 from open_range.manifest import (
     EnterpriseSaaSManifest,
@@ -29,7 +28,6 @@ from open_range.manifest import (
     validate_manifest,
 )
 from open_range.objectives import ObjectiveGraderSpec, StandardAttackObjective
-from open_range.pipeline import BuildPipeline, CandidateWorld, admit, admit_child, build
 from open_range.resources import (
     bundled_docs_dir,
     bundled_manifest_dir,
@@ -53,7 +51,15 @@ from open_range.runtime_types import (
 )
 from open_range.service import OpenRange
 from open_range.snapshot import Snapshot, world_hash
-from open_range.store import FileSnapshotStore
+from open_range.store import (
+    BuildPipeline,
+    CandidateWorld,
+    FileSnapshotStore,
+    admit,
+    admit_child,
+    build,
+)
+from open_range.training.curriculum import FrontierMutationPolicy, PopulationStats
 from open_range.training.data import (
     TraceDatasetReport,
     TraceDecisionRow,

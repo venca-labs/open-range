@@ -29,10 +29,10 @@ from open_range.catalog.probes import (
     workflow_effect_markers_for_kind,
     workflow_kind_uses_email_delivery,
 )
-from open_range.code_web import code_web_template
 from open_range.compiler import EnterpriseSaaSManifestCompiler
-from open_range.effect_markers import effect_marker_path, effect_marker_token
+from open_range.objectives.effects import effect_marker_path, effect_marker_token
 from open_range.weaknesses import CatalogWeaknessSeeder, build_catalog_weakness
+from open_range.weaknesses.code_web import code_web_template
 from tests.support import manifest_payload
 
 

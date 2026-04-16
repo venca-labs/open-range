@@ -3,18 +3,19 @@
 from __future__ import annotations
 
 import json
-import textwrap
 from pathlib import Path
 from typing import Protocol
 
 from pydantic import BaseModel, ConfigDict, Field
 
-from open_range.weakness_families import render_realization_content_for_family
-from open_range.world_ir import (
-    AssetSpec,
-    WeaknessRealizationSpec,
-    WeaknessSpec,
-    WorldIR,
+from open_range.world_ir import WorldIR
+
+from .payloads import (
+    asset_content,
+    db_init_sql,
+    mailbox_weakness_messages,
+    weakness_realization_content,
+    web_index_html,
 )
 
 
@@ -95,14 +96,14 @@ class EnterpriseSaaSWorldSynthesizer:
                 SynthFile(
                     key="index.html",
                     mount_path="/var/www/html/index.html",
-                    content=_web_index_html(world),
+                    content=web_index_html(world),
                 )
             ]
             payloads.extend(
                 SynthFile(
                     key=f"{asset.id}.txt",
                     mount_path=f"/var/www/html/content/{asset.id}.txt",
-                    content=_asset_content(asset),
+                    content=asset_content(asset),
                 )
                 for asset in world.assets
                 if asset.owner_service == service_id
@@ -114,7 +115,7 @@ class EnterpriseSaaSWorldSynthesizer:
                 SynthFile(
                     key="01-init.sql",
                     mount_path="/docker-entrypoint-initdb.d/01-init.sql",
-                    content=_db_init_sql(world),
+                    content=db_init_sql(world),
                 )
             ]
             payloads.extend(self._weakness_payloads(world, service_id))
@@ -124,7 +125,7 @@ class EnterpriseSaaSWorldSynthesizer:
                 SynthFile(
                     key=f"{asset.id}.txt",
                     mount_path=f"/srv/shared/{asset.id}.txt",
-                    content=_asset_content(asset),
+                    content=asset_content(asset),
                 )
                 for asset in world.assets
                 if asset.owner_service == service_id
@@ -153,7 +154,7 @@ class EnterpriseSaaSWorldSynthesizer:
             seeded.append(
                 f"Subject: Password reset review\n\nA routine password reset request is queued for {mailbox} in {world.world_id}."
             )
-        seeded.extend(_mailbox_weakness_messages(world, mailbox))
+        seeded.extend(mailbox_weakness_messages(world, mailbox))
         return seeded
 
     def _weakness_payloads(self, world: WorldIR, service_id: str) -> list[SynthFile]:
@@ -167,101 +168,9 @@ class EnterpriseSaaSWorldSynthesizer:
                     SynthFile(
                         key=key,
                         mount_path=realization.path,
-                        content=_weakness_realization_content(
+                        content=weakness_realization_content(
                             world, weakness, realization
                         ),
                     )
                 )
         return payloads
-
-
-def _web_index_html(world: WorldIR) -> str:
-    asset_links = (
-        "\n".join(
-            f'<li><a href="/content/{asset.id}.txt">{asset.id}</a></li>'
-            for asset in world.assets
-            if asset.owner_service == "svc-web"
-        )
-        or "<li>No web-hosted assets</li>"
-    )
-    return textwrap.dedent(
-        f"""\
-        <html>
-          <head><title>{world.business_archetype}</title></head>
-          <body>
-            <h1>{world.business_archetype}</h1>
-            <p>OpenRange seeded portal for {world.world_id}</p>
-            <ul>
-              {asset_links}
-            </ul>
-          </body>
-        </html>
-        """
-    )
-
-
-def _db_init_sql(world: WorldIR) -> str:
-    user_rows = "\n".join(
-        f"INSERT INTO users (username, password, role, department, email) VALUES ('{user.id}', '{_default_password(user.id)}', '{user.role}', '{user.department}', '{user.email}');"
-        for user in world.users
-    )
-    asset_rows = "\n".join(
-        f"INSERT INTO assets (asset_id, asset_class, contents) VALUES ('{asset.id}', '{asset.asset_class}', '{_asset_content(asset)}');"
-        for asset in world.assets
-        if asset.owner_service == "svc-db"
-    )
-    return textwrap.dedent(
-        f"""\
-        CREATE DATABASE IF NOT EXISTS app;
-        USE app;
-        CREATE TABLE IF NOT EXISTS users (
-            id INT AUTO_INCREMENT PRIMARY KEY,
-            username VARCHAR(64) NOT NULL,
-            password VARCHAR(128) NOT NULL,
-            role VARCHAR(64) NOT NULL,
-            department VARCHAR(64) NOT NULL,
-            email VARCHAR(128) NOT NULL
-        );
-        CREATE TABLE IF NOT EXISTS assets (
-            id INT AUTO_INCREMENT PRIMARY KEY,
-            asset_id VARCHAR(64) NOT NULL,
-            asset_class VARCHAR(64) NOT NULL,
-            contents TEXT NOT NULL
-        );
-        {user_rows}
-        {asset_rows}
-        """
-    )
-
-
-def _asset_content(asset: AssetSpec) -> str:
-    return f"seeded-{asset.asset_class}-{asset.id}"
-
-
-def _default_password(user_id: str) -> str:
-    return f"{user_id}-pass"
-
-
-def _weakness_realization_content(
-    world: WorldIR,
-    weakness: WeaknessSpec,
-    realization: WeaknessRealizationSpec,
-) -> str:
-    return render_realization_content_for_family(world, weakness, realization)
-
-
-def _mailbox_weakness_messages(world: WorldIR, mailbox: str) -> list[str]:
-    slug = _mailbox_slug(mailbox)
-    messages: list[str] = []
-    for weakness in world.weaknesses:
-        for realization in weakness.realization:
-            if realization.kind != "mailbox":
-                continue
-            if f"/{slug}/" not in realization.path:
-                continue
-            messages.append(_weakness_realization_content(world, weakness, realization))
-    return messages
-
-
-def _mailbox_slug(mailbox: str) -> str:
-    return mailbox.replace("@", "_at_").replace(".", "_")

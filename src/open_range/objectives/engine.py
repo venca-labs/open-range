@@ -6,13 +6,12 @@ from collections import deque
 from collections.abc import Mapping
 from dataclasses import dataclass
 
-from open_range.objectives import (
-    ObjectiveGraderSpec,
-    evaluate_red_objectives,
-    resolve_objective,
-)
-from open_range.predicate_expr import predicate_inner
 from open_range.world_ir import AssetSpec, ServiceSpec, WeaknessSpec, WorldIR
+
+from .evaluation import evaluate_red_objectives
+from .expr import predicate_inner
+from .models import ObjectiveGraderSpec
+from .resolution import resolve_objective
 
 
 @dataclass(frozen=True, slots=True)

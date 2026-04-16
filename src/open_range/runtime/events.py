@@ -8,7 +8,7 @@ from math import inf
 from typing import Callable
 
 from open_range.objectives import objective_event_for_predicate
-from open_range.predicate_expr import predicate_inner
+from open_range.objectives.expr import predicate_inner
 from open_range.runtime_types import Action, ExternalRole, RuntimeEvent
 
 

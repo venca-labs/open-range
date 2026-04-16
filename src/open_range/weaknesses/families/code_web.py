@@ -2,20 +2,17 @@
 
 from __future__ import annotations
 
-from open_range.admission import ReferenceAction
-from open_range.code_web import (
+from open_range.admission.models import ReferenceAction
+from open_range.objectives.engine import PredicateEngine
+from open_range.world_ir import WeaknessRealizationSpec, WeaknessSpec, WorldIR
+
+from ..code_web import (
     code_web_payload,
     code_web_realization_content,
     code_web_realizations,
     code_web_remediation_command,
 )
-from open_range.predicates import PredicateEngine
-from open_range.weakness_families.common import (
-    RedReferencePlan,
-    WeaknessBuildContext,
-    assemble_weakness_spec,
-)
-from open_range.world_ir import WeaknessRealizationSpec, WeaknessSpec, WorldIR
+from .common import RedReferencePlan, WeaknessBuildContext, assemble_weakness_spec
 
 
 def mutation_target_service(world: WorldIR) -> str | None:

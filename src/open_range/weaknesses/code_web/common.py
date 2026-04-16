@@ -6,7 +6,7 @@ import json
 from dataclasses import dataclass
 from urllib.parse import quote
 
-from open_range.effect_markers import effect_marker_token
+from open_range.objectives.effects import effect_marker_token
 from open_range.world_ir import WeaknessSpec, WorldIR
 
 

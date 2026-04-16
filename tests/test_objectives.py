@@ -8,7 +8,7 @@ from open_range.objectives import (
     objective_grader_for_predicate,
     objective_tags_for_predicate,
 )
-from open_range.predicates import PredicateEngine
+from open_range.objectives.engine import PredicateEngine
 from open_range.weaknesses import CatalogWeaknessSeeder
 from tests.support import manifest_payload
 

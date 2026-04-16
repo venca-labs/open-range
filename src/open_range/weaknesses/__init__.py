@@ -14,11 +14,24 @@ from open_range.manifest import (
     PinnedWeaknessSpec,
     WeaknessFamily,
 )
-from open_range.weakness_families import (
+from open_range.objectives.engine import PredicateEngine
+from open_range.world_ir import (
+    WeaknessRealizationSpec,
+    WeaknessSpec,
+    WorldIR,
+)
+
+from ..objectives.effects import effect_marker_cleanup_command, effect_marker_service
+from .code_web import code_web_cleanup_commands
+from .families import (
     build_catalog_weakness_for_family,
+    build_red_reference_plan_for_family,
+    mutation_spec_for_family,
+    mutation_target_service_for_family,
+    render_realization_content_for_family,
     seed_catalog_weakness,
 )
-from open_range.world_ir import WeaknessSpec, WorldIR
+from .families.common import first_objective_service as first_objective_service
 
 
 class WeaknessSeeder(Protocol):
@@ -74,6 +87,50 @@ def build_catalog_weakness(
         target_ref=target_ref,
         weakness_id=weakness_id,
     )
+
+
+def build_reference_plan_for_weakness(
+    world: WorldIR,
+    engine: PredicateEngine,
+    start: str,
+    weakness: WeaknessSpec,
+):
+    return build_red_reference_plan_for_family(world, engine, start, weakness)
+
+
+def mutation_target_service(world: WorldIR, family: WeaknessFamily) -> str | None:
+    return mutation_target_service_for_family(world, family)
+
+
+def mutation_spec(
+    world: WorldIR,
+    family: WeaknessFamily,
+    target_service: str,
+) -> tuple[str, str, str]:
+    return mutation_spec_for_family(world, family, target_service)
+
+
+def render_realization_content(
+    world: WorldIR,
+    weakness: WeaknessSpec,
+    realization: WeaknessRealizationSpec,
+) -> str:
+    return render_realization_content_for_family(world, weakness, realization)
+
+
+def cleanup_steps_for_weakness(weakness: WeaknessSpec) -> tuple[tuple[str, str], ...]:
+    steps: list[tuple[str, str]] = []
+    marker_cleanup = effect_marker_cleanup_command(weakness)
+    if marker_cleanup:
+        steps.append(
+            (effect_marker_service(weakness) or weakness.target, marker_cleanup)
+        )
+    if weakness.family == "code_web":
+        steps.extend(
+            (weakness.target, command)
+            for command in code_web_cleanup_commands(weakness)
+        )
+    return tuple(steps)
 
 
 def _build_pinned_weakness(world: WorldIR, pinned: PinnedWeaknessSpec) -> WeaknessSpec:

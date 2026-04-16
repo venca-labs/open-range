@@ -4,9 +4,11 @@ from __future__ import annotations
 
 import json
 
-from open_range.admission import ReferenceAction
-from open_range.predicates import PredicateEngine
-from open_range.weakness_families.common import (
+from open_range.admission.models import ReferenceAction
+from open_range.objectives.engine import PredicateEngine
+from open_range.world_ir import WeaknessRealizationSpec, WeaknessSpec, WorldIR
+
+from .common import (
     RedReferencePlan,
     WeaknessBuildContext,
     assemble_weakness_spec,
@@ -14,7 +16,6 @@ from open_range.weakness_families.common import (
     traverse_to_target,
     write_text_command,
 )
-from open_range.world_ir import WeaknessRealizationSpec, WeaknessSpec, WorldIR
 
 
 def mutation_target_service(world: WorldIR) -> str | None:

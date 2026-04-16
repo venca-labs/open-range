@@ -19,7 +19,7 @@ from open_range.manifest import (
     validate_manifest,
 )
 from open_range.objectives import objective_tags_for_predicate
-from open_range.predicate_expr import predicate_inner
+from open_range.objectives.expr import predicate_inner
 from open_range.world_ir import (
     AssetSpec,
     CredentialSpec,

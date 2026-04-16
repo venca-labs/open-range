@@ -17,7 +17,7 @@ from open_range.catalog.weaknesses import (
     is_supported_weakness_kind,
 )
 from open_range.objectives import PUBLIC_OBJECTIVE_PREDICATE_NAMES
-from open_range.predicate_expr import parse_predicate
+from open_range.objectives.expr import parse_predicate
 
 
 class _StrictModel(BaseModel):

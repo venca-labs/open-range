@@ -2,7 +2,14 @@
 
 from __future__ import annotations
 
-from open_range.code_web.common import (
+from open_range.objectives.effects import (
+    effect_marker_path,
+    effect_marker_service,
+    effect_marker_token,
+)
+from open_range.world_ir import WeaknessRealizationSpec, WeaknessSpec, WorldIR
+
+from .common import (
     CodeWebTemplate,
     egress_canary_url,
     foothold_path,
@@ -10,12 +17,6 @@ from open_range.code_web.common import (
     preferred_asset,
     protected_record_path,
 )
-from open_range.effect_markers import (
-    effect_marker_path,
-    effect_marker_service,
-    effect_marker_token,
-)
-from open_range.world_ir import WeaknessRealizationSpec, WeaknessSpec, WorldIR
 
 
 def code_web_realizations(

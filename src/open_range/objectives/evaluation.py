@@ -6,7 +6,7 @@ import shlex
 from collections.abc import Iterable, Mapping
 
 from open_range.async_utils import run_async
-from open_range.effect_markers import (
+from open_range.objectives.effects import (
     effect_marker_path,
     effect_marker_service,
     effect_marker_token,

@@ -22,10 +22,11 @@ from open_range.render import (
 )
 from open_range.security_integrator import SecurityIntegrator, SecurityIntegratorConfig
 from open_range.snapshot import KindArtifacts, Snapshot
-from open_range.store import FileSnapshotStore, PoolSplit
 from open_range.synth import EnterpriseSaaSWorldSynthesizer, SynthArtifacts
 from open_range.weaknesses import CatalogWeaknessSeeder
 from open_range.world_ir import WorldIR
+
+from .core import FileSnapshotStore, PoolSplit
 
 
 class CandidateWorld(BaseModel):

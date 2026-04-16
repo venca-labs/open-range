@@ -5,19 +5,21 @@ from __future__ import annotations
 import json
 import textwrap
 
-from open_range.admission import ReferenceAction
+from open_range.admission.models import ReferenceAction
 from open_range.catalog.probes import (
     reference_action_for_weakness_family,
     workflow_effect_markers_for_kind,
     workflow_kind_uses_email_delivery,
 )
-from open_range.effect_markers import (
+from open_range.objectives.effects import (
     effect_marker_content,
     effect_marker_path,
     effect_marker_token,
 )
-from open_range.predicates import PredicateEngine
-from open_range.weakness_families.common import (
+from open_range.objectives.engine import PredicateEngine
+from open_range.world_ir import WeaknessRealizationSpec, WeaknessSpec, WorldIR
+
+from .common import (
     RedReferencePlan,
     WeaknessBuildContext,
     assemble_weakness_spec,
@@ -33,7 +35,6 @@ from open_range.weakness_families.common import (
     traverse_to_target,
     write_text_command,
 )
-from open_range.world_ir import WeaknessRealizationSpec, WeaknessSpec, WorldIR
 
 
 def mutation_target_service(world: WorldIR) -> str | None:

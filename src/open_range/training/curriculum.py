@@ -10,14 +10,14 @@ from pydantic import BaseModel, ConfigDict, Field
 
 from open_range.catalog.roles import home_service_for_role, routine_for_role
 from open_range.catalog.services import host_for_service, service_catalog_entry_for_kind
-from open_range.predicate_expr import predicate_inner
+from open_range.objectives.expr import predicate_inner
 from open_range.store import FileSnapshotStore, load_world_ir
-from open_range.weakness_families import (
-    mutation_spec_for_family,
-    mutation_target_service_for_family,
+from open_range.weaknesses import (
+    build_catalog_weakness,
+    first_objective_service,
+    mutation_spec,
+    mutation_target_service,
 )
-from open_range.weakness_families.common import first_objective_service
-from open_range.weaknesses import build_catalog_weakness
 from open_range.world_ir import (
     CredentialSpec,
     EdgeSpec,
@@ -629,7 +629,7 @@ def _seed_additional_weakness(world: WorldIR) -> WorldIR | None:
     )
     if family is None:
         return None
-    target_service = mutation_target_service_for_family(world, family)
+    target_service = mutation_target_service(world, family)
     if target_service is None:
         return None
     weakness = _make_weakness(world, family, target_service, existing_ids=existing_ids)
@@ -796,9 +796,7 @@ def _make_weakness(
     while weak_id in existing_ids:
         suffix += 1
         weak_id = f"wk-{family.replace('_', '-')}-{suffix}"
-    kind, target_kind, target_ref = mutation_spec_for_family(
-        world, family, target_service
-    )
+    kind, target_kind, target_ref = mutation_spec(world, family, target_service)
     return build_catalog_weakness(
         world,
         family,

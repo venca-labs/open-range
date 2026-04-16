@@ -30,13 +30,11 @@ from open_range.catalog.probes import (
     telemetry_blindspot_targets,
 )
 from open_range.episode_config import EpisodeConfig
-from open_range.predicates import PredicateEngine
+from open_range.objectives.engine import PredicateEngine
 from open_range.runtime.execution import PodActionBackend
 from open_range.runtime_types import Action
 from open_range.snapshot import RuntimeSnapshot
-from open_range.weakness_families import (
-    build_red_reference_plan_for_family,
-)
+from open_range.weaknesses import build_reference_plan_for_weakness
 from open_range.world_ir import WorldIR
 
 
@@ -368,5 +366,5 @@ def _weakness_red_steps(
     start: str,
     weakness,
 ) -> tuple[list[ReferenceAction], str, set[str]]:
-    plan = build_red_reference_plan_for_family(world, engine, start, weakness)
+    plan = build_reference_plan_for_weakness(world, engine, start, weakness)
     return list(plan.steps), plan.current, set(plan.satisfied_predicates)

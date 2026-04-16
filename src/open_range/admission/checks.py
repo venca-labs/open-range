@@ -22,7 +22,7 @@ from open_range.admission.registry import admission_check
 from open_range.admission.remediation import remediation_command
 from open_range.build_config import BuildConfig
 from open_range.catalog.services import service_kind_names
-from open_range.predicates import PredicateEngine
+from open_range.objectives.engine import PredicateEngine
 from open_range.snapshot import KindArtifacts, RuntimeSnapshot, world_hash
 from open_range.world_ir import WorldIR
 

@@ -8,7 +8,7 @@ from uuid import uuid4
 
 from open_range.episode_config import DEFAULT_EPISODE_CONFIG, EpisodeConfig
 from open_range.green import GreenScheduler, ScriptedGreenScheduler
-from open_range.predicates import PredicateEngine
+from open_range.objectives.engine import PredicateEngine
 from open_range.rewards import RewardEngine
 from open_range.runtime.events import (
     RuntimeEventLog,

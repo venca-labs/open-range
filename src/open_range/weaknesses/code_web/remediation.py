@@ -4,8 +4,9 @@ from __future__ import annotations
 
 import shlex
 
-from open_range.code_web.common import guard_path
 from open_range.world_ir import WeaknessSpec
+
+from .common import guard_path
 
 
 def code_web_remediation_command(weakness: WeaknessSpec) -> str:
