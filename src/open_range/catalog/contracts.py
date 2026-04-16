@@ -27,6 +27,7 @@ STANDARD_ATTACK_OBJECTIVE_NAMES: tuple[StandardAttackObjective, ...] = (
     "outbound_service",
 )
 
+ObjectiveTargetKind = Literal["none", "asset", "service"]
 ObjectiveGraderKind = Literal[
     "service_health",
     "file_exists",
@@ -57,6 +58,9 @@ class ObjectiveRuleSpec:
     predicate_name: str
     resolution_kind: ObjectiveResolutionKind
     objective_tag: StandardAttackObjective | None = None
+    target_kind: ObjectiveTargetKind = "none"
+    event_type: str = ""
+    default_service: str = ""
 
 
 @dataclass(frozen=True, slots=True)

@@ -3,9 +3,19 @@
 from __future__ import annotations
 
 from open_range.catalog.contracts import (
-    STANDARD_ATTACK_OBJECTIVE_NAMES,
     ObjectiveRuleSpec,
     WeaknessObjectiveTagSpec,
+)
+
+_DIRECT_OBJECTIVE_RULES = (
+    ("dos", "service", "ServiceDegraded"),
+    ("file_access", "asset", "SensitiveAssetRead"),
+    ("file_creation", "asset", "PersistenceEstablished"),
+    ("db_modification", "asset", "PrivilegeEscalation"),
+    ("db_access", "asset", "SensitiveAssetRead"),
+    ("unauthorized_admin_login", "service", "UnauthorizedCredentialUse"),
+    ("privilege_escalation", "service", "PrivilegeEscalation"),
+    ("outbound_service", "service", "PersistenceEstablished"),
 )
 
 OBJECTIVE_RULE_SPECS: tuple[ObjectiveRuleSpec, ...] = (
@@ -14,28 +24,41 @@ OBJECTIVE_RULE_SPECS: tuple[ObjectiveRuleSpec, ...] = (
             predicate_name=objective_tag,
             resolution_kind="direct_objective",
             objective_tag=objective_tag,
+            target_kind=target_kind,
+            event_type=event_type,
         )
-        for objective_tag in STANDARD_ATTACK_OBJECTIVE_NAMES
+        for objective_tag, target_kind, event_type in _DIRECT_OBJECTIVE_RULES
     ),
     ObjectiveRuleSpec(
         predicate_name="asset_read",
         resolution_kind="asset_read",
+        target_kind="asset",
+        event_type="SensitiveAssetRead",
     ),
     ObjectiveRuleSpec(
         predicate_name="credential_obtained",
         resolution_kind="credential_obtained",
+        target_kind="asset",
+        event_type="CredentialObtained",
+        default_service="svc-idp",
     ),
     ObjectiveRuleSpec(
         predicate_name="intrusion_detected",
         resolution_kind="observation_only",
+        target_kind="service",
+        default_service="svc-siem",
     ),
     ObjectiveRuleSpec(
         predicate_name="intrusion_contained",
         resolution_kind="observation_only",
+        target_kind="service",
+        default_service="svc-siem",
     ),
     ObjectiveRuleSpec(
         predicate_name="service_health_above",
         resolution_kind="observation_only",
+        target_kind="service",
+        default_service="svc-siem",
     ),
 )
 

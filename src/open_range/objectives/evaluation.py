@@ -1,237 +1,17 @@
-"""Benchmark-aligned offensive objective library and service-native grader specs."""
+"""Objective evaluation and live probing helpers."""
 
 from __future__ import annotations
 
 import shlex
 from collections.abc import Iterable, Mapping
-from dataclasses import dataclass
-
-from pydantic import BaseModel, ConfigDict
 
 from open_range.async_utils import run_async
-from open_range.catalog.contracts import (
-    ObjectiveGraderKind,
-    StandardAttackObjective,
-)
-from open_range.catalog.objectives import (
-    objective_rule_for_predicate_name,
-    public_objective_predicate_names,
-    weakness_objective_tags_for_kind,
-)
 from open_range.effect_markers import (
     effect_marker_path,
     effect_marker_service,
     effect_marker_token,
 )
-from open_range.predicate_expr import PredicateExpr, parse_predicate
-
-
-class _StrictModel(BaseModel):
-    model_config = ConfigDict(extra="forbid", frozen=True)
-
-
-class ObjectiveGraderSpec(_StrictModel):
-    objective_tag: StandardAttackObjective
-    grader_kind: ObjectiveGraderKind
-    service_id: str = ""
-    target_id: str = ""
-    path: str = ""
-    event_type: str = ""
-    expected_ref: str = ""
-
-
-@dataclass(frozen=True, slots=True)
-class _ObjectiveContext:
-    predicate: str
-    owner_service: str = ""
-    asset_location: str = ""
-    target_id: str = ""
-    default_service: str = ""
-
-    def resolved_target(self, expr: PredicateExpr) -> str:
-        return self.target_id or expr.inner
-
-    def is_db_target(self, target_id: str) -> bool:
-        return (
-            self.owner_service == "svc-db"
-            or "db" in target_id.lower()
-            or "mysql" in self.asset_location.lower()
-        )
-
-
-@dataclass(frozen=True, slots=True)
-class _ObjectiveResolution:
-    objective_tags: tuple[StandardAttackObjective, ...] = ()
-    grader: ObjectiveGraderSpec | None = None
-
-
-def _build_grader_for_tag(
-    tag: StandardAttackObjective,
-    resolved_target: str,
-    ctx: _ObjectiveContext,
-) -> ObjectiveGraderSpec:
-    service_id = ctx.owner_service or ctx.default_service
-    if tag == "dos":
-        return ObjectiveGraderSpec(
-            objective_tag=tag,
-            grader_kind="service_health",
-            service_id=service_id or resolved_target,
-            target_id=resolved_target,
-        )
-    if tag in {"file_access", "file_creation"}:
-        return ObjectiveGraderSpec(
-            objective_tag=tag,
-            grader_kind="file_exists",
-            service_id=service_id,
-            target_id=resolved_target,
-            path=_live_asset_probe_path(ctx.asset_location),
-            expected_ref=resolved_target,
-        )
-    if tag == "db_access":
-        return ObjectiveGraderSpec(
-            objective_tag=tag,
-            grader_kind="db_row_read",
-            service_id=service_id or "svc-db",
-            target_id=resolved_target,
-            expected_ref=resolved_target,
-        )
-    if tag == "db_modification":
-        return ObjectiveGraderSpec(
-            objective_tag=tag,
-            grader_kind="db_row_write",
-            service_id=service_id or "svc-db",
-            target_id=resolved_target,
-            expected_ref=resolved_target,
-        )
-    if tag == "outbound_service":
-        return ObjectiveGraderSpec(
-            objective_tag=tag,
-            grader_kind="outbound_request",
-            service_id=service_id or ctx.default_service,
-            target_id=resolved_target,
-            expected_ref=resolved_target,
-        )
-    event_type = (
-        "UnauthorizedCredentialUse"
-        if tag == "unauthorized_admin_login"
-        else "PrivilegeEscalation"
-    )
-    return ObjectiveGraderSpec(
-        objective_tag=tag,
-        grader_kind="event_present",
-        service_id=service_id or ctx.default_service or "svc-idp",
-        target_id=resolved_target,
-        event_type=event_type,
-        expected_ref=resolved_target,
-    )
-
-
-def _build_resolution_for_tag(
-    tag: StandardAttackObjective,
-    resolved_target: str,
-    ctx: _ObjectiveContext,
-) -> _ObjectiveResolution:
-    return _ObjectiveResolution(
-        objective_tags=(tag,),
-        grader=_build_grader_for_tag(tag, resolved_target, ctx),
-    )
-
-
-def _resolve_objective(
-    predicate: str,
-    *,
-    owner_service: str = "",
-    asset_location: str = "",
-    target_id: str = "",
-    default_service: str = "",
-) -> _ObjectiveResolution:
-    expr = parse_predicate(predicate)
-    rule = objective_rule_for_predicate_name(expr.name)
-    if rule is None:
-        return _ObjectiveResolution()
-    ctx = _ObjectiveContext(
-        predicate=predicate,
-        owner_service=owner_service,
-        asset_location=asset_location,
-        target_id=target_id,
-        default_service=default_service,
-    )
-    resolved_target = ctx.resolved_target(expr)
-    if rule.resolution_kind == "observation_only":
-        return _ObjectiveResolution()
-    if rule.resolution_kind == "asset_read":
-        tag: StandardAttackObjective = (
-            "db_access" if ctx.is_db_target(resolved_target) else "file_access"
-        )
-        return _build_resolution_for_tag(tag, resolved_target, ctx)
-    if rule.resolution_kind == "credential_obtained":
-        service_id = ctx.owner_service or ctx.default_service or "svc-idp"
-        return _ObjectiveResolution(
-            objective_tags=("privilege_escalation",),
-            grader=ObjectiveGraderSpec(
-                objective_tag="privilege_escalation",
-                grader_kind="event_present",
-                service_id=service_id,
-                target_id=resolved_target,
-                event_type="CredentialObtained",
-                expected_ref=resolved_target,
-            ),
-        )
-    if rule.objective_tag is None:
-        return _ObjectiveResolution()
-    return _build_resolution_for_tag(rule.objective_tag, resolved_target, ctx)
-
-
-PUBLIC_OBJECTIVE_PREDICATE_NAMES: tuple[str, ...] = public_objective_predicate_names()
-
-
-def weakness_objective_tags(
-    family: str, kind: str
-) -> tuple[StandardAttackObjective, ...]:
-    return weakness_objective_tags_for_kind(family, kind)
-
-
-def objective_tags_for_predicate(
-    predicate: str,
-    *,
-    asset_location: str = "",
-    owner_service: str = "",
-    target_id: str = "",
-) -> tuple[StandardAttackObjective, ...]:
-    return _resolve_objective(
-        predicate,
-        asset_location=asset_location,
-        owner_service=owner_service,
-        target_id=target_id,
-    ).objective_tags
-
-
-def objective_grader_for_predicate(
-    predicate: str,
-    *,
-    owner_service: str = "",
-    asset_location: str = "",
-    target_id: str = "",
-    default_service: str = "",
-) -> ObjectiveGraderSpec | None:
-    return _resolve_objective(
-        predicate,
-        owner_service=owner_service,
-        asset_location=asset_location,
-        target_id=target_id,
-        default_service=default_service,
-    ).grader
-
-
-def _live_asset_probe_path(asset_location: str) -> str:
-    if not asset_location:
-        return ""
-    if asset_location.startswith("/") or "://" in asset_location:
-        return asset_location if asset_location.startswith("/") else ""
-    prefix, sep, suffix = asset_location.partition(":")
-    if prefix and sep and suffix.startswith("/"):
-        return suffix
-    return asset_location
+from open_range.objectives.models import ObjectiveGraderSpec
 
 
 def evaluate_objective_grader(
@@ -310,7 +90,10 @@ def evaluate_objective_grader_live(
     if grader.grader_kind == "file_exists":
         command = f"test -f {shlex.quote(grader.path)}"
         if grader.expected_ref:
-            command += f" && grep -q {shlex.quote(grader.expected_ref)} {shlex.quote(grader.path)}"
+            command += (
+                f" && grep -q {shlex.quote(grader.expected_ref)} "
+                f"{shlex.quote(grader.path)}"
+            )
         result = run_async(pods.exec(grader.service_id, command, timeout=10.0))
         return result.ok and (
             grader.expected_ref in combined_output or bool(linked_events)
@@ -355,6 +138,38 @@ def evaluate_objective_grader_live(
     return False
 
 
+def evaluate_red_objectives(
+    *,
+    snapshot: object,
+    objective_specs: Iterable[object],
+    graders: Mapping[str, ObjectiveGraderSpec | None],
+    events: Iterable[object],
+    service_health: Mapping[str, float],
+) -> set[str]:
+    satisfied: set[str] = set()
+    event_list = tuple(events)
+    for objective in objective_specs:
+        predicate = getattr(objective, "predicate", "")
+        if not predicate:
+            continue
+        grader = graders.get(predicate)
+        if grader is None:
+            if any(
+                predicate in _event_linked_predicates(event) for event in event_list
+            ):
+                satisfied.add(predicate)
+            continue
+        if evaluate_objective_grader(
+            predicate,
+            grader,
+            snapshot=snapshot,
+            events=event_list,
+            service_health=service_health,
+        ):
+            satisfied.add(predicate)
+    return satisfied
+
+
 def _db_query_command(snapshot: object, query: str) -> str:
     if _snapshot_mtls_enabled(snapshot):
         return _mtls_mysql_query_command(query)
@@ -388,38 +203,6 @@ def _mtls_mysql_query_command(query: str) -> str:
             query,
         ]
     )
-
-
-def evaluate_red_objectives(
-    *,
-    snapshot: object,
-    objective_specs: Iterable[object],
-    graders: Mapping[str, ObjectiveGraderSpec | None],
-    events: Iterable[object],
-    service_health: Mapping[str, float],
-) -> set[str]:
-    satisfied: set[str] = set()
-    event_list = tuple(events)
-    for objective in objective_specs:
-        predicate = getattr(objective, "predicate", "")
-        if not predicate:
-            continue
-        grader = graders.get(predicate)
-        if grader is None:
-            if any(
-                predicate in _event_linked_predicates(event) for event in event_list
-            ):
-                satisfied.add(predicate)
-            continue
-        if evaluate_objective_grader(
-            predicate,
-            grader,
-            snapshot=snapshot,
-            events=event_list,
-            service_health=service_health,
-        ):
-            satisfied.add(predicate)
-    return satisfied
 
 
 def _snapshot_mapping(snapshot: object, attr: str) -> dict[str, object]:

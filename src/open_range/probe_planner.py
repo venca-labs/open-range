@@ -166,7 +166,8 @@ class ProbePlanner:
         for objective in self.world.red_objectives:
             if objective.predicate in satisfied_predicates:
                 continue
-            target = engine.objective_target_service(objective.predicate) or current
+            resolved = engine.resolve_objective(objective.predicate)
+            target = resolved.target_service or current
             path = engine.shortest_path(current, target)
             for service_id in path[1:]:
                 steps.append(
@@ -177,7 +178,6 @@ class ProbePlanner:
                         payload={"action": "traverse"},
                     )
                 )
-            asset = engine.objective_target_asset(objective.predicate)
             steps.append(
                 ReferenceAction(
                     actor="red",
@@ -185,7 +185,11 @@ class ProbePlanner:
                     target=target,
                     payload={
                         "action": "satisfy_objective",
-                        "asset": asset.id if asset else "",
+                        "asset": (
+                            resolved.target_id
+                            if resolved.target_kind == "asset"
+                            else ""
+                        ),
                         "objective": objective.predicate,
                     },
                 )
@@ -197,13 +201,21 @@ class ProbePlanner:
             if weak is None:
                 continue
             events.extend(weak.expected_event_signatures)
+        objective_events = [
+            resolved.event_type
+            for resolved in (
+                engine.resolve_objective(objective.predicate)
+                for objective in self.world.red_objectives
+            )
+            if resolved.event_type
+        ]
         return ReferenceTrace(
             id=f"red-{self.world.world_id}-{ordinal}",
             role="red",
             objective_ids=tuple(
                 objective.id for objective in self.world.red_objectives
             ),
-            expected_events=tuple(dict.fromkeys(events + ["SensitiveAssetRead"])),
+            expected_events=tuple(dict.fromkeys(events + objective_events)),
             steps=tuple(steps),
         )
 

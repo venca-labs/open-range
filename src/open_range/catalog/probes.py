@@ -9,6 +9,7 @@ from open_range.catalog.contracts import (
     ProbeTemplateSpec,
     ShortcutWebRouteProbeSpec,
 )
+from open_range.objectives.resolution import objective_event_for_predicate
 
 DEFAULT_SHORTCUT_PROBE_TEMPLATES: tuple[ProbeTemplateSpec, ...] = (
     ProbeTemplateSpec(
@@ -148,10 +149,16 @@ def detection_for_reference_step_action(
         if asset and ("cred" in asset or "token" in asset):
             return ("CredentialObtained", resolved_target)
         return ("SensitiveAssetRead", resolved_target)
-    if action == "satisfy_objective" and objective.startswith("credential_obtained("):
-        return ("CredentialObtained", asset or target)
     if action == "satisfy_objective":
-        return ("SensitiveAssetRead", asset or target)
+        event_type, resolved_target = objective_event_for_predicate(
+            objective,
+            target_id=asset or target,
+            default_service=target,
+        )
+        return (
+            event_type or "SensitiveAssetRead",
+            resolved_target or asset or target,
+        )
     return ("InitialAccess", target or "svc-web")
 
 

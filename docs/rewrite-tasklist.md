@@ -60,10 +60,11 @@ Some current private helper files are transitional seams, not the end-state pack
 - [x] move planner family ranking and red-side fallback policy behind catalog and family handlers
 - [x] move blue-side detection and containment policy behind catalog probe helpers
 - [x] move blue-side readback payload policy behind catalog probe helpers
+- [x] move objective target, grader, and event resolution behind one objective registry contract
 - [x] start moving family-specific realization content out of `synth.py`
 - [x] finish moving family-specific realization content out of `synth.py`
 - [ ] finish the weakness subsystem move and shrink `open_range.weaknesses`
-- [ ] move objectives fully onto catalog-backed resolution
+- [x] move objectives fully onto catalog-backed resolution
 - [ ] move runtime onto hooks and reducers
 
 ### Phase 4: Deletions
@@ -78,7 +79,7 @@ The next real win is:
 
 1. finish any last generic fallback logic in `probe_planner.py`
 2. finish the weakness subsystem move and shrink `open_range.weaknesses`
-3. move objectives fully onto catalog-backed resolution instead of leaving mixed dispatch behind
+3. start the runtime hook and reducer move
 4. keep behavior stable with parity tests before deleting the old logic
 
 ## Next Large Targets
@@ -89,6 +90,6 @@ The next real win is:
 - `src/open_range/weaknesses.py`
   - finish deleting the remaining family heuristics now that the family registry owns builders, mutators, probe/render hooks, and the pinned-target/selection policy is gone
   - keep the file focused on orchestration and public seeding entry points
-- `src/open_range/compiler.py`
-  - finish deleting transitional compiler helpers now that workflow templates, asset placement rules, and persona defaults live under `open_range.catalog`
-  - keep the compiler focused on assembling `WorldIR` from declared contracts
+- `src/open_range/runtime.py`
+  - start the hook and reducer split now that admission, objective resolution, and most probe policy already have registry-owned seams
+  - keep the decision loop and public runtime surface stable while deleting inline side-effect policy

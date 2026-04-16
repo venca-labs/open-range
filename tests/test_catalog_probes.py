@@ -104,6 +104,11 @@ def test_catalog_probe_detection_policy_keeps_current_mappings() -> None:
         asset="idp_admin_cred",
         objective="credential_obtained(idp_admin_cred)",
     ) == ("CredentialObtained", "idp_admin_cred")
+    assert detection_for_reference_step_action(
+        "satisfy_objective",
+        target="svc-web",
+        objective="outbound_service(svc-web)",
+    ) == ("PersistenceEstablished", "svc-web")
     assert not is_blue_detectable_action(
         "deliver_phish",
         target="svc-email",
@@ -624,3 +629,16 @@ def test_probe_planner_blue_reference_uses_catalog_blue_policy() -> None:
     assert finding_step.payload["event"] == plan.detect_event
     assert contain_step.target == plan.contain_target
     assert tuple(blue_trace.expected_events) == blue_reference_expected_events()
+
+
+def test_probe_planner_uses_resolved_objective_events_for_red_trace() -> None:
+    payload = manifest_payload()
+    payload["objectives"]["red"] = [{"predicate": "outbound_service(svc-web)"}]
+    world = CatalogWeaknessSeeder().apply(
+        EnterpriseSaaSManifestCompiler().compile(payload)
+    )
+
+    trace = ProbePlanner(world).build_red_reference(ordinal=1)
+
+    assert "PersistenceEstablished" in trace.expected_events
+    assert trace.expected_events[-1] == "PersistenceEstablished"

@@ -5,7 +5,8 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Callable
 
-from open_range.predicate_expr import predicate_inner, predicate_name
+from open_range.objectives import objective_event_for_predicate
+from open_range.predicate_expr import predicate_inner
 from open_range.runtime_types import Action, RuntimeEvent
 
 
@@ -176,30 +177,17 @@ def objective_events(
         if "cred" in asset_id
         else f"asset_read({asset_id})"
     )
-    target_ref = predicate_inner(resolved_objective) or asset_id or target
-    name = predicate_name(resolved_objective)
+    event_type, target_ref = objective_event_for_predicate(
+        resolved_objective,
+        target_id=asset_id or predicate_inner(resolved_objective) or target,
+        default_service=target,
+    )
     surfaces = service_surfaces(target)
-    if name in {"credential_obtained", "unauthorized_admin_login"}:
-        event_type = (
-            "CredentialObtained"
-            if name == "credential_obtained"
-            else "UnauthorizedCredentialUse"
-        )
-    elif name in {"asset_read", "file_access", "db_access"}:
-        event_type = "SensitiveAssetRead"
-    elif name in {"file_creation", "outbound_service"}:
-        event_type = "PersistenceEstablished"
-    elif name in {"db_modification", "privilege_escalation"}:
-        event_type = "PrivilegeEscalation"
-    elif name == "dos":
-        event_type = "ServiceDegraded"
-    else:
-        event_type = "SensitiveAssetRead"
     event = emit_event(
-        event_type=event_type,
+        event_type=event_type or "SensitiveAssetRead",
         actor="red",
         source_entity=target,
-        target_entity=target_ref,
+        target_entity=target_ref or asset_id or target,
         malicious=True,
         observability_surfaces=surfaces,
         linked_objective_predicates=(resolved_objective,),

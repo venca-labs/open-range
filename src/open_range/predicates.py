@@ -9,9 +9,9 @@ from dataclasses import dataclass
 from open_range.objectives import (
     ObjectiveGraderSpec,
     evaluate_red_objectives,
-    objective_grader_for_predicate,
+    resolve_objective,
 )
-from open_range.predicate_expr import parse_predicate, predicate_inner
+from open_range.predicate_expr import predicate_inner
 from open_range.world_ir import AssetSpec, ServiceSpec, WeaknessSpec, WorldIR
 
 
@@ -21,6 +21,20 @@ class PredicateEngine:
 
     world: WorldIR
 
+    def resolve_objective(self, predicate: str):
+        target_id = predicate_inner(predicate)
+        asset = next(
+            (item for item in self.world.assets if item.id == target_id),
+            None,
+        )
+        return resolve_objective(
+            predicate,
+            owner_service=asset.owner_service if asset is not None else "",
+            asset_location=asset.location if asset is not None else "",
+            target_id=target_id,
+            service_ids=frozenset(service.id for service in self.world.services),
+        )
+
     def active_weaknesses(self) -> tuple[WeaknessSpec, ...]:
         return tuple(
             weakness
@@ -29,76 +43,26 @@ class PredicateEngine:
         )
 
     def objective_target_asset(self, predicate: str) -> AssetSpec | None:
-        expr = parse_predicate(predicate)
-        if not expr.inner:
-            return None
-        if expr.name in {
-            "dos",
-            "intrusion_detected",
-            "intrusion_contained",
-            "service_health_above",
-            "outbound_service",
-        }:
+        resolved = self.resolve_objective(predicate)
+        if resolved.target_kind != "asset" or not resolved.target_id:
             return None
         for asset in self.world.assets:
-            if asset.id == expr.inner:
+            if asset.id == resolved.target_id:
                 return asset
         return None
 
     def objective_target_service(self, predicate: str) -> str | None:
-        expr = parse_predicate(predicate)
-        asset = self.objective_target_asset(predicate)
-        if asset is not None:
-            return asset.owner_service
-        if any(
-            token in predicate
-            for token in (
-                "service_health_above",
-                "intrusion_detected",
-                "intrusion_contained",
-            )
-        ):
-            return "svc-siem"
-        if (
-            expr.name
-            in {
-                "dos",
-                "outbound_service",
-                "unauthorized_admin_login",
-                "privilege_escalation",
-            }
-            and expr.inner
-        ):
-            for service in self.world.services:
-                if service.id == expr.inner:
-                    return service.id
-            if expr.name in {"unauthorized_admin_login", "privilege_escalation"}:
-                return "svc-idp"
-        return None
+        resolved = self.resolve_objective(predicate)
+        return resolved.target_service or None
 
     def objective_tags(self, predicate: str) -> tuple[str, ...]:
-        grader = self.objective_grader(predicate)
-        if grader is None:
-            return ()
-        return (grader.objective_tag,)
+        return self.resolve_objective(predicate).objective_tags
 
     def objective_grader(self, predicate: str) -> ObjectiveGraderSpec | None:
-        asset = self.objective_target_asset(predicate)
-        return objective_grader_for_predicate(
-            predicate,
-            owner_service=asset.owner_service if asset is not None else "",
-            asset_location=asset.location if asset is not None else "",
-            target_id=predicate_inner(predicate),
-            default_service=self.objective_target_service(predicate) or "",
-        )
+        return self.resolve_objective(predicate).grader
 
     def is_groundable(self, predicate: str) -> bool:
-        if self.objective_target_asset(predicate) is not None:
-            return True
-        return (
-            self.objective_grader(predicate) is not None
-            or self.objective_target_service(predicate) is not None
-        )
+        return self.resolve_objective(predicate).groundable
 
     def service_graph(self) -> dict[str, set[str]]:
         adjacency: dict[str, set[str]] = {
