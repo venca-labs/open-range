@@ -15,6 +15,8 @@ The branch can be long-lived. The rule is simple: do not trust chat context to h
   - objective rule registry
   - weakness family plugins
   - runtime hooks and reducers
+  - extract SFT and model-facing prompt helpers out of core `src/open_range`
+  - split `code_web.py` into a real subsystem instead of one flattened module
 
 ## Target Package Shape
 
@@ -73,6 +75,8 @@ Some current private helper files are transitional seams, not the end-state pack
 - [x] finish the weakness subsystem move and shrink `open_range.weaknesses`
 - [x] move objectives fully onto catalog-backed resolution
 - [ ] move runtime onto hooks and reducers
+- [ ] move SFT and model-facing prompt helpers out of core `src/open_range`
+- [ ] split `code_web.py` into catalog/specs, renderers, offline simulation, and remediation helpers
 
 ### Phase 4: Deletions
 
@@ -86,8 +90,10 @@ The next real win is:
 
 1. keep pushing runtime state changes behind reducers and hooks
 2. move the remaining offline execution policy out of `runtime.py`
-3. keep behavior stable with parity tests before deleting the old logic
-4. collapse any remaining root-module compatibility seams that no longer buy us anything
+3. move SFT and prompt-formatting code out of core `src/open_range`
+4. split `code_web.py` along subsystem boundaries instead of leaving it as one mixed file
+5. keep behavior stable with parity tests before deleting the old logic
+6. collapse any remaining root-module compatibility seams that no longer buy us anything
 
 ## Next Large Targets
 
@@ -97,3 +103,9 @@ The next real win is:
 - `src/open_range/runtime.py`
   - keep moving action, observation, event-visibility, and blue-opponent policy behind reducers and helpers now that continuity, red action reduction, blue control transitions, blue finding, read-side observation updates, and runtime event projection already have shared seams
   - keep the decision loop and public runtime surface stable while deleting inline side-effect policy
+- `src/open_range/_decision_sft.py`
+  - extract SFT chat formatting, system prompts, and model-facing action serialization out of the core environment package
+  - keep runtime types and trace data in core, but move training-facing prompt helpers behind a training package boundary
+- `src/open_range/code_web.py`
+  - split web flaw definitions, rendered route content, offline simulated exploit output, and remediation helpers into smaller files
+  - stop using one module as the build, admit, synth, runtime, and live-patching switchboard for exact web flaws
