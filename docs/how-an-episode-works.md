@@ -302,8 +302,8 @@ That means:
 Each row can include:
 
 - observation
-- candidate actions
 - chosen action
+- chosen action text
 - emitted events
 - reward delta
 - winner

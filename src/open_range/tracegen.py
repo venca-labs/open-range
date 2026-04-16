@@ -8,6 +8,12 @@ from pathlib import Path
 from typing import Any
 
 from open_range._runtime_store import hydrate_runtime_snapshot
+from open_range._trace_policies import (
+    expected_step,
+    reference_action,
+    reference_trace_pairs,
+    scripted_runtime_action,
+)
 from open_range.build_config import OFFLINE_BUILD_CONFIG, BuildConfig
 from open_range.curriculum import FrontierMutationPolicy, PopulationStats
 from open_range.episode_config import EpisodeConfig
@@ -15,12 +21,6 @@ from open_range.pipeline import BuildPipeline
 from open_range.runtime import ReferenceDrivenRuntime
 from open_range.snapshot import RuntimeSnapshot
 from open_range.store import FileSnapshotStore
-from open_range.trace_policies import (
-    expected_step,
-    reference_action,
-    reference_trace_pairs,
-    scripted_runtime_action,
-)
 from open_range.training_data import (
     TraceDatasetReport,
     TraceDecisionRow,

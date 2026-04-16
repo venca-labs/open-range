@@ -1,4 +1,4 @@
-"""Reference-trace and scripted action helpers for trace generation and eval."""
+"""Internal reference-trace and scripted action helpers for tooling paths."""
 
 from __future__ import annotations
 
