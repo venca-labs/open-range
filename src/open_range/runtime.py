@@ -17,9 +17,12 @@ from open_range.runtime_events import (
     action_target,
     control_directive,
     control_directive_from_payload,
+    emit_runtime_event,
     finding_event_type,
     finding_event_type_from_payload,
     green_events_for_action,
+    telemetry_blindspots,
+    visible_events_for_actor,
 )
 from open_range.runtime_reducers import (
     BLUE_CONTAINMENT_OBJECTIVE,
@@ -762,7 +765,10 @@ class OpenRangeRuntime:
                 continue
             if target and event.target_entity != target:
                 continue
-            if visible_only and not self._is_visible_to("blue", event):
+            visible_at = self._event_visibility.get(event.id, {}).get(
+                "blue", float("inf")
+            )
+            if visible_only and visible_at > self._state.sim_time:
                 continue
             return event
         return None
@@ -839,30 +845,13 @@ class OpenRangeRuntime:
         )
 
     def _visible_events(self, actor: ExternalRole) -> tuple[RuntimeEvent, ...]:
-        visible: list[RuntimeEvent] = []
-        for event in self._events:
-            if event.id in self._observed_event_ids[actor]:
-                continue
-            if not self._is_visible_to(actor, event):
-                continue
-            if event.event_type == "SuspiciousActionObserved":
-                continue
-            if actor == "blue":
-                if event.observability_surfaces:
-                    visible.append(event)
-                continue
-            if event.actor in {"green", "red"} or event.event_type in {
-                "ContainmentApplied",
-                "PatchApplied",
-                "RecoveryCompleted",
-                "ServiceDegraded",
-            }:
-                visible.append(event)
-        return tuple(visible)
-
-    def _is_visible_to(self, actor: ExternalRole, event: RuntimeEvent) -> bool:
-        visible_at = self._event_visibility.get(event.id, {}).get(actor, inf)
-        return visible_at <= self._state.sim_time
+        return visible_events_for_actor(
+            actor,
+            events=self._events,
+            observed_event_ids=self._observed_event_ids[actor],
+            event_visibility=self._event_visibility,
+            sim_time=self._state.sim_time,
+        )
 
     def _emit_event(
         self,
@@ -879,11 +868,14 @@ class OpenRangeRuntime:
         green_reactive: bool = True,
     ) -> RuntimeEvent:
         self._event_seq += 1
-        event = RuntimeEvent(
-            id=f"evt-{self._event_seq}",
+        active_weaknesses = (
+            self._predicates.active_weaknesses() if self._predicates is not None else ()
+        )
+        emission = emit_runtime_event(
+            event_id=f"evt-{self._event_seq}",
+            sim_time=self._state.sim_time,
             event_type=event_type,
             actor=actor,
-            time=round(self._state.sim_time, 4),
             source_entity=source_entity,
             target_entity=target_entity,
             malicious=malicious,
@@ -891,41 +883,20 @@ class OpenRangeRuntime:
             linked_objective_predicates=linked_objective_predicates,
             suspicious=suspicious,
             suspicious_reasons=suspicious_reasons,
+            telemetry_delay=_telemetry_delay(self._episode_config),
+            blindspots=telemetry_blindspots(
+                active_weaknesses,
+                patched_targets=self._patched_targets,
+            ),
         )
+        event = emission.event
         self._events.append(event)
-        blue_delay = self._blue_visibility_time(event, observability_surfaces)
-        self._event_visibility[event.id] = {
-            "red": self._state.sim_time,
-            "blue": blue_delay,
-        }
+        self._event_visibility[event.id] = emission.visibility
         if green_reactive:
             self.green_scheduler.record_event(event)
         if self.action_backend is not None:
             self.action_backend.record_event(event)
         return event
-
-    def _blue_visibility_time(
-        self,
-        event: RuntimeEvent,
-        observability_surfaces: tuple[str, ...],
-    ) -> float:
-        if not observability_surfaces:
-            return inf
-        blindspots = self._active_telemetry_blindspots()
-        if event.malicious and {event.source_entity, event.target_entity} & blindspots:
-            return inf
-        delay = _telemetry_delay(self._episode_config)
-        return self._state.sim_time + delay
-
-    def _active_telemetry_blindspots(self) -> set[str]:
-        if self._predicates is None:
-            return set()
-        return {
-            weakness.target
-            for weakness in self._predicates.active_weaknesses()
-            if weakness.family == "telemetry_blindspot"
-            and weakness.target not in self._patched_targets
-        }
 
     def _service_surfaces(self, target: str) -> tuple[str, ...]:
         if self._snapshot is None:

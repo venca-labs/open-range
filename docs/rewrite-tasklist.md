@@ -68,6 +68,7 @@ Some current private helper files are transitional seams, not the end-state pack
 - [x] move blue control transitions behind runtime reducers
 - [x] move read-side observation state updates behind runtime reducers
 - [x] centralize runtime control and finding payload parsing
+- [x] move runtime event visibility and telemetry-delay policy behind runtime event helpers
 - [x] finish the weakness subsystem move and shrink `open_range.weaknesses`
 - [x] move objectives fully onto catalog-backed resolution
 - [ ] move runtime onto hooks and reducers
@@ -83,7 +84,7 @@ Some current private helper files are transitional seams, not the end-state pack
 The next real win is:
 
 1. keep pushing runtime state changes behind reducers and hooks
-2. move runtime event emission and visibility timing onto clearer hook boundaries
+2. move blue finding and internal blue-opponent policy out of `runtime.py`
 3. keep behavior stable with parity tests before deleting the old logic
 4. collapse any remaining root-module compatibility seams that no longer buy us anything
 
@@ -93,5 +94,5 @@ The next real win is:
   - finish any last generic fallback logic that still lives inline now that blue detection, containment, and readback payload policy are catalog-backed
   - keep the planner as orchestration over catalog policy and family-owned handlers
 - `src/open_range/runtime.py`
-  - keep moving action and observation state changes behind reducers now that continuity, red action reduction, blue control transitions, and read-side observation updates already have shared seams
+  - keep moving action, observation, and event-visibility policy behind reducers and helpers now that continuity, red action reduction, blue control transitions, read-side observation updates, and runtime event projection already have shared seams
   - keep the decision loop and public runtime surface stable while deleting inline side-effect policy

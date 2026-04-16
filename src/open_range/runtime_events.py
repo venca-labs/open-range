@@ -2,13 +2,14 @@
 
 from __future__ import annotations
 
-from collections.abc import Mapping
+from collections.abc import Iterable, Mapping
 from dataclasses import dataclass
+from math import inf
 from typing import Callable
 
 from open_range.objectives import objective_event_for_predicate
 from open_range.predicate_expr import predicate_inner
-from open_range.runtime_types import Action, RuntimeEvent
+from open_range.runtime_types import Action, ExternalRole, RuntimeEvent
 
 
 @dataclass(frozen=True, slots=True)
@@ -18,8 +19,22 @@ class RedEventBatch:
     last_red_target: str
 
 
+@dataclass(frozen=True, slots=True)
+class EventEmission:
+    event: RuntimeEvent
+    visibility: dict[str, float]
+
+
 EmitEvent = Callable[..., RuntimeEvent]
 ServiceSurfaceResolver = Callable[[str], tuple[str, ...]]
+_RED_VISIBLE_EVENT_TYPES = frozenset(
+    {
+        "ContainmentApplied",
+        "PatchApplied",
+        "RecoveryCompleted",
+        "ServiceDegraded",
+    }
+)
 
 
 def action_target(action: Action) -> str:
@@ -50,6 +65,107 @@ def control_directive(action: Action, *, default: str = "") -> str:
 
 def finding_event_type(action: Action, *, default: str = "") -> str:
     return finding_event_type_from_payload(action.payload, default=default)
+
+
+def telemetry_blindspots(
+    active_weaknesses: Iterable[object],
+    *,
+    patched_targets: set[str] | frozenset[str],
+) -> set[str]:
+    return {
+        str(getattr(weakness, "target", ""))
+        for weakness in active_weaknesses
+        if getattr(weakness, "family", "") == "telemetry_blindspot"
+        and str(getattr(weakness, "target", "")) not in patched_targets
+    }
+
+
+def blue_visibility_time(
+    event: RuntimeEvent,
+    observability_surfaces: tuple[str, ...],
+    *,
+    sim_time: float,
+    telemetry_delay: float,
+    blindspots: set[str] | frozenset[str],
+) -> float:
+    if not observability_surfaces:
+        return inf
+    if event.malicious and {event.source_entity, event.target_entity} & blindspots:
+        return inf
+    return sim_time + telemetry_delay
+
+
+def emit_runtime_event(
+    *,
+    event_id: str,
+    sim_time: float,
+    event_type: str,
+    actor: str,
+    source_entity: str,
+    target_entity: str,
+    malicious: bool,
+    observability_surfaces: tuple[str, ...],
+    linked_objective_predicates: tuple[str, ...] = (),
+    suspicious: bool = False,
+    suspicious_reasons: tuple[str, ...] = (),
+    telemetry_delay: float,
+    blindspots: set[str] | frozenset[str],
+) -> EventEmission:
+    event = RuntimeEvent(
+        id=event_id,
+        event_type=event_type,
+        actor=actor,
+        time=round(sim_time, 4),
+        source_entity=source_entity,
+        target_entity=target_entity,
+        malicious=malicious,
+        observability_surfaces=observability_surfaces,
+        linked_objective_predicates=linked_objective_predicates,
+        suspicious=suspicious,
+        suspicious_reasons=suspicious_reasons,
+    )
+    return EventEmission(
+        event=event,
+        visibility={
+            "red": sim_time,
+            "blue": blue_visibility_time(
+                event,
+                observability_surfaces,
+                sim_time=sim_time,
+                telemetry_delay=telemetry_delay,
+                blindspots=blindspots,
+            ),
+        },
+    )
+
+
+def visible_events_for_actor(
+    actor: ExternalRole,
+    *,
+    events: tuple[RuntimeEvent, ...] | list[RuntimeEvent],
+    observed_event_ids: set[str] | frozenset[str],
+    event_visibility: Mapping[str, Mapping[str, float]],
+    sim_time: float,
+) -> tuple[RuntimeEvent, ...]:
+    visible: list[RuntimeEvent] = []
+    for event in events:
+        if event.id in observed_event_ids:
+            continue
+        visible_at = event_visibility.get(event.id, {}).get(actor, inf)
+        if visible_at > sim_time:
+            continue
+        if event.event_type == "SuspiciousActionObserved":
+            continue
+        if actor == "blue":
+            if event.observability_surfaces:
+                visible.append(event)
+            continue
+        if (
+            event.actor in {"green", "red"}
+            or event.event_type in _RED_VISIBLE_EVENT_TYPES
+        ):
+            visible.append(event)
+    return tuple(visible)
 
 
 def green_events_for_action(
