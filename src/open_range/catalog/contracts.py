@@ -75,3 +75,29 @@ class ServiceCatalogEntry:
     ports: tuple[int, ...]
     dependencies: tuple[str, ...]
     telemetry_surfaces: tuple[str, ...]
+
+
+WeaknessPreconditionMode = Literal[
+    "code_web",
+    "config_identity",
+    "secret_exposure",
+    "workflow_abuse",
+    "telemetry_blindspot",
+]
+
+
+@dataclass(frozen=True, slots=True)
+class WeaknessFamilyContract:
+    family: str
+    default_target_kind: str
+    available_when_any_service_kinds: tuple[str, ...]
+    benchmark_tags: tuple[str, ...]
+    instantiation_mode: str
+    precondition_mode: WeaknessPreconditionMode
+
+
+@dataclass(frozen=True, slots=True)
+class WeaknessExpectedEventsSpec:
+    family: str
+    kind: str
+    expected_event_signatures: tuple[str, ...]

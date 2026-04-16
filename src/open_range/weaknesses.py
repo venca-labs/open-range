@@ -6,6 +6,14 @@ import random
 import shlex
 from typing import Protocol
 
+from open_range.catalog.weaknesses import (
+    available_weakness_families_for_service_kinds,
+    benchmark_tags_for_family,
+    default_target_kind_for_family,
+    expected_events_for_weakness,
+    instantiation_mode_for_family,
+    precondition_mode_for_family,
+)
 from open_range.code_web import code_web_realizations, code_web_remediation_command
 from open_range.manifest import (
     WEAKNESS_KIND_CATALOG,
@@ -58,15 +66,9 @@ class CatalogWeaknessSeeder:
     @staticmethod
     def _available_families(world: WorldIR) -> set[WeaknessFamily]:
         service_kinds = {service.kind for service in world.services}
-        available: set[WeaknessFamily] = set()
-        if "web_app" in service_kinds:
-            available.update({"code_web", "workflow_abuse"})
-        if {"fileshare", "db", "idp"} & service_kinds:
-            available.add("secret_exposure")
-        if "idp" in service_kinds:
-            available.add("config_identity")
-        if {"email", "siem"} & service_kinds:
-            available.add("telemetry_blindspot")
+        available: set[WeaknessFamily] = set(
+            available_weakness_families_for_service_kinds(service_kinds)
+        )
         if world.allowed_weakness_families:
             available &= set(world.allowed_weakness_families)
         return available
@@ -165,6 +167,8 @@ def build_catalog_weakness(
         world, family, kind, target, target_kind, target_ref
     )
     weak_id = weakness_id or _weakness_id(family, kind, target, target_ref)
+    benchmark_tags = benchmark_tags_for_family(family)
+    instantiation_mode = instantiation_mode_for_family(family)
     if family == "code_web":
         base = WeaknessSpec(
             id=weak_id,
@@ -173,7 +177,7 @@ def build_catalog_weakness(
             target=target,
             target_kind=target_kind,
             target_ref=target_ref,
-            benchmark_tags=("cve_bench", "xbow", "cybench_web"),
+            benchmark_tags=benchmark_tags,
             objective_tags=weakness_objective_tags(family, kind),
             preconditions=_preconditions(family, kind, target_ref),
             expected_event_signatures=_expected_events(family, kind),
@@ -192,7 +196,7 @@ def build_catalog_weakness(
                     target_ref=target_ref,
                 )
             ),
-            instantiation_mode="exact_code",
+            instantiation_mode=instantiation_mode,
         )
         return base.model_copy(
             update={"realization": code_web_realizations(world, base)}
@@ -206,7 +210,7 @@ def build_catalog_weakness(
             target=target,
             target_kind=target_kind,
             target_ref=target_ref,
-            benchmark_tags=("enterprise_blue", "workflow", "cybench_web"),
+            benchmark_tags=benchmark_tags,
             objective_tags=weakness_objective_tags(family, kind),
             preconditions=_preconditions(family, kind, target_ref),
             expected_event_signatures=_expected_events(family, kind),
@@ -216,7 +220,7 @@ def build_catalog_weakness(
             remediation_id=f"remediate-{kind}",
             remediation_kind="shell",
             remediation_command=_workflow_remediation_command(kind, realizations),
-            instantiation_mode="exact_workflow",
+            instantiation_mode=instantiation_mode,
         )
     if family == "secret_exposure":
         realizations = _secret_exposure_realizations(world, kind, target, target_ref)
@@ -227,7 +231,7 @@ def build_catalog_weakness(
             target=target,
             target_kind=target_kind,
             target_ref=target_ref,
-            benchmark_tags=("enterprise_blue", "secrets", "cybench_web"),
+            benchmark_tags=benchmark_tags,
             objective_tags=weakness_objective_tags(family, kind),
             preconditions=_preconditions(family, kind, target_ref),
             expected_event_signatures=_expected_events(family, kind),
@@ -239,7 +243,7 @@ def build_catalog_weakness(
             remediation_command=_secret_exposure_remediation_command(
                 kind, realizations
             ),
-            instantiation_mode="exact_config",
+            instantiation_mode=instantiation_mode,
         )
     if family == "config_identity":
         realizations = _config_identity_realizations(kind, target)
@@ -250,7 +254,7 @@ def build_catalog_weakness(
             target=target,
             target_kind=target_kind,
             target_ref=target_ref,
-            benchmark_tags=("enterprise_blue", "identity", "cybench_web"),
+            benchmark_tags=benchmark_tags,
             objective_tags=weakness_objective_tags(family, kind),
             preconditions=_preconditions(family, kind, target_ref),
             expected_event_signatures=_expected_events(family, kind),
@@ -262,7 +266,7 @@ def build_catalog_weakness(
             remediation_command=_config_identity_remediation_command(
                 kind, realizations
             ),
-            instantiation_mode="exact_config",
+            instantiation_mode=instantiation_mode,
         )
     realizations = _telemetry_realizations(kind, target)
     return WeaknessSpec(
@@ -272,7 +276,7 @@ def build_catalog_weakness(
         target=target,
         target_kind=target_kind,
         target_ref=target_ref,
-        benchmark_tags=("enterprise_blue", "detection"),
+        benchmark_tags=benchmark_tags,
         objective_tags=weakness_objective_tags(family, kind),
         preconditions=_preconditions(family, kind, target_ref),
         expected_event_signatures=_expected_events(family, kind),
@@ -282,18 +286,12 @@ def build_catalog_weakness(
         remediation_id=f"remediate-{kind}",
         remediation_kind="shell",
         remediation_command=_telemetry_remediation_command(kind, realizations),
-        instantiation_mode="exact_config",
+        instantiation_mode=instantiation_mode,
     )
 
 
 def _default_target_kind(family: WeaknessFamily) -> str:
-    if family == "workflow_abuse":
-        return "workflow"
-    if family == "secret_exposure":
-        return "asset"
-    if family == "telemetry_blindspot":
-        return "telemetry"
-    return "service"
+    return default_target_kind_for_family(family)
 
 
 def _default_kind(
@@ -460,31 +458,20 @@ def _weakness_id(
 def _preconditions(
     family: WeaknessFamily, kind: str, target_ref: str
 ) -> tuple[str, ...]:
-    if family == "code_web":
+    mode = precondition_mode_for_family(family)
+    if mode == "code_web":
         return ("public_reachability", "user_input_surface", kind)
-    if family == "config_identity":
+    if mode == "config_identity":
         return ("interactive_login", "identity_surface_present", kind)
-    if family == "secret_exposure":
+    if mode == "secret_exposure":
         return ("sensitive_material_present", target_ref, kind)
-    if family == "workflow_abuse":
+    if mode == "workflow_abuse":
         return (target_ref, "approval_path_exists", kind)
     return ("critical_action_exists", kind)
 
 
 def _expected_events(family: WeaknessFamily, kind: str) -> tuple[str, ...]:
-    if family == "code_web":
-        if kind in {"ssrf", "command_injection"}:
-            return ("InitialAccess", "CrossZoneTraversal")
-        return ("InitialAccess", "SensitiveAssetRead")
-    if family == "config_identity":
-        return ("CredentialObtained", "UnauthorizedCredentialUse")
-    if family == "secret_exposure":
-        return ("CredentialObtained", "SensitiveAssetRead")
-    if family == "workflow_abuse":
-        if kind in {"phishing_credential_capture", "internal_request_impersonation"}:
-            return ("InitialAccess", "CredentialObtained", "UnauthorizedCredentialUse")
-        return ("InitialAccess", "UnauthorizedCredentialUse")
-    return ("InitialAccess", "DetectionAlertRaised")
+    return expected_events_for_weakness(family, kind)
 
 
 def _realization_summary(family: WeaknessFamily, kind: str) -> str:
