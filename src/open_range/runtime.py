@@ -15,12 +15,18 @@ from open_range.probe_planner import runtime_action as reference_runtime_action
 from open_range.rewards import RewardEngine
 from open_range.runtime_events import (
     action_target,
+    control_directive,
+    control_directive_from_payload,
+    finding_event_type,
+    finding_event_type_from_payload,
     green_events_for_action,
-    red_events_for_step,
 )
 from open_range.runtime_reducers import (
+    BLUE_CONTAINMENT_OBJECTIVE,
     blue_objectives_after_continuity,
     continuity_for_service_health,
+    reduce_blue_control,
+    reduce_red_action,
 )
 from open_range.runtime_types import (
     Action,
@@ -456,7 +462,6 @@ class OpenRangeRuntime:
         if self._state.red_session is not None:
             self._state.red_session.action_count += 1
 
-        emitted: list[RuntimeEvent] = []
         target = action_target(action)
         exec_action = action
         if self.action_backend is not None:
@@ -472,42 +477,33 @@ class OpenRangeRuntime:
             controlled=not internal,
         )
         emit_event = self._audit_emit_event(audit)
-        stdout = live.stdout or "red action had no strategic effect"
-        stderr = live.stderr
-
         expected = self._next_red_step()
-        blocked_reason = self._path_block_reason(target)
-        if blocked_reason:
-            blocked_msg = f"target {target} is {blocked_reason}"
-            if blocked_msg not in {
-                line.strip() for line in stderr.splitlines() if line.strip()
-            }:
-                stderr = "\n".join(filter(None, [stderr, blocked_msg])).strip()
-        elif (
-            expected is not None
-            and live.ok
-            and self._matches_step(action, expected, live.stdout)
-        ):
+        reduction = reduce_red_action(
+            action=action,
+            target=target,
+            live=live,
+            blocked_reason=self._path_block_reason(target),
+            matched_reference_step=(
+                expected is not None
+                and live.ok
+                and self._matches_step(action, expected, live.stdout)
+            ),
+            expected_reference_step=expected,
+            last_red_target=self._last_red_target,
+            emit_event=emit_event,
+            service_surfaces=self._service_surfaces,
+        )
+        emitted = list(reduction.emitted_events)
+        self._red_objectives_satisfied.update(reduction.satisfied_objectives)
+        if reduction.progress_advanced:
             self._red_progress += 1
-            stdout = f"red advanced on {target}"
-            batch = red_events_for_step(
-                expected,
-                action,
-                last_red_target=self._last_red_target,
-                emit_event=emit_event,
-                service_surfaces=self._service_surfaces,
-            )
-            emitted = list(batch.events)
-            self._red_objectives_satisfied.update(batch.satisfied_objectives)
-            self._last_red_target = batch.last_red_target
-            if batch.last_red_target:
-                self._red_footholds.add(batch.last_red_target)
-        else:
-            stdout = live.stdout or f"red executed on {target or 'unknown target'}"
+            self._last_red_target = reduction.advanced_target
+            if reduction.advanced_target:
+                self._red_footholds.add(reduction.advanced_target)
 
         reward_delta = self.reward_engine.on_red_action(
             action,
-            tuple(emitted),
+            reduction.emitted_events,
             shaping_enabled=self._episode_config.red_shaping_enabled,
             hallucination_penalty_enabled=self._episode_config.hallucination_penalty_enabled,
         )
@@ -520,8 +516,8 @@ class OpenRangeRuntime:
         return ActionResult(
             action=action,
             sim_time=round(self._state.sim_time, 4),
-            stdout=stdout,
-            stderr=stderr,
+            stdout=reduction.stdout,
+            stderr=reduction.stderr,
             emitted_events=tuple(emitted),
             reward_delta=reward_delta,
             done=self._state.done,
@@ -541,9 +537,7 @@ class OpenRangeRuntime:
         stderr = live.stderr
 
         if action.kind == "submit_finding":
-            event_type = str(
-                action.payload.get("event_type", action.payload.get("event", ""))
-            )
+            event_type = finding_event_type(action)
             target = str(action.payload.get("target", ""))
             matched = self._find_detectable_event(event_type, target, visible_only=True)
             if matched is not None:
@@ -580,76 +574,35 @@ class OpenRangeRuntime:
                 stdout = "finding rejected as false positive"
         elif action.kind == "control":
             target = action_target(action)
-            directive = str(action.payload.get("action", "contain")).lower()
-            remaining_targets = self._remaining_red_targets()
+            directive = control_directive(action, default="contain")
             continuity_before = self._state.continuity
-            path_broken = bool(
-                target
-                and target in remaining_targets
-                and (live.containment_applied or live.patch_applied)
+            transition = reduce_blue_control(
+                target=target,
+                directive=directive,
+                live=live,
+                remaining_red_targets=self._remaining_red_targets(),
+                contained_targets=self._contained_targets,
+                patched_targets=self._patched_targets,
             )
-            if target and live.containment_applied:
-                self._contained_targets.add(target)
-                self._patched_targets.discard(target)
+            self._contained_targets = transition.contained_targets
+            self._patched_targets = transition.patched_targets
+            if transition.event_spec is not None:
                 emitted.append(
                     emit_event(
-                        event_type="ContainmentApplied",
+                        event_type=transition.event_spec.event_type,
                         actor="blue",
                         source_entity="blue",
-                        target_entity=target,
+                        target_entity=transition.event_spec.target_entity,
                         malicious=False,
                         observability_surfaces=("svc-siem",),
-                        linked_objective_predicates=(
-                            "intrusion_contained(before_asset_read)",
-                        )
-                        if path_broken
-                        else (),
-                    )
-                )
-            elif target and live.patch_applied:
-                self._patched_targets.add(target)
-                self._contained_targets.discard(target)
-                emitted.append(
-                    emit_event(
-                        event_type="PatchApplied",
-                        actor="blue",
-                        source_entity="blue",
-                        target_entity=target,
-                        malicious=False,
-                        observability_surfaces=("svc-siem",),
-                        linked_objective_predicates=(
-                            "intrusion_contained(before_asset_read)",
-                        )
-                        if path_broken
-                        else (),
-                    )
-                )
-            elif target and live.recovery_applied:
-                self._contained_targets.discard(target)
-                self._patched_targets.discard(target)
-                emitted.append(
-                    emit_event(
-                        event_type="RecoveryCompleted",
-                        actor="blue",
-                        source_entity="blue",
-                        target_entity=target,
-                        malicious=False,
-                        observability_surfaces=("svc-siem",),
+                        linked_objective_predicates=transition.event_spec.linked_objective_predicates,
                     )
                 )
 
-            if path_broken:
+            stdout = transition.stdout
+            if transition.path_broken:
                 self._blue_contained = True
-                self._blue_objectives_satisfied.add(
-                    "intrusion_contained(before_asset_read)"
-                )
-                if live.patch_applied:
-                    if directive == "mitigate":
-                        stdout = f"mitigation applied to {target}"
-                    else:
-                        stdout = f"patch applied to {target}"
-                else:
-                    stdout = f"containment applied to {target}"
+                self._blue_objectives_satisfied.add(BLUE_CONTAINMENT_OBJECTIVE)
                 self._update_continuity()
                 reward_delta += self.reward_engine.on_blue_containment(
                     target=target,
@@ -659,27 +612,6 @@ class OpenRangeRuntime:
                     shaping_enabled=self._episode_config.blue_containment_shaping,
                 )
             else:
-                if live.recovery_applied:
-                    stdout = (
-                        live.stdout
-                        or f"recovery applied to {target or 'unknown target'}"
-                    )
-                elif live.patch_applied:
-                    noun = "mitigation" if directive == "mitigate" else "patch"
-                    stdout = (
-                        live.stdout
-                        or f"{noun} on {target or 'unknown target'} did not break the remaining path"
-                    )
-                elif directive == "contain":
-                    stdout = (
-                        live.stdout
-                        or f"control action on {target or 'unknown target'} had no path-breaking effect"
-                    )
-                else:
-                    stdout = (
-                        live.stdout
-                        or f"{directive} on {target or 'unknown target'} had no path-breaking effect"
-                    )
                 self._update_continuity()
                 reward_delta += self.reward_engine.on_blue_containment(
                     target=target,
@@ -808,17 +740,12 @@ class OpenRangeRuntime:
             if expected_contains and expected_contains not in live_stdout:
                 return False
         if action.kind == "control":
-            expected_directive = expected.payload.get("action")
-            if (
-                expected_directive
-                and action.payload.get("action") != expected_directive
-            ):
+            expected_directive = control_directive_from_payload(expected.payload)
+            if expected_directive and control_directive(action) != expected_directive:
                 return False
         if action.kind == "submit_finding":
-            expected_event = expected.payload.get(
-                "event_type", expected.payload.get("event")
-            )
-            actual_event = action.payload.get("event_type", action.payload.get("event"))
+            expected_event = finding_event_type_from_payload(expected.payload)
+            actual_event = finding_event_type(action)
             if expected_event and actual_event != expected_event:
                 return False
         return True
@@ -1067,7 +994,7 @@ class OpenRangeRuntime:
 
     def _execute_live_action(self, action: Action) -> ActionExecution:
         if self.action_backend is None:
-            directive = str(action.payload.get("action", "contain")).lower()
+            directive = control_directive(action, default="contain")
             weakness_id = str(
                 action.payload.get("weakness_id", action.payload.get("weakness", ""))
             ).strip()

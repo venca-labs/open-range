@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from dataclasses import dataclass
 from typing import Callable
 
@@ -29,6 +30,26 @@ def action_target(action: Action) -> str:
     if isinstance(service, str) and service:
         return service
     return ""
+
+
+def control_directive_from_payload(
+    payload: Mapping[str, object], *, default: str = ""
+) -> str:
+    return str(payload.get("action", default)).lower()
+
+
+def finding_event_type_from_payload(
+    payload: Mapping[str, object], *, default: str = ""
+) -> str:
+    return str(payload.get("event_type", payload.get("event", default)))
+
+
+def control_directive(action: Action, *, default: str = "") -> str:
+    return control_directive_from_payload(action.payload, default=default)
+
+
+def finding_event_type(action: Action, *, default: str = "") -> str:
+    return finding_event_type_from_payload(action.payload, default=default)
 
 
 def green_events_for_action(

@@ -12,7 +12,11 @@ from typing import Any, Callable
 
 from pydantic import BaseModel, ConfigDict, Field
 
-from open_range.runtime_events import action_target
+from open_range.runtime_events import (
+    action_target,
+    control_directive,
+    finding_event_type,
+)
 from open_range.runtime_types import (
     Action,
     ActionDiversitySummary,
@@ -405,12 +409,10 @@ def command_text_for_action(action: Action) -> str:
             query_text = " " + json.dumps(query, sort_keys=True, separators=(",", ":"))
         return f"api {target} {path}{query_text}".strip()
     if action.kind == "control":
-        directive = str(action.payload.get("action", "contain")).lower()
+        directive = control_directive(action, default="contain")
         return f"{directive} {target}".strip()
     if action.kind == "submit_finding":
-        event_type = str(
-            action.payload.get("event_type", action.payload.get("event", ""))
-        )
+        event_type = finding_event_type(action)
         return f"submit_finding {event_type} {target}".strip()
     return action.kind
 

@@ -11,6 +11,7 @@ from pydantic import BaseModel, ConfigDict, Field
 from open_range.build_config import BuildConfig
 from open_range.episode_config import EpisodeConfig
 from open_range.objectives import StandardAttackObjective
+from open_range.runtime_events import control_directive, finding_event_type
 from open_range.runtime_types import Action, Observation, RuntimeEvent
 from open_range.snapshot import RuntimeSnapshot
 
@@ -135,14 +136,10 @@ def render_action_text(action: Action) -> str:
         subject = str(action.payload.get("subject", "openrange"))
         return f"send mail to {to} subject={subject}"
     if action.kind == "control":
-        directive = str(action.payload.get("action", "contain")).lower()
+        directive = control_directive(action, default="contain")
         return f"{directive} {target}".strip()
     if action.kind == "submit_finding":
-        event_type = str(
-            action.payload.get(
-                "event_type", action.payload.get("event", "InitialAccess")
-            )
-        )
+        event_type = finding_event_type(action, default="InitialAccess")
         return f"submit_finding event={event_type} target={target}".strip()
     if action.kind == "sleep":
         return "sleep 1"

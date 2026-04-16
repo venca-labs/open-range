@@ -10,6 +10,7 @@ from open_range.catalog.contracts import (
     ShortcutWebRouteProbeSpec,
 )
 from open_range.objectives.resolution import objective_event_for_predicate
+from open_range.runtime_events import finding_event_type_from_payload
 
 DEFAULT_SHORTCUT_PROBE_TEMPLATES: tuple[ProbeTemplateSpec, ...] = (
     ProbeTemplateSpec(
@@ -249,11 +250,9 @@ def runtime_payload_for_reference_action(
     if target:
         next_payload.setdefault("target", target)
     if actor == "blue" and kind == "submit_finding":
-        next_payload["event_type"] = str(
-            next_payload.get(
-                "event",
-                next_payload.get("event_type", "InitialAccess"),
-            )
+        next_payload["event_type"] = finding_event_type_from_payload(
+            next_payload,
+            default="InitialAccess",
         )
     return next_payload
 

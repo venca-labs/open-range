@@ -64,6 +64,9 @@ Some current private helper files are transitional seams, not the end-state pack
 - [x] start moving family-specific realization content out of `synth.py`
 - [x] finish moving family-specific realization content out of `synth.py`
 - [x] start the runtime reducer split with shared continuity reducers
+- [x] move red action reduction behind runtime reducers
+- [x] move blue control transitions behind runtime reducers
+- [x] centralize runtime control and finding payload parsing
 - [ ] finish the weakness subsystem move and shrink `open_range.weaknesses`
 - [x] move objectives fully onto catalog-backed resolution
 - [ ] move runtime onto hooks and reducers
@@ -78,9 +81,9 @@ Some current private helper files are transitional seams, not the end-state pack
 
 The next real win is:
 
-1. finish any last generic fallback logic in `probe_planner.py`
-2. finish the weakness subsystem move and shrink `open_range.weaknesses`
-3. start the runtime hook and reducer move
+1. finish the weakness subsystem move and shrink `open_range.weaknesses`
+2. keep pushing runtime state changes behind reducers and hooks
+3. move the read-side observation state updates out of `runtime.py`
 4. keep behavior stable with parity tests before deleting the old logic
 
 ## Next Large Targets
@@ -92,5 +95,5 @@ The next real win is:
   - finish deleting the remaining family heuristics now that the family registry owns builders, mutators, probe/render hooks, and the pinned-target/selection policy is gone
   - keep the file focused on orchestration and public seeding entry points
 - `src/open_range/runtime.py`
-  - start the hook and reducer split now that admission, objective resolution, and most probe policy already have registry-owned seams
+  - keep moving action and observation state changes behind reducers now that continuity, red action reduction, and blue control transitions already have shared seams
   - keep the decision loop and public runtime surface stable while deleting inline side-effect policy

@@ -12,7 +12,7 @@ from open_range.async_utils import run_async
 from open_range.cluster import BootedRelease
 from open_range.code_web import code_web_cleanup_commands, code_web_guard_path
 from open_range.effect_markers import effect_marker_cleanup_command
-from open_range.runtime_events import action_target
+from open_range.runtime_events import action_target, control_directive
 from open_range.runtime_types import Action, IntegritySample
 from open_range.snapshot import RuntimeSnapshot
 from open_range.world_ir import ServiceSpec, WeaknessSpec
@@ -158,7 +158,7 @@ class PodActionBackend:
     def _execute_control(self, action: Action) -> ActionExecution:
         release = self._require_release()
         target = action_target(action)
-        directive = str(action.payload.get("action", "contain")).lower()
+        directive = control_directive(action, default="contain")
         if target not in self._service_by_id:
             return ActionExecution(
                 stderr=f"unknown control target: {target}",
