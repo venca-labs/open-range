@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from dataclasses import dataclass
 from typing import Any
 
 from open_range.probe_planner import runtime_action
@@ -12,9 +13,73 @@ from open_range.runtime_events import (
     finding_event_type,
     finding_event_type_from_payload,
 )
-from open_range.runtime_types import Action
+from open_range.runtime_types import Action, RuntimeEvent
 from open_range.snapshot import RuntimeSnapshot
 from open_range.training.trace_exports import normalize_trace_action
+
+
+@dataclass(frozen=True, slots=True)
+class ReferencePlayback:
+    snapshot: RuntimeSnapshot
+    attack_index: int
+    defense_index: int
+
+    @classmethod
+    def resolve(
+        cls,
+        snapshot: RuntimeSnapshot,
+        *,
+        reset_seq: int,
+        requested_attack_index: int | None,
+        requested_defense_index: int | None,
+    ) -> ReferencePlayback:
+        attack_count = len(snapshot.reference_bundle.reference_attack_traces)
+        attack_index = cls._resolve_index(
+            requested_attack_index,
+            attack_count,
+            fallback=0,
+            reset_seq=reset_seq,
+        )
+        defense_count = len(snapshot.reference_bundle.reference_defense_traces)
+        defense_index = cls._resolve_index(
+            requested_defense_index,
+            defense_count,
+            fallback=attack_index,
+            reset_seq=reset_seq,
+        )
+        return cls(
+            snapshot=snapshot,
+            attack_index=attack_index,
+            defense_index=defense_index,
+        )
+
+    def attack_trace(self):
+        traces = self.snapshot.reference_bundle.reference_attack_traces
+        return traces[self.attack_index % len(traces)]
+
+    def defense_trace(self):
+        traces = self.snapshot.reference_bundle.reference_defense_traces
+        return traces[self.defense_index % len(traces)]
+
+    def next_step(self, actor: str, progress: int):
+        trace = self.attack_trace() if actor == "red" else self.defense_trace()
+        if progress >= len(trace.steps):
+            return None
+        return trace.steps[progress]
+
+    @staticmethod
+    def _resolve_index(
+        requested: int | None,
+        count: int,
+        *,
+        fallback: int,
+        reset_seq: int,
+    ) -> int:
+        if count < 1:
+            return 0
+        if requested is not None:
+            return requested % count
+        return (fallback + reset_seq - 1) % count
 
 
 def action_for_reference_step(
@@ -71,3 +136,24 @@ def reference_trace_pairs(
         return tuple((idx % attack_count, idx) for idx in range(defense_count))
     count = max(attack_count, defense_count)
     return tuple((idx % attack_count, idx % defense_count) for idx in range(count))
+
+
+def prefix_satisfied(
+    start_state: str,
+    *,
+    step_action: str,
+    emitted: tuple[RuntimeEvent, ...],
+    red_progress: int,
+) -> bool:
+    event_types = {event.event_type for event in emitted}
+    if start_state == "prefix_delivery":
+        return step_action in {"deliver_phish", "deliver_lure"}
+    if start_state == "prefix_click":
+        return step_action == "click_lure" or "InitialAccess" in event_types
+    if start_state == "prefix_foothold":
+        return "InitialAccess" in event_types
+    if start_state == "prefix_credential_theft":
+        return "CredentialObtained" in event_types
+    if start_state == "prefix_lateral_movement":
+        return "CrossZoneTraversal" in event_types or red_progress >= 2
+    return False

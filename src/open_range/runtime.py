@@ -6,7 +6,12 @@ from math import inf
 from typing import Literal
 from uuid import uuid4
 
-from open_range._reference_replay import matches_reference_step
+from open_range._reference_replay import (
+    ReferencePlayback,
+    action_for_reference_step,
+    matches_reference_step,
+    prefix_satisfied,
+)
 from open_range._runtime_hooks import RuntimeHooks
 from open_range.episode_config import DEFAULT_EPISODE_CONFIG, EpisodeConfig
 from open_range.execution import (
@@ -17,7 +22,6 @@ from open_range.execution import (
 )
 from open_range.green import GreenScheduler, ScriptedGreenScheduler
 from open_range.predicates import PredicateEngine
-from open_range.probe_planner import runtime_action as reference_runtime_action
 from open_range.rewards import RewardEngine
 from open_range.runtime_events import (
     RuntimeEventLog,
@@ -88,8 +92,7 @@ class OpenRangeRuntime:
         self._reset_seq = 0
         self._pending_actor: ExternalRole | Literal[""] = ""
         self._next_due_time = {"red": 0.0, "blue": 0.0}
-        self._reference_attack_index = 0
-        self._reference_defense_index = 0
+        self._reference_playback: ReferencePlayback | None = None
         self._hooks = RuntimeHooks(
             green_scheduler=self.green_scheduler,
             action_backend=action_backend,
@@ -127,14 +130,11 @@ class OpenRangeRuntime:
         self._decision_seq = 0
         self._pending_actor = ""
         self._next_due_time = _initial_due_times(episode_config)
-        self._reference_attack_index = self._resolve_reference_index(
-            reference_attack_index,
-            len(snapshot.reference_bundle.reference_attack_traces),
-        )
-        self._reference_defense_index = self._resolve_reference_index(
-            reference_defense_index,
-            len(snapshot.reference_bundle.reference_defense_traces),
-            fallback=self._reference_attack_index,
+        self._reference_playback = ReferencePlayback.resolve(
+            snapshot,
+            reset_seq=self._reset_seq,
+            requested_attack_index=reference_attack_index,
+            requested_defense_index=reference_defense_index,
         )
         self._hooks.reset(snapshot, episode_config.audit)
 
@@ -258,6 +258,7 @@ class OpenRangeRuntime:
     def close(self) -> None:
         self._snapshot = None
         self._predicates = None
+        self._reference_playback = None
         self._hooks.close()
         self._pending_actor = ""
         self._state.done = True
@@ -267,9 +268,12 @@ class OpenRangeRuntime:
         return self._event_log.export()
 
     def reference_step(self, actor: ExternalRole):
-        if actor == "red":
-            return self._next_red_step()
-        return self._next_blue_step()
+        if self._reference_playback is None:
+            return None
+        return self._reference_playback.next_step(
+            actor,
+            self._red_progress if actor == "red" else self._blue_progress,
+        )
 
     def remaining_red_targets(self) -> set[str]:
         return set(self._remaining_red_targets())
@@ -300,42 +304,24 @@ class OpenRangeRuntime:
             ):
                 return
         for _ in range(len(attack_trace.steps)):
-            step = self._next_red_step()
+            step = self.reference_step("red")
             if step is None or self._state.done:
                 break
             due = max(self._state.sim_time, self._next_due_time["red"])
             self._advance_time(due)
             emitted = self._act_red(
-                reference_runtime_action("red", step), internal=True
+                action_for_reference_step(self._require_snapshot(), "red", step),
+                internal=True,
             ).emitted_events
             self._advance_due_time("red")
             self._check_terminal_conditions()
-            if self._prefix_satisfied(
+            if prefix_satisfied(
                 self._episode_config.start_state,
                 step_action=str(step.payload.get("action", "")),
                 emitted=emitted,
+                red_progress=self._red_progress,
             ):
                 break
-
-    def _prefix_satisfied(
-        self,
-        start_state: str,
-        *,
-        step_action: str,
-        emitted: tuple[RuntimeEvent, ...],
-    ) -> bool:
-        event_types = {event.event_type for event in emitted}
-        if start_state == "prefix_delivery":
-            return step_action in {"deliver_phish", "deliver_lure"}
-        if start_state == "prefix_click":
-            return step_action == "click_lure" or "InitialAccess" in event_types
-        if start_state == "prefix_foothold":
-            return "InitialAccess" in event_types
-        if start_state == "prefix_credential_theft":
-            return "CredentialObtained" in event_types
-        if start_state == "prefix_lateral_movement":
-            return "CrossZoneTraversal" in event_types or self._red_progress >= 2
-        return False
 
     def _advance_until_external_decision(self) -> None:
         while not self._state.done and not self._pending_actor:
@@ -477,7 +463,7 @@ class OpenRangeRuntime:
             controlled=not internal,
         )
         emit_event = self._hooks.emit_event(audit, self._emit_event)
-        expected = self._next_red_step()
+        expected = self.reference_step("red")
         reduction = reduce_red_action(
             action=action,
             target=target,
@@ -533,7 +519,7 @@ class OpenRangeRuntime:
 
         emitted: list[RuntimeEvent] = []
         reward_delta = 0.0
-        expected_reference = self._next_blue_step()
+        expected_reference = self.reference_step("blue")
         live = self._execute_live_action(action)
         audit = self._hooks.observe_action(
             action,
@@ -664,14 +650,6 @@ class OpenRangeRuntime:
             done=self._state.done,
         )
 
-    def _next_red_step(self):
-        if self._snapshot is None:
-            return None
-        trace = self._reference_attack_trace()
-        if self._red_progress >= len(trace.steps):
-            return None
-        return trace.steps[self._red_progress]
-
     def _live_red_origin(self, target: str) -> str:
         if not target or self._snapshot is None or self._predicates is None:
             return self._last_red_target or "sandbox-red"
@@ -682,14 +660,6 @@ class OpenRangeRuntime:
             last_red_target=self._last_red_target,
             target=target,
         )
-
-    def _next_blue_step(self):
-        if self._snapshot is None:
-            return None
-        trace = self._reference_defense_trace()
-        if self._blue_progress >= len(trace.steps):
-            return None
-        return trace.steps[self._blue_progress]
 
     def _remaining_red_targets(self) -> set[str]:
         if self._snapshot is None:
@@ -910,20 +880,22 @@ class OpenRangeRuntime:
     def _internal_red_action(self) -> Action:
         if self._resolved_opponent_mode("red") == "none":
             return Action(actor_id="red", role="red", kind="sleep", payload={})
-        step = self._next_red_step()
-        if step is None:
-            return Action(actor_id="red", role="red", kind="sleep", payload={})
-        return reference_runtime_action("red", step)
+        return action_for_reference_step(
+            self._require_snapshot(),
+            "red",
+            self.reference_step("red"),
+        )
 
     def _internal_blue_action(self) -> Action:
         mode = self._resolved_opponent_mode("blue")
         if mode == "none":
             return Action(actor_id="blue", role="blue", kind="sleep", payload={})
         if mode in {"reference", "replay"}:
-            step = self._next_blue_step()
-            if step is None:
-                return Action(actor_id="blue", role="blue", kind="sleep", payload={})
-            return reference_runtime_action("blue", step)
+            return action_for_reference_step(
+                self._require_snapshot(),
+                "blue",
+                self.reference_step("blue"),
+            )
         return select_scripted_internal_blue_action(
             visible_events=self._visible_events("blue"),
             detected_event_ids=self._detected_event_ids,
@@ -965,30 +937,21 @@ class OpenRangeRuntime:
         return 1.0
 
     def _reference_attack_trace(self):
-        traces = self._require_snapshot().reference_bundle.reference_attack_traces
-        return traces[self._reference_attack_index % len(traces)]
+        if self._reference_playback is None:
+            self._require_snapshot()
+            raise RuntimeError("runtime has no reference playback")
+        return self._reference_playback.attack_trace()
 
     def _reference_defense_trace(self):
-        traces = self._require_snapshot().reference_bundle.reference_defense_traces
-        return traces[self._reference_defense_index % len(traces)]
+        if self._reference_playback is None:
+            self._require_snapshot()
+            raise RuntimeError("runtime has no reference playback")
+        return self._reference_playback.defense_trace()
 
     def _require_snapshot(self) -> RuntimeSnapshot:
         if self._snapshot is None:
             raise RuntimeError("runtime has no active snapshot")
         return self._snapshot
-
-    def _resolve_reference_index(
-        self,
-        requested: int | None,
-        count: int,
-        *,
-        fallback: int = 0,
-    ) -> int:
-        if count < 1:
-            return 0
-        if requested is not None:
-            return requested % count
-        return (fallback + self._reset_seq - 1) % count
 
 
 def _initial_due_times(config: EpisodeConfig) -> dict[str, float]:
