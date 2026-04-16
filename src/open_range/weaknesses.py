@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import random
-import shlex
 from typing import Protocol
 
 from open_range.catalog.weaknesses import (
@@ -17,13 +16,19 @@ from open_range.catalog.weaknesses import (
     precondition_mode_for_family,
     supported_weakness_kinds_for_family,
 )
-from open_range.code_web import code_web_realizations, code_web_remediation_command
 from open_range.manifest import (
     PinnedWeaknessSpec,
     WeaknessFamily,
 )
 from open_range.objectives import weakness_objective_tags
-from open_range.world_ir import WeaknessRealizationSpec, WeaknessSpec, WorldIR
+from open_range.weakness_families import (
+    WeaknessBuildContext,
+    build_family_weakness,
+    default_kind_for_family,
+    normalize_target_for_family,
+    seed_family_target,
+)
+from open_range.world_ir import WeaknessSpec, WorldIR
 
 
 class WeaknessSeeder(Protocol):
@@ -89,37 +94,7 @@ class CatalogWeaknessSeeder:
 
     @staticmethod
     def _seed_family(world: WorldIR, family: WeaknessFamily) -> WeaknessSpec:
-        if family == "code_web":
-            target = "svc-web"
-            target_ref = "svc-web"
-        elif family == "workflow_abuse":
-            target = "svc-web"
-            target_ref = world.workflows[0].id if world.workflows else "wf-generic"
-        elif family == "secret_exposure":
-            target = (
-                "svc-fileshare"
-                if any(service.id == "svc-fileshare" for service in world.services)
-                else "svc-idp"
-            )
-            sensitive_asset = next(
-                (
-                    asset.id
-                    for asset in world.assets
-                    if asset.asset_class == "sensitive"
-                ),
-                world.assets[0].id if world.assets else target,
-            )
-            target_ref = sensitive_asset
-        elif family == "config_identity":
-            target = "svc-idp"
-            target_ref = "svc-idp"
-        else:
-            target = (
-                "svc-email"
-                if any(service.id == "svc-email" for service in world.services)
-                else "svc-web"
-            )
-            target_ref = target
+        target, target_ref = seed_family_target(world, family)
         return CatalogWeaknessSeeder._build_weakness(
             world,
             family,
@@ -165,133 +140,29 @@ def build_catalog_weakness(
 ) -> WeaknessSpec:
     if not is_supported_weakness_kind(family, kind):
         raise ValueError(f"unsupported kind {kind!r} for family {family!r}")
-    target, target_kind, target_ref = _normalize_target_for_kind(
+    target, target_kind, target_ref = normalize_target_for_family(
         world, family, kind, target, target_kind, target_ref
     )
     weak_id = weakness_id or _weakness_id(family, kind, target, target_ref)
-    benchmark_tags = benchmark_tags_for_family(family)
-    instantiation_mode = instantiation_mode_for_family(family)
-    observability_surfaces = observability_surfaces_for_weakness(
-        family, kind=kind, target=target
-    )
-    if family == "code_web":
-        base = WeaknessSpec(
-            id=weak_id,
+    return build_family_weakness(
+        WeaknessBuildContext(
+            world=world,
             family=family,
             kind=kind,
             target=target,
             target_kind=target_kind,
             target_ref=target_ref,
-            benchmark_tags=benchmark_tags,
+            weakness_id=weak_id,
+            benchmark_tags=benchmark_tags_for_family(family),
             objective_tags=weakness_objective_tags(family, kind),
             preconditions=_preconditions(family, kind, target_ref),
             expected_event_signatures=_expected_events(family, kind),
-            blue_observability_surfaces=observability_surfaces,
-            realization=(),
-            remediation=_remediation_text(kind),
-            remediation_id=f"remediate-{kind}",
-            remediation_kind="shell",
-            remediation_command=code_web_remediation_command(
-                WeaknessSpec(
-                    id=weak_id,
-                    family=family,
-                    kind=kind,
-                    target=target,
-                    target_kind=target_kind,
-                    target_ref=target_ref,
-                )
+            blue_observability_surfaces=observability_surfaces_for_weakness(
+                family, kind=kind, target=target
             ),
-            instantiation_mode=instantiation_mode,
-        )
-        return base.model_copy(
-            update={"realization": code_web_realizations(world, base)}
-        )
-    if family == "workflow_abuse":
-        realizations = _workflow_realizations(world, kind, target, target_ref)
-        return WeaknessSpec(
-            id=weak_id,
-            family=family,
-            kind=kind,
-            target=target,
-            target_kind=target_kind,
-            target_ref=target_ref,
-            benchmark_tags=benchmark_tags,
-            objective_tags=weakness_objective_tags(family, kind),
-            preconditions=_preconditions(family, kind, target_ref),
-            expected_event_signatures=_expected_events(family, kind),
-            blue_observability_surfaces=observability_surfaces,
-            realization=realizations,
+            instantiation_mode=instantiation_mode_for_family(family),
             remediation=_remediation_text(kind),
-            remediation_id=f"remediate-{kind}",
-            remediation_kind="shell",
-            remediation_command=_workflow_remediation_command(kind, realizations),
-            instantiation_mode=instantiation_mode,
         )
-    if family == "secret_exposure":
-        realizations = _secret_exposure_realizations(world, kind, target, target_ref)
-        return WeaknessSpec(
-            id=weak_id,
-            family=family,
-            kind=kind,
-            target=target,
-            target_kind=target_kind,
-            target_ref=target_ref,
-            benchmark_tags=benchmark_tags,
-            objective_tags=weakness_objective_tags(family, kind),
-            preconditions=_preconditions(family, kind, target_ref),
-            expected_event_signatures=_expected_events(family, kind),
-            blue_observability_surfaces=observability_surfaces,
-            realization=realizations,
-            remediation=_remediation_text(kind),
-            remediation_id=f"remediate-{kind}",
-            remediation_kind="shell",
-            remediation_command=_secret_exposure_remediation_command(
-                kind, realizations
-            ),
-            instantiation_mode=instantiation_mode,
-        )
-    if family == "config_identity":
-        realizations = _config_identity_realizations(kind, target)
-        return WeaknessSpec(
-            id=weak_id,
-            family=family,
-            kind=kind,
-            target=target,
-            target_kind=target_kind,
-            target_ref=target_ref,
-            benchmark_tags=benchmark_tags,
-            objective_tags=weakness_objective_tags(family, kind),
-            preconditions=_preconditions(family, kind, target_ref),
-            expected_event_signatures=_expected_events(family, kind),
-            blue_observability_surfaces=observability_surfaces,
-            realization=realizations,
-            remediation=_remediation_text(kind),
-            remediation_id=f"remediate-{kind}",
-            remediation_kind="shell",
-            remediation_command=_config_identity_remediation_command(
-                kind, realizations
-            ),
-            instantiation_mode=instantiation_mode,
-        )
-    realizations = _telemetry_realizations(kind, target)
-    return WeaknessSpec(
-        id=weak_id,
-        family=family,
-        kind=kind,
-        target=target,
-        target_kind=target_kind,
-        target_ref=target_ref,
-        benchmark_tags=benchmark_tags,
-        objective_tags=weakness_objective_tags(family, kind),
-        preconditions=_preconditions(family, kind, target_ref),
-        expected_event_signatures=_expected_events(family, kind),
-        blue_observability_surfaces=observability_surfaces,
-        realization=realizations,
-        remediation=_remediation_text(kind),
-        remediation_id=f"remediate-{kind}",
-        remediation_kind="shell",
-        remediation_command=_telemetry_remediation_command(kind, realizations),
-        instantiation_mode=instantiation_mode,
     )
 
 
@@ -302,38 +173,7 @@ def _default_target_kind(family: WeaknessFamily) -> str:
 def _default_kind(
     world: WorldIR, family: WeaknessFamily, target: str, target_ref: str
 ) -> str:
-    del target_ref
-    if family == "code_web":
-        return (
-            world.allowed_code_flaw_kinds[0]
-            if world.allowed_code_flaw_kinds
-            else "sql_injection"
-        )
-    if family == "config_identity":
-        if any(user.role == "it_admin" for user in world.users):
-            return "weak_password"
-        return (
-            "admin_surface_exposed" if target == "svc-idp" else "trust_edge_misconfig"
-        )
-    if family == "secret_exposure":
-        if target == "svc-email":
-            return "token_in_email"
-        if target == "svc-fileshare":
-            return "credential_in_share"
-        return "hardcoded_app_secret"
-    if family == "workflow_abuse":
-        if any(workflow.name == "helpdesk_ticketing" for workflow in world.workflows):
-            return "helpdesk_reset_bypass"
-        if any(workflow.name == "document_sharing" for workflow in world.workflows):
-            return "document_share_abuse"
-        return "approval_chain_bypass"
-    if target == "svc-web":
-        return "missing_web_logs"
-    if target == "svc-idp":
-        return "missing_idp_logs"
-    if target == "svc-email":
-        return "silent_mail_rule"
-    return "delayed_siem_ingest"
+    return default_kind_for_family(world, family, target, target_ref)
 
 
 def _resolve_pinned_target(world: WorldIR, pinned_target: str) -> tuple[str, str, str]:
@@ -403,56 +243,6 @@ def _resolve_pinned_target(world: WorldIR, pinned_target: str) -> tuple[str, str
     raise ValueError(f"unsupported pinned weakness target kind: {target_kind}")
 
 
-def _normalize_target_for_kind(
-    world: WorldIR,
-    family: WeaknessFamily,
-    kind: str,
-    target: str,
-    target_kind: str,
-    target_ref: str,
-) -> tuple[str, str, str]:
-    service_ids = {service.id for service in world.services}
-    if family == "secret_exposure":
-        if kind == "token_in_email" and "svc-email" in service_ids:
-            return "svc-email", target_kind, target_ref
-        if (
-            kind in {"env_file_leak", "hardcoded_app_secret"}
-            and "svc-web" in service_ids
-        ):
-            return "svc-web", target_kind, target_ref
-        if (
-            kind in {"credential_in_share", "backup_leak"}
-            and "svc-fileshare" in service_ids
-        ):
-            return "svc-fileshare", target_kind, target_ref
-    if family == "workflow_abuse":
-        if (
-            kind in {"phishing_credential_capture", "internal_request_impersonation"}
-            and "svc-email" in service_ids
-        ):
-            return "svc-email", target_kind, target_ref
-        if kind == "document_share_abuse" and "svc-fileshare" in service_ids:
-            return "svc-fileshare", target_kind, target_ref
-        if (
-            kind in {"helpdesk_reset_bypass", "approval_chain_bypass"}
-            and "svc-web" in service_ids
-        ):
-            return "svc-web", target_kind, target_ref
-    if family == "config_identity" and "svc-idp" in service_ids:
-        return "svc-idp", target_kind, target_ref
-    if family == "telemetry_blindspot":
-        if kind == "missing_web_logs" and "svc-web" in service_ids:
-            return "svc-web", "telemetry", "svc-web"
-        if (
-            kind in {"missing_idp_logs", "unmonitored_admin_action"}
-            and "svc-idp" in service_ids
-        ):
-            return "svc-idp", "telemetry", "svc-idp"
-        if kind == "silent_mail_rule" and "svc-email" in service_ids:
-            return "svc-email", "telemetry", "svc-email"
-    return target, target_kind, target_ref
-
-
 def _weakness_id(
     family: WeaknessFamily, kind: str, target: str, target_ref: str
 ) -> str:
@@ -479,296 +269,5 @@ def _expected_events(family: WeaknessFamily, kind: str) -> tuple[str, ...]:
     return expected_events_for_weakness(family, kind)
 
 
-def _realization_summary(family: WeaknessFamily, kind: str) -> str:
-    return (
-        f"{family}::{kind} realized for deterministic admission and runtime validation"
-    )
-
-
 def _remediation_text(kind: str) -> str:
     return f"apply remediation for {kind.replace('_', ' ')}"
-
-
-def _workflow_realizations(
-    world: WorldIR,
-    kind: str,
-    target: str,
-    target_ref: str,
-) -> tuple[WeaknessRealizationSpec, ...]:
-    primary_path = (
-        f"/srv/shared/.openrange/workflows/{kind}.json"
-        if target == "svc-fileshare"
-        else f"/etc/openrange/workflows/{kind}.json"
-        if target == "svc-email"
-        else f"/var/www/html/.openrange/weaknesses/{kind}.json"
-    )
-    realizations = [
-        WeaknessRealizationSpec(
-            kind="workflow",
-            service=target,
-            path=primary_path,
-            summary=_realization_summary("workflow_abuse", kind),
-        )
-    ]
-    if kind in {"phishing_credential_capture", "internal_request_impersonation"}:
-        mailbox = _mailbox_for_ref(world, target_ref)
-        realizations.append(
-            WeaknessRealizationSpec(
-                kind="mailbox",
-                service="svc-email",
-                path=f"/var/spool/openrange/mailboxes/{_mailbox_slug(mailbox)}/{kind}.eml",
-                summary=_realization_summary("workflow_abuse", kind),
-            )
-        )
-    return tuple(realizations)
-
-
-def _secret_exposure_realizations(
-    world: WorldIR,
-    kind: str,
-    target: str,
-    target_ref: str,
-) -> tuple[WeaknessRealizationSpec, ...]:
-    if kind == "env_file_leak":
-        path = "/var/www/html/.env" if target == "svc-web" else "/etc/openrange/.env"
-        return (
-            WeaknessRealizationSpec(
-                kind="config",
-                service=target,
-                path=path,
-                summary=_realization_summary("secret_exposure", kind),
-            ),
-        )
-    if kind == "credential_in_share":
-        return (
-            WeaknessRealizationSpec(
-                kind="seed_data",
-                service=target,
-                path=f"/srv/shared/.openrange/exposed-{target_ref}.txt",
-                summary=_realization_summary("secret_exposure", kind),
-            ),
-        )
-    if kind == "backup_leak":
-        path = (
-            f"/srv/shared/.openrange/backup-{target_ref}.sql"
-            if target == "svc-fileshare"
-            else f"/var/backups/openrange-{target_ref}.sql"
-        )
-        return (
-            WeaknessRealizationSpec(
-                kind="seed_data",
-                service=target,
-                path=path,
-                summary=_realization_summary("secret_exposure", kind),
-            ),
-        )
-    if kind == "token_in_email":
-        mailbox = _mailbox_for_ref(world, target_ref)
-        return (
-            WeaknessRealizationSpec(
-                kind="mailbox",
-                service="svc-email",
-                path=f"/var/spool/openrange/mailboxes/{_mailbox_slug(mailbox)}/token-{target_ref}.eml",
-                summary=_realization_summary("secret_exposure", kind),
-            ),
-        )
-    path = (
-        "/var/www/html/.openrange/app-secret.php"
-        if target == "svc-web"
-        else "/etc/openrange/app-secret.txt"
-    )
-    return (
-        WeaknessRealizationSpec(
-            kind="config",
-            service=target,
-            path=path,
-            summary=_realization_summary("secret_exposure", kind),
-        ),
-    )
-
-
-def _config_identity_realizations(
-    kind: str, target: str
-) -> tuple[WeaknessRealizationSpec, ...]:
-    filename = {
-        "weak_password": "password-policy.json",
-        "default_credential": "default-credential.json",
-        "overbroad_service_account": "service-account-policy.json",
-        "admin_surface_exposed": "admin-surface.json",
-        "trust_edge_misconfig": "trust-edge.json",
-    }[kind]
-    return (
-        WeaknessRealizationSpec(
-            kind="config",
-            service=target,
-            path=f"/etc/openrange/{filename}",
-            summary=_realization_summary("config_identity", kind),
-        ),
-    )
-
-
-def _telemetry_realizations(
-    kind: str, target: str
-) -> tuple[WeaknessRealizationSpec, ...]:
-    return (
-        WeaknessRealizationSpec(
-            kind="telemetry",
-            service=target,
-            path=f"/etc/openrange/{kind}.json",
-            summary=_realization_summary("telemetry_blindspot", kind),
-        ),
-    )
-
-
-def _workflow_remediation_command(
-    kind: str, realizations: tuple[WeaknessRealizationSpec, ...]
-) -> str:
-    payload = _workflow_remediation_payload(kind)
-    commands = [
-        _write_text_command(realization.path, payload)
-        for realization in realizations
-        if realization.kind == "workflow"
-    ]
-    for realization in realizations:
-        if realization.kind == "mailbox":
-            commands.append(
-                _write_text_command(realization.path, _mailbox_remediated_message(kind))
-            )
-    commands.append("touch /tmp/openrange-patched")
-    return "\n".join(commands)
-
-
-def _secret_exposure_remediation_command(
-    kind: str, realizations: tuple[WeaknessRealizationSpec, ...]
-) -> str:
-    commands = []
-    for realization in realizations:
-        if realization.kind == "mailbox":
-            commands.append(
-                _write_text_command(realization.path, _mailbox_remediated_message(kind))
-            )
-        else:
-            commands.append(_write_text_command(realization.path, "access revoked\n"))
-    commands.append("touch /tmp/openrange-patched")
-    return "\n".join(commands)
-
-
-def _config_identity_remediation_command(
-    kind: str, realizations: tuple[WeaknessRealizationSpec, ...]
-) -> str:
-    payload = _config_identity_remediation_payload(kind)
-    commands = [
-        _write_text_command(realization.path, payload) for realization in realizations
-    ]
-    commands.append("touch /tmp/openrange-patched")
-    return "\n".join(commands)
-
-
-def _telemetry_remediation_command(
-    kind: str, realizations: tuple[WeaknessRealizationSpec, ...]
-) -> str:
-    payload = _telemetry_remediation_payload(kind)
-    commands = [
-        _write_text_command(realization.path, payload) for realization in realizations
-    ]
-    commands.append("touch /tmp/openrange-patched")
-    return "\n".join(commands)
-
-
-def _workflow_remediation_payload(kind: str) -> str:
-    return (
-        "{\n"
-        f'  "kind": "{kind}",\n'
-        '  "approval_guard": "enabled",\n'
-        '  "identity_verification": "required",\n'
-        '  "mail_confirmation_required": true\n'
-        "}\n"
-    )
-
-
-def _config_identity_remediation_payload(kind: str) -> str:
-    return (
-        "{\n"
-        f'  "kind": "{kind}",\n'
-        '  "mfa_required": true,\n'
-        '  "min_password_length": 14,\n'
-        '  "privileged_scope_validation": true,\n'
-        '  "default_credentials_disabled": true,\n'
-        '  "admin_surface_public": false,\n'
-        '  "trust_scope_restricted": true\n'
-        "}\n"
-    )
-
-
-def _telemetry_remediation_payload(kind: str) -> str:
-    return (
-        "{\n"
-        f'  "kind": "{kind}",\n'
-        '  "siem_ingest": true,\n'
-        '  "delay_seconds": 0,\n'
-        '  "admin_actions_logged": true,\n'
-        '  "mail_rule_logging": true\n'
-        "}\n"
-    )
-
-
-def _write_text_command(path: str, content: str) -> str:
-    directory = path.rsplit("/", 1)[0]
-    return f"mkdir -p {shlex.quote(directory)} && cat <<'EOF' > {shlex.quote(path)}\n{content}EOF"
-
-
-def _mailbox_remediated_message(kind: str) -> str:
-    return f"Subject: {kind} remediated\n\nOpenRange rotated or revoked the affected material.\n"
-
-
-def _mailbox_for_ref(world: WorldIR, target_ref: str) -> str:
-    user = next((item for item in world.users if item.id == target_ref), None)
-    if user is not None and user.email:
-        return user.email
-    credential = next(
-        (
-            item
-            for item in world.credentials
-            if item.id == target_ref or item.subject == target_ref
-        ),
-        None,
-    )
-    if credential is not None:
-        subject = next(
-            (item for item in world.users if item.id == credential.subject), None
-        )
-        if subject is not None and subject.email:
-            return subject.email
-    workflow = next(
-        (
-            item
-            for item in world.workflows
-            if item.id == target_ref or item.name == target_ref
-        ),
-        None,
-    )
-    if workflow is not None:
-        for step in workflow.steps:
-            subject = next(
-                (
-                    item
-                    for item in world.users
-                    if item.role == step.actor_role and item.email
-                ),
-                None,
-            )
-            if subject is not None:
-                return subject.email
-    fallback = next(
-        (item.email for item in world.users if item.email and item.role != "it_admin"),
-        "",
-    )
-    if fallback:
-        return fallback
-    return next(
-        (item.email for item in world.users if item.email), "openrange@corp.local"
-    )
-
-
-def _mailbox_slug(mailbox: str) -> str:
-    return mailbox.replace("@", "_at_").replace(".", "_")

@@ -52,7 +52,8 @@ Some current private helper files are transitional seams, not the end-state pack
 ### Phase 3: Subsystem rewrites
 
 - [ ] move admission onto real subsystem packages
-- [ ] move weaknesses onto family plugins or family modules backed by catalog data
+- [x] start weakness family registry and family modules backed by catalog data
+- [ ] finish the weakness subsystem move and shrink `open_range.weaknesses`
 - [ ] move objectives fully onto catalog-backed resolution
 - [ ] move runtime onto hooks and reducers
 
@@ -67,6 +68,6 @@ Some current private helper files are transitional seams, not the end-state pack
 The next real win is not another `admit.py` split. The next win is:
 
 1. move weakness realization and reference-step builders into family modules backed by the catalog
-2. keep the catalog as the source of static facts while deleting family switchboards from `weaknesses.py` and `probe_planner.py`
+2. fold the remaining weakness seeding and targeting heuristics behind the family registry
 3. keep public behavior stable while the internals move
 4. lock the behavior with parity tests before deleting the old logic
