@@ -2,13 +2,15 @@
 
 from __future__ import annotations
 
+import json
+
 from open_range.weakness_families.common import (
     WeaknessBuildContext,
     assemble_weakness_spec,
     realization_summary,
     write_text_command,
 )
-from open_range.world_ir import WeaknessRealizationSpec, WorldIR
+from open_range.world_ir import WeaknessRealizationSpec, WeaknessSpec, WorldIR
 
 
 def mutation_target_service(world: WorldIR) -> str | None:
@@ -113,3 +115,31 @@ def normalize_target(
     if kind == "silent_mail_rule" and "svc-email" in service_ids:
         return ("svc-email", "telemetry", "svc-email")
     return (target, target_kind, target_ref)
+
+
+def render_realization_content(
+    world: WorldIR,
+    weakness: WeaknessSpec,
+    realization: WeaknessRealizationSpec,
+) -> str:
+    del realization
+    payload = {
+        "world_id": world.world_id,
+        "weakness_id": weakness.id,
+        "kind": weakness.kind,
+        "target": weakness.target,
+        "ship_to_siem": False,
+    }
+    if weakness.kind == "missing_web_logs":
+        payload.update({"access_logs_enabled": False, "error_logs_enabled": False})
+    elif weakness.kind == "missing_idp_logs":
+        payload.update({"auth_logs_enabled": False, "audit_logs_enabled": False})
+    elif weakness.kind == "delayed_siem_ingest":
+        payload.update({"delay_seconds": 180})
+    elif weakness.kind == "unmonitored_admin_action":
+        payload.update({"admin_actions_logged": False})
+    elif weakness.kind == "silent_mail_rule":
+        payload.update(
+            {"mail_rule_logging": False, "mailbox_auto_forward_alerting": False}
+        )
+    return json.dumps(payload, indent=2, sort_keys=True) + "\n"

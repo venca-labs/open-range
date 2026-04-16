@@ -55,6 +55,7 @@ Some current private helper files are transitional seams, not the end-state pack
 - [x] start weakness family registry and family modules backed by catalog data
 - [x] route curriculum weakness mutations through the family registry
 - [x] start moving family-specific red reference planning out of `probe_planner.py`
+- [x] start moving family-specific realization content out of `synth.py`
 - [ ] finish the weakness subsystem move and shrink `open_range.weaknesses`
 - [ ] move objectives fully onto catalog-backed resolution
 - [ ] move runtime onto hooks and reducers
@@ -69,7 +70,7 @@ Some current private helper files are transitional seams, not the end-state pack
 
 The next real win is not another `admit.py` split. The next win is:
 
-1. move `synth.py` off family-specific realization content builders and onto family-owned renderers
+1. move the remaining `workflow_abuse` and `secret_exposure` realization content builders out of `synth.py`
 2. move compiler workflow, asset placement, and persona defaults into catalog data
 3. finish the remaining `probe_planner.py` ranking and fallback switchboards after the family step builders settle
 4. keep behavior stable with parity tests before deleting the old logic

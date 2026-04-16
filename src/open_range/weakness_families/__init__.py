@@ -13,7 +13,7 @@ from open_range.weakness_families import (
     workflow_abuse,
 )
 from open_range.weakness_families.common import RedReferencePlan, WeaknessBuildContext
-from open_range.world_ir import WeaknessSpec, WorldIR
+from open_range.world_ir import WeaknessRealizationSpec, WeaknessSpec, WorldIR
 
 _FAMILY_BUILDERS: dict[str, Callable[[WeaknessBuildContext], WeaknessSpec]] = {
     "code_web": code_web.build,
@@ -65,6 +65,12 @@ _FAMILY_RED_REFERENCE_BUILDERS: dict[
     "workflow_abuse": workflow_abuse.build_red_reference_plan,
     "secret_exposure": secret_exposure.build_red_reference_plan,
     "config_identity": config_identity.build_red_reference_plan,
+}
+_FAMILY_REALIZATION_RENDERERS: dict[
+    str, Callable[[WorldIR, WeaknessSpec, WeaknessRealizationSpec], str]
+] = {
+    "config_identity": config_identity.render_realization_content,
+    "telemetry_blindspot": telemetry_blindspot.render_realization_content,
 }
 
 
@@ -130,6 +136,10 @@ def has_red_reference_plan_for_family(family: str) -> bool:
     return family in _FAMILY_RED_REFERENCE_BUILDERS
 
 
+def has_realization_renderer_for_family(family: str) -> bool:
+    return family in _FAMILY_REALIZATION_RENDERERS
+
+
 def build_red_reference_plan_for_family(
     world: WorldIR,
     engine: PredicateEngine,
@@ -143,6 +153,18 @@ def build_red_reference_plan_for_family(
     )(world, engine, start, weakness)
 
 
+def render_realization_content_for_family(
+    world: WorldIR,
+    weakness: WeaknessSpec,
+    realization: WeaknessRealizationSpec,
+) -> str:
+    return _family_callable(
+        weakness.family,
+        _FAMILY_REALIZATION_RENDERERS,
+        label="realization renderer",
+    )(world, weakness, realization)
+
+
 __all__ = [
     "RedReferencePlan",
     "WeaknessBuildContext",
@@ -150,8 +172,10 @@ __all__ = [
     "build_red_reference_plan_for_family",
     "default_kind_for_family",
     "has_red_reference_plan_for_family",
+    "has_realization_renderer_for_family",
     "mutation_spec_for_family",
     "mutation_target_service_for_family",
     "normalize_target_for_family",
+    "render_realization_content_for_family",
     "seed_family_target",
 ]

@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import json
+
 from open_range.admission import ReferenceAction
 from open_range.catalog.probes import (
     identity_effect_markers_for_kind,
@@ -89,6 +91,36 @@ def build_red_reference_plan(
         current=weakness.target,
         satisfied_predicates=tuple(satisfied),
     )
+
+
+def render_realization_content(
+    world: WorldIR,
+    weakness: WeaknessSpec,
+    realization: WeaknessRealizationSpec,
+) -> str:
+    del realization
+    payload = {
+        "world_id": world.world_id,
+        "weakness_id": weakness.id,
+        "kind": weakness.kind,
+        "target": weakness.target,
+        "target_ref": weakness.target_ref,
+        "mfa_required": False,
+        "privileged_scope_validation": False,
+    }
+    if weakness.kind == "weak_password":
+        payload.update({"min_password_length": 6, "password_reuse_allowed": True})
+    elif weakness.kind == "default_credential":
+        payload.update({"default_username": "admin", "default_password": "admin"})
+    elif weakness.kind == "overbroad_service_account":
+        payload.update(
+            {"service_account_scope": ["svc-db", "svc-fileshare", "svc-idp"]}
+        )
+    elif weakness.kind == "admin_surface_exposed":
+        payload.update({"admin_surface_public": True, "debug_toggle": True})
+    elif weakness.kind == "trust_edge_misconfig":
+        payload.update({"trust_scope": "corp-wide", "peer_validation": False})
+    return json.dumps(payload, indent=2, sort_keys=True) + "\n"
 
 
 def build(context: WeaknessBuildContext):

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from pathlib import Path
 
 from open_range.admit import LocalAdmissionController
@@ -294,6 +295,194 @@ def test_synthesizer_realizes_required_non_code_catalog(tmp_path: Path):
         assert snippet in file.content
         assert world.weaknesses[0].kind == kind
         assert world.weaknesses[0].remediation_command
+
+
+def test_synthesizer_keeps_full_config_identity_json_payloads(tmp_path: Path):
+    cases = (
+        (
+            "weak_password",
+            "credential:it_admin-01",
+            {
+                "kind": "weak_password",
+                "mfa_required": False,
+                "min_password_length": 6,
+                "password_reuse_allowed": True,
+                "privileged_scope_validation": False,
+                "target": "svc-idp",
+                "target_ref": "cred-it_admin-01",
+            },
+            {"default_password", "service_account_scope", "admin_surface_public"},
+        ),
+        (
+            "default_credential",
+            "service:idp",
+            {
+                "kind": "default_credential",
+                "default_password": "admin",
+                "default_username": "admin",
+                "mfa_required": False,
+                "privileged_scope_validation": False,
+                "target": "svc-idp",
+                "target_ref": "svc-idp",
+            },
+            {"min_password_length", "service_account_scope", "trust_scope"},
+        ),
+        (
+            "overbroad_service_account",
+            "service:idp",
+            {
+                "kind": "overbroad_service_account",
+                "mfa_required": False,
+                "privileged_scope_validation": False,
+                "service_account_scope": ["svc-db", "svc-fileshare", "svc-idp"],
+                "target": "svc-idp",
+                "target_ref": "svc-idp",
+            },
+            {"default_password", "admin_surface_public", "trust_scope"},
+        ),
+        (
+            "admin_surface_exposed",
+            "service:idp",
+            {
+                "admin_surface_public": True,
+                "debug_toggle": True,
+                "kind": "admin_surface_exposed",
+                "mfa_required": False,
+                "privileged_scope_validation": False,
+                "target": "svc-idp",
+                "target_ref": "svc-idp",
+            },
+            {"default_password", "service_account_scope", "trust_scope"},
+        ),
+        (
+            "trust_edge_misconfig",
+            "service:idp",
+            {
+                "kind": "trust_edge_misconfig",
+                "mfa_required": False,
+                "peer_validation": False,
+                "privileged_scope_validation": False,
+                "target": "svc-idp",
+                "target_ref": "svc-idp",
+                "trust_scope": "corp-wide",
+            },
+            {"default_password", "service_account_scope", "admin_surface_public"},
+        ),
+    )
+
+    for kind, target, expected_fields, forbidden_fields in cases:
+        payload = _manifest_payload()
+        payload["security"]["pinned_weaknesses"] = [
+            {"family": "config_identity", "kind": kind, "target": target}
+        ]
+        world = CatalogWeaknessSeeder().apply(
+            EnterpriseSaaSManifestCompiler().compile(payload)
+        )
+        synth = EnterpriseSaaSWorldSynthesizer().synthesize(world, tmp_path / kind)
+        file = next(
+            item
+            for item in synth.service_payloads["svc-idp"]
+            if item.mount_path.startswith("/etc/openrange/")
+        )
+
+        data = json.loads(file.content)
+
+        assert data["world_id"] == world.world_id
+        assert data["weakness_id"] == world.weaknesses[0].id
+        for key, value in expected_fields.items():
+            assert data[key] == value
+        assert all(field not in data for field in forbidden_fields)
+
+
+def test_synthesizer_keeps_full_telemetry_json_payloads(tmp_path: Path):
+    cases = (
+        (
+            "missing_web_logs",
+            "service:web_app",
+            "svc-web",
+            {
+                "access_logs_enabled": False,
+                "error_logs_enabled": False,
+                "kind": "missing_web_logs",
+                "ship_to_siem": False,
+                "target": "svc-web",
+            },
+            {"auth_logs_enabled", "delay_seconds", "mail_rule_logging"},
+        ),
+        (
+            "missing_idp_logs",
+            "service:idp",
+            "svc-idp",
+            {
+                "audit_logs_enabled": False,
+                "auth_logs_enabled": False,
+                "kind": "missing_idp_logs",
+                "ship_to_siem": False,
+                "target": "svc-idp",
+            },
+            {"access_logs_enabled", "delay_seconds", "mail_rule_logging"},
+        ),
+        (
+            "delayed_siem_ingest",
+            "service:email",
+            "svc-email",
+            {
+                "delay_seconds": 180,
+                "kind": "delayed_siem_ingest",
+                "ship_to_siem": False,
+                "target": "svc-email",
+            },
+            {"access_logs_enabled", "admin_actions_logged", "mail_rule_logging"},
+        ),
+        (
+            "unmonitored_admin_action",
+            "service:idp",
+            "svc-idp",
+            {
+                "admin_actions_logged": False,
+                "kind": "unmonitored_admin_action",
+                "ship_to_siem": False,
+                "target": "svc-idp",
+            },
+            {"access_logs_enabled", "delay_seconds", "mail_rule_logging"},
+        ),
+        (
+            "silent_mail_rule",
+            "service:email",
+            "svc-email",
+            {
+                "kind": "silent_mail_rule",
+                "mail_rule_logging": False,
+                "mailbox_auto_forward_alerting": False,
+                "ship_to_siem": False,
+                "target": "svc-email",
+            },
+            {"access_logs_enabled", "auth_logs_enabled", "delay_seconds"},
+        ),
+    )
+
+    for kind, target, service_id, expected_fields, forbidden_fields in cases:
+        payload = _manifest_payload()
+        payload["security"]["pinned_weaknesses"] = [
+            {"family": "telemetry_blindspot", "kind": kind, "target": target}
+        ]
+        world = CatalogWeaknessSeeder().apply(
+            EnterpriseSaaSManifestCompiler().compile(payload)
+        )
+        synth = EnterpriseSaaSWorldSynthesizer().synthesize(world, tmp_path / kind)
+        file = next(
+            item
+            for item in synth.service_payloads[service_id]
+            if item.mount_path == f"/etc/openrange/{kind}.json"
+        )
+
+        data = json.loads(file.content)
+
+        assert data["world_id"] == world.world_id
+        assert data["weakness_id"] == world.weaknesses[0].id
+        for key, value in expected_fields.items():
+            assert data[key] == value
+        assert all(field not in data for field in forbidden_fields)
 
 
 def test_synthesizer_seeds_mailbox_realizations_for_email_borne_kinds(tmp_path: Path):

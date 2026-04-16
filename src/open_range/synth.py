@@ -10,6 +10,10 @@ from typing import Protocol
 from pydantic import BaseModel, ConfigDict, Field
 
 from open_range.code_web import code_web_realization_content
+from open_range.weakness_families import (
+    has_realization_renderer_for_family,
+    render_realization_content_for_family,
+)
 from open_range.world_ir import (
     AssetSpec,
     WeaknessRealizationSpec,
@@ -247,16 +251,14 @@ def _weakness_realization_content(
     weakness: WeaknessSpec,
     realization: WeaknessRealizationSpec,
 ) -> str:
-    if weakness.family == "config_identity":
-        return _config_identity_content(world, weakness)
+    if has_realization_renderer_for_family(weakness.family):
+        return render_realization_content_for_family(world, weakness, realization)
     if weakness.family == "workflow_abuse":
         if realization.kind == "mailbox":
             return _workflow_mailbox_content(world, weakness, realization)
         return _workflow_content(world, weakness)
     if weakness.family == "code_web":
         return code_web_realization_content(world, weakness, realization)
-    if weakness.family == "telemetry_blindspot":
-        return _telemetry_content(world, weakness)
     if realization.kind == "mailbox":
         return _secret_mailbox_content(world, weakness, realization)
     if weakness.kind == "env_file_leak":
@@ -300,31 +302,6 @@ def _secret_material(world: WorldIR, exposed_ref: str) -> str:
     if exposed_ref.endswith("_cred") or exposed_ref.endswith("_token"):
         return f"seeded-secret-{exposed_ref}"
     return exposed_ref
-
-
-def _config_identity_content(world: WorldIR, weakness: WeaknessSpec) -> str:
-    payload = {
-        "world_id": world.world_id,
-        "weakness_id": weakness.id,
-        "kind": weakness.kind,
-        "target": weakness.target,
-        "target_ref": weakness.target_ref,
-        "mfa_required": False,
-        "privileged_scope_validation": False,
-    }
-    if weakness.kind == "weak_password":
-        payload.update({"min_password_length": 6, "password_reuse_allowed": True})
-    elif weakness.kind == "default_credential":
-        payload.update({"default_username": "admin", "default_password": "admin"})
-    elif weakness.kind == "overbroad_service_account":
-        payload.update(
-            {"service_account_scope": ["svc-db", "svc-fileshare", "svc-idp"]}
-        )
-    elif weakness.kind == "admin_surface_exposed":
-        payload.update({"admin_surface_public": True, "debug_toggle": True})
-    elif weakness.kind == "trust_edge_misconfig":
-        payload.update({"trust_scope": "corp-wide", "peer_validation": False})
-    return json.dumps(payload, indent=2, sort_keys=True) + "\n"
 
 
 def _workflow_content(world: WorldIR, weakness: WeaknessSpec) -> str:
@@ -375,29 +352,6 @@ def _workflow_mailbox_content(
         action={body}
         """
     )
-
-
-def _telemetry_content(world: WorldIR, weakness: WeaknessSpec) -> str:
-    payload = {
-        "world_id": world.world_id,
-        "weakness_id": weakness.id,
-        "kind": weakness.kind,
-        "target": weakness.target,
-        "ship_to_siem": False,
-    }
-    if weakness.kind == "missing_web_logs":
-        payload.update({"access_logs_enabled": False, "error_logs_enabled": False})
-    elif weakness.kind == "missing_idp_logs":
-        payload.update({"auth_logs_enabled": False, "audit_logs_enabled": False})
-    elif weakness.kind == "delayed_siem_ingest":
-        payload.update({"delay_seconds": 180})
-    elif weakness.kind == "unmonitored_admin_action":
-        payload.update({"admin_actions_logged": False})
-    elif weakness.kind == "silent_mail_rule":
-        payload.update(
-            {"mail_rule_logging": False, "mailbox_auto_forward_alerting": False}
-        )
-    return json.dumps(payload, indent=2, sort_keys=True) + "\n"
 
 
 def _secret_mailbox_content(
