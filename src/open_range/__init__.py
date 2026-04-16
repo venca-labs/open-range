@@ -28,12 +28,10 @@ from open_range.manifest import (
 from open_range.objectives import ObjectiveGraderSpec, StandardAttackObjective
 from open_range.pipeline import BuildPipeline, CandidateWorld, admit, admit_child, build
 from open_range.resources import (
-    bundled_docs_dir,
     bundled_manifest_dir,
     bundled_manifest_names,
     bundled_manifest_path,
     bundled_schema_dir,
-    load_bundled_doc,
     load_bundled_manifest,
     load_bundled_manifest_registry,
     load_bundled_schema,
@@ -103,13 +101,11 @@ __all__ = [
     "admit",
     "admit_child",
     "build",
-    "bundled_docs_dir",
     "bundled_manifest_dir",
     "bundled_manifest_names",
     "bundled_manifest_path",
     "bundled_schema_dir",
     "generate_trace_dataset",
-    "load_bundled_doc",
     "load_bundled_manifest",
     "load_bundled_manifest_registry",
     "load_bundled_schema",

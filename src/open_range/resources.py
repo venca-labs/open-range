@@ -1,4 +1,4 @@
-"""Access bundled manifests, schemas, docs, and other installable assets."""
+"""Access bundled manifests, schemas, and other installable assets."""
 
 from __future__ import annotations
 
@@ -21,16 +21,6 @@ def bundled_manifest_dir() -> Path:
 
 def bundled_schema_dir() -> Path:
     return resource_root() / "schemas"
-
-
-def bundled_docs_dir() -> Path:
-    package_docs_dir = resource_root() / "docs"
-    if any(package_docs_dir.glob("*.md")):
-        return package_docs_dir
-    repo_docs_dir = resource_root().parents[2] / "docs"
-    if repo_docs_dir.exists():
-        return repo_docs_dir
-    return package_docs_dir
 
 
 def bundled_manifest_names() -> tuple[str, ...]:
@@ -65,17 +55,11 @@ def load_bundled_schema(name: str) -> dict[str, Any]:
     return payload
 
 
-def load_bundled_doc(name: str) -> str:
-    return (bundled_docs_dir() / name).read_text(encoding="utf-8")
-
-
 __all__ = [
-    "bundled_docs_dir",
     "bundled_manifest_dir",
     "bundled_manifest_names",
     "bundled_manifest_path",
     "bundled_schema_dir",
-    "load_bundled_doc",
     "load_bundled_manifest",
     "load_bundled_manifest_registry",
     "load_bundled_schema",

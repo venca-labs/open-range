@@ -9,7 +9,9 @@ import open_range.runtime as runtime_module
 
 def test_top_level_package_keeps_internal_runtime_and_sft_helpers_private() -> None:
     forbidden = {
+        "bundled_docs_dir",
         "build_decision_prompt",
+        "load_bundled_doc",
         "render_action_completion",
         "render_decision_prompt",
         "system_prompt_for_role",
