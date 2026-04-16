@@ -75,7 +75,8 @@ Some current private helper files are transitional seams, not the end-state pack
 - [x] finish the weakness subsystem move and shrink `open_range.weaknesses`
 - [x] move objectives fully onto catalog-backed resolution
 - [ ] move runtime onto hooks and reducers
-- [ ] move SFT and model-facing prompt helpers out of core `src/open_range`
+- [x] move SFT prompt and system-prompt formatting out of core `src/open_range`
+- [ ] move remaining model-facing trace and action-formatting helpers out of core `src/open_range`
 - [ ] split `code_web.py` into catalog/specs, renderers, offline simulation, and remediation helpers
 
 ### Phase 4: Deletions

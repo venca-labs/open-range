@@ -1,4 +1,4 @@
-"""Internal SFT formatting for action-first trace exports."""
+"""SFT formatting for action-first trace exports."""
 
 from __future__ import annotations
 

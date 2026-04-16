@@ -7,7 +7,6 @@ from copy import deepcopy
 from pathlib import Path
 from typing import Any
 
-from open_range._decision_sft import row_to_sft_record
 from open_range._reference_replay import (
     action_for_reference_step,
     reference_trace_pairs,
@@ -20,6 +19,7 @@ from open_range.pipeline import BuildPipeline
 from open_range.runtime import OpenRangeRuntime
 from open_range.snapshot import RuntimeSnapshot
 from open_range.store import FileSnapshotStore
+from open_range.training.decision_sft import row_to_sft_record
 from open_range.training_data import (
     ActionSource,
     TraceDatasetReport,

@@ -1,11 +1,11 @@
 from __future__ import annotations
 
-from open_range._decision_sft import (
+from open_range.runtime_types import Action, Observation
+from open_range.training.decision_sft import (
     build_decision_prompt,
     render_action_completion,
     system_prompt_for_role,
 )
-from open_range.runtime_types import Action, Observation
 from open_range.training_data import TraceLineage
 
 

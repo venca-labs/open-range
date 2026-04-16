@@ -23,6 +23,7 @@ def test_top_level_package_keeps_internal_runtime_and_sft_helpers_private() -> N
 
 def test_internal_reference_helpers_are_not_exposed_as_public_modules() -> None:
     assert not hasattr(runtime_module, "ReferenceDrivenRuntime")
+    assert importlib.util.find_spec("open_range._decision_sft") is None
     assert importlib.util.find_spec("open_range.driver") is None
     assert importlib.util.find_spec("open_range.sim") is None
 
