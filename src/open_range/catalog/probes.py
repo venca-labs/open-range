@@ -71,6 +71,18 @@ _REFERENCE_ACTION_BY_WEAKNESS_FAMILY = {
     "config_identity": "abuse_identity",
     "workflow_abuse": "abuse_workflow",
 }
+_RED_REFERENCE_FAMILY_PRIORITY = {
+    "code_web": 0,
+    "workflow_abuse": 1,
+    "secret_exposure": 1,
+    "config_identity": 1,
+    "telemetry_blindspot": 2,
+}
+_PRIMARY_RED_REFERENCE_FAMILY_ALLOWLIST = frozenset(
+    family
+    for family in _RED_REFERENCE_FAMILY_PRIORITY
+    if family != "telemetry_blindspot"
+)
 _IDENTITY_EFFECT_MARKERS_BY_KIND = {
     "weak_password": ('"min_password_length": 6', '"password_reuse_allowed": true'),
     "default_credential": (
@@ -160,6 +172,14 @@ def workflow_kind_uses_email_delivery(kind: str) -> bool:
 
 def reference_action_for_weakness_family(family: str) -> str:
     return _REFERENCE_ACTION_BY_WEAKNESS_FAMILY.get(family, "")
+
+
+def red_reference_family_priority(family: str) -> int:
+    return _RED_REFERENCE_FAMILY_PRIORITY.get(family, 1)
+
+
+def family_supports_primary_red_reference(family: str) -> bool:
+    return family in _PRIMARY_RED_REFERENCE_FAMILY_ALLOWLIST
 
 
 def identity_effect_markers_for_kind(kind: str) -> tuple[str, ...]:

@@ -3,6 +3,9 @@
 from __future__ import annotations
 
 from open_range.catalog.contracts import ServiceCatalogEntry
+from open_range.catalog.roles import (
+    ROLE_HOME_SERVICE_BY_ROLE as _ROLE_HOME_SERVICE_BY_ROLE,
+)
 
 SERVICE_CATALOG: tuple[ServiceCatalogEntry, ...] = (
     ServiceCatalogEntry(
@@ -69,6 +72,7 @@ SERVICE_CATALOG: tuple[ServiceCatalogEntry, ...] = (
 
 _SERVICE_BY_KIND = {entry.kind: entry for entry in SERVICE_CATALOG}
 _SERVICE_BY_ID = {entry.service_id: entry for entry in SERVICE_CATALOG}
+ROLE_HOME_SERVICE_BY_ROLE = _ROLE_HOME_SERVICE_BY_ROLE
 
 
 def service_kind_names() -> tuple[str, ...]:

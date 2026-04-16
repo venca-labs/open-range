@@ -4,10 +4,14 @@ from __future__ import annotations
 
 import json
 
+from open_range.admission import ReferenceAction
+from open_range.predicates import PredicateEngine
 from open_range.weakness_families.common import (
+    RedReferencePlan,
     WeaknessBuildContext,
     assemble_weakness_spec,
     realization_summary,
+    traverse_to_target,
     write_text_command,
 )
 from open_range.world_ir import WeaknessRealizationSpec, WeaknessSpec, WorldIR
@@ -30,6 +34,27 @@ def mutation_spec(world: WorldIR, target_service: str) -> tuple[str, str, str]:
     if target_service == "svc-web":
         return ("missing_web_logs", "telemetry", target_service)
     return ("missing_idp_logs", "telemetry", target_service)
+
+
+def build_red_reference_plan(
+    world: WorldIR,
+    engine: PredicateEngine,
+    start: str,
+    weakness: WeaknessSpec,
+) -> RedReferencePlan:
+    del world
+    return RedReferencePlan(
+        steps=traverse_to_target(engine, start, weakness.target)
+        + (
+            ReferenceAction(
+                actor="red",
+                kind="api",
+                target=weakness.target,
+                payload={"action": "initial_access", "weakness_id": weakness.id},
+            ),
+        ),
+        current=weakness.target,
+    )
 
 
 def build(context: WeaknessBuildContext):

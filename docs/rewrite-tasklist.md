@@ -55,6 +55,7 @@ Some current private helper files are transitional seams, not the end-state pack
 - [x] start weakness family registry and family modules backed by catalog data
 - [x] route curriculum weakness mutations through the family registry
 - [x] start moving family-specific red reference planning out of `probe_planner.py`
+- [x] move planner family ranking and red-side fallback policy behind catalog and family handlers
 - [x] start moving family-specific realization content out of `synth.py`
 - [x] finish moving family-specific realization content out of `synth.py`
 - [ ] finish the weakness subsystem move and shrink `open_range.weaknesses`
@@ -71,16 +72,19 @@ Some current private helper files are transitional seams, not the end-state pack
 
 The next real win is not another `admit.py` split. The next win is:
 
-1. [x] move compiler workflow, asset placement, and persona defaults into catalog data
-2. finish the remaining `probe_planner.py` ranking and fallback switchboards after the family step builders settle
-3. move admission onto real subsystem packages instead of root helper files
+1. move admission onto real subsystem packages instead of root helper files
+2. finish the remaining blue-side fallback and readback policy in `probe_planner.py`
+3. finish the weakness subsystem move and shrink `open_range.weaknesses`
 4. keep behavior stable with parity tests before deleting the old logic
 
 ## Next Large Targets
 
+- `src/open_range/admit.py`
+  - move the registry and stage-running seams into a real `open_range.admission` package
+  - keep the gate behavior and validation profile semantics unchanged while the package move happens
 - `src/open_range/probe_planner.py`
-  - move family ranking, exploit steps, effect markers, and readback expectations out of the giant planner switchboards
-  - likely boundary: extend `open_range.weakness_families` or add `open_range.reference_families`
+  - finish the remaining blue-side fallback policy and any readback expectations that still live inline
+  - keep the planner as orchestration over catalog policy and family-owned handlers
 - `src/open_range/compiler.py`
   - finish deleting transitional compiler helpers now that workflow templates, asset placement rules, and persona defaults live under `open_range.catalog`
   - keep the compiler focused on assembling `WorldIR` from declared contracts

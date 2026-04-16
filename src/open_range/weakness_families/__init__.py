@@ -62,9 +62,11 @@ _FAMILY_MUTATION_SPECS: dict[str, Callable[[WorldIR, str], tuple[str, str, str]]
 _FAMILY_RED_REFERENCE_BUILDERS: dict[
     str, Callable[[WorldIR, PredicateEngine, str, WeaknessSpec], RedReferencePlan]
 ] = {
+    "code_web": code_web.build_red_reference_plan,
     "workflow_abuse": workflow_abuse.build_red_reference_plan,
     "secret_exposure": secret_exposure.build_red_reference_plan,
     "config_identity": config_identity.build_red_reference_plan,
+    "telemetry_blindspot": telemetry_blindspot.build_red_reference_plan,
 }
 _FAMILY_REALIZATION_RENDERERS: dict[
     str, Callable[[WorldIR, WeaknessSpec, WeaknessRealizationSpec], str]

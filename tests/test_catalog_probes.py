@@ -5,9 +5,11 @@ from open_range.catalog.probes import (
     DEFAULT_SHORTCUT_PROBE_TEMPLATES,
     SHORTCUT_WEB_ROUTE_PROBE_SPECS,
     detection_for_reference_step_action,
+    family_supports_primary_red_reference,
     identity_effect_markers_for_kind,
     is_blue_detectable_action,
     necessity_probe_template,
+    red_reference_family_priority,
     reference_action_for_weakness_family,
     smoke_probe_template,
     workflow_effect_markers_for_kind,
@@ -116,6 +118,12 @@ def test_catalog_probe_reference_presets_keep_current_static_rules() -> None:
     assert workflow_kind_uses_email_delivery("phishing_credential_capture")
     assert workflow_kind_uses_email_delivery("internal_request_impersonation")
     assert not workflow_kind_uses_email_delivery("document_share_abuse")
+    assert red_reference_family_priority("code_web") == 0
+    assert red_reference_family_priority("workflow_abuse") == 1
+    assert red_reference_family_priority("telemetry_blindspot") == 2
+    assert family_supports_primary_red_reference("code_web")
+    assert family_supports_primary_red_reference("secret_exposure")
+    assert not family_supports_primary_red_reference("telemetry_blindspot")
     assert reference_action_for_weakness_family("secret_exposure") == "collect_secret"
     assert reference_action_for_weakness_family("config_identity") == "abuse_identity"
     assert reference_action_for_weakness_family("workflow_abuse") == "abuse_workflow"
@@ -158,6 +166,36 @@ def test_shortcut_route_catalog_matches_code_web_templates() -> None:
             assert dict(template.witness_query)["q"].startswith("' UNION SELECT '")
         else:
             assert probe.query == template.witness_query
+
+
+def test_probe_planner_keeps_code_web_reference_payload_details() -> None:
+    world = _seeded_world()
+    weakness = build_catalog_weakness(
+        world,
+        "code_web",
+        kind="sql_injection",
+        target="svc-web",
+        target_kind="service",
+        target_ref="svc-web",
+        weakness_id="test-sqli",
+    )
+    planned_world = world.model_copy(update={"weaknesses": (weakness,)})
+    trace = ProbePlanner(planned_world).build_red_reference(
+        start="svc-email",
+        exploit=weakness,
+        ordinal=1,
+    )
+
+    step = trace.steps[0]
+
+    assert step.kind == "api"
+    assert step.target == "svc-web"
+    assert step.payload["action"] == "initial_access"
+    assert step.payload["weakness_id"] == weakness.id
+    assert step.payload["path"] == "/search.php"
+    assert step.payload["query"]["asset"] == "finance_docs"
+    assert step.payload["exploit_kind"] == "sql_injection"
+    assert "expect_contains" in step.payload
 
 
 def test_probe_planner_uses_catalog_reference_presets_for_phishing_workflow() -> None:
@@ -339,3 +377,94 @@ def test_probe_planner_keeps_default_api_reference_for_telemetry_blindspots() ->
     )
     assert weakness_step.kind == "api"
     assert weakness_step.payload["action"] == "initial_access"
+
+
+def test_probe_planner_prefers_code_web_when_public_start_bias_is_equal() -> None:
+    world = _seeded_world()
+    code_web = build_catalog_weakness(
+        world,
+        "code_web",
+        kind="sql_injection",
+        target="svc-web",
+        target_kind="service",
+        target_ref="svc-web",
+        weakness_id="rank-code-web",
+    )
+    workflow = build_catalog_weakness(
+        world,
+        "workflow_abuse",
+        kind="helpdesk_reset_bypass",
+        target="svc-web",
+        target_kind="workflow",
+        target_ref="wf-helpdesk_ticketing",
+        weakness_id="rank-workflow",
+    )
+    planned_world = world.model_copy(update={"weaknesses": (workflow, code_web)})
+    traces = ProbePlanner(planned_world).build_red_references()
+
+    assert traces[0].steps[0].payload["weakness_id"] == code_web.id
+
+
+def test_probe_planner_primary_selection_prefers_target_locality_over_family_bias() -> (
+    None
+):
+    world = _seeded_world()
+    code_web = build_catalog_weakness(
+        world,
+        "code_web",
+        kind="sql_injection",
+        target="svc-web",
+        target_kind="service",
+        target_ref="svc-web",
+        weakness_id="local-code-web",
+    )
+    secret = build_catalog_weakness(
+        world,
+        "secret_exposure",
+        kind="token_in_email",
+        target="svc-email",
+        target_kind="asset",
+        target_ref="idp_admin_cred",
+        weakness_id="local-secret",
+    )
+    planned_world = world.model_copy(update={"weaknesses": (code_web, secret)})
+    trace = ProbePlanner(planned_world).build_red_reference(
+        start="svc-email",
+        exploit=None,
+        ordinal=1,
+    )
+
+    weakness_ids = {
+        step.payload.get("weakness_id")
+        for step in trace.steps
+        if step.payload.get("weakness_id")
+    }
+
+    assert weakness_ids == {secret.id}
+
+
+def test_probe_planner_primary_selection_falls_back_to_telemetry_only_worlds() -> None:
+    world = _seeded_world()
+    weakness = build_catalog_weakness(
+        world,
+        "telemetry_blindspot",
+        kind="silent_mail_rule",
+        target="svc-email",
+        target_kind="telemetry",
+        target_ref="svc-email",
+        weakness_id="only-telemetry",
+    )
+    planned_world = world.model_copy(update={"weaknesses": (weakness,)})
+    trace = ProbePlanner(planned_world).build_red_reference(
+        start="svc-email",
+        exploit=None,
+        ordinal=1,
+    )
+
+    weakness_ids = {
+        step.payload.get("weakness_id")
+        for step in trace.steps
+        if step.payload.get("weakness_id")
+    }
+
+    assert weakness_ids == {weakness.id}

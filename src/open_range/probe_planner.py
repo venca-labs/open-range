@@ -17,16 +17,16 @@ from open_range.catalog.probes import (
     DEFAULT_DETERMINISM_PROBE_TEMPLATES,
     DEFAULT_SHORTCUT_PROBE_TEMPLATES,
     detection_for_reference_step_action,
+    family_supports_primary_red_reference,
     is_blue_detectable_action,
     necessity_probe_template,
+    red_reference_family_priority,
     smoke_probe_template,
 )
-from open_range.code_web import code_web_payload
 from open_range.predicates import PredicateEngine
 from open_range.runtime_types import Action
 from open_range.weakness_families import (
     build_red_reference_plan_for_family,
-    has_red_reference_plan_for_family,
 )
 from open_range.world_ir import WorldIR
 
@@ -77,10 +77,9 @@ class ProbePlanner:
         weaknesses = engine.active_weaknesses()
         ranked = sorted(
             weaknesses,
-            key=lambda weak: (
-                0 if weak.family == "code_web" else 1,
-                0 if weak.target in starts else 1,
-                weak.id,
+            key=lambda weak: _red_reference_sort_key(
+                weak,
+                preferred_targets=frozenset(starts),
             ),
         )
         candidates = [
@@ -298,17 +297,32 @@ def _probe_spec_from_template(template: ProbeTemplateSpec) -> ProbeSpec:
 
 
 def _primary_red_weakness(start: str, weaknesses):
-    ranked = [weak for weak in weaknesses if weak.family != "telemetry_blindspot"]
+    ranked = [
+        weak
+        for weak in weaknesses
+        if family_supports_primary_red_reference(weak.family)
+    ]
     if not ranked:
         return next(iter(weaknesses), None)
     ranked.sort(
-        key=lambda weak: (
-            0 if weak.target == start else 1,
-            0 if weak.family == "code_web" else 1,
-            weak.id,
+        key=lambda weak: _red_reference_sort_key(
+            weak,
+            preferred_targets=frozenset((start,)),
         )
     )
     return ranked[0]
+
+
+def _red_reference_sort_key(
+    weakness,
+    *,
+    preferred_targets: frozenset[str],
+) -> tuple[int, int, str]:
+    return (
+        0 if weakness.target in preferred_targets else 1,
+        red_reference_family_priority(weakness.family),
+        weakness.id,
+    )
 
 
 def _starts_for_weakness(starts: tuple[str, ...], target: str) -> tuple[str, ...]:
@@ -323,54 +337,5 @@ def _weakness_red_steps(
     start: str,
     weakness,
 ) -> tuple[list[ReferenceAction], str, set[str]]:
-    steps: list[ReferenceAction] = []
-    satisfied: set[str] = set()
-    current = start
-    if weakness.family == "code_web":
-        payload = {
-            "action": "initial_access",
-            "weakness_id": weakness.id,
-            "weakness": weakness.id,
-        }
-        payload.update(code_web_payload(world, weakness))
-        steps.append(
-            ReferenceAction(
-                actor="red", kind="api", target=weakness.target, payload=payload
-            )
-        )
-        return steps, weakness.target, satisfied
-
-    if has_red_reference_plan_for_family(weakness.family):
-        plan = build_red_reference_plan_for_family(world, engine, start, weakness)
-        return list(plan.steps), plan.current, set(plan.satisfied_predicates)
-
-    if current != weakness.target:
-        steps.append(
-            ReferenceAction(
-                actor="red",
-                kind="api",
-                target=current,
-                payload={"action": "initial_access"},
-            )
-        )
-        path = engine.shortest_path(current, weakness.target)
-        for service_id in path[1:]:
-            steps.append(
-                ReferenceAction(
-                    actor="red",
-                    kind="api",
-                    target=service_id,
-                    payload={"action": "traverse"},
-                )
-            )
-        current = weakness.target
-
-    steps.append(
-        ReferenceAction(
-            actor="red",
-            kind="api",
-            target=current,
-            payload={"action": "initial_access", "weakness_id": weakness.id},
-        )
-    )
-    return steps, current, satisfied
+    plan = build_red_reference_plan_for_family(world, engine, start, weakness)
+    return list(plan.steps), plan.current, set(plan.satisfied_predicates)
