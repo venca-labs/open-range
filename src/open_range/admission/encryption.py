@@ -1,22 +1,13 @@
-"""Check: Encryption enforcement -- validates envelope encryption compliance.
-
-Advisory check that verifies envelope encryption config files are present
-and consistent in the rendered artifact directory.  This check is advisory:
-failures log warnings but never block admission, since envelope encryption
-is an optional layer.
-"""
+"""Envelope-encryption enforcement check for admission."""
 
 from __future__ import annotations
 
 import json
-import logging
 from pathlib import Path
 
-from open_range.admission import ValidatorCheckReport
+from open_range.admission.models import ValidatorCheckReport
 from open_range.snapshot import KindArtifacts
 from open_range.world_ir import WorldIR
-
-logger = logging.getLogger(__name__)
 
 _BUNDLE_REQUIRED_KEYS = {"ciphertext", "nonce", "wrapped_dek", "aad"}
 

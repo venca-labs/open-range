@@ -367,7 +367,7 @@ class TestEdgeCases:
 
 def test_enforcement_no_config_passes(tmp_path):
     """No security/encryption dir → vacuously passes."""
-    from open_range.encryption_enforcement import check_encryption_enforcement
+    from open_range.admission.encryption import check_encryption_enforcement
     from open_range.snapshot import KindArtifacts
 
     artifacts = KindArtifacts(
@@ -384,7 +384,7 @@ def test_enforcement_no_config_passes(tmp_path):
 
 
 def test_enforcement_disabled_passes(tmp_path):
-    from open_range.encryption_enforcement import check_encryption_enforcement
+    from open_range.admission.encryption import check_encryption_enforcement
     from open_range.snapshot import KindArtifacts
 
     enc_dir = tmp_path / "security" / "encryption"
@@ -403,7 +403,7 @@ def test_enforcement_disabled_passes(tmp_path):
 
 
 def test_enforcement_missing_dek_file(tmp_path):
-    from open_range.encryption_enforcement import check_encryption_enforcement
+    from open_range.admission.encryption import check_encryption_enforcement
     from open_range.snapshot import KindArtifacts
 
     enc_dir = tmp_path / "security" / "encryption"
@@ -430,7 +430,7 @@ def test_enforcement_missing_dek_file(tmp_path):
 
 
 def test_enforcement_passes_with_valid_bundle(tmp_path):
-    from open_range.encryption_enforcement import check_encryption_enforcement
+    from open_range.admission.encryption import check_encryption_enforcement
     from open_range.snapshot import KindArtifacts
 
     mk = EnvelopeCrypto.generate_master_key()

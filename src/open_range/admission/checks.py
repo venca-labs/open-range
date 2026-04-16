@@ -5,11 +5,14 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
+from open_range.admission.encryption import check_encryption_enforcement
+from open_range.admission.identity import check_identity_enforcement
 from open_range.admission.models import (
     ReferenceBundle,
     ValidatorCheckReport,
     ValidatorReport,
 )
+from open_range.admission.mtls import check_mtls_enforcement
 from open_range.admission.references import (
     build_reference_bundle,
     run_blue_reference,
@@ -19,9 +22,6 @@ from open_range.admission.registry import admission_check
 from open_range.admission.remediation import remediation_command
 from open_range.build_config import BuildConfig
 from open_range.catalog.services import service_kind_names
-from open_range.encryption_enforcement import check_encryption_enforcement
-from open_range.identity_enforcement import check_identity_enforcement
-from open_range.mtls_enforcement import check_mtls_enforcement
 from open_range.predicates import PredicateEngine
 from open_range.snapshot import KindArtifacts, RuntimeSnapshot, world_hash
 from open_range.world_ir import WorldIR

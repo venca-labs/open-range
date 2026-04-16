@@ -31,10 +31,13 @@ def test_internal_reference_helpers_are_not_exposed_as_public_modules() -> None:
     assert importlib.util.find_spec("open_range._reference_replay") is None
     assert importlib.util.find_spec("open_range._reference_sim") is None
     assert importlib.util.find_spec("open_range._runtime_hooks") is None
+    assert importlib.util.find_spec("open_range.encryption_enforcement") is None
+    assert importlib.util.find_spec("open_range.identity_enforcement") is None
     assert importlib.util.find_spec("open_range.runtime_events") is None
     assert importlib.util.find_spec("open_range.runtime_reducers") is None
     assert importlib.util.find_spec("open_range.driver") is None
     assert importlib.util.find_spec("open_range.live_checks") is None
+    assert importlib.util.find_spec("open_range.mtls_enforcement") is None
     assert importlib.util.find_spec("open_range.probe_planner") is None
     assert importlib.util.find_spec("open_range.probe_runner") is None
     assert importlib.util.find_spec("open_range.sim") is None

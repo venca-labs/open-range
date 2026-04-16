@@ -1,22 +1,14 @@
-"""Check: Identity enforcement -- validates identity provider configuration.
-
-Advisory check that verifies the simulated identity provider is correctly
-configured when enabled.  This check never blocks admission on its own;
-it logs warnings for Red/Blue training completeness.
-"""
+"""Identity enforcement check for admission."""
 
 from __future__ import annotations
 
 import json
-import logging
 from pathlib import Path
 from typing import Any
 
-from open_range.admission import ValidatorCheckReport
+from open_range.admission.models import ValidatorCheckReport
 from open_range.snapshot import KindArtifacts
 from open_range.world_ir import WorldIR
-
-logger = logging.getLogger(__name__)
 
 _CRITICAL_SERVICE_KINDS = {"web_app", "db", "idp"}
 

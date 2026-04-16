@@ -1,24 +1,13 @@
-"""Check: mTLS Enforcement -- validates mTLS configuration is correctly applied.
-
-Verifies that services configured for mTLS have certificate material
-generated in the rendered artifact directory and that the CA trust chain
-is consistent.
-
-This check is advisory-safe: if mTLS is not enabled the check passes
-immediately (mTLS is completely optional).
-"""
+"""mTLS enforcement check for admission."""
 
 from __future__ import annotations
 
 import json
-import logging
 from pathlib import Path
 
-from open_range.admission import ValidatorCheckReport
+from open_range.admission.models import ValidatorCheckReport
 from open_range.snapshot import KindArtifacts
 from open_range.world_ir import WorldIR
-
-logger = logging.getLogger(__name__)
 
 _MTLS_CERT_FILES = ("ca.pem", "cert.pem", "key.pem")
 

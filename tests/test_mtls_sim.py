@@ -523,7 +523,7 @@ class TestCertificateBundle:
 
 def test_mtls_enforcement_passes_when_disabled(tmp_path):
 
-    from open_range.mtls_enforcement import check_mtls_enforcement
+    from open_range.admission.mtls import check_mtls_enforcement
     from open_range.snapshot import KindArtifacts
 
     # No security/mtls dir → passes immediately
@@ -541,7 +541,7 @@ def test_mtls_enforcement_passes_when_disabled(tmp_path):
 def test_mtls_enforcement_fails_missing_files(tmp_path):
     import json
 
-    from open_range.mtls_enforcement import check_mtls_enforcement
+    from open_range.admission.mtls import check_mtls_enforcement
     from open_range.snapshot import KindArtifacts
 
     mtls_dir = tmp_path / "security" / "mtls"
@@ -571,7 +571,7 @@ def test_mtls_enforcement_fails_missing_files(tmp_path):
 def test_mtls_enforcement_fails_no_weaknesses(tmp_path):
     import json
 
-    from open_range.mtls_enforcement import check_mtls_enforcement
+    from open_range.admission.mtls import check_mtls_enforcement
     from open_range.snapshot import KindArtifacts
 
     sim = MTLSSimulator(MTLSConfig())
@@ -608,7 +608,7 @@ def test_mtls_enforcement_fails_no_weaknesses(tmp_path):
 def test_mtls_enforcement_passes_with_valid_config(tmp_path):
     import json
 
-    from open_range.mtls_enforcement import check_mtls_enforcement
+    from open_range.admission.mtls import check_mtls_enforcement
     from open_range.snapshot import KindArtifacts
 
     sim = MTLSSimulator(MTLSConfig())

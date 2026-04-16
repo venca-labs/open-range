@@ -59,6 +59,7 @@ This is the target, not the current state:
 - [x] route curriculum weakness mutations through the family registry
 - [x] move admission-owned reference planning under `open_range.admission`
 - [x] move admission-owned live checks and remediation helpers under `open_range.admission`
+- [x] move admission-owned security enforcement checks under `open_range.admission`
 - [x] move planner family ranking and red-side fallback policy behind catalog and family handlers
 - [x] move blue-side detection and containment policy behind catalog probe helpers
 - [x] move blue-side readback payload policy behind catalog probe helpers
