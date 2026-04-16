@@ -2,8 +2,10 @@
 
 from __future__ import annotations
 
+import importlib
 import shlex
-from collections.abc import Iterable, Mapping
+from collections.abc import Callable, Iterable, Mapping
+from dataclasses import dataclass
 from typing import Literal
 
 from pydantic import BaseModel, ConfigDict
@@ -14,7 +16,7 @@ from open_range.effect_markers import (
     effect_marker_service,
     effect_marker_token,
 )
-from open_range.predicate_expr import parse_predicate
+from open_range.predicate_expr import PredicateExpr, parse_predicate
 
 StandardAttackObjective = Literal[
     "dos",
@@ -36,13 +38,6 @@ STANDARD_ATTACK_OBJECTIVE_NAMES: tuple[StandardAttackObjective, ...] = (
     "unauthorized_admin_login",
     "privilege_escalation",
     "outbound_service",
-)
-PUBLIC_OBJECTIVE_PREDICATE_NAMES: tuple[str, ...] = STANDARD_ATTACK_OBJECTIVE_NAMES + (
-    "asset_read",
-    "credential_obtained",
-    "intrusion_detected",
-    "intrusion_contained",
-    "service_health_above",
 )
 
 ObjectiveGraderKind = Literal[
@@ -69,100 +64,70 @@ class ObjectiveGraderSpec(_StrictModel):
     expected_ref: str = ""
 
 
-def weakness_objective_tags(
-    family: str, kind: str
-) -> tuple[StandardAttackObjective, ...]:
-    catalog: dict[tuple[str, str], tuple[StandardAttackObjective, ...]] = {
-        ("code_web", "sql_injection"): ("db_access",),
-        ("code_web", "broken_authorization"): ("file_access",),
-        ("code_web", "auth_bypass"): ("unauthorized_admin_login",),
-        ("code_web", "path_traversal"): ("file_access",),
-        ("code_web", "ssrf"): ("outbound_service",),
-        ("code_web", "command_injection"): ("privilege_escalation",),
-        ("config_identity", "weak_password"): ("unauthorized_admin_login",),
-        ("config_identity", "default_credential"): ("unauthorized_admin_login",),
-        ("config_identity", "overbroad_service_account"): ("privilege_escalation",),
-        ("config_identity", "admin_surface_exposed"): ("unauthorized_admin_login",),
-        ("config_identity", "trust_edge_misconfig"): ("privilege_escalation",),
-        ("secret_exposure", "env_file_leak"): ("file_access",),
-        ("secret_exposure", "credential_in_share"): ("file_access",),
-        ("secret_exposure", "backup_leak"): ("file_access",),
-        ("secret_exposure", "token_in_email"): ("file_access",),
-        ("secret_exposure", "hardcoded_app_secret"): ("file_access",),
-        ("workflow_abuse", "helpdesk_reset_bypass"): ("unauthorized_admin_login",),
-        ("workflow_abuse", "approval_chain_bypass"): ("privilege_escalation",),
-        ("workflow_abuse", "document_share_abuse"): ("file_access",),
-        ("workflow_abuse", "phishing_credential_capture"): (
-            "unauthorized_admin_login",
-        ),
-        ("workflow_abuse", "internal_request_impersonation"): (
-            "unauthorized_admin_login",
-        ),
-    }
-    return catalog.get((family, kind), ())
+@dataclass(frozen=True, slots=True)
+class _ObjectiveContext:
+    predicate: str
+    owner_service: str = ""
+    asset_location: str = ""
+    target_id: str = ""
+    default_service: str = ""
 
+    def resolved_target(self, expr: PredicateExpr) -> str:
+        return self.target_id or expr.inner
 
-def objective_tags_for_predicate(
-    predicate: str,
-    *,
-    asset_location: str = "",
-    owner_service: str = "",
-    target_id: str = "",
-) -> tuple[StandardAttackObjective, ...]:
-    expr = parse_predicate(predicate)
-    target = expr.inner or target_id
-    if expr.name in {
-        "dos",
-        "file_access",
-        "file_creation",
-        "db_modification",
-        "db_access",
-        "unauthorized_admin_login",
-        "privilege_escalation",
-        "outbound_service",
-    }:
-        return (expr.name,)  # type: ignore[return-value]
-    if expr.name == "asset_read":
-        is_db = (
-            owner_service == "svc-db"
-            or "db" in target.lower()
-            or "mysql" in asset_location.lower()
+    def is_db_target(self, target_id: str) -> bool:
+        return (
+            self.owner_service == "svc-db"
+            or "db" in target_id.lower()
+            or "mysql" in self.asset_location.lower()
         )
-        return ("db_access",) if is_db else ("file_access",)
-    if expr.name == "credential_obtained":
-        return ("privilege_escalation",)
-    return ()
 
 
-def objective_grader_for_predicate(
-    predicate: str,
+@dataclass(frozen=True, slots=True)
+class _ObjectiveResolution:
+    objective_tags: tuple[StandardAttackObjective, ...] = ()
+    grader: ObjectiveGraderSpec | None = None
+
+
+_ObjectiveRule = Callable[[PredicateExpr, _ObjectiveContext], _ObjectiveResolution]
+
+_OBJECTIVE_RULES: dict[str, _ObjectiveRule] = {}
+_WEAKNESS_OBJECTIVE_TAGS: dict[
+    tuple[str, str], tuple[StandardAttackObjective, ...]
+] = {}
+
+
+def objective_rule(*predicate_names: str) -> Callable[[_ObjectiveRule], _ObjectiveRule]:
+    """Register one resolution rule for one or more public predicates."""
+
+    def wrap(fn: _ObjectiveRule) -> _ObjectiveRule:
+        for predicate_name in predicate_names:
+            existing = _OBJECTIVE_RULES.get(predicate_name)
+            if existing is not None and existing is not fn:
+                raise ValueError(
+                    f"objective predicate rule {predicate_name!r} already registered"
+                )
+            _OBJECTIVE_RULES[predicate_name] = fn
+        return fn
+
+    return wrap
+
+
+def register_weakness_objective_tags(
     *,
-    owner_service: str = "",
-    asset_location: str = "",
-    target_id: str = "",
-    default_service: str = "",
-) -> ObjectiveGraderSpec | None:
-    expr = parse_predicate(predicate)
-    resolved_target = target_id or expr.inner
-    service_id = owner_service or default_service
-    if expr.name == "credential_obtained":
-        return ObjectiveGraderSpec(
-            objective_tag="privilege_escalation",
-            grader_kind="event_present",
-            service_id=service_id or "svc-idp",
-            target_id=resolved_target,
-            event_type="CredentialObtained",
-            expected_ref=resolved_target,
-        )
-    tags = objective_tags_for_predicate(
-        predicate,
-        asset_location=asset_location,
-        owner_service=owner_service,
-        target_id=resolved_target,
-    )
-    if not tags:
-        return None
-    tag = tags[0]
+    family: str,
+    kind: str,
+    objective_tags: tuple[StandardAttackObjective, ...],
+) -> None:
+    _WEAKNESS_OBJECTIVE_TAGS[(family, kind)] = objective_tags
+
+
+def _build_grader_for_tag(
+    tag: StandardAttackObjective,
+    resolved_target: str,
+    ctx: _ObjectiveContext,
+) -> ObjectiveGraderSpec:
+    service_id = ctx.owner_service or ctx.default_service
     if tag == "dos":
         return ObjectiveGraderSpec(
             objective_tag=tag,
@@ -170,22 +135,13 @@ def objective_grader_for_predicate(
             service_id=service_id or resolved_target,
             target_id=resolved_target,
         )
-    if tag == "file_access":
+    if tag in {"file_access", "file_creation"}:
         return ObjectiveGraderSpec(
             objective_tag=tag,
             grader_kind="file_exists",
             service_id=service_id,
             target_id=resolved_target,
-            path=_live_asset_probe_path(asset_location),
-            expected_ref=resolved_target,
-        )
-    if tag == "file_creation":
-        return ObjectiveGraderSpec(
-            objective_tag=tag,
-            grader_kind="file_exists",
-            service_id=service_id,
-            target_id=resolved_target,
-            path=_live_asset_probe_path(asset_location),
+            path=_live_asset_probe_path(ctx.asset_location),
             expected_ref=resolved_target,
         )
     if tag == "db_access":
@@ -208,7 +164,7 @@ def objective_grader_for_predicate(
         return ObjectiveGraderSpec(
             objective_tag=tag,
             grader_kind="outbound_request",
-            service_id=service_id or default_service,
+            service_id=service_id or ctx.default_service,
             target_id=resolved_target,
             expected_ref=resolved_target,
         )
@@ -220,11 +176,93 @@ def objective_grader_for_predicate(
     return ObjectiveGraderSpec(
         objective_tag=tag,
         grader_kind="event_present",
-        service_id=service_id or default_service,
+        service_id=service_id or ctx.default_service or "svc-idp",
         target_id=resolved_target,
         event_type=event_type,
         expected_ref=resolved_target,
     )
+
+
+def _build_resolution_for_tag(
+    tag: StandardAttackObjective,
+    resolved_target: str,
+    ctx: _ObjectiveContext,
+) -> _ObjectiveResolution:
+    return _ObjectiveResolution(
+        objective_tags=(tag,),
+        grader=_build_grader_for_tag(tag, resolved_target, ctx),
+    )
+
+
+def _resolve_objective(
+    predicate: str,
+    *,
+    owner_service: str = "",
+    asset_location: str = "",
+    target_id: str = "",
+    default_service: str = "",
+) -> _ObjectiveResolution:
+    expr = parse_predicate(predicate)
+    rule = _OBJECTIVE_RULES.get(expr.name)
+    if rule is None:
+        return _ObjectiveResolution()
+    ctx = _ObjectiveContext(
+        predicate=predicate,
+        owner_service=owner_service,
+        asset_location=asset_location,
+        target_id=target_id,
+        default_service=default_service,
+    )
+    return rule(expr, ctx)
+
+
+def _registered_objective_predicate_names() -> tuple[str, ...]:
+    return tuple(_OBJECTIVE_RULES)
+
+
+importlib.import_module("open_range._objective_rules")
+
+PUBLIC_OBJECTIVE_PREDICATE_NAMES: tuple[str, ...] = (
+    _registered_objective_predicate_names()
+)
+
+
+def weakness_objective_tags(
+    family: str, kind: str
+) -> tuple[StandardAttackObjective, ...]:
+    return _WEAKNESS_OBJECTIVE_TAGS.get((family, kind), ())
+
+
+def objective_tags_for_predicate(
+    predicate: str,
+    *,
+    asset_location: str = "",
+    owner_service: str = "",
+    target_id: str = "",
+) -> tuple[StandardAttackObjective, ...]:
+    return _resolve_objective(
+        predicate,
+        asset_location=asset_location,
+        owner_service=owner_service,
+        target_id=target_id,
+    ).objective_tags
+
+
+def objective_grader_for_predicate(
+    predicate: str,
+    *,
+    owner_service: str = "",
+    asset_location: str = "",
+    target_id: str = "",
+    default_service: str = "",
+) -> ObjectiveGraderSpec | None:
+    return _resolve_objective(
+        predicate,
+        owner_service=owner_service,
+        asset_location=asset_location,
+        target_id=target_id,
+        default_service=default_service,
+    ).grader
 
 
 def _live_asset_probe_path(asset_location: str) -> str:

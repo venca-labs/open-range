@@ -3,7 +3,12 @@ from __future__ import annotations
 from types import SimpleNamespace
 
 from open_range.compiler import EnterpriseSaaSManifestCompiler
-from open_range.objectives import evaluate_objective_grader_live
+from open_range.objectives import (
+    evaluate_objective_grader_live,
+    objective_grader_for_predicate,
+    objective_tags_for_predicate,
+    weakness_objective_tags,
+)
 from open_range.predicates import PredicateEngine
 from open_range.weaknesses import CatalogWeaknessSeeder
 from tests.support import manifest_payload
@@ -35,6 +40,39 @@ def test_predicate_engine_builds_service_native_graders_for_red_objectives() -> 
         graders["credential_obtained(idp_admin_cred)"].objective_tag
         == "privilege_escalation"
     )
+
+
+def test_objective_rule_registry_keeps_special_case_predicates_stable() -> None:
+    assert objective_tags_for_predicate(
+        "asset_read(finance_docs)",
+        asset_location="svc-db:/var/lib/mysql/finance_docs.sql",
+        owner_service="svc-db",
+        target_id="finance_docs",
+    ) == ("db_access",)
+    assert objective_tags_for_predicate(
+        "asset_read(finance_docs)",
+        asset_location="svc-fileshare:/srv/shared/finance_docs.txt",
+        owner_service="svc-fileshare",
+        target_id="finance_docs",
+    ) == ("file_access",)
+
+    grader = objective_grader_for_predicate(
+        "credential_obtained(idp_admin_cred)",
+        target_id="idp_admin_cred",
+    )
+
+    assert grader is not None
+    assert grader.objective_tag == "privilege_escalation"
+    assert grader.event_type == "CredentialObtained"
+    assert grader.grader_kind == "event_present"
+
+
+def test_weakness_objective_tag_catalog_stays_registered_in_one_place() -> None:
+    assert weakness_objective_tags("code_web", "sql_injection") == ("db_access",)
+    assert weakness_objective_tags(
+        "workflow_abuse",
+        "approval_chain_bypass",
+    ) == ("privilege_escalation",)
 
 
 def test_live_event_backed_admin_grader_still_requires_the_event() -> None:
