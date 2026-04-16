@@ -51,9 +51,7 @@ def test_top_level_private_helper_module_allowlist_only_shrinks() -> None:
         path.name for path in root.glob("_*.py") if path.name != "__init__.py"
     }
 
-    assert private_helpers == {
-        "_episode_driver.py",
-    }
+    assert private_helpers == set()
 
 
 def test_public_docs_avoid_candidate_action_menu_language() -> None:

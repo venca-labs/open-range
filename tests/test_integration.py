@@ -3,7 +3,6 @@ from __future__ import annotations
 from pathlib import Path
 from types import SimpleNamespace
 
-from open_range._episode_driver import ScriptedRuntimeAgent, TandemEpisodeDriver
 from open_range.admission.controller import LocalAdmissionController
 from open_range.build_config import BuildConfig
 from open_range.episode_config import EpisodeConfig
@@ -16,6 +15,7 @@ from open_range.store import (
     hydrate_runtime_snapshot,
     load_world_ir,
 )
+from open_range.training.driver import ScriptedRuntimeAgent, TandemEpisodeDriver
 from open_range.weaknesses.code_web import code_web_payload
 from tests.support import OFFLINE_BUILD_CONFIG, manifest_payload
 

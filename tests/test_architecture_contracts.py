@@ -96,6 +96,17 @@ def test_root_file_surface_matches_target() -> None:
     )
 
 
+def test_root_private_helpers_are_gone() -> None:
+    private_helpers = sorted(
+        path.name for path in SRC_ROOT.glob("_*.py") if path.name != "__init__.py"
+    )
+
+    assert not private_helpers, (
+        "root still contains private helper modules that should live under a stage "
+        "package instead:\n" + "\n".join(private_helpers)
+    )
+
+
 def test_required_stage_packages_exist() -> None:
     missing = sorted(
         package_name

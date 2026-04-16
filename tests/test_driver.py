@@ -2,7 +2,6 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from open_range._episode_driver import ScriptedRuntimeAgent, TandemEpisodeDriver
 from open_range.admission.controller import LocalAdmissionController
 from open_range.compiler import EnterpriseSaaSManifestCompiler
 from open_range.episode_config import EpisodeConfig
@@ -11,6 +10,7 @@ from open_range.runtime import OpenRangeRuntime
 from open_range.runtime_types import Action
 from open_range.store import FileSnapshotStore, hydrate_runtime_snapshot
 from open_range.synth import EnterpriseSaaSWorldSynthesizer
+from open_range.training.driver import ScriptedRuntimeAgent, TandemEpisodeDriver
 from open_range.weaknesses import CatalogWeaknessSeeder
 from tests.support import OFFLINE_BUILD_CONFIG, manifest_payload
 
