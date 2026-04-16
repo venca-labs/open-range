@@ -1,4 +1,4 @@
-"""Counterfactual helpers for admission necessity checks."""
+"""Admission-owned remediation and live cleanup helpers."""
 
 from __future__ import annotations
 

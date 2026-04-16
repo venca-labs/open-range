@@ -25,7 +25,7 @@ from tests.support import (
 )
 
 admit_mod = importlib.import_module("open_range.admit")
-live_checks_mod = importlib.import_module("open_range.live_checks")
+live_checks_mod = importlib.import_module("open_range.admission.live")
 
 
 def _manifest_payload() -> dict:

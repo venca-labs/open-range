@@ -16,9 +16,9 @@ from open_range.admission.references import (
     run_red_reference,
 )
 from open_range.admission.registry import admission_check
+from open_range.admission.remediation import remediation_command
 from open_range.build_config import BuildConfig
 from open_range.catalog.services import service_kind_names
-from open_range.counterfactuals import remediation_command
 from open_range.encryption_enforcement import check_encryption_enforcement
 from open_range.identity_enforcement import check_identity_enforcement
 from open_range.mtls_enforcement import check_mtls_enforcement

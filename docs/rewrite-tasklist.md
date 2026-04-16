@@ -58,6 +58,7 @@ This is the target, not the current state:
 - [x] start weakness family registry and family modules backed by catalog data
 - [x] route curriculum weakness mutations through the family registry
 - [x] move admission-owned reference planning under `open_range.admission`
+- [x] move admission-owned live checks and remediation helpers under `open_range.admission`
 - [x] move planner family ranking and red-side fallback policy behind catalog and family handlers
 - [x] move blue-side detection and containment policy behind catalog probe helpers
 - [x] move blue-side readback payload policy behind catalog probe helpers
@@ -107,7 +108,7 @@ The next real win is:
 
 - `src/open_range/admission/`
   - keep reference planning and reference execution inside admission instead of re-growing side packages
-  - keep the controller thin while checks and references own the detailed behavior
+  - keep the controller thin while checks, live admission, and references own the detailed behavior
 - `src/open_range/runtime/`
   - keep the public runtime surface stable while continuing to delete internal coordination bulk from `core.py`
   - avoid adding new runtime helpers back at the root package
