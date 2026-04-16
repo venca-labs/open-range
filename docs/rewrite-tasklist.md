@@ -45,7 +45,7 @@ Some current private helper files are transitional seams, not the end-state pack
 - [x] define weakness family contracts
 - [x] move weakness kind inventory into catalog and shared helpers
 - [x] define objective rule contracts
-- [ ] define probe default contracts
+- [x] define probe default contracts
 - [x] define observability surface contracts
 
 ### Phase 3: Subsystem rewrites
@@ -65,7 +65,7 @@ Some current private helper files are transitional seams, not the end-state pack
 
 The next real win is not another `admit.py` split. The next win is:
 
-1. move probe defaults and targeting presets into `open_range.catalog`
-2. make the current planners and builders read those defaults instead of local switchboards
+1. move static family and kind reference-step presets into `open_range.catalog`
+2. move verification marker tables and other fixed planner facts beside them
 3. keep public behavior stable while the internals move
 4. lock the behavior with parity tests before deleting the old logic

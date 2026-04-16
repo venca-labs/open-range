@@ -35,6 +35,7 @@ ObjectiveGraderKind = Literal[
     "event_present",
     "outbound_request",
 ]
+ProbeTemplateKind = Literal["smoke", "shortcut", "determinism", "necessity"]
 
 ObjectiveResolutionKind = Literal[
     "direct_objective",
@@ -115,3 +116,18 @@ class WeaknessObservabilitySurfaceSpec:
     kind: str = ""
     target: str = ""
     surfaces: tuple[str, ...] = ()
+
+
+@dataclass(frozen=True, slots=True)
+class ProbeTemplateSpec:
+    id: str
+    kind: ProbeTemplateKind
+    description: str
+    command: str = ""
+
+
+@dataclass(frozen=True, slots=True)
+class ShortcutWebRouteProbeSpec:
+    weakness_kind: str
+    path: str
+    query: tuple[tuple[str, str], ...]

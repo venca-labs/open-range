@@ -13,6 +13,15 @@ from open_range.admission import (
     ReferenceTrace,
 )
 from open_range.build_config import DEFAULT_BUILD_CONFIG, BuildConfig
+from open_range.catalog.contracts import ProbeTemplateSpec
+from open_range.catalog.probes import (
+    DEFAULT_DETERMINISM_PROBE_TEMPLATES,
+    DEFAULT_SHORTCUT_PROBE_TEMPLATES,
+    detection_for_reference_step_action,
+    is_blue_detectable_action,
+    necessity_probe_template,
+    smoke_probe_template,
+)
 from open_range.code_web import code_web_payload
 from open_range.effect_markers import (
     effect_marker_content,
@@ -35,51 +44,20 @@ class ProbePlanner:
         reference_attack_traces = self.build_red_references()
         reference_defense_traces = self.build_blue_references(reference_attack_traces)
         smoke_tests = tuple(
-            ProbeSpec(
-                id=f"smoke-{service.id}",
-                kind="smoke",
-                description=f"boot and basic health for {service.id}",
-                command=f"check {service.id}",
-            )
+            _probe_spec_from_template(smoke_probe_template(service.id))
             for service in self.world.services
         )
-        shortcut_probes = (
-            ProbeSpec(
-                id="shortcut-direct-asset",
-                kind="shortcut",
-                description="direct external crown-jewel access",
-            ),
-            ProbeSpec(
-                id="shortcut-admin", kind="shortcut", description="direct admin access"
-            ),
-            ProbeSpec(
-                id="shortcut-cross-zone",
-                kind="shortcut",
-                description="unintended cross-zone reachability",
-            ),
-            ProbeSpec(
-                id="shortcut-secret", kind="shortcut", description="leaked secrets"
-            ),
-            ProbeSpec(
-                id="shortcut-unlogged",
-                kind="shortcut",
-                description="unlogged critical actions",
-            ),
+        shortcut_probes = tuple(
+            _probe_spec_from_template(template)
+            for template in DEFAULT_SHORTCUT_PROBE_TEMPLATES
         )
-        determinism_probes = (
-            ProbeSpec(
-                id="determinism-red",
-                kind="determinism",
-                description="replay red reference",
-            ),
+        determinism_probes = tuple(
+            _probe_spec_from_template(template)
+            for template in DEFAULT_DETERMINISM_PROBE_TEMPLATES
         )
         engine = PredicateEngine(self.world)
         necessity_probes = tuple(
-            ProbeSpec(
-                id=f"necessity-{weak.id}",
-                kind="necessity",
-                description=f"remove or remediate {weak.id} and require reference degradation",
-            )
+            _probe_spec_from_template(necessity_probe_template(weak.id))
             for weak in engine.active_weaknesses()
         )
         return ReferenceBundle(
@@ -239,12 +217,26 @@ class ProbePlanner:
             (
                 index
                 for index, step in enumerate(red_trace.steps)
-                if _step_is_blue_detectable(red_trace, index, blindspot_targets)
+                if is_blue_detectable_action(
+                    str(step.payload.get("action", "")),
+                    target=step.target,
+                    source_target=(
+                        red_trace.steps[index - 1].target if index > 0 else ""
+                    ),
+                    blindspot_targets=blindspot_targets,
+                )
             ),
             0,
         )
         detect_step = red_trace.steps[detect_index] if red_trace.steps else None
-        detect_event, detect_target = _detection_for_red_step(detect_step)
+        detect_event, detect_target = detection_for_reference_step_action(
+            str(detect_step.payload.get("action", "")) if detect_step else "",
+            target=detect_step.target if detect_step else "",
+            asset=str(detect_step.payload.get("asset", "")) if detect_step else "",
+            objective=(
+                str(detect_step.payload.get("objective", "")) if detect_step else ""
+            ),
+        )
         contain_target = red_trace.steps[-1].target if red_trace.steps else "svc-siem"
         observe_steps = tuple(
             ReferenceAction(
@@ -298,6 +290,15 @@ def runtime_action(actor: str, step: ReferenceAction) -> Action:
     return Action(actor_id=actor, role=actor, kind=step.kind, payload=payload)
 
 
+def _probe_spec_from_template(template: ProbeTemplateSpec) -> ProbeSpec:
+    return ProbeSpec(
+        id=template.id,
+        kind=template.kind,
+        description=template.description,
+        command=template.command,
+    )
+
+
 def _primary_red_weakness(start: str, weaknesses):
     ranked = [weak for weak in weaknesses if weak.family != "telemetry_blindspot"]
     if not ranked:
@@ -310,61 +311,6 @@ def _primary_red_weakness(start: str, weaknesses):
         )
     )
     return ranked[0]
-
-
-def _detection_for_red_step(step: ReferenceAction | None) -> tuple[str, str]:
-    if step is None:
-        return ("InitialAccess", "svc-web")
-    action = str(step.payload.get("action", ""))
-    objective = str(step.payload.get("objective", ""))
-    asset = str(step.payload.get("asset", ""))
-    if action in {"initial_access", "click_lure"}:
-        return ("InitialAccess", step.target)
-    if action == "traverse":
-        return ("CrossZoneTraversal", step.target)
-    if action in {"collect_secret", "abuse_identity"}:
-        target = asset or step.target
-        return (
-            "CredentialObtained"
-            if (asset and ("cred" in asset or "token" in asset))
-            else "SensitiveAssetRead",
-            target,
-        )
-    if action == "abuse_workflow":
-        target = asset or step.target
-        return (
-            "CredentialObtained"
-            if (asset and ("cred" in asset or "token" in asset))
-            else "SensitiveAssetRead",
-            target,
-        )
-    if action == "satisfy_objective" and objective.startswith("credential_obtained("):
-        return ("CredentialObtained", asset or step.target)
-    if action == "satisfy_objective":
-        return ("SensitiveAssetRead", asset or step.target)
-    return ("InitialAccess", step.target or "svc-web")
-
-
-def _step_is_blue_detectable(
-    trace: ReferenceTrace,
-    index: int,
-    blindspot_targets: set[str],
-) -> bool:
-    if index < 0 or index >= len(trace.steps):
-        return False
-    step = trace.steps[index]
-    action = str(step.payload.get("action", ""))
-    if action in {"deliver_phish", "deliver_lure"}:
-        return False
-    source_target = trace.steps[index - 1].target if index > 0 else ""
-    if action in {"initial_access", "click_lure"}:
-        return step.target not in blindspot_targets
-    if action == "traverse":
-        return (
-            step.target not in blindspot_targets
-            and source_target not in blindspot_targets
-        )
-    return step.target not in blindspot_targets
 
 
 def _starts_for_weakness(starts: tuple[str, ...], target: str) -> tuple[str, ...]:

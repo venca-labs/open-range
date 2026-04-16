@@ -20,6 +20,7 @@ from open_range.admission_plan import admission_stages, profile_requires_live
 from open_range.admission_scoring import report_summary
 from open_range.async_utils import run_async
 from open_range.build_config import DEFAULT_BUILD_CONFIG, BuildConfig
+from open_range.catalog.probes import SHORTCUT_WEB_ROUTE_PROBE_SPECS
 from open_range.cluster import KindBackend, LiveBackend
 from open_range.counterfactuals import clear_runtime_markers, remediation_command
 from open_range.execution import PodActionBackend
@@ -600,18 +601,20 @@ def _web_shortcut_findings(
             for weakness in snapshot.world.weaknesses
             if weakness.family == "code_web" and weakness.target == service.id
         }
-        for kind, path, query in _shortcut_web_route_probes():
-            if kind in seeded_kinds:
+        for probe in SHORTCUT_WEB_ROUTE_PROBE_SPECS:
+            if probe.weakness_kind in seeded_kinds:
                 continue
             result = run_async(
                 release.pods.exec(
                     "sandbox-red",
-                    _http_probe_command(service, path, query),
+                    _http_probe_command(service, probe.path, dict(probe.query)),
                     timeout=10.0,
                 )
             )
             if _looks_like_shortcut_payload(result.stdout):
-                findings.append(f"unguarded_web_route:{service.id}:{kind}")
+                findings.append(
+                    f"unguarded_web_route:{service.id}:{probe.weakness_kind}"
+                )
         for asset in snapshot.world.assets:
             if asset.confidentiality not in {"high", "critical"}:
                 continue
@@ -642,26 +645,6 @@ def _http_probe_command(
 
 def _quote_http_url(host: str, port: int, path: str, suffix: str) -> str:
     return f"'http://{host}:{port}{path}{suffix}'"
-
-
-def _shortcut_web_route_probes() -> tuple[tuple[str, str, dict[str, str]], ...]:
-    return (
-        (
-            "sql_injection",
-            "/search.php",
-            {"q": "' UNION SELECT 'shortcut' -- ", "asset": "finance_docs"},
-        ),
-        (
-            "broken_authorization",
-            "/records.php",
-            {"record": "admin-console", "viewer": "sales-01"},
-        ),
-        (
-            "auth_bypass",
-            "/admin.php",
-            {"debug": "1", "as": "admin"},
-        ),
-    )
 
 
 def _looks_like_shortcut_payload(stdout: str) -> bool:
