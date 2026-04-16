@@ -6,8 +6,7 @@ import json
 from typing import Any, Literal
 
 from open_range.runtime_types import Action, Observation, RuntimeEvent
-from open_range.training.trace_exports import public_trace_action
-from open_range.training_data import (
+from open_range.training.data import (
     ActionSource,
     TraceDecisionRow,
     TraceLineage,
@@ -15,6 +14,7 @@ from open_range.training_data import (
     TraceSplit,
     TraceWeakness,
 )
+from open_range.training.trace_exports import public_trace_action
 
 
 def render_action_completion(action: Action) -> str:

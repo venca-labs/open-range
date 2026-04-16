@@ -1,12 +1,12 @@
 from __future__ import annotations
 
 from open_range.runtime_types import Action, Observation
+from open_range.training.data import TraceLineage
 from open_range.training.decision_sft import (
     build_decision_prompt,
     render_action_completion,
     system_prompt_for_role,
 )
-from open_range.training_data import TraceLineage
 
 
 def test_decision_prompt_and_completion_are_structured() -> None:

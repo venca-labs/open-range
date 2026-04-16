@@ -81,6 +81,7 @@ This is the target, not the current state:
 - [ ] move runtime onto hooks and reducers
 - [x] move SFT prompt and system-prompt formatting out of core `src/open_range`
 - [x] move remaining model-facing trace and action-formatting helpers out of core `src/open_range`
+- [x] move trace row schemas and reference sim behind the training package
 - [x] split `code_web.py` into specs, renderers, and remediation helpers
 - [x] move `code_web` internals under a real `open_range.code_web` package
 - [ ] move remaining code-web offline simulation semantics behind focused helpers
@@ -91,6 +92,8 @@ This is the target, not the current state:
 - [ ] remove stale compatibility helpers
 - [x] add a test guardrail so new top-level helper modules fail fast
 - [ ] shrink the top-level package surface
+  - current branch state: root `src/open_range/*.py` files are down to `51`
+  - recent cuts moved `runtime`, `code_web`, `admit`, `weaknesses`, and `tracegen` behind subsystem packages
 
 ## Immediate Next Slice
 
@@ -108,9 +111,9 @@ The next real win is:
 - `src/open_range/runtime/`
   - keep the public runtime surface stable while continuing to delete internal coordination bulk from `core.py`
   - avoid adding new runtime helpers back at the root package
-- `src/open_range/training_data.py`
-  - move the remaining model-facing action serialization and trace-formatting helpers behind the training package boundary now that SFT prompt formatting already lives in `open_range.training`
-  - keep runtime types and trace rows in core, but stop leaving training-facing adapters in the root package
 - `src/open_range/code_web/`
   - keep the public facade small and move any remaining offline simulation semantics behind focused helpers
   - stop using one surface as the build, admit, synth, runtime, and live-patching switchboard for exact web flaws
+- remaining rewritten root modules
+  - `audit.py`, `compiler.py`, `curriculum.py`, `execution.py`, `manifest.py`, `pipeline.py`, `predicates.py`, `probe_planner.py`, `synth.py`
+  - these still count against the issue target and should only stay at root if they are true entry points

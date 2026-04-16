@@ -29,11 +29,13 @@ def test_internal_reference_helpers_are_not_exposed_as_public_modules() -> None:
     assert importlib.util.find_spec("open_range._code_web_specs") is None
     assert importlib.util.find_spec("open_range._decision_sft") is None
     assert importlib.util.find_spec("open_range._reference_replay") is None
+    assert importlib.util.find_spec("open_range._reference_sim") is None
     assert importlib.util.find_spec("open_range._runtime_hooks") is None
     assert importlib.util.find_spec("open_range.runtime_events") is None
     assert importlib.util.find_spec("open_range.runtime_reducers") is None
     assert importlib.util.find_spec("open_range.driver") is None
     assert importlib.util.find_spec("open_range.sim") is None
+    assert importlib.util.find_spec("open_range.training_data") is None
 
 
 def test_top_level_private_helper_module_allowlist_only_shrinks() -> None:
@@ -44,7 +46,6 @@ def test_top_level_private_helper_module_allowlist_only_shrinks() -> None:
 
     assert private_helpers == {
         "_episode_driver.py",
-        "_reference_sim.py",
         "_runtime_store.py",
     }
 
