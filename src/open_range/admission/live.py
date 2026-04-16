@@ -17,9 +17,9 @@ from open_range.admission.references import run_blue_reference, run_red_referenc
 from open_range.admission.remediation import clear_runtime_markers, remediation_command
 from open_range.async_utils import run_async
 from open_range.catalog.probes import SHORTCUT_WEB_ROUTE_PROBE_SPECS
-from open_range.execution import PodActionBackend
 from open_range.objectives import evaluate_objective_grader_live
 from open_range.predicates import PredicateEngine
+from open_range.runtime.execution import PodActionBackend
 from open_range.snapshot import KindArtifacts, RuntimeSnapshot
 from open_range.world_ir import ServiceSpec, WorldIR
 

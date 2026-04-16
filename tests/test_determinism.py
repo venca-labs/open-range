@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from open_range.admit import LocalAdmissionController
+from open_range.admission.controller import LocalAdmissionController
 from open_range.pipeline import BuildPipeline
 from tests.support import OFFLINE_BUILD_CONFIG, manifest_payload
 

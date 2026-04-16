@@ -54,13 +54,13 @@ from open_range.runtime_types import (
 from open_range.service import OpenRange
 from open_range.snapshot import Snapshot, world_hash
 from open_range.store import FileSnapshotStore
-from open_range.tracegen import TraceDatasetGenerator, generate_trace_dataset
 from open_range.training.data import (
     TraceDatasetReport,
     TraceDecisionRow,
     TraceLineage,
 )
 from open_range.training.trace_exports import render_action_text
+from open_range.training.tracegen import TraceDatasetGenerator, generate_trace_dataset
 from open_range.world_ir import WorldIR
 
 __all__ = [

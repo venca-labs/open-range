@@ -7,7 +7,6 @@ from copy import deepcopy
 from pathlib import Path
 from typing import Any
 
-from open_range._runtime_store import hydrate_runtime_snapshot
 from open_range.build_config import OFFLINE_BUILD_CONFIG, BuildConfig
 from open_range.curriculum import FrontierMutationPolicy, PopulationStats
 from open_range.episode_config import EpisodeConfig
@@ -18,7 +17,7 @@ from open_range.runtime.replay import (
     reference_trace_pairs,
 )
 from open_range.snapshot import RuntimeSnapshot
-from open_range.store import FileSnapshotStore
+from open_range.store import FileSnapshotStore, hydrate_runtime_snapshot
 from open_range.training.data import (
     ActionSource,
     TraceDatasetReport,

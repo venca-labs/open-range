@@ -3,13 +3,12 @@ from __future__ import annotations
 from pathlib import Path
 from types import SimpleNamespace
 
-from open_range._runtime_store import hydrate_runtime_snapshot
 from open_range.cluster import ExecResult
 from open_range.episode_config import EpisodeConfig
 from open_range.pipeline import BuildPipeline
 from open_range.runtime_types import Action
 from open_range.service import OpenRange
-from open_range.store import FileSnapshotStore
+from open_range.store import FileSnapshotStore, hydrate_runtime_snapshot
 from tests.support import OFFLINE_BUILD_CONFIG, manifest_payload
 
 

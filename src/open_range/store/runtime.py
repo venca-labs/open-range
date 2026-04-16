@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from open_range.admission import ReferenceBundle
 from open_range.snapshot import RuntimeSnapshot, Snapshot
-from open_range.store import FileSnapshotStore, PoolSplit
+from open_range.store.core import FileSnapshotStore, PoolSplit
 from open_range.world_ir import WorldIR
 
 

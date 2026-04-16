@@ -53,7 +53,6 @@ def test_top_level_private_helper_module_allowlist_only_shrinks() -> None:
 
     assert private_helpers == {
         "_episode_driver.py",
-        "_runtime_store.py",
     }
 
 

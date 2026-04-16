@@ -4,7 +4,7 @@ import json
 from pathlib import Path
 
 from open_range.resources import load_bundled_manifest
-from open_range.tracegen import generate_trace_dataset
+from open_range.training.tracegen import generate_trace_dataset
 
 
 def _read_jsonl(path: Path) -> list[dict]:

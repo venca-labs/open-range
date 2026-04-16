@@ -3,7 +3,7 @@ from __future__ import annotations
 from itertools import count
 
 from open_range.admission.models import ReferenceAction
-from open_range.execution import ActionExecution
+from open_range.runtime.execution import ActionExecution
 from open_range.runtime.reducers import (
     BLUE_CONTAINMENT_OBJECTIVE,
     BLUE_DETECTION_OBJECTIVE,

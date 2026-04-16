@@ -21,7 +21,7 @@ from open_range.pipeline import BuildPipeline
 from open_range.resources import load_bundled_manifest
 from open_range.service import OpenRange
 from open_range.store import FileSnapshotStore
-from open_range.tracegen import generate_trace_dataset
+from open_range.training.tracegen import generate_trace_dataset
 
 LOG_FORMAT = "%(asctime)s [%(levelname)s] %(name)s: %(message)s"
 LOG_DATE_FORMAT = "%H:%M:%S"

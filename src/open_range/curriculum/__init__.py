@@ -8,11 +8,10 @@ from typing import Literal, Protocol
 
 from pydantic import BaseModel, ConfigDict, Field
 
-from open_range._runtime_store import load_world_ir
 from open_range.catalog.roles import home_service_for_role, routine_for_role
 from open_range.catalog.services import host_for_service, service_catalog_entry_for_kind
 from open_range.predicate_expr import predicate_inner
-from open_range.store import FileSnapshotStore
+from open_range.store import FileSnapshotStore, load_world_ir
 from open_range.weakness_families import (
     mutation_spec_for_family,
     mutation_target_service_for_family,
