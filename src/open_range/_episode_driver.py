@@ -1,4 +1,4 @@
-"""Episode driver using the public decision loop."""
+"""Internal episode driver helpers built on the public decision loop."""
 
 from __future__ import annotations
 
@@ -83,7 +83,7 @@ class TandemEpisodeDriver:
 
 
 class ScriptedRuntimeAgent:
-    """Small deterministic agent for driver tests."""
+    """Small deterministic agent for internal driver tests."""
 
     def __init__(self, actions: list[Action]) -> None:
         self._actions = list(actions)

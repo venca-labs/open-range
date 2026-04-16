@@ -56,7 +56,7 @@ class OpenRangeRuntime:
         self._red_reward_shaping = 0.0
         self._blue_reward_shaping = 0.0
         self._red_progress = 0
-        self._blue_internal_progress = 0
+        self._blue_progress = 0
         self._blue_detected = False
         self._blue_contained = False
         self._contained_targets: set[str] = set()
@@ -95,7 +95,7 @@ class OpenRangeRuntime:
         self._red_reward_shaping = 0.0
         self._blue_reward_shaping = 0.0
         self._red_progress = 0
-        self._blue_internal_progress = 0
+        self._blue_progress = 0
         self._blue_detected = False
         self._blue_contained = False
         self._contained_targets = set()
@@ -533,9 +533,7 @@ class OpenRangeRuntime:
 
         emitted: list[RuntimeEvent] = []
         reward_delta = 0.0
-        expected_internal = None
-        if internal and self._resolved_opponent_mode("blue") in {"reference", "replay"}:
-            expected_internal = self._next_blue_step()
+        expected_reference = self._next_blue_step()
         live = self._execute_live_action(action)
         audit = self._observe_action(action, live, controlled=not internal)
         emit_event = self._audit_emit_event(audit)
@@ -698,10 +696,10 @@ class OpenRangeRuntime:
         self._blue_reward_shaping += reward_delta
         if not internal:
             self._last_reward_delta["blue"] += reward_delta
-        elif expected_internal is not None and self._matches_step(
-            action, expected_internal, live.stdout
+        if expected_reference is not None and self._matches_step(
+            action, expected_reference, live.stdout
         ):
-            self._blue_internal_progress += 1
+            self._blue_progress += 1
         self._append_suspicious_audit_event(action, audit, emitted)
         self._record_action_audit(audit, emitted)
 
@@ -781,9 +779,9 @@ class OpenRangeRuntime:
         if self._snapshot is None:
             return None
         trace = self._reference_defense_trace()
-        if self._blue_internal_progress >= len(trace.steps):
+        if self._blue_progress >= len(trace.steps):
             return None
-        return trace.steps[self._blue_internal_progress]
+        return trace.steps[self._blue_progress]
 
     @staticmethod
     def _matches_step(action: Action, expected, live_stdout: str) -> bool:
@@ -1292,10 +1290,6 @@ class OpenRangeRuntime:
         if requested is not None:
             return requested % count
         return (fallback + self._reset_seq - 1) % count
-
-
-# Backward-compatible alias for callers still importing the old internal name.
-ReferenceDrivenRuntime = OpenRangeRuntime
 
 
 def _initial_due_times(config: EpisodeConfig) -> dict[str, float]:

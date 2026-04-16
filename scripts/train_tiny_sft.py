@@ -148,6 +148,11 @@ def split_examples(
         train_rows = [row for row in rows if row.get("split") == "train"]
         eval_rows = [row for row in rows if row.get("split") in {"val", "test"}]
         if train_rows and eval_rows:
+            deficit = min_eval_rows - len(eval_rows)
+            if deficit > 0 and len(train_rows) > 1:
+                promote = min(deficit, len(train_rows) - 1)
+                eval_rows = eval_rows + train_rows[:promote]
+                train_rows = train_rows[promote:]
             return train_rows, eval_rows
     eval_count = max(min_eval_rows, int(round(len(rows) * eval_ratio)))
     eval_count = min(eval_count, max(1, len(rows) - 1))

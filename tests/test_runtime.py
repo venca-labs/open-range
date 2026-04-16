@@ -16,6 +16,7 @@ from open_range.compiler import EnterpriseSaaSManifestCompiler
 from open_range.episode_config import EpisodeConfig
 from open_range.execution import PodActionBackend
 from open_range.green import ScriptedGreenScheduler
+from open_range.probe_planner import runtime_action
 from open_range.render import EnterpriseSaaSKindRenderer
 from open_range.runtime import OpenRangeRuntime
 from open_range.runtime_types import Action, RuntimeEvent
@@ -981,6 +982,35 @@ def test_internal_blue_controller_modes_are_not_aliases(tmp_path: Path):
     scripted_action = scripted_runtime._internal_blue_action()
     assert scripted_action.kind == "submit_finding"
     assert scripted_action.payload["target"] == first_step.target
+
+
+def test_external_blue_reference_step_advances_between_decisions(tmp_path: Path):
+    snapshot = _snapshot(tmp_path)
+    defense_trace = snapshot.reference_bundle.reference_defense_traces[0]
+    assert len(defense_trace.steps) >= 2
+
+    runtime = OpenRangeRuntime()
+    runtime.reset(
+        snapshot,
+        EpisodeConfig(
+            mode="blue_only_live",
+            opponent_red="reference",
+            green_enabled=False,
+            telemetry_delay_enabled=False,
+            telemetry_delay_profile="none",
+        ),
+        reference_defense_index=0,
+    )
+
+    first_decision = runtime.next_decision()
+    assert first_decision.actor == "blue"
+    assert runtime.reference_step("blue") == defense_trace.steps[0]
+
+    runtime.act("blue", runtime_action("blue", defense_trace.steps[0]))
+
+    second_decision = runtime.next_decision()
+    assert second_decision.actor == "blue"
+    assert runtime.reference_step("blue") == defense_trace.steps[1]
 
 
 def test_next_decision_raises_done_after_internal_terminal_progress(tmp_path: Path):

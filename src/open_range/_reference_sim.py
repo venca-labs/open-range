@@ -1,4 +1,4 @@
-"""Optional deterministic sim-plane for cheap bootstrap traces."""
+"""Internal deterministic sim-plane for cheap bootstrap traces."""
 
 from __future__ import annotations
 
