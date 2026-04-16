@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import shlex
 
-from open_range._code_web_common import guard_path
+from open_range.code_web.common import guard_path
 from open_range.world_ir import WeaknessSpec
 
 

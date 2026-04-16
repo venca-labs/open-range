@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from open_range._code_web_common import (
+from open_range.code_web.common import (
     CodeWebTemplate,
     egress_canary_url,
     foothold_path,

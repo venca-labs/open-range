@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import textwrap
 
-from open_range._code_web_common import (
+from open_range.code_web.common import (
     foothold_path,
     foothold_token,
     guard_path,

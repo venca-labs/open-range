@@ -82,6 +82,7 @@ This is the target, not the current state:
 - [x] move SFT prompt and system-prompt formatting out of core `src/open_range`
 - [x] move remaining model-facing trace and action-formatting helpers out of core `src/open_range`
 - [x] split `code_web.py` into specs, renderers, and remediation helpers
+- [x] move `code_web` internals under a real `open_range.code_web` package
 - [ ] move remaining code-web offline simulation semantics behind focused helpers
 
 ### Phase 4: Deletions
@@ -95,7 +96,7 @@ This is the target, not the current state:
 
 The next real win is:
 
-1. keep pushing the `code_web` subsystem split until offline simulation and remediation semantics are no longer flattened into one surface
+1. finish the remaining `code_web` offline simulation split now that the subsystem is packaged
 2. keep behavior stable with parity tests before deleting the old logic
 3. collapse any remaining root-module compatibility seams that no longer buy us anything
 
@@ -110,6 +111,6 @@ The next real win is:
 - `src/open_range/training_data.py`
   - move the remaining model-facing action serialization and trace-formatting helpers behind the training package boundary now that SFT prompt formatting already lives in `open_range.training`
   - keep runtime types and trace rows in core, but stop leaving training-facing adapters in the root package
-- `src/open_range/code_web.py`
+- `src/open_range/code_web/`
   - keep the public facade small and move any remaining offline simulation semantics behind focused helpers
   - stop using one surface as the build, admit, synth, runtime, and live-patching switchboard for exact web flaws
