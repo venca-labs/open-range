@@ -26,6 +26,7 @@ from open_range.runtime_reducers import (
     blue_objectives_after_continuity,
     continuity_for_service_health,
     reduce_blue_control,
+    reduce_observation_state,
     reduce_red_action,
 )
 from open_range.runtime_types import (
@@ -398,36 +399,33 @@ class OpenRangeRuntime:
 
     def _build_observation(self, actor: ExternalRole) -> Observation:
         visible = self._visible_events(actor)
-        alerts = tuple(
-            event
-            for event in visible
-            if event.malicious
-            or event.event_type
-            in {
-                "DetectionAlertRaised",
-                "ContainmentApplied",
-                "PatchApplied",
-                "ServiceDegraded",
-            }
-        )
-        reward_delta = self._last_reward_delta[actor]
-        self._last_reward_delta[actor] = 0.0
-        self._observed_event_ids[actor].update(event.id for event in visible)
         session = (
             self._state.red_session if actor == "red" else self._state.blue_session
         )
-        first_observation = session is not None and session.observation_count == 0
-        if session is not None:
-            session.observation_count += 1
-        stdout = self._observation_stdout(actor, first_observation=first_observation)
+        transition = reduce_observation_state(
+            visible_events=visible,
+            previous_reward_delta=self._last_reward_delta[actor],
+            observed_event_ids=self._observed_event_ids[actor],
+            observation_count=(
+                session.observation_count if session is not None else None
+            ),
+        )
+        self._last_reward_delta[actor] = 0.0
+        self._observed_event_ids[actor] = transition.observed_event_ids
+        if session is not None and transition.next_observation_count is not None:
+            session.observation_count = transition.next_observation_count
+        stdout = self._observation_stdout(
+            actor,
+            first_observation=transition.first_observation,
+        )
         return Observation(
             actor_id=actor,
             sim_time=round(self._state.sim_time, 4),
             stdout=stdout,
             visible_events=visible,
-            alerts_delta=alerts,
+            alerts_delta=transition.alerts,
             service_health=self._service_health_tuple(),
-            reward_delta=reward_delta,
+            reward_delta=transition.reward_delta,
             done=self._state.done,
         )
 

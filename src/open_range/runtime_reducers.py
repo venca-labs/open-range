@@ -15,6 +15,14 @@ from open_range.runtime_types import Action, RuntimeEvent
 
 SERVICE_HEALTH_BLUE_OBJECTIVE = "service_health_above(0.9)"
 BLUE_CONTAINMENT_OBJECTIVE = "intrusion_contained(before_asset_read)"
+OBSERVATION_ALERT_EVENT_TYPES = frozenset(
+    {
+        "DetectionAlertRaised",
+        "ContainmentApplied",
+        "PatchApplied",
+        "ServiceDegraded",
+    }
+)
 
 
 @dataclass(frozen=True, slots=True)
@@ -41,6 +49,15 @@ class BlueControlTransition:
     patched_targets: set[str]
     path_broken: bool = False
     event_spec: BlueControlEventSpec | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class ObservationTransition:
+    alerts: tuple[RuntimeEvent, ...]
+    reward_delta: float
+    observed_event_ids: set[str]
+    next_observation_count: int | None
+    first_observation: bool = False
 
 
 def continuity_for_service_health(service_health: Mapping[str, float]) -> float:
@@ -190,4 +207,27 @@ def reduce_blue_control(
         patched_targets=next_patched,
         path_broken=path_broken,
         event_spec=event_spec,
+    )
+
+
+def reduce_observation_state(
+    *,
+    visible_events: tuple[RuntimeEvent, ...],
+    previous_reward_delta: float,
+    observed_event_ids: set[str] | frozenset[str],
+    observation_count: int | None,
+) -> ObservationTransition:
+    return ObservationTransition(
+        alerts=tuple(
+            event
+            for event in visible_events
+            if event.malicious or event.event_type in OBSERVATION_ALERT_EVENT_TYPES
+        ),
+        reward_delta=previous_reward_delta,
+        observed_event_ids=set(observed_event_ids)
+        | {event.id for event in visible_events},
+        next_observation_count=(
+            observation_count + 1 if observation_count is not None else None
+        ),
+        first_observation=observation_count == 0,
     )

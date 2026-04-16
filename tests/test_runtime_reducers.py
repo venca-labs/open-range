@@ -6,10 +6,12 @@ from open_range.admission.models import ReferenceAction
 from open_range.execution import ActionExecution
 from open_range.runtime_reducers import (
     BLUE_CONTAINMENT_OBJECTIVE,
+    OBSERVATION_ALERT_EVENT_TYPES,
     SERVICE_HEALTH_BLUE_OBJECTIVE,
     blue_objectives_after_continuity,
     continuity_for_service_health,
     reduce_blue_control,
+    reduce_observation_state,
     reduce_red_action,
 )
 from open_range.runtime_types import Action, RuntimeEvent
@@ -197,3 +199,67 @@ def test_reduce_blue_control_clears_state_on_recovery() -> None:
     assert transition.patched_targets == set()
     assert transition.event_spec is not None
     assert transition.event_spec.event_type == "RecoveryCompleted"
+
+
+def test_reduce_observation_state_consumes_reward_and_marks_first_observation() -> None:
+    visible_events = (
+        RuntimeEvent(
+            id="evt-1",
+            event_type="InitialAccess",
+            actor="red",
+            time=1.0,
+            source_entity="red",
+            target_entity="svc-web",
+            malicious=True,
+        ),
+        RuntimeEvent(
+            id="evt-2",
+            event_type="PatchApplied",
+            actor="blue",
+            time=2.0,
+            source_entity="blue",
+            target_entity="svc-web",
+            malicious=False,
+        ),
+    )
+
+    transition = reduce_observation_state(
+        visible_events=visible_events,
+        previous_reward_delta=0.3,
+        observed_event_ids={"evt-0"},
+        observation_count=0,
+    )
+
+    assert transition.reward_delta == 0.3
+    assert transition.first_observation is True
+    assert transition.next_observation_count == 1
+    assert transition.observed_event_ids == {"evt-0", "evt-1", "evt-2"}
+    assert {event.event_type for event in transition.alerts} == {
+        "InitialAccess",
+        "PatchApplied",
+    }
+
+
+def test_reduce_observation_state_keeps_non_session_reads_stateless() -> None:
+    visible_events = (
+        RuntimeEvent(
+            id="evt-1",
+            event_type=next(iter(OBSERVATION_ALERT_EVENT_TYPES)),
+            actor="blue",
+            time=1.0,
+            source_entity="blue",
+            target_entity="svc-web",
+            malicious=False,
+        ),
+    )
+
+    transition = reduce_observation_state(
+        visible_events=visible_events,
+        previous_reward_delta=0.0,
+        observed_event_ids=set(),
+        observation_count=None,
+    )
+
+    assert transition.first_observation is False
+    assert transition.next_observation_count is None
+    assert transition.alerts == visible_events

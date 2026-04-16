@@ -66,6 +66,7 @@ Some current private helper files are transitional seams, not the end-state pack
 - [x] start the runtime reducer split with shared continuity reducers
 - [x] move red action reduction behind runtime reducers
 - [x] move blue control transitions behind runtime reducers
+- [x] move read-side observation state updates behind runtime reducers
 - [x] centralize runtime control and finding payload parsing
 - [ ] finish the weakness subsystem move and shrink `open_range.weaknesses`
 - [x] move objectives fully onto catalog-backed resolution
@@ -83,7 +84,7 @@ The next real win is:
 
 1. finish the weakness subsystem move and shrink `open_range.weaknesses`
 2. keep pushing runtime state changes behind reducers and hooks
-3. move the read-side observation state updates out of `runtime.py`
+3. move runtime event emission and visibility timing onto clearer hook boundaries
 4. keep behavior stable with parity tests before deleting the old logic
 
 ## Next Large Targets
@@ -95,5 +96,5 @@ The next real win is:
   - finish deleting the remaining family heuristics now that the family registry owns builders, mutators, probe/render hooks, and the pinned-target/selection policy is gone
   - keep the file focused on orchestration and public seeding entry points
 - `src/open_range/runtime.py`
-  - keep moving action and observation state changes behind reducers now that continuity, red action reduction, and blue control transitions already have shared seams
+  - keep moving action and observation state changes behind reducers now that continuity, red action reduction, blue control transitions, and read-side observation updates already have shared seams
   - keep the decision loop and public runtime surface stable while deleting inline side-effect policy

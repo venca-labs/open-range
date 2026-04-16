@@ -178,6 +178,32 @@ def test_one_day_prompt_mode_exposes_high_level_risky_surfaces(tmp_path: Path):
     assert "sql_injection" not in decision.obs.stdout
 
 
+def test_runtime_briefing_text_only_appears_on_first_observation(tmp_path: Path):
+    snapshot = _snapshot(tmp_path)
+    runtime = OpenRangeRuntime()
+    runtime.reset(snapshot, EpisodeConfig(mode="red_only", green_enabled=False))
+
+    first_decision = runtime.next_decision()
+    assert "briefing_mode=" in first_decision.obs.stdout
+
+    first_red = snapshot.reference_bundle.reference_attack_traces[0].steps[0]
+    runtime.act(
+        "red",
+        Action(
+            actor_id="red",
+            role="red",
+            kind=first_red.kind,
+            payload={"target": first_red.target, **first_red.payload},
+        ),
+    )
+
+    second_decision = runtime.next_decision()
+
+    assert second_decision.actor == "red"
+    assert "briefing_mode=" not in second_decision.obs.stdout
+    assert second_decision.obs.stdout.startswith("sim_time=")
+
+
 def test_blue_only_from_prefix_starts_blue_after_compromise_prefix(tmp_path: Path):
     snapshot = _snapshot(tmp_path)
     runtime = OpenRangeRuntime()
