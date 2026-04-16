@@ -33,12 +33,10 @@ from typing import Any
 
 from pydantic import BaseModel, Field
 
-from open_range.image_policy import DB_MTLS_HELPER_IMAGE
-from open_range.runtime_extensions import (
+from open_range.render import (
+    DB_MTLS_HELPER_IMAGE,
     RuntimePort,
     RuntimeSidecar,
-)
-from open_range.security_runtime import (
     SecurityPayloadSpec,
     SecurityRuntimeSpec,
     SecurityServiceRuntimeSpec,

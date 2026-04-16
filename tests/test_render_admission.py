@@ -4,18 +4,20 @@ import importlib
 from pathlib import Path
 from types import SimpleNamespace
 
-from open_range._runtime_store import load_runtime_snapshot
-from open_range.admit import LocalAdmissionController
+from open_range.admission.controller import LocalAdmissionController
 from open_range.build_config import BuildConfig
 from open_range.cluster import ExecResult
 from open_range.code_web import code_web_payload
 from open_range.compiler import EnterpriseSaaSManifestCompiler
 from open_range.curriculum import FrontierMutationPolicy, PopulationStats
-from open_range.image_policy import SANDBOX_IMAGE_BY_ROLE, service_image_for_kind
 from open_range.pipeline import BuildPipeline
 from open_range.predicates import PredicateEngine
-from open_range.render import EnterpriseSaaSKindRenderer
-from open_range.store import FileSnapshotStore
+from open_range.render import (
+    SANDBOX_IMAGE_BY_ROLE,
+    EnterpriseSaaSKindRenderer,
+    service_image_for_kind,
+)
+from open_range.store import FileSnapshotStore, load_runtime_snapshot
 from open_range.synth import EnterpriseSaaSWorldSynthesizer
 from open_range.weaknesses import CatalogWeaknessSeeder
 from tests.support import (
@@ -24,7 +26,7 @@ from tests.support import (
     manifest_payload,
 )
 
-admit_mod = importlib.import_module("open_range.admit")
+admission_controller_mod = importlib.import_module("open_range.admission.controller")
 live_checks_mod = importlib.import_module("open_range.admission.live")
 
 
@@ -370,8 +372,8 @@ def test_no_necessity_profile_skips_auto_live_backend_probe(
         run_calls.append(args)
         return SimpleNamespace(returncode=0, stdout="openrange\n", stderr="")
 
-    monkeypatch.setattr(admit_mod.shutil, "which", fake_which)
-    monkeypatch.setattr(admit_mod.subprocess, "run", fake_run)
+    monkeypatch.setattr(admission_controller_mod.shutil, "which", fake_which)
+    monkeypatch.setattr(admission_controller_mod.subprocess, "run", fake_run)
 
     _bundle, report = LocalAdmissionController(mode="fail_fast").admit(
         world, artifacts, OFFLINE_REFERENCE_BUILD_CONFIG
@@ -405,8 +407,8 @@ def test_k3d_profile_uses_k3d_auto_live_backend(tmp_path: Path, monkeypatch) -> 
             )
         return SimpleNamespace(returncode=0, stdout="", stderr="")
 
-    monkeypatch.setattr(admit_mod.shutil, "which", fake_which)
-    monkeypatch.setattr(admit_mod.subprocess, "run", fake_run)
+    monkeypatch.setattr(admission_controller_mod.shutil, "which", fake_which)
+    monkeypatch.setattr(admission_controller_mod.subprocess, "run", fake_run)
 
     controller = LocalAdmissionController(mode="analysis")
     backend = controller._auto_live_backend(

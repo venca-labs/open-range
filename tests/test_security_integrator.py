@@ -7,14 +7,13 @@ from pathlib import Path
 
 import pytest
 
-from open_range.image_policy import DB_MTLS_HELPER_IMAGE
+from open_range.render import DB_MTLS_HELPER_IMAGE, materialize_security_runtime
 from open_range.security_integrator import (
     DEFAULT_TIER_MAP,
     SecurityIntegrator,
     SecurityIntegratorConfig,
     _default_scopes_for_service,
 )
-from open_range.security_runtime import materialize_security_runtime
 
 
 def _has_cryptography() -> bool:

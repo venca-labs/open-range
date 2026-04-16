@@ -15,7 +15,7 @@ from open_range.manifest import (
     WeaknessTargetKind,
 )
 from open_range.objectives import StandardAttackObjective
-from open_range.security_runtime import SecurityRuntimeSpec
+from open_range.render import SecurityRuntimeSpec
 
 
 class _StrictModel(BaseModel):

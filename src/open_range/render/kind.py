@@ -10,21 +10,19 @@ from typing import Any, Protocol
 
 import yaml
 
-from open_range.image_policy import (
-    SANDBOX_IMAGE_BY_ROLE,
-    service_image_for_kind,
-)
-from open_range.runtime_extensions import (
-    RenderExtensions,
-    apply_service_runtime_extensions,
-    merge_render_extensions,
-)
-from open_range.security_runtime import materialize_security_runtime
 from open_range.snapshot import KindArtifacts
 from open_range.synth import SynthArtifacts
 from open_range.world_ir import GreenPersona, ServiceSpec, WorldIR
 
-_CHART_DIR = Path(__file__).resolve().parent / "chart"
+from .extensions import (
+    RenderExtensions,
+    apply_service_runtime_extensions,
+    merge_render_extensions,
+)
+from .images import SANDBOX_IMAGE_BY_ROLE, service_image_for_kind
+from .security import materialize_security_runtime
+
+_CHART_DIR = Path(__file__).resolve().parents[1] / "chart"
 
 
 class KindRenderer(Protocol):

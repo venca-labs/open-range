@@ -14,11 +14,12 @@ from typing import Any
 
 import yaml
 
-from open_range.render import EnterpriseSaaSKindRenderer
-from open_range.runtime_extensions import RenderExtensions
 from open_range.snapshot import KindArtifacts
 from open_range.synth import SynthArtifacts
 from open_range.world_ir import ServiceSpec, WorldIR
+
+from .extensions import RenderExtensions
+from .kind import EnterpriseSaaSKindRenderer
 
 logger = logging.getLogger(__name__)
 

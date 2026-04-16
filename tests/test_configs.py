@@ -6,22 +6,21 @@ from pathlib import Path
 
 import pytest
 
-from open_range._runtime_store import hydrate_runtime_snapshot
 from open_range.build_config import BuildConfig
 from open_range.compiler import EnterpriseSaaSManifestCompiler
 from open_range.episode_config import EpisodeConfig
-from open_range.image_policy import DB_MTLS_HELPER_IMAGE
 from open_range.manifest import validate_manifest
 from open_range.pipeline import BuildPipeline
-from open_range.render import EnterpriseSaaSKindRenderer
-from open_range.runtime_extensions import (
+from open_range.render import (
+    DB_MTLS_HELPER_IMAGE,
+    EnterpriseSaaSKindRenderer,
     RenderExtensions,
     RuntimePayload,
     RuntimePort,
     RuntimeSidecar,
     ServiceRuntimeExtension,
 )
-from open_range.store import FileSnapshotStore
+from open_range.store import FileSnapshotStore, hydrate_runtime_snapshot
 from open_range.synth import EnterpriseSaaSWorldSynthesizer
 from open_range.weaknesses import CatalogWeaknessSeeder
 from open_range.world_ir import WorldIR
