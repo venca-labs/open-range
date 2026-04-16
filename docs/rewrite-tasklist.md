@@ -92,8 +92,8 @@ This is the target, not the current state:
 - [ ] remove stale compatibility helpers
 - [x] add a test guardrail so new top-level helper modules fail fast
 - [ ] shrink the top-level package surface
-  - current branch state: root `src/open_range/*.py` files are down to `46`
-  - recent cuts moved `runtime`, `code_web`, `admit`, `weaknesses`, `tracegen`, `audit`, `execution`, `predicates`, `probe_planner`, and `synth` behind subsystem packages
+  - current branch state: root `src/open_range/*.py` files are down to `42`
+  - recent cuts moved `runtime`, `code_web`, `admit`, `weaknesses`, `tracegen`, `audit`, `execution`, `predicates`, `probe_planner`, `synth`, `compiler`, `curriculum`, `manifest`, and `pipeline` behind subsystem packages
 
 ## Immediate Next Slice
 
@@ -114,6 +114,6 @@ The next real win is:
 - `src/open_range/code_web/`
   - keep the public facade small and move any remaining offline simulation semantics behind focused helpers
   - stop using one surface as the build, admit, synth, runtime, and live-patching switchboard for exact web flaws
-- remaining rewritten root modules
-  - `compiler.py`, `curriculum.py`, `manifest.py`, `pipeline.py`
-  - these still count against the issue target and should only stay at root if they are true entry points
+- remaining root reduction work
+  - the rewrite-touched subsystems now resolve through package paths instead of flat root files
+  - the next drop from `42` toward the issue target needs to come from untouched legacy root modules or by splitting the new packages into smaller internal modules and deleting old seams
