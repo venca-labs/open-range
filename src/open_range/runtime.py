@@ -7,7 +7,7 @@ from typing import Literal
 from uuid import uuid4
 
 from open_range._reference_replay import matches_reference_step
-from open_range.audit import ActionAuditor, command_text_for_action
+from open_range._runtime_hooks import RuntimeHooks
 from open_range.episode_config import DEFAULT_EPISODE_CONFIG, EpisodeConfig
 from open_range.execution import (
     ActionBackend,
@@ -93,7 +93,10 @@ class OpenRangeRuntime:
         self._next_due_time = {"red": 0.0, "blue": 0.0}
         self._reference_attack_index = 0
         self._reference_defense_index = 0
-        self._auditor: ActionAuditor | None = None
+        self._hooks = RuntimeHooks(
+            green_scheduler=self.green_scheduler,
+            action_backend=action_backend,
+        )
 
     def reset(
         self,
@@ -138,9 +141,7 @@ class OpenRangeRuntime:
             len(snapshot.reference_bundle.reference_defense_traces),
             fallback=self._reference_attack_index,
         )
-        self._auditor = ActionAuditor(episode_config.audit)
-        self._auditor.bind_snapshot(snapshot)
-        self._auditor.capture_baseline(self._capture_integrity)
+        self._hooks.reset(snapshot, episode_config.audit)
 
         service_health = {service.id: 1.0 for service in snapshot.world.services}
         if self.action_backend is not None:
@@ -175,6 +176,7 @@ class OpenRangeRuntime:
 
     def set_action_backend(self, action_backend: ActionBackend | None) -> None:
         self.action_backend = action_backend
+        self._hooks.set_action_backend(action_backend)
 
     def next_decision(self) -> Decision:
         if self._snapshot is None:
@@ -232,11 +234,6 @@ class OpenRangeRuntime:
             winner=self._state.winner,
             done=self._state.done,
         )
-        audit = (
-            self._auditor.build_summary(self._capture_integrity)
-            if self._auditor is not None
-            else None
-        )
         return EpisodeScore(
             snapshot_id=self._state.snapshot_id,
             episode_id=self._state.episode_id,
@@ -250,7 +247,7 @@ class OpenRangeRuntime:
             red_objectives_satisfied=tuple(sorted(self._red_objectives_satisfied)),
             blue_objectives_satisfied=tuple(sorted(self._blue_objectives_satisfied)),
             event_count=len(self._events),
-            audit=audit,
+            audit=self._hooks.build_audit_summary(),
         )
 
     def state(self) -> EpisodeState:
@@ -266,7 +263,7 @@ class OpenRangeRuntime:
     def close(self) -> None:
         self._snapshot = None
         self._predicates = None
-        self._auditor = None
+        self._hooks.close()
         self._pending_actor = ""
         self._state.done = True
         self._state.next_actor = ""
@@ -478,12 +475,13 @@ class OpenRangeRuntime:
                 payload.setdefault("target", target)
             exec_action = action.model_copy(update={"payload": payload})
         live = self._execute_live_action(exec_action)
-        audit = self._observe_action(
+        audit = self._hooks.observe_action(
             exec_action,
             live,
+            sim_time=self._state.sim_time,
             controlled=not internal,
         )
-        emit_event = self._audit_emit_event(audit)
+        emit_event = self._hooks.emit_event(audit, self._emit_event)
         expected = self._next_red_step()
         reduction = reduce_red_action(
             action=action,
@@ -517,8 +515,12 @@ class OpenRangeRuntime:
         self._red_reward_shaping += reward_delta
         if not internal:
             self._last_reward_delta["red"] += reward_delta
-        self._append_suspicious_audit_event(exec_action, audit, emitted)
-        self._record_action_audit(audit, emitted)
+        self._hooks.finalize_action(
+            audit,
+            action=exec_action,
+            emitted=emitted,
+            emit_event=self._emit_event,
+        )
 
         return ActionResult(
             action=action,
@@ -538,8 +540,13 @@ class OpenRangeRuntime:
         reward_delta = 0.0
         expected_reference = self._next_blue_step()
         live = self._execute_live_action(action)
-        audit = self._observe_action(action, live, controlled=not internal)
-        emit_event = self._audit_emit_event(audit)
+        audit = self._hooks.observe_action(
+            action,
+            live,
+            sim_time=self._state.sim_time,
+            controlled=not internal,
+        )
+        emit_event = self._hooks.emit_event(audit, self._emit_event)
         stdout = live.stdout or "blue action applied"
         stderr = live.stderr
 
@@ -640,8 +647,12 @@ class OpenRangeRuntime:
             action, expected_reference, live.stdout
         ):
             self._blue_progress += 1
-        self._append_suspicious_audit_event(action, audit, emitted)
-        self._record_action_audit(audit, emitted)
+        self._hooks.finalize_action(
+            audit,
+            action=action,
+            emitted=emitted,
+            emit_event=self._emit_event,
+        )
 
         return ActionResult(
             action=action,
@@ -821,10 +832,7 @@ class OpenRangeRuntime:
         event = emission.event
         self._events.append(event)
         self._event_visibility[event.id] = emission.visibility
-        if green_reactive:
-            self.green_scheduler.record_event(event)
-        if self.action_backend is not None:
-            self.action_backend.record_event(event)
+        self._hooks.publish_event(event, green_reactive=green_reactive)
         return event
 
     def _service_surfaces(self, target: str) -> tuple[str, ...]:
@@ -913,71 +921,6 @@ class OpenRangeRuntime:
             self._state.service_health.update(result.service_health)
             self._update_continuity()
         return result
-
-    def _observe_action(
-        self,
-        action: Action,
-        live: ActionExecution,
-        *,
-        controlled: bool,
-    ):
-        if self._auditor is None:
-            return None
-        return self._auditor.observe(
-            action=action,
-            executed_command=live.executed_command,
-            audit_command=command_text_for_action(action),
-            sim_time=self._state.sim_time,
-            controlled=controlled,
-        )
-
-    def _audit_emit_event(self, audit):
-        if audit is None or not audit.suspicious:
-            return self._emit_event
-
-        def emit_event(**kwargs):
-            return self._emit_event(
-                **kwargs,
-                suspicious=True,
-                suspicious_reasons=audit.matched_patterns,
-            )
-
-        return emit_event
-
-    def _record_action_audit(self, audit, emitted: list[RuntimeEvent]) -> None:
-        if self._auditor is None:
-            return
-        self._auditor.record(
-            audit,
-            emitted_event_ids=tuple(event.id for event in emitted),
-        )
-
-    def _append_suspicious_audit_event(
-        self, action: Action, audit, emitted: list[RuntimeEvent]
-    ) -> None:
-        if audit is None or not audit.suspicious or emitted:
-            return
-        emitted.append(
-            self._emit_event(
-                event_type="SuspiciousActionObserved",
-                actor=action.role,
-                source_entity=action.actor_id,
-                target_entity=action_target(action) or action.kind,
-                malicious=action.role == "red",
-                observability_surfaces=(),
-                suspicious=True,
-                suspicious_reasons=audit.matched_patterns,
-                green_reactive=False,
-            )
-        )
-
-    def _capture_integrity(self, service_paths):
-        if self.action_backend is None:
-            return ()
-        capture_integrity = getattr(self.action_backend, "capture_integrity", None)
-        if not callable(capture_integrity):
-            return ()
-        return capture_integrity(service_paths)
 
     def _advance_due_time(self, actor: ExternalRole) -> None:
         cadence = 1.0 if self._is_controlled(actor) else self._opponent_cadence(actor)
