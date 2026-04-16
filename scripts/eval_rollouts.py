@@ -12,7 +12,6 @@ from typing import Any
 from open_range._runtime_store import hydrate_runtime_snapshot
 from open_range.build_config import OFFLINE_BUILD_CONFIG
 from open_range.curriculum import FrontierMutationPolicy, PopulationStats
-from open_range.decision_surface import reference_trace_pairs, trace_actions
 from open_range.driver import ScriptedRuntimeAgent
 from open_range.episode_config import EpisodeConfig
 from open_range.pipeline import BuildPipeline
@@ -22,6 +21,7 @@ from open_range.runtime_types import EpisodeScore
 from open_range.sim import ReferenceSimPlane
 from open_range.snapshot import RuntimeSnapshot
 from open_range.store import FileSnapshotStore
+from open_range.trace_policies import reference_trace_pairs, trace_actions
 
 
 def _default_manifest_name() -> str:

@@ -56,13 +56,12 @@ from open_range.snapshot import Snapshot, world_hash
 from open_range.store import FileSnapshotStore
 from open_range.tracegen import TraceDatasetGenerator, generate_trace_dataset
 from open_range.training_data import (
-    TraceCandidate,
     TraceDatasetReport,
     TraceDecisionRow,
     TraceLineage,
     build_decision_prompt,
+    render_action_completion,
     render_action_text,
-    render_candidate_completion,
     render_decision_prompt,
     system_prompt_for_role,
 )
@@ -104,7 +103,6 @@ __all__ = [
     "Snapshot",
     "StandardAttackObjective",
     "TandemEpisodeDriver",
-    "TraceCandidate",
     "TraceDatasetGenerator",
     "TraceDatasetReport",
     "TraceDecisionRow",
@@ -128,8 +126,8 @@ __all__ = [
     "load_bundled_manifest_registry",
     "load_bundled_schema",
     "manifest_schema",
+    "render_action_completion",
     "render_action_text",
-    "render_candidate_completion",
     "render_decision_prompt",
     "resource_root",
     "system_prompt_for_role",

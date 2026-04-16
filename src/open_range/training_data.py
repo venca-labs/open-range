@@ -16,16 +16,7 @@ from open_range.snapshot import RuntimeSnapshot
 
 TraceSource = Literal["runtime", "sim"]
 TraceSplit = Literal["train", "val", "test"]
-TeacherSource = Literal["reference_runtime", "reference_sim", "scripted_runtime"]
-CounterfactualLabel = Literal[
-    "teacher",
-    "alternative",
-    "probe",
-    "false_positive",
-    "continuity_damaging",
-    "sleep",
-    "unknown",
-]
+ActionSource = Literal["reference_runtime", "reference_sim", "scripted_runtime"]
 _HIDDEN_ACTION_PAYLOAD_KEYS = frozenset({"service_command"})
 
 
@@ -49,17 +40,9 @@ class TraceWeakness(_StrictModel):
     objective_tags: tuple[StandardAttackObjective, ...] = Field(default_factory=tuple)
 
 
-class TraceCandidate(_StrictModel):
-    label: str = Field(min_length=1)
-    action: Action
-    text: str
-    selected: bool = False
-    counterfactual_label: CounterfactualLabel = "unknown"
-
-
 class TraceDecisionRow(_StrictModel):
     trace_source: TraceSource
-    teacher_source: TeacherSource
+    action_source: ActionSource
     split: TraceSplit
     snapshot_id: str = Field(min_length=1)
     world_id: str = Field(min_length=1)
@@ -71,7 +54,6 @@ class TraceDecisionRow(_StrictModel):
     role: Literal["red", "blue"]
     decision_index: int = Field(ge=0)
     observation: Observation
-    candidate_actions: tuple[TraceCandidate, ...] = Field(default_factory=tuple)
     chosen_action: Action
     chosen_action_text: str
     result_stdout: str = ""
@@ -167,26 +149,20 @@ def render_action_text(action: Action) -> str:
     return json.dumps({"kind": action.kind, "payload": action.payload}, sort_keys=True)
 
 
-def render_candidate_completion(candidate: TraceCandidate) -> str:
-    payload = json.dumps(candidate.action.model_dump(mode="json"), sort_keys=True)
-    return (
-        f"<choice>{candidate.label}</choice>\n"
-        f"<action_text>{candidate.text}</action_text>\n"
-        f"<action_json>{payload}</action_json>"
-    )
+def render_action_completion(action: Action) -> str:
+    public_action = public_trace_action(action)
+    return json.dumps(public_action.model_dump(mode="json"), sort_keys=True)
 
 
 def row_to_sft_record(row: TraceDecisionRow) -> dict[str, Any]:
-    selected = next(
-        (candidate for candidate in row.candidate_actions if candidate.selected), None
-    )
-    if selected is None:
-        raise ValueError("trace row must contain exactly one selected candidate")
     return {
         "messages": [
             {"role": "system", "content": system_prompt_for_role(row.role)},
             {"role": "user", "content": render_decision_prompt(row)},
-            {"role": "assistant", "content": render_candidate_completion(selected)},
+            {
+                "role": "assistant",
+                "content": render_action_completion(row.chosen_action),
+            },
         ],
         "split": row.split,
         "snapshot_id": row.snapshot_id,
@@ -201,10 +177,11 @@ def row_to_sft_record(row: TraceDecisionRow) -> dict[str, Any]:
         "prompt_mode": row.episode_config.prompt_mode,
         "role": row.role,
         "trace_source": row.trace_source,
-        "teacher_source": row.teacher_source,
+        "action_source": row.action_source,
         "benchmark_tags": list(row.benchmark_tags),
         "weaknesses": [weak.model_dump(mode="json") for weak in row.weaknesses],
-        "chosen_label": selected.label,
+        "chosen_action": row.chosen_action.model_dump(mode="json"),
+        "chosen_action_text": row.chosen_action_text,
         "winner": row.winner,
         "terminal_reason": row.terminal_reason,
         "grounded_effects": list(row.grounded_effects),
@@ -223,11 +200,10 @@ def render_decision_prompt(row: TraceDecisionRow) -> str:
         role=row.role,
         decision_index=row.decision_index,
         observation=row.observation,
-        candidate_actions=row.candidate_actions,
         weaknesses=row.weaknesses,
         benchmark_tags=row.benchmark_tags,
         trace_source=row.trace_source,
-        teacher_source=row.teacher_source,
+        action_source=row.action_source,
         split=row.split,
         prompt_mode=row.episode_config.prompt_mode,
         include_hidden_context=False,
@@ -245,33 +221,27 @@ def build_decision_prompt(
     role: Literal["red", "blue"],
     decision_index: int,
     observation: Observation,
-    candidate_actions: tuple[TraceCandidate, ...],
     weaknesses: tuple[TraceWeakness, ...],
     benchmark_tags: tuple[str, ...],
     trace_source: TraceSource,
-    teacher_source: TeacherSource,
+    action_source: ActionSource,
     split: TraceSplit,
     prompt_mode: str,
     include_hidden_context: bool = False,
 ) -> str:
     visible = _visible_event_lines(observation.visible_events)
-    candidates = "\n".join(
-        f"- [{candidate.label}] {candidate.text}" for candidate in candidate_actions
-    )
     lines = [
         f"sim_time={observation.sim_time:.2f}\n"
         f"last_stdout={observation.stdout or 'none'}\n"
         f"alerts_delta={len(observation.alerts_delta)}\n"
         f"service_health={_service_health_text(observation)}\n"
         f"visible_events:\n{visible}\n"
-        "candidate_actions:\n"
-        f"{candidates}"
     ]
     if include_hidden_context:
         lines.insert(
             0,
             f"trace_source={trace_source}\n"
-            f"teacher_source={teacher_source}\n"
+            f"action_source={action_source}\n"
             f"split={split}\n"
             f"snapshot_id={snapshot_id}\n"
             f"world_id={world_id}\n"
@@ -295,14 +265,20 @@ def build_decision_prompt(
 
 
 def system_prompt_for_role(role: Literal["red", "blue"]) -> str:
+    contract = (
+        "Respond with exactly one OpenRange Action JSON object with keys "
+        "actor_id, role, kind, payload, and timeout_s. Do not add prose."
+    )
     if role == "red":
         return (
             "You are the red operator in OpenRange. "
-            "Choose exactly one candidate action that best advances the validated attack path."
+            "Choose the next concrete runtime action that best advances the current path. "
+            + contract
         )
     return (
         "You are the blue operator in OpenRange. "
-        "Choose exactly one candidate action that best detects or mitigates the attack while preserving continuity."
+        "Choose the next concrete runtime action that best detects or mitigates the attack while preserving continuity. "
+        + contract
     )
 
 

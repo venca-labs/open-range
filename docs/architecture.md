@@ -34,6 +34,8 @@ strict manifest
 - the env advances internal green activity until the next external decision point
 - `next_decision()` exposes only externally controlled red/blue actors
 - red and blue have separate observations and separate session state
+- diagnostics, logs, traces, and future observability should layer on top of the
+  same `reset()`, `next_decision()`, and `act()` contract
 - admission uses private reference traces rather than a public golden path
 - admission is internally split into shared predicate logic, probe planning, probe execution, counterfactual remediation checks, and report scoring
 
@@ -54,7 +56,7 @@ strict manifest
 
 - branch-native training data is generated from admitted snapshots, not from hand-written transcripts
 - the canonical export is one decision row per external actor decision
-- each row carries snapshot id, world id, world hash, lineage, mode, role, observation, candidate actions, chosen action, emitted events, reward delta, winner, and terminal reason
+- each row carries snapshot id, world id, world hash, lineage, mode, role, observation, chosen action, action-source metadata, emitted events, reward delta, winner, and terminal reason
 - `sim` and `runtime` trace sources stay explicitly labeled and separate
 - training/eval splits are assigned by lineage root, not random row
 

@@ -217,22 +217,6 @@ The generator also writes role/source shards such as:
 - `sft_red_all.jsonl`
 - `sft_blue_all.jsonl`
 
-## Experimental Model Probe
-
-This is an optional bounded red-only probe that loads a tiny LoRA adapter and
-uses it to score a small candidate action set at each runtime decision.
-It is intentionally narrower than a full policy evaluation: it is
-reference-conditioned and red-only because the current tiny bootstrap dataset is
-not yet a full red/blue runtime-action corpus.
-
-```bash
-uv run scripts/eval_model_rollouts.py \
-  --adapter /tmp/openrange-sft-tiny-split/adapter \
-  --manifest manifests/tier1_basic.yaml \
-  --mutations 3 \
-  --out /tmp/openrange-model-rollout.json
-```
-
 ## Container Image
 
 The root [Dockerfile](Dockerfile) builds a CLI image for the standalone package:
