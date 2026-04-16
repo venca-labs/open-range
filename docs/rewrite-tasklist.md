@@ -58,6 +58,7 @@ Some current private helper files are transitional seams, not the end-state pack
 - [x] route curriculum weakness mutations through the family registry
 - [x] start moving family-specific red reference planning out of `probe_planner.py`
 - [x] move planner family ranking and red-side fallback policy behind catalog and family handlers
+- [x] move blue-side detection and containment policy behind catalog probe helpers
 - [x] start moving family-specific realization content out of `synth.py`
 - [x] finish moving family-specific realization content out of `synth.py`
 - [ ] finish the weakness subsystem move and shrink `open_range.weaknesses`
@@ -82,7 +83,7 @@ The next real win is:
 ## Next Large Targets
 
 - `src/open_range/probe_planner.py`
-  - finish the remaining blue-side fallback policy and any readback expectations that still live inline
+  - finish the remaining blue-side readback expectations and any last generic fallback logic that still live inline
   - keep the planner as orchestration over catalog policy and family-owned handlers
 - `src/open_range/weaknesses.py`
   - finish deleting the remaining family heuristics now that the family registry owns builders, mutators, probe/render hooks, and the pinned-target/selection policy is gone

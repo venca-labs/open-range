@@ -169,3 +169,12 @@ class ShortcutWebRouteProbeSpec:
     weakness_kind: str
     path: str
     query: tuple[tuple[str, str], ...]
+
+
+@dataclass(frozen=True, slots=True)
+class BlueReferencePlanSpec:
+    detect_index: int
+    detect_event: str
+    detect_target: str
+    contain_target: str
+    observe_step_count: int

@@ -1,9 +1,11 @@
 from __future__ import annotations
 
+from open_range.admission import ReferenceAction, ReferenceTrace
 from open_range.catalog.probes import (
     DEFAULT_DETERMINISM_PROBE_TEMPLATES,
     DEFAULT_SHORTCUT_PROBE_TEMPLATES,
     SHORTCUT_WEB_ROUTE_PROBE_SPECS,
+    blue_reference_plan_for_trace,
     detection_for_reference_step_action,
     family_supports_primary_red_reference,
     identity_effect_markers_for_kind,
@@ -12,6 +14,7 @@ from open_range.catalog.probes import (
     red_reference_family_priority,
     reference_action_for_weakness_family,
     smoke_probe_template,
+    telemetry_blindspot_targets,
     workflow_effect_markers_for_kind,
     workflow_kind_uses_email_delivery,
 )
@@ -135,6 +138,89 @@ def test_catalog_probe_reference_presets_keep_current_static_rules() -> None:
         '"identity_verification": "none"',
         '"reset_without_ticket_owner": true',
     )
+
+
+def test_catalog_blue_reference_plan_keeps_current_detection_and_containment_rules() -> (
+    None
+):
+    red_trace = ReferenceTrace(
+        id="red-test",
+        role="red",
+        steps=(
+            ReferenceAction(
+                actor="red",
+                kind="api",
+                target="svc-web",
+                payload={"action": "initial_access"},
+            ),
+            ReferenceAction(
+                actor="red",
+                kind="api",
+                target="svc-db",
+                payload={"action": "traverse"},
+            ),
+            ReferenceAction(
+                actor="red",
+                kind="api",
+                target="svc-db",
+                payload={
+                    "action": "satisfy_objective",
+                    "asset": "finance_docs",
+                    "objective": "asset_read(finance_docs)",
+                },
+            ),
+        ),
+    )
+
+    plan = blue_reference_plan_for_trace(red_trace, blindspot_targets=frozenset())
+
+    assert plan.detect_index == 0
+    assert plan.detect_event == "InitialAccess"
+    assert plan.detect_target == "svc-web"
+    assert plan.contain_target == "svc-db"
+    assert plan.observe_step_count == 1
+
+
+def test_catalog_blue_reference_plan_skips_blindspot_steps() -> None:
+    red_trace = ReferenceTrace(
+        id="red-blindspot",
+        role="red",
+        steps=(
+            ReferenceAction(
+                actor="red",
+                kind="api",
+                target="svc-email",
+                payload={"action": "initial_access"},
+            ),
+            ReferenceAction(
+                actor="red",
+                kind="api",
+                target="svc-web",
+                payload={"action": "traverse"},
+            ),
+            ReferenceAction(
+                actor="red",
+                kind="api",
+                target="svc-db",
+                payload={
+                    "action": "satisfy_objective",
+                    "asset": "finance_docs",
+                    "objective": "asset_read(finance_docs)",
+                },
+            ),
+        ),
+    )
+
+    plan = blue_reference_plan_for_trace(
+        red_trace,
+        blindspot_targets=frozenset({"svc-email"}),
+    )
+
+    assert plan.detect_index == 2
+    assert plan.detect_event == "SensitiveAssetRead"
+    assert plan.detect_target == "finance_docs"
+    assert plan.contain_target == "svc-db"
+    assert plan.observe_step_count == 3
 
 
 def test_shortcut_route_catalog_matches_code_web_templates() -> None:
@@ -468,3 +554,24 @@ def test_probe_planner_primary_selection_falls_back_to_telemetry_only_worlds() -
     }
 
     assert weakness_ids == {weakness.id}
+
+
+def test_probe_planner_blue_reference_uses_catalog_blue_policy() -> None:
+    world = _seeded_world()
+    red_trace = ProbePlanner(world).build_red_reference(ordinal=1)
+    blue_trace = ProbePlanner(world).build_blue_reference(red_trace, ordinal=1)
+    plan = blue_reference_plan_for_trace(
+        red_trace,
+        blindspot_targets=telemetry_blindspot_targets(world),
+    )
+
+    observe_steps = [step for step in blue_trace.steps if step.kind == "shell"]
+    finding_step = next(
+        step for step in blue_trace.steps if step.kind == "submit_finding"
+    )
+    contain_step = next(step for step in blue_trace.steps if step.kind == "control")
+
+    assert len(observe_steps) == plan.observe_step_count
+    assert finding_step.target == plan.detect_target
+    assert finding_step.payload["event"] == plan.detect_event
+    assert contain_step.target == plan.contain_target

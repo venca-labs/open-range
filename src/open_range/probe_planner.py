@@ -16,12 +16,12 @@ from open_range.catalog.contracts import ProbeTemplateSpec
 from open_range.catalog.probes import (
     DEFAULT_DETERMINISM_PROBE_TEMPLATES,
     DEFAULT_SHORTCUT_PROBE_TEMPLATES,
-    detection_for_reference_step_action,
+    blue_reference_plan_for_trace,
     family_supports_primary_red_reference,
-    is_blue_detectable_action,
     necessity_probe_template,
     red_reference_family_priority,
     smoke_probe_template,
+    telemetry_blindspot_targets,
 )
 from open_range.predicates import PredicateEngine
 from open_range.runtime_types import Action
@@ -205,36 +205,10 @@ class ProbePlanner:
     def build_blue_reference(
         self, red_trace: ReferenceTrace, *, ordinal: int = 1
     ) -> ReferenceTrace:
-        blindspot_targets = {
-            weak.target
-            for weak in PredicateEngine(self.world).active_weaknesses()
-            if weak.family == "telemetry_blindspot"
-        }
-        detect_index = next(
-            (
-                index
-                for index, step in enumerate(red_trace.steps)
-                if is_blue_detectable_action(
-                    str(step.payload.get("action", "")),
-                    target=step.target,
-                    source_target=(
-                        red_trace.steps[index - 1].target if index > 0 else ""
-                    ),
-                    blindspot_targets=blindspot_targets,
-                )
-            ),
-            0,
+        plan = blue_reference_plan_for_trace(
+            red_trace,
+            blindspot_targets=telemetry_blindspot_targets(self.world),
         )
-        detect_step = red_trace.steps[detect_index] if red_trace.steps else None
-        detect_event, detect_target = detection_for_reference_step_action(
-            str(detect_step.payload.get("action", "")) if detect_step else "",
-            target=detect_step.target if detect_step else "",
-            asset=str(detect_step.payload.get("asset", "")) if detect_step else "",
-            objective=(
-                str(detect_step.payload.get("objective", "")) if detect_step else ""
-            ),
-        )
-        contain_target = red_trace.steps[-1].target if red_trace.steps else "svc-siem"
         observe_steps = tuple(
             ReferenceAction(
                 actor="blue",
@@ -242,7 +216,7 @@ class ProbePlanner:
                 target="svc-siem",
                 payload={"action": "observe_events"},
             )
-            for _ in range(max(1, detect_index + 1))
+            for _ in range(plan.observe_step_count)
         )
         return ReferenceTrace(
             id=f"blue-{self.world.world_id}-{ordinal}",
@@ -256,13 +230,13 @@ class ProbePlanner:
                 ReferenceAction(
                     actor="blue",
                     kind="submit_finding",
-                    target=detect_target,
-                    payload={"event": detect_event},
+                    target=plan.detect_target,
+                    payload={"event": plan.detect_event},
                 ),
                 ReferenceAction(
                     actor="blue",
                     kind="control",
-                    target=contain_target,
+                    target=plan.contain_target,
                     payload={"action": "contain"},
                 ),
             ),

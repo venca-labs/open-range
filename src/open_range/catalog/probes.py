@@ -2,7 +2,11 @@
 
 from __future__ import annotations
 
-from open_range.catalog.contracts import ProbeTemplateSpec, ShortcutWebRouteProbeSpec
+from open_range.catalog.contracts import (
+    BlueReferencePlanSpec,
+    ProbeTemplateSpec,
+    ShortcutWebRouteProbeSpec,
+)
 
 DEFAULT_SHORTCUT_PROBE_TEMPLATES: tuple[ProbeTemplateSpec, ...] = (
     ProbeTemplateSpec(
@@ -164,6 +168,48 @@ def is_blue_detectable_action(
             target not in blindspot_targets and source_target not in blindspot_targets
         )
     return target not in blindspot_targets
+
+
+def telemetry_blindspot_targets(world) -> frozenset[str]:
+    return frozenset(
+        weak.target for weak in world.weaknesses if weak.family == "telemetry_blindspot"
+    )
+
+
+def blue_reference_plan_for_trace(
+    red_trace,
+    *,
+    blindspot_targets: frozenset[str] | set[str],
+) -> BlueReferencePlanSpec:
+    detect_index = next(
+        (
+            index
+            for index, step in enumerate(red_trace.steps)
+            if is_blue_detectable_action(
+                str(step.payload.get("action", "")),
+                target=step.target,
+                source_target=(red_trace.steps[index - 1].target if index > 0 else ""),
+                blindspot_targets=blindspot_targets,
+            )
+        ),
+        0,
+    )
+    detect_step = red_trace.steps[detect_index] if red_trace.steps else None
+    detect_event, detect_target = detection_for_reference_step_action(
+        str(detect_step.payload.get("action", "")) if detect_step else "",
+        target=detect_step.target if detect_step else "",
+        asset=str(detect_step.payload.get("asset", "")) if detect_step else "",
+        objective=(
+            str(detect_step.payload.get("objective", "")) if detect_step else ""
+        ),
+    )
+    return BlueReferencePlanSpec(
+        detect_index=detect_index,
+        detect_event=detect_event,
+        detect_target=detect_target,
+        contain_target=red_trace.steps[-1].target if red_trace.steps else "svc-siem",
+        observe_step_count=max(1, detect_index + 1),
+    )
 
 
 def workflow_kind_uses_email_delivery(kind: str) -> bool:
