@@ -258,6 +258,56 @@ def runtime_payload_for_reference_action(
     return next_payload
 
 
+def red_reference_starts(
+    service_ids: tuple[str, ...],
+    *,
+    public_service_ids: tuple[str, ...],
+) -> tuple[str, ...]:
+    if public_service_ids:
+        return public_service_ids
+    return service_ids[:1]
+
+
+def ordered_red_reference_candidates(
+    starts: tuple[str, ...],
+    weaknesses,
+) -> tuple[tuple[str, object | None], ...]:
+    ranked = sorted(
+        weaknesses,
+        key=lambda weakness: _red_reference_sort_key(
+            weakness,
+            preferred_targets=frozenset(starts),
+        ),
+    )
+    candidates = tuple(
+        (start, weakness)
+        for weakness in ranked
+        for start in _ordered_starts_for_target(starts, _weakness_target(weakness))
+    )
+    if candidates:
+        return candidates
+    if not starts:
+        return ()
+    return ((starts[0], None),)
+
+
+def select_primary_red_reference_weakness(start: str, weaknesses):
+    ranked = [
+        weakness
+        for weakness in weaknesses
+        if family_supports_primary_red_reference(_weakness_family(weakness))
+    ]
+    if not ranked:
+        return next(iter(weaknesses), None)
+    ranked.sort(
+        key=lambda weakness: _red_reference_sort_key(
+            weakness,
+            preferred_targets=frozenset((start,)),
+        )
+    )
+    return ranked[0]
+
+
 def workflow_kind_uses_email_delivery(kind: str) -> bool:
     return kind in _EMAIL_DELIVERY_WORKFLOW_KINDS
 
@@ -280,3 +330,36 @@ def identity_effect_markers_for_kind(kind: str) -> tuple[str, ...]:
 
 def workflow_effect_markers_for_kind(kind: str) -> tuple[str, ...]:
     return _WORKFLOW_EFFECT_MARKERS_BY_KIND.get(kind, ())
+
+
+def _red_reference_sort_key(
+    weakness,
+    *,
+    preferred_targets: frozenset[str],
+) -> tuple[int, int, str]:
+    return (
+        0 if _weakness_target(weakness) in preferred_targets else 1,
+        red_reference_family_priority(_weakness_family(weakness)),
+        _weakness_id(weakness),
+    )
+
+
+def _ordered_starts_for_target(
+    starts: tuple[str, ...],
+    target: str,
+) -> tuple[str, ...]:
+    if target in starts:
+        return (target,) + tuple(start for start in starts if start != target)
+    return starts
+
+
+def _weakness_family(weakness) -> str:
+    return str(getattr(weakness, "family", ""))
+
+
+def _weakness_id(weakness) -> str:
+    return str(getattr(weakness, "id", ""))
+
+
+def _weakness_target(weakness) -> str:
+    return str(getattr(weakness, "target", ""))

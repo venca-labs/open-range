@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from types import SimpleNamespace
+
 from open_range.admission import ReferenceAction, ReferenceTrace
 from open_range.catalog.probes import (
     DEFAULT_DETERMINISM_PROBE_TEMPLATES,
@@ -15,9 +17,12 @@ from open_range.catalog.probes import (
     identity_effect_markers_for_kind,
     is_blue_detectable_action,
     necessity_probe_template,
+    ordered_red_reference_candidates,
     red_reference_family_priority,
+    red_reference_starts,
     reference_action_for_weakness_family,
     runtime_payload_for_reference_action,
+    select_primary_red_reference_weakness,
     smoke_probe_template,
     telemetry_blindspot_targets,
     workflow_effect_markers_for_kind,
@@ -274,6 +279,78 @@ def test_catalog_runtime_payload_helper_keeps_blue_readback_rules() -> None:
         "target": "svc-web",
         "event_type": "InitialAccess",
     }
+
+
+def test_catalog_red_reference_starts_keep_public_then_first_service_rule() -> None:
+    assert red_reference_starts(
+        ("svc-web", "svc-email", "svc-db"),
+        public_service_ids=("svc-email", "svc-web"),
+    ) == ("svc-email", "svc-web")
+    assert red_reference_starts(
+        ("svc-db", "svc-idp"),
+        public_service_ids=(),
+    ) == ("svc-db",)
+
+
+def test_catalog_red_reference_candidate_order_keeps_target_locality_and_bias() -> None:
+    starts = ("svc-email", "svc-web")
+    workflow = SimpleNamespace(
+        id="rank-workflow",
+        family="workflow_abuse",
+        target="svc-web",
+    )
+    code_web = SimpleNamespace(
+        id="rank-code-web",
+        family="code_web",
+        target="svc-web",
+    )
+    secret = SimpleNamespace(
+        id="rank-secret",
+        family="secret_exposure",
+        target="svc-email",
+    )
+
+    candidates = ordered_red_reference_candidates(starts, (workflow, code_web, secret))
+
+    assert candidates[:2] == (
+        ("svc-web", code_web),
+        ("svc-email", code_web),
+    )
+    assert candidates[2:4] == (
+        ("svc-email", secret),
+        ("svc-web", secret),
+    )
+    assert candidates[4:] == (
+        ("svc-web", workflow),
+        ("svc-email", workflow),
+    )
+
+
+def test_catalog_primary_red_reference_weakness_keeps_fallback_rule() -> None:
+    telemetry = SimpleNamespace(
+        id="only-telemetry",
+        family="telemetry_blindspot",
+        target="svc-email",
+    )
+    code_web = SimpleNamespace(
+        id="rank-code-web",
+        family="code_web",
+        target="svc-web",
+    )
+    secret = SimpleNamespace(
+        id="rank-secret",
+        family="secret_exposure",
+        target="svc-email",
+    )
+
+    assert (
+        select_primary_red_reference_weakness("svc-email", (code_web, secret)).id
+        == "rank-secret"
+    )
+    assert (
+        select_primary_red_reference_weakness("svc-email", (telemetry,)).id
+        == "only-telemetry"
+    )
 
 
 def test_shortcut_route_catalog_matches_code_web_templates() -> None:

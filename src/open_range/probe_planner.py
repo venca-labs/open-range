@@ -21,10 +21,11 @@ from open_range.catalog.probes import (
     blue_reference_expected_events,
     blue_reference_plan_for_trace,
     blue_submit_finding_payload,
-    family_supports_primary_red_reference,
     necessity_probe_template,
-    red_reference_family_priority,
+    ordered_red_reference_candidates,
+    red_reference_starts,
     runtime_payload_for_reference_action,
+    select_primary_red_reference_weakness,
     smoke_probe_template,
     telemetry_blindspot_targets,
 )
@@ -74,26 +75,16 @@ class ProbePlanner:
 
     def build_red_references(self) -> tuple[ReferenceTrace, ...]:
         engine = PredicateEngine(self.world)
-        starts = tuple(
-            service.id
-            for service in self.world.services
-            if engine.is_public_service(service)
-        ) or (self.world.services[0].id,)
-        weaknesses = engine.active_weaknesses()
-        ranked = sorted(
-            weaknesses,
-            key=lambda weak: _red_reference_sort_key(
-                weak,
-                preferred_targets=frozenset(starts),
+        starts = red_reference_starts(
+            tuple(service.id for service in self.world.services),
+            public_service_ids=tuple(
+                service.id
+                for service in self.world.services
+                if engine.is_public_service(service)
             ),
         )
-        candidates = [
-            (start, weak)
-            for weak in ranked
-            for start in _starts_for_weakness(starts, weak.target)
-        ]
-        if not candidates:
-            candidates = [(starts[0], None)]
+        weaknesses = engine.active_weaknesses()
+        candidates = ordered_red_reference_candidates(starts, weaknesses)
         traces: list[ReferenceTrace] = []
         seen: set[str] = set()
         for start, exploit in candidates:
@@ -137,15 +128,20 @@ class ProbePlanner:
     ) -> ReferenceTrace:
         engine = PredicateEngine(self.world)
         start = start or next(
-            (
-                service.id
-                for service in self.world.services
-                if engine.is_public_service(service)
+            iter(
+                red_reference_starts(
+                    tuple(service.id for service in self.world.services),
+                    public_service_ids=tuple(
+                        service.id
+                        for service in self.world.services
+                        if engine.is_public_service(service)
+                    ),
+                )
             ),
-            self.world.services[0].id,
+            "",
         )
         weaknesses = engine.active_weaknesses()
-        exploit = exploit or _primary_red_weakness(start, weaknesses)
+        exploit = exploit or select_primary_red_reference_weakness(start, weaknesses)
         satisfied_predicates: set[str] = set()
         steps: list[ReferenceAction] = []
         current = start
@@ -283,41 +279,6 @@ def _probe_spec_from_template(template: ProbeTemplateSpec) -> ProbeSpec:
         description=template.description,
         command=template.command,
     )
-
-
-def _primary_red_weakness(start: str, weaknesses):
-    ranked = [
-        weak
-        for weak in weaknesses
-        if family_supports_primary_red_reference(weak.family)
-    ]
-    if not ranked:
-        return next(iter(weaknesses), None)
-    ranked.sort(
-        key=lambda weak: _red_reference_sort_key(
-            weak,
-            preferred_targets=frozenset((start,)),
-        )
-    )
-    return ranked[0]
-
-
-def _red_reference_sort_key(
-    weakness,
-    *,
-    preferred_targets: frozenset[str],
-) -> tuple[int, int, str]:
-    return (
-        0 if weakness.target in preferred_targets else 1,
-        red_reference_family_priority(weakness.family),
-        weakness.id,
-    )
-
-
-def _starts_for_weakness(starts: tuple[str, ...], target: str) -> tuple[str, ...]:
-    if target in starts:
-        return (target,) + tuple(start for start in starts if start != target)
-    return starts
 
 
 def _weakness_red_steps(
