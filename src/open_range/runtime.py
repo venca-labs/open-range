@@ -35,11 +35,13 @@ from open_range.runtime_reducers import (
     BLUE_CONTAINMENT_OBJECTIVE,
     blue_objectives_after_continuity,
     continuity_for_service_health,
+    opponent_cadence,
     reduce_blue_control,
     reduce_blue_finding,
     reduce_observation_state,
     reduce_red_action,
-    select_scripted_internal_blue_action,
+    resolved_opponent_mode,
+    select_internal_opponent_action,
 )
 from open_range.runtime_types import (
     Action,
@@ -864,7 +866,11 @@ class OpenRangeRuntime:
         return result
 
     def _advance_due_time(self, actor: ExternalRole) -> None:
-        cadence = 1.0 if self._is_controlled(actor) else self._opponent_cadence(actor)
+        cadence = (
+            1.0
+            if self._is_controlled(actor)
+            else opponent_cadence(actor, mode=self._resolved_opponent_mode(actor))
+        )
         self._next_due_time[actor] = round(
             max(self._next_due_time[actor], self._state.sim_time) + cadence, 4
         )
@@ -873,31 +879,12 @@ class OpenRangeRuntime:
         return self._state.controls_red if actor == "red" else self._state.controls_blue
 
     def _internal_action(self, actor: ExternalRole) -> Action:
-        if actor == "red":
-            return self._internal_red_action()
-        return self._internal_blue_action()
-
-    def _internal_red_action(self) -> Action:
-        if self._resolved_opponent_mode("red") == "none":
-            return Action(actor_id="red", role="red", kind="sleep", payload={})
-        return action_for_reference_step(
-            self._require_snapshot(),
-            "red",
-            self.reference_step("red"),
-        )
-
-    def _internal_blue_action(self) -> Action:
-        mode = self._resolved_opponent_mode("blue")
-        if mode == "none":
-            return Action(actor_id="blue", role="blue", kind="sleep", payload={})
-        if mode in {"reference", "replay"}:
-            return action_for_reference_step(
-                self._require_snapshot(),
-                "blue",
-                self.reference_step("blue"),
-            )
-        return select_scripted_internal_blue_action(
-            visible_events=self._visible_events("blue"),
+        return select_internal_opponent_action(
+            actor,
+            mode=self._resolved_opponent_mode(actor),
+            snapshot=self._snapshot,
+            reference_step=self.reference_step(actor),
+            visible_events=self._visible_events("blue") if actor == "blue" else (),
             detected_event_ids=self._detected_event_ids,
             remaining_red_targets=self._remaining_red_targets(),
             contained_targets=self._contained_targets,
@@ -905,36 +892,13 @@ class OpenRangeRuntime:
         )
 
     def _resolved_opponent_mode(self, actor: ExternalRole) -> str:
-        mode = (
+        return resolved_opponent_mode(
             self._episode_config.opponent_red
             if actor == "red"
-            else self._episode_config.opponent_blue
+            else self._episode_config.opponent_blue,
+            actor=actor,
+            snapshot_seed=None if self._snapshot is None else self._snapshot.seed,
         )
-        if mode != "checkpoint_pool":
-            return mode
-        if self._snapshot is None:
-            return "scripted"
-        if actor == "red":
-            return "reference" if self._snapshot.seed % 2 == 0 else "frozen_policy"
-        return "reference" if self._snapshot.seed % 2 == 0 else "scripted"
-
-    def _opponent_cadence(self, actor: ExternalRole) -> float:
-        mode = self._resolved_opponent_mode(actor)
-        if actor == "red":
-            if mode == "replay":
-                return 0.75
-            if mode == "frozen_policy":
-                return 1.5
-            if mode == "scripted":
-                return 1.25
-            return 1.0
-        if mode == "replay":
-            return 0.5
-        if mode == "reference":
-            return 0.75
-        if mode == "frozen_policy":
-            return 1.25
-        return 1.0
 
     def _reference_attack_trace(self):
         if self._reference_playback is None:

@@ -5,13 +5,15 @@ from __future__ import annotations
 from collections.abc import Mapping
 from dataclasses import dataclass
 
+from open_range._reference_replay import action_for_reference_step
 from open_range.execution import ActionExecution
 from open_range.runtime_events import (
     EmitEvent,
     ServiceSurfaceResolver,
     red_events_for_step,
 )
-from open_range.runtime_types import Action, RuntimeEvent
+from open_range.runtime_types import Action, ExternalRole, RuntimeEvent
+from open_range.snapshot import RuntimeSnapshot
 
 SERVICE_HEALTH_BLUE_OBJECTIVE = "service_health_above(0.9)"
 BLUE_DETECTION_OBJECTIVE = "intrusion_detected(initial_access)"
@@ -275,6 +277,70 @@ def select_scripted_internal_blue_action(
             payload={"target": remaining[0], "action": "contain"},
         )
     return Action(actor_id="blue", role="blue", kind="sleep", payload={})
+
+
+def resolved_opponent_mode(
+    configured_mode: str,
+    *,
+    actor: ExternalRole,
+    snapshot_seed: int | None,
+) -> str:
+    if configured_mode != "checkpoint_pool":
+        return configured_mode
+    if snapshot_seed is None:
+        return "scripted"
+    if actor == "red":
+        return "reference" if snapshot_seed % 2 == 0 else "frozen_policy"
+    return "reference" if snapshot_seed % 2 == 0 else "scripted"
+
+
+def opponent_cadence(actor: ExternalRole, *, mode: str) -> float:
+    if actor == "red":
+        if mode == "replay":
+            return 0.75
+        if mode == "frozen_policy":
+            return 1.5
+        if mode == "scripted":
+            return 1.25
+        return 1.0
+    if mode == "replay":
+        return 0.5
+    if mode == "reference":
+        return 0.75
+    if mode == "frozen_policy":
+        return 1.25
+    return 1.0
+
+
+def select_internal_opponent_action(
+    actor: ExternalRole,
+    *,
+    mode: str,
+    snapshot: RuntimeSnapshot | None,
+    reference_step: object | None,
+    visible_events: tuple[RuntimeEvent, ...] | list[RuntimeEvent] = (),
+    detected_event_ids: set[str] | frozenset[str] = frozenset(),
+    remaining_red_targets: set[str] | frozenset[str] = frozenset(),
+    contained_targets: set[str] | frozenset[str] = frozenset(),
+    blue_detected: bool = False,
+) -> Action:
+    if mode == "none":
+        return Action(actor_id=actor, role=actor, kind="sleep", payload={})
+    if actor == "red":
+        if snapshot is None:
+            return Action(actor_id="red", role="red", kind="sleep", payload={})
+        return action_for_reference_step(snapshot, "red", reference_step)
+    if mode in {"reference", "replay"}:
+        if snapshot is None:
+            return Action(actor_id="blue", role="blue", kind="sleep", payload={})
+        return action_for_reference_step(snapshot, "blue", reference_step)
+    return select_scripted_internal_blue_action(
+        visible_events=visible_events,
+        detected_event_ids=detected_event_ids,
+        remaining_red_targets=remaining_red_targets,
+        contained_targets=contained_targets,
+        blue_detected=blue_detected,
+    )
 
 
 def reduce_observation_state(

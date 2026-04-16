@@ -931,7 +931,7 @@ def test_internal_blue_controller_modes_are_not_aliases(tmp_path: Path):
             payload={"target": first_step.target, **first_step.payload},
         ),
     )
-    reference_action = reference_runtime._internal_blue_action()
+    reference_action = reference_runtime._internal_action("blue")
     assert reference_action.kind == "shell"
     assert reference_action.payload["action"] == "observe_events"
 
@@ -956,7 +956,7 @@ def test_internal_blue_controller_modes_are_not_aliases(tmp_path: Path):
             payload={"target": first_step.target, **first_step.payload},
         ),
     )
-    scripted_action = scripted_runtime._internal_blue_action()
+    scripted_action = scripted_runtime._internal_action("blue")
     assert scripted_action.kind == "submit_finding"
     assert scripted_action.payload["target"] == first_step.target
 
