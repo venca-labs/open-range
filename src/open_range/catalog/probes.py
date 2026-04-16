@@ -63,6 +63,37 @@ _BLUE_INITIAL_ACCESS_ACTIONS = frozenset(("initial_access", "click_lure"))
 _BLUE_CREDENTIAL_OR_SECRET_ACTIONS = frozenset(
     ("collect_secret", "abuse_identity", "abuse_workflow")
 )
+_EMAIL_DELIVERY_WORKFLOW_KINDS = frozenset(
+    ("phishing_credential_capture", "internal_request_impersonation")
+)
+_REFERENCE_ACTION_BY_WEAKNESS_FAMILY = {
+    "secret_exposure": "collect_secret",
+    "config_identity": "abuse_identity",
+    "workflow_abuse": "abuse_workflow",
+}
+_IDENTITY_EFFECT_MARKERS_BY_KIND = {
+    "weak_password": ('"min_password_length": 6', '"password_reuse_allowed": true'),
+    "default_credential": (
+        '"default_username": "admin"',
+        '"default_password": "admin"',
+    ),
+    "overbroad_service_account": ('"service_account_scope"', "svc-db", "svc-idp"),
+    "admin_surface_exposed": ('"admin_surface_public": true',),
+    "trust_edge_misconfig": (
+        '"trust_scope": "corp-wide"',
+        '"peer_validation": false',
+    ),
+}
+_WORKFLOW_EFFECT_MARKERS_BY_KIND = {
+    "helpdesk_reset_bypass": (
+        '"identity_verification": "none"',
+        '"reset_without_ticket_owner": true',
+    ),
+    "approval_chain_bypass": ('"secondary_approval_skipped": true',),
+    "document_share_abuse": ('"share_visibility": "public_link"',),
+    "phishing_credential_capture": ('"credential_capture_landing": "/login"',),
+    "internal_request_impersonation": ('"internal_alias_trust": true',),
+}
 
 
 def smoke_probe_template(service_id: str) -> ProbeTemplateSpec:
@@ -121,3 +152,19 @@ def is_blue_detectable_action(
             target not in blindspot_targets and source_target not in blindspot_targets
         )
     return target not in blindspot_targets
+
+
+def workflow_kind_uses_email_delivery(kind: str) -> bool:
+    return kind in _EMAIL_DELIVERY_WORKFLOW_KINDS
+
+
+def reference_action_for_weakness_family(family: str) -> str:
+    return _REFERENCE_ACTION_BY_WEAKNESS_FAMILY.get(family, "")
+
+
+def identity_effect_markers_for_kind(kind: str) -> tuple[str, ...]:
+    return _IDENTITY_EFFECT_MARKERS_BY_KIND.get(kind, ())
+
+
+def workflow_effect_markers_for_kind(kind: str) -> tuple[str, ...]:
+    return _WORKFLOW_EFFECT_MARKERS_BY_KIND.get(kind, ())

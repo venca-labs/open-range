@@ -47,6 +47,7 @@ Some current private helper files are transitional seams, not the end-state pack
 - [x] define objective rule contracts
 - [x] define probe default contracts
 - [x] define observability surface contracts
+- [x] move static planner presets into catalog
 
 ### Phase 3: Subsystem rewrites
 
@@ -65,7 +66,7 @@ Some current private helper files are transitional seams, not the end-state pack
 
 The next real win is not another `admit.py` split. The next win is:
 
-1. move static family and kind reference-step presets into `open_range.catalog`
-2. move verification marker tables and other fixed planner facts beside them
+1. move weakness realization and reference-step builders into family modules backed by the catalog
+2. keep the catalog as the source of static facts while deleting family switchboards from `weaknesses.py` and `probe_planner.py`
 3. keep public behavior stable while the internals move
 4. lock the behavior with parity tests before deleting the old logic

@@ -27,9 +27,13 @@ from open_range.catalog.probes import (
     DEFAULT_SHORTCUT_PROBE_TEMPLATES,
     SHORTCUT_WEB_ROUTE_PROBE_SPECS,
     detection_for_reference_step_action,
+    identity_effect_markers_for_kind,
     is_blue_detectable_action,
     necessity_probe_template,
+    reference_action_for_weakness_family,
     smoke_probe_template,
+    workflow_effect_markers_for_kind,
+    workflow_kind_uses_email_delivery,
 )
 from open_range.catalog.services import (
     ROLE_HOME_SERVICE_BY_ROLE,
@@ -91,6 +95,7 @@ __all__ = [
     "detection_for_reference_step_action",
     "expected_events_for_weakness",
     "host_for_service",
+    "identity_effect_markers_for_kind",
     "is_supported_weakness_kind",
     "is_blue_detectable_action",
     "instantiation_mode_for_family",
@@ -99,6 +104,7 @@ __all__ = [
     "necessity_probe_template",
     "precondition_mode_for_family",
     "public_objective_predicate_names",
+    "reference_action_for_weakness_family",
     "service_catalog_entry_for_id",
     "service_catalog_entry_for_kind",
     "service_kind_names",
@@ -106,4 +112,6 @@ __all__ = [
     "supported_weakness_kinds_for_family",
     "weakness_family_contract",
     "weakness_objective_tags_for_kind",
+    "workflow_effect_markers_for_kind",
+    "workflow_kind_uses_email_delivery",
 ]

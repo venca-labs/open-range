@@ -18,9 +18,13 @@ from open_range.catalog.probes import (
     DEFAULT_DETERMINISM_PROBE_TEMPLATES,
     DEFAULT_SHORTCUT_PROBE_TEMPLATES,
     detection_for_reference_step_action,
+    identity_effect_markers_for_kind,
     is_blue_detectable_action,
     necessity_probe_template,
+    reference_action_for_weakness_family,
     smoke_probe_template,
+    workflow_effect_markers_for_kind,
+    workflow_kind_uses_email_delivery,
 )
 from open_range.code_web import code_web_payload
 from open_range.effect_markers import (
@@ -342,10 +346,9 @@ def _weakness_red_steps(
         )
         return steps, weakness.target, satisfied
 
-    if weakness.family == "workflow_abuse" and weakness.kind in {
-        "phishing_credential_capture",
-        "internal_request_impersonation",
-    }:
+    if weakness.family == "workflow_abuse" and workflow_kind_uses_email_delivery(
+        weakness.kind
+    ):
         mailbox_path = _first_realization_path(weakness, kind="mailbox")
         mailbox = (
             _mailbox_from_path(mailbox_path) if mailbox_path else "user@corp.local"
@@ -407,7 +410,7 @@ def _weakness_red_steps(
         realization_path = _first_realization_path(weakness)
         expect_contains = _secret_expectation(world, weakness)
         payload = _shell_payload(
-            action="collect_secret",
+            action=reference_action_for_weakness_family(weakness.family),
             weakness_id=weakness.id,
             target=weakness.target,
             path=realization_path,
@@ -427,7 +430,7 @@ def _weakness_red_steps(
     if weakness.family == "config_identity":
         realization_path = _first_realization_path(weakness)
         payload = _shell_payload(
-            action="abuse_identity",
+            action=reference_action_for_weakness_family(weakness.family),
             weakness_id=weakness.id,
             target=weakness.target,
             path=realization_path,
@@ -453,7 +456,7 @@ def _weakness_red_steps(
         ) or _first_realization_path(weakness)
         effect_token = effect_marker_token(weakness)
         payload = _shell_payload(
-            action="abuse_workflow",
+            action=reference_action_for_weakness_family(weakness.family),
             weakness_id=weakness.id,
             target=weakness.target,
             path=realization_path,
@@ -556,19 +559,7 @@ def _mailbox_from_path(path: str) -> str:
 def _identity_effect_command(weakness, realization_path: str) -> str:
     effect_path = effect_marker_path(weakness)
     effect_content = effect_marker_content(weakness)
-    markers = {
-        "weak_password": ('"min_password_length": 6', '"password_reuse_allowed": true'),
-        "default_credential": (
-            '"default_username": "admin"',
-            '"default_password": "admin"',
-        ),
-        "overbroad_service_account": ('"service_account_scope"', "svc-db", "svc-idp"),
-        "admin_surface_exposed": ('"admin_surface_public": true',),
-        "trust_edge_misconfig": (
-            '"trust_scope": "corp-wide"',
-            '"peer_validation": false',
-        ),
-    }[weakness.kind]
+    markers = identity_effect_markers_for_kind(weakness.kind)
     tests = " && ".join(
         [f"test -f {shlex.quote(realization_path)}"]
         + [
@@ -586,16 +577,7 @@ def _identity_effect_command(weakness, realization_path: str) -> str:
 def _workflow_effect_command(weakness, realization_path: str) -> str:
     effect_path = effect_marker_path(weakness)
     effect_content = effect_marker_content(weakness)
-    markers = {
-        "helpdesk_reset_bypass": (
-            '"identity_verification": "none"',
-            '"reset_without_ticket_owner": true',
-        ),
-        "approval_chain_bypass": ('"secondary_approval_skipped": true',),
-        "document_share_abuse": ('"share_visibility": "public_link"',),
-        "phishing_credential_capture": ('"credential_capture_landing": "/login"',),
-        "internal_request_impersonation": ('"internal_alias_trust": true',),
-    }[weakness.kind]
+    markers = workflow_effect_markers_for_kind(weakness.kind)
     tests = " && ".join(
         [f"test -f {shlex.quote(realization_path)}"]
         + [
