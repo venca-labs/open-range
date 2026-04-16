@@ -11,6 +11,27 @@ from open_range.weakness_families.common import (
 from open_range.world_ir import WeaknessRealizationSpec, WorldIR
 
 
+def mutation_target_service(world: WorldIR) -> str | None:
+    return next(
+        (service.id for service in world.services if service.kind == "idp"), None
+    )
+
+
+def mutation_spec(world: WorldIR, target_service: str) -> tuple[str, str, str]:
+    if any(user.role == "it_admin" for user in world.users):
+        credential = next(
+            (
+                item
+                for item in world.credentials
+                if item.subject.startswith("it_admin-")
+            ),
+            None,
+        )
+        if credential is not None:
+            return ("weak_password", "credential", credential.id)
+    return ("admin_surface_exposed", "service", target_service)
+
+
 def build(context: WeaknessBuildContext):
     realizations = _config_identity_realizations(context)
     return assemble_weakness_spec(

@@ -10,6 +10,17 @@ from open_range.weakness_families.common import (
 from open_range.world_ir import WorldIR
 
 
+def mutation_target_service(world: WorldIR) -> str | None:
+    return next(
+        (service.id for service in world.services if service.kind == "web_app"), None
+    )
+
+
+def mutation_spec(world: WorldIR, target_service: str) -> tuple[str, str, str]:
+    del world
+    return ("sql_injection", "service", target_service)
+
+
 def build(context: WeaknessBuildContext):
     base = assemble_weakness_spec(
         context,

@@ -53,6 +53,7 @@ Some current private helper files are transitional seams, not the end-state pack
 
 - [ ] move admission onto real subsystem packages
 - [x] start weakness family registry and family modules backed by catalog data
+- [x] route curriculum weakness mutations through the family registry
 - [ ] finish the weakness subsystem move and shrink `open_range.weaknesses`
 - [ ] move objectives fully onto catalog-backed resolution
 - [ ] move runtime onto hooks and reducers
@@ -67,7 +68,19 @@ Some current private helper files are transitional seams, not the end-state pack
 
 The next real win is not another `admit.py` split. The next win is:
 
-1. move weakness realization and reference-step builders into family modules backed by the catalog
-2. fold the remaining weakness seeding and targeting heuristics behind the family registry
-3. keep public behavior stable while the internals move
-4. lock the behavior with parity tests before deleting the old logic
+1. move `probe_planner.py` off its giant family-specific exploit switchboards and onto family-owned reference strategies
+2. move `synth.py` off family-specific realization content builders and onto family-owned renderers
+3. move compiler workflow, asset placement, and persona defaults into catalog data
+4. keep behavior stable with parity tests before deleting the old logic
+
+## Next Large Targets
+
+- `src/open_range/probe_planner.py`
+  - move family ranking, exploit steps, effect markers, and readback expectations out of the giant planner switchboards
+  - likely boundary: extend `open_range.weakness_families` or add `open_range.reference_families`
+- `src/open_range/synth.py`
+  - move realization content builders for config, workflow, telemetry, and secret families into family-owned renderers
+  - keep `Synthesizer` as a dispatcher, not a family-specific content author
+- `src/open_range/compiler.py`
+  - move workflow templates, asset placement rules, and persona routines into catalog data
+  - keep the compiler focused on assembling `WorldIR` from declared contracts

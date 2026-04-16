@@ -11,6 +11,25 @@ from open_range.weakness_families.common import (
 from open_range.world_ir import WeaknessRealizationSpec, WorldIR
 
 
+def mutation_target_service(world: WorldIR) -> str | None:
+    return next(
+        (service.id for service in world.services if service.kind == "email"),
+        next(
+            (service.id for service in world.services if service.kind == "web_app"),
+            None,
+        ),
+    )
+
+
+def mutation_spec(world: WorldIR, target_service: str) -> tuple[str, str, str]:
+    del world
+    if target_service == "svc-email":
+        return ("silent_mail_rule", "telemetry", target_service)
+    if target_service == "svc-web":
+        return ("missing_web_logs", "telemetry", target_service)
+    return ("missing_idp_logs", "telemetry", target_service)
+
+
 def build(context: WeaknessBuildContext):
     realizations = _telemetry_realizations(context)
     return assemble_weakness_spec(

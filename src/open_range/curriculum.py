@@ -11,6 +11,11 @@ from pydantic import BaseModel, ConfigDict, Field
 from open_range._runtime_store import load_world_ir
 from open_range.predicate_expr import predicate_inner
 from open_range.store import FileSnapshotStore
+from open_range.weakness_families import (
+    mutation_spec_for_family,
+    mutation_target_service_for_family,
+)
+from open_range.weakness_families.common import first_objective_service
 from open_range.weaknesses import build_catalog_weakness
 from open_range.world_ir import (
     CredentialSpec,
@@ -307,14 +312,7 @@ def _stable_seed(*parts: object) -> int:
 
 
 def _first_objective_service(world: WorldIR) -> str:
-    objective = next(iter(world.red_objectives), None)
-    if objective is None:
-        return world.services[0].id
-    asset_id = predicate_inner(objective.predicate)
-    asset = next((item for item in world.assets if item.id == asset_id), None)
-    if asset is not None:
-        return asset.owner_service
-    return "svc-siem"
+    return first_objective_service(world)
 
 
 def _least_populated_role(world: WorldIR) -> str:
@@ -791,21 +789,7 @@ def _moved_asset_location(location: str, new_service_id: str) -> str:
 
 
 def _weakness_target(world: WorldIR, family: str) -> str | None:
-    service_by_kind = {service.kind: service.id for service in world.services}
-    objective_service = _first_objective_service(world)
-    if family in {"code_web", "workflow_abuse"}:
-        return service_by_kind.get("web_app")
-    if family == "config_identity":
-        return service_by_kind.get("idp")
-    if family == "telemetry_blindspot":
-        return service_by_kind.get("email") or service_by_kind.get("web_app")
-    if objective_service:
-        return objective_service
-    return (
-        service_by_kind.get("fileshare")
-        or service_by_kind.get("db")
-        or service_by_kind.get("idp")
-    )
+    return mutation_target_service_for_family(world, family)
 
 
 def _make_weakness(
@@ -835,55 +819,7 @@ def _make_weakness(
 def _mutation_kind_target(
     world: WorldIR, family: str, target_service: str
 ) -> tuple[str, str, str]:
-    if family == "code_web":
-        return "sql_injection", "service", target_service
-    if family == "workflow_abuse":
-        workflow = next(
-            (item for item in world.workflows if item.name == "document_sharing"), None
-        )
-        if workflow is not None:
-            return "document_share_abuse", "workflow", workflow.id
-        workflow = next(
-            (item for item in world.workflows if item.name == "internal_email"), None
-        )
-        if workflow is not None:
-            return "phishing_credential_capture", "workflow", workflow.id
-        workflow = world.workflows[0] if world.workflows else None
-        return (
-            "helpdesk_reset_bypass",
-            "workflow",
-            workflow.id if workflow is not None else "wf-generic",
-        )
-    if family == "config_identity":
-        if any(user.role == "it_admin" for user in world.users):
-            credential = next(
-                (
-                    item
-                    for item in world.credentials
-                    if item.subject.startswith("it_admin-")
-                ),
-                None,
-            )
-            if credential is not None:
-                return "weak_password", "credential", credential.id
-        return "admin_surface_exposed", "service", target_service
-    if family == "telemetry_blindspot":
-        if target_service == "svc-email":
-            return "silent_mail_rule", "telemetry", target_service
-        if target_service == "svc-web":
-            return "missing_web_logs", "telemetry", target_service
-        return "missing_idp_logs", "telemetry", target_service
-    exposed_asset = next(
-        (asset.id for asset in world.assets if asset.owner_service == target_service),
-        predicate_inner(world.red_objectives[0].predicate)
-        if world.red_objectives
-        else target_service,
-    )
-    if target_service == "svc-email":
-        return "token_in_email", "asset", exposed_asset
-    if target_service == "svc-fileshare":
-        return "backup_leak", "asset", exposed_asset
-    return "hardcoded_app_secret", "asset", exposed_asset
+    return mutation_spec_for_family(world, family, target_service)
 
 
 def mutation_summary(world: WorldIR) -> dict[str, object]:

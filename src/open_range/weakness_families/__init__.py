@@ -44,6 +44,20 @@ _FAMILY_TARGET_NORMALIZERS: dict[
     "config_identity": config_identity.normalize_target,
     "telemetry_blindspot": telemetry_blindspot.normalize_target,
 }
+_FAMILY_MUTATION_TARGET_SERVICES: dict[str, Callable[[WorldIR], str | None]] = {
+    "code_web": code_web.mutation_target_service,
+    "workflow_abuse": workflow_abuse.mutation_target_service,
+    "secret_exposure": secret_exposure.mutation_target_service,
+    "config_identity": config_identity.mutation_target_service,
+    "telemetry_blindspot": telemetry_blindspot.mutation_target_service,
+}
+_FAMILY_MUTATION_SPECS: dict[str, Callable[[WorldIR, str], tuple[str, str, str]]] = {
+    "code_web": code_web.mutation_spec,
+    "workflow_abuse": workflow_abuse.mutation_spec,
+    "secret_exposure": secret_exposure.mutation_spec,
+    "config_identity": config_identity.mutation_spec,
+    "telemetry_blindspot": telemetry_blindspot.mutation_spec,
+}
 
 
 def _family_callable(
@@ -87,10 +101,29 @@ def build_family_weakness(context: WeaknessBuildContext) -> WeaknessSpec:
     return _family_callable(context.family, _FAMILY_BUILDERS, label="builder")(context)
 
 
+def mutation_target_service_for_family(world: WorldIR, family: str) -> str | None:
+    return _family_callable(
+        family, _FAMILY_MUTATION_TARGET_SERVICES, label="mutation target service"
+    )(world)
+
+
+def mutation_spec_for_family(
+    world: WorldIR,
+    family: str,
+    target_service: str,
+) -> tuple[str, str, str]:
+    return _family_callable(family, _FAMILY_MUTATION_SPECS, label="mutation spec")(
+        world,
+        target_service,
+    )
+
+
 __all__ = [
     "WeaknessBuildContext",
     "build_family_weakness",
     "default_kind_for_family",
+    "mutation_spec_for_family",
+    "mutation_target_service_for_family",
     "normalize_target_for_family",
     "seed_family_target",
 ]

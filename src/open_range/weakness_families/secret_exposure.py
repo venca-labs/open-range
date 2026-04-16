@@ -2,9 +2,11 @@
 
 from __future__ import annotations
 
+from open_range.predicate_expr import predicate_inner
 from open_range.weakness_families.common import (
     WeaknessBuildContext,
     assemble_weakness_spec,
+    first_objective_service,
     mailbox_for_ref,
     mailbox_remediated_message,
     mailbox_slug,
@@ -12,6 +14,32 @@ from open_range.weakness_families.common import (
     write_text_command,
 )
 from open_range.world_ir import WeaknessRealizationSpec, WorldIR
+
+
+def mutation_target_service(world: WorldIR) -> str | None:
+    service_by_kind = {service.kind: service.id for service in world.services}
+    objective_service = first_objective_service(world)
+    if objective_service:
+        return objective_service
+    return (
+        service_by_kind.get("fileshare")
+        or service_by_kind.get("db")
+        or service_by_kind.get("idp")
+    )
+
+
+def mutation_spec(world: WorldIR, target_service: str) -> tuple[str, str, str]:
+    exposed_asset = next(
+        (asset.id for asset in world.assets if asset.owner_service == target_service),
+        predicate_inner(world.red_objectives[0].predicate)
+        if world.red_objectives
+        else target_service,
+    )
+    if target_service == "svc-email":
+        return ("token_in_email", "asset", exposed_asset)
+    if target_service == "svc-fileshare":
+        return ("backup_leak", "asset", exposed_asset)
+    return ("hardcoded_app_secret", "asset", exposed_asset)
 
 
 def build(context: WeaknessBuildContext):

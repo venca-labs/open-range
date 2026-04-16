@@ -14,6 +14,34 @@ from open_range.weakness_families.common import (
 from open_range.world_ir import WeaknessRealizationSpec, WorldIR
 
 
+def mutation_target_service(world: WorldIR) -> str | None:
+    return next(
+        (service.id for service in world.services if service.kind == "web_app"), None
+    )
+
+
+def mutation_spec(world: WorldIR, target_service: str) -> tuple[str, str, str]:
+    del target_service
+    workflow = next(
+        (item for item in world.workflows if item.name == "document_sharing"),
+        None,
+    )
+    if workflow is not None:
+        return ("document_share_abuse", "workflow", workflow.id)
+    workflow = next(
+        (item for item in world.workflows if item.name == "internal_email"),
+        None,
+    )
+    if workflow is not None:
+        return ("phishing_credential_capture", "workflow", workflow.id)
+    workflow = world.workflows[0] if world.workflows else None
+    return (
+        "helpdesk_reset_bypass",
+        "workflow",
+        workflow.id if workflow is not None else "wf-generic",
+    )
+
+
 def build(context: WeaknessBuildContext):
     realizations = _workflow_realizations(context)
     return assemble_weakness_spec(

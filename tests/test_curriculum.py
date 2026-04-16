@@ -2,11 +2,14 @@ from __future__ import annotations
 
 from pathlib import Path
 
+import pytest
+
 from open_range._runtime_store import load_world_ir
 from open_range.compiler import EnterpriseSaaSManifestCompiler
 from open_range.curriculum import (
     FrontierMutationPolicy,
     PopulationStats,
+    _seed_additional_weakness,
     propose_mutations,
 )
 from open_range.pipeline import BuildPipeline
@@ -27,6 +30,83 @@ def _manifest_payload() -> dict:
 def _seeded_world():
     world = EnterpriseSaaSManifestCompiler().compile(_manifest_payload())
     return CatalogWeaknessSeeder().apply(world)
+
+
+@pytest.mark.parametrize(
+    ("family", "expected"),
+    [
+        (
+            "code_web",
+            ("code_web", "sql_injection", "svc-web", "service", "svc-web"),
+        ),
+        (
+            "workflow_abuse",
+            (
+                "workflow_abuse",
+                "document_share_abuse",
+                "svc-fileshare",
+                "workflow",
+                "wf-document_sharing",
+            ),
+        ),
+        (
+            "secret_exposure",
+            (
+                "secret_exposure",
+                "backup_leak",
+                "svc-fileshare",
+                "asset",
+                "finance_docs",
+            ),
+        ),
+        (
+            "config_identity",
+            (
+                "config_identity",
+                "weak_password",
+                "svc-idp",
+                "credential",
+                "cred-it_admin-01",
+            ),
+        ),
+        (
+            "telemetry_blindspot",
+            (
+                "telemetry_blindspot",
+                "silent_mail_rule",
+                "svc-email",
+                "telemetry",
+                "svc-email",
+            ),
+        ),
+    ],
+)
+def test_seed_additional_weakness_keeps_family_mutation_rules_stable(
+    family: str, expected: tuple[str, str, str, str, str]
+):
+    world = _seeded_world()
+    baseline = world.model_copy(
+        update={
+            "allowed_weakness_families": (family,),
+            "weaknesses": tuple(
+                weak for weak in world.weaknesses if weak.family != family
+            ),
+        }
+    )
+
+    child = _seed_additional_weakness(baseline)
+
+    assert child is not None
+    assert len(child.weaknesses) == len(baseline.weaknesses) + 1
+    existing_ids = {weak.id for weak in baseline.weaknesses}
+    added = next(weak for weak in child.weaknesses if weak.id not in existing_ids)
+    assert (
+        added.family,
+        added.kind,
+        added.target,
+        added.target_kind,
+        added.target_ref,
+    ) == expected
 
 
 def test_policy_choose_parent_prefers_frontier_train_world():

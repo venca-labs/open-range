@@ -6,6 +6,7 @@ import shlex
 from dataclasses import dataclass
 
 from open_range.manifest import WeaknessFamily
+from open_range.predicate_expr import predicate_inner
 from open_range.world_ir import WeaknessRealizationSpec, WeaknessSpec, WorldIR
 
 
@@ -25,6 +26,17 @@ class WeaknessBuildContext:
     blue_observability_surfaces: tuple[str, ...]
     instantiation_mode: str
     remediation: str
+
+
+def first_objective_service(world: WorldIR) -> str:
+    objective = next(iter(world.red_objectives), None)
+    if objective is None:
+        return world.services[0].id
+    asset_id = predicate_inner(objective.predicate)
+    asset = next((item for item in world.assets if item.id == asset_id), None)
+    if asset is not None:
+        return asset.owner_service
+    return "svc-siem"
 
 
 def assemble_weakness_spec(
