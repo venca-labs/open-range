@@ -7,7 +7,6 @@ from open_range.objectives import (
     evaluate_objective_grader_live,
     objective_grader_for_predicate,
     objective_tags_for_predicate,
-    weakness_objective_tags,
 )
 from open_range.predicates import PredicateEngine
 from open_range.weaknesses import CatalogWeaknessSeeder
@@ -65,14 +64,6 @@ def test_objective_rule_registry_keeps_special_case_predicates_stable() -> None:
     assert grader.objective_tag == "privilege_escalation"
     assert grader.event_type == "CredentialObtained"
     assert grader.grader_kind == "event_present"
-
-
-def test_weakness_objective_tag_catalog_stays_registered_in_one_place() -> None:
-    assert weakness_objective_tags("code_web", "sql_injection") == ("db_access",)
-    assert weakness_objective_tags(
-        "workflow_abuse",
-        "approval_chain_bypass",
-    ) == ("privilege_escalation",)
 
 
 def test_live_event_backed_admin_grader_still_requires_the_event() -> None:

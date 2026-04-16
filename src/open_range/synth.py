@@ -9,11 +9,7 @@ from typing import Protocol
 
 from pydantic import BaseModel, ConfigDict, Field
 
-from open_range.code_web import code_web_realization_content
-from open_range.weakness_families import (
-    has_realization_renderer_for_family,
-    render_realization_content_for_family,
-)
+from open_range.weakness_families import render_realization_content_for_family
 from open_range.world_ir import (
     AssetSpec,
     WeaknessRealizationSpec,
@@ -251,13 +247,7 @@ def _weakness_realization_content(
     weakness: WeaknessSpec,
     realization: WeaknessRealizationSpec,
 ) -> str:
-    if has_realization_renderer_for_family(weakness.family):
-        return render_realization_content_for_family(world, weakness, realization)
-    if weakness.family == "code_web":
-        return code_web_realization_content(world, weakness, realization)
-    raise ValueError(
-        f"unsupported realization renderer for weakness family {weakness.family!r}"
-    )
+    return render_realization_content_for_family(world, weakness, realization)
 
 
 def _mailbox_weakness_messages(world: WorldIR, mailbox: str) -> list[str]:

@@ -77,6 +77,7 @@ _FAMILY_RED_REFERENCE_BUILDERS: dict[
 _FAMILY_REALIZATION_RENDERERS: dict[
     str, Callable[[WorldIR, WeaknessSpec, WeaknessRealizationSpec], str]
 ] = {
+    "code_web": code_web.render_realization_content,
     "workflow_abuse": workflow_abuse.render_realization_content,
     "secret_exposure": secret_exposure.render_realization_content,
     "config_identity": config_identity.render_realization_content,
@@ -205,10 +206,6 @@ def has_red_reference_plan_for_family(family: str) -> bool:
     return family in _FAMILY_RED_REFERENCE_BUILDERS
 
 
-def has_realization_renderer_for_family(family: str) -> bool:
-    return family in _FAMILY_REALIZATION_RENDERERS
-
-
 def build_red_reference_plan_for_family(
     world: WorldIR,
     engine: PredicateEngine,
@@ -242,7 +239,6 @@ __all__ = [
     "build_red_reference_plan_for_family",
     "default_kind_for_family",
     "has_red_reference_plan_for_family",
-    "has_realization_renderer_for_family",
     "mutation_spec_for_family",
     "mutation_target_service_for_family",
     "normalize_target_for_family",

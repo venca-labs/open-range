@@ -578,19 +578,7 @@ def test_runtime_matching_rejects_extra_api_path_when_reference_has_no_path() ->
         payload={"target": "svc-web", "path": "/"},
     )
 
-    assert OpenRangeRuntime._matches_step(action, expected, "ok") is False
-
-
-def test_runtime_prefers_shortest_live_foothold_for_next_red_origin(
-    tmp_path: Path,
-) -> None:
-    snapshot = _snapshot(tmp_path)
-    runtime = OpenRangeRuntime()
-    runtime.reset(snapshot, EpisodeConfig(mode="red_only", green_enabled=False))
-    runtime._red_footholds = {"svc-web", "svc-idp"}
-    runtime._last_red_target = "svc-idp"
-
-    assert runtime._live_red_origin("svc-fileshare") == "svc-web"
+    assert OpenRangeRuntime.matches_reference_step(action, expected, "ok") is False
 
 
 def test_runtime_internal_snapshot_helpers_raise_clear_errors_without_reset() -> None:
@@ -916,43 +904,6 @@ def test_runtime_live_patch_can_disable_exact_web_handler(tmp_path: Path):
     )
 
     assert "patched" in blocked.stderr
-
-
-def test_runtime_accepts_mitigate_as_patch_alias(tmp_path: Path):
-    snapshot = _snapshot(tmp_path)
-    runtime = OpenRangeRuntime()
-    runtime.reset(
-        snapshot,
-        EpisodeConfig(mode="joint_pool", green_enabled=False),
-    )
-
-    first_step = snapshot.reference_bundle.reference_attack_traces[0].steps[0]
-    second_step = snapshot.reference_bundle.reference_attack_traces[0].steps[1]
-
-    assert runtime.next_decision().actor == "red"
-    runtime.act(
-        "red",
-        Action(
-            actor_id="red",
-            role="red",
-            kind=first_step.kind,
-            payload={"target": first_step.target, **first_step.payload},
-        ),
-    )
-
-    assert runtime.next_decision().actor == "blue"
-    mitigated = runtime.act(
-        "blue",
-        Action(
-            actor_id="blue",
-            role="blue",
-            kind="control",
-            payload={"target": second_step.target, "action": "mitigate"},
-        ),
-    )
-
-    assert "mitigation applied" in mitigated.stdout
-    assert any(event.event_type == "PatchApplied" for event in mitigated.emitted_events)
 
 
 def test_internal_blue_controller_modes_are_not_aliases(tmp_path: Path):

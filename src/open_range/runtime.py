@@ -6,9 +6,15 @@ from math import inf
 from typing import Literal
 from uuid import uuid4
 
+from open_range._reference_replay import matches_reference_step
 from open_range.audit import ActionAuditor, command_text_for_action
 from open_range.episode_config import DEFAULT_EPISODE_CONFIG, EpisodeConfig
-from open_range.execution import ActionBackend, ActionExecution
+from open_range.execution import (
+    ActionBackend,
+    ActionExecution,
+    select_live_red_origin,
+    simulate_action_execution,
+)
 from open_range.green import GreenScheduler, ScriptedGreenScheduler
 from open_range.predicates import PredicateEngine
 from open_range.probe_planner import runtime_action as reference_runtime_action
@@ -16,10 +22,8 @@ from open_range.rewards import RewardEngine
 from open_range.runtime_events import (
     action_target,
     control_directive,
-    control_directive_from_payload,
     emit_runtime_event,
     finding_event_type,
-    finding_event_type_from_payload,
     green_events_for_action,
     telemetry_blindspots,
     visible_events_for_actor,
@@ -280,7 +284,7 @@ class OpenRangeRuntime:
 
     @staticmethod
     def matches_reference_step(action: Action, expected, live_stdout: str) -> bool:
-        return OpenRangeRuntime._matches_step(action, expected, live_stdout)
+        return matches_reference_step(action, expected, live_stdout)
 
     def _apply_prefix_start(self) -> None:
         if self._snapshot is None:
@@ -489,7 +493,7 @@ class OpenRangeRuntime:
             matched_reference_step=(
                 expected is not None
                 and live.ok
-                and self._matches_step(action, expected, live.stdout)
+                and matches_reference_step(action, expected, live.stdout)
             ),
             expected_reference_step=expected,
             last_red_target=self._last_red_target,
@@ -632,7 +636,7 @@ class OpenRangeRuntime:
         self._blue_reward_shaping += reward_delta
         if not internal:
             self._last_reward_delta["blue"] += reward_delta
-        if expected_reference is not None and self._matches_step(
+        if expected_reference is not None and matches_reference_step(
             action, expected_reference, live.stdout
         ):
             self._blue_progress += 1
@@ -660,55 +664,12 @@ class OpenRangeRuntime:
     def _live_red_origin(self, target: str) -> str:
         if not target or self._snapshot is None or self._predicates is None:
             return self._last_red_target or "sandbox-red"
-        service_ids = {service.id for service in self._snapshot.world.services}
-        candidate_ids = service_ids & self._red_footholds
-        if self._last_red_target in service_ids:
-            candidate_ids.add(self._last_red_target)
-        reachable = {
-            origin
-            for origin in candidate_ids
-            if self._foothold_can_reach_target(origin, target)
-        }
-        if not reachable:
-            return self._last_red_target or "sandbox-red"
-        return min(
-            reachable,
-            key=lambda origin: (
-                len(self._predicates.shortest_path(origin, target)),
-                origin,
-            ),
-        )
-
-    def _foothold_can_reach_target(self, origin: str, target: str) -> bool:
-        if self._snapshot is None:
-            return False
-        origin_zone = self._service_zone(origin)
-        target_zone = self._service_zone(target)
-        if not origin_zone or not target_zone:
-            return False
-        return self._zone_can_reach(origin_zone, target_zone)
-
-    def _service_zone(self, service_id: str) -> str:
-        snapshot = self._require_snapshot()
-        host_zone_by_id = {host.id: host.zone for host in snapshot.world.hosts}
-        service = next(
-            (item for item in snapshot.world.services if item.id == service_id), None
-        )
-        if service is None:
-            return ""
-        return host_zone_by_id.get(service.host, "")
-
-    def _zone_can_reach(self, from_zone: str, to_zone: str) -> bool:
-        if from_zone == to_zone:
-            return True
-        snapshot = self._require_snapshot()
-        rules = snapshot.artifacts.chart_values.get("firewallRules", ())
-        return any(
-            rule.get("action") == "allow"
-            and rule.get("fromZone") == from_zone
-            and rule.get("toZone") == to_zone
-            for rule in rules
-            if isinstance(rule, dict)
+        return select_live_red_origin(
+            self._snapshot,
+            predicates=self._predicates,
+            red_footholds=self._red_footholds,
+            last_red_target=self._last_red_target,
+            target=target,
         )
 
     def _next_blue_step(self):
@@ -718,41 +679,6 @@ class OpenRangeRuntime:
         if self._blue_progress >= len(trace.steps):
             return None
         return trace.steps[self._blue_progress]
-
-    @staticmethod
-    def _matches_step(action: Action, expected, live_stdout: str) -> bool:
-        if action.kind != expected.kind or action_target(action) != expected.target:
-            return False
-        if action.kind == "api":
-            expected_path = expected.payload.get("path")
-            actual_path = action.payload.get("path")
-            if (expected_path or actual_path) and actual_path != expected_path:
-                return False
-            expected_query = expected.payload.get("query")
-            actual_query = action.payload.get("query")
-            if (expected_query or actual_query) and actual_query != expected_query:
-                return False
-            expected_contains = str(expected.payload.get("expect_contains", "")).strip()
-            if expected_contains and expected_contains not in live_stdout:
-                return False
-        if action.kind in {"shell", "mail"}:
-            expected_path = expected.payload.get("path")
-            actual_path = action.payload.get("path")
-            if (expected_path or actual_path) and actual_path != expected_path:
-                return False
-            expected_contains = str(expected.payload.get("expect_contains", "")).strip()
-            if expected_contains and expected_contains not in live_stdout:
-                return False
-        if action.kind == "control":
-            expected_directive = control_directive_from_payload(expected.payload)
-            if expected_directive and control_directive(action) != expected_directive:
-                return False
-        if action.kind == "submit_finding":
-            expected_event = finding_event_type_from_payload(expected.payload)
-            actual_event = finding_event_type(action)
-            if expected_event and actual_event != expected_event:
-                return False
-        return True
 
     def _find_detectable_event(
         self,
@@ -966,32 +892,21 @@ class OpenRangeRuntime:
 
     def _execute_live_action(self, action: Action) -> ActionExecution:
         if self.action_backend is None:
-            directive = control_directive(action, default="contain")
-            weakness_id = str(
-                action.payload.get("weakness_id", action.payload.get("weakness", ""))
-            ).strip()
-            if action.kind in {"api", "shell", "mail"} and weakness_id:
-                weakness = self._active_weakness(weakness_id)
-                if weakness is None:
-                    return ActionExecution(
-                        stderr=f"weakness {weakness_id} unavailable", ok=False
-                    )
-                return ActionExecution(
-                    stdout=str(action.payload.get("expect_contains", ""))
-                    or f"exercised {weakness.kind}",
-                )
-            return ActionExecution(
-                stdout=str(action.payload.get("expect_contains", ""))
-                if action.kind in {"api", "shell", "mail"}
-                else "",
-                containment_applied=action.kind == "control" and directive == "contain",
-                patch_applied=action.kind == "control"
-                and directive in {"patch", "mitigate"},
-                recovery_applied=action.kind == "control"
-                and directive in {"recover", "restore"},
-                executed_command=command_text_for_action(action),
-                runner_service=action.payload.get("origin", action.actor_id),
-                target_service=action_target(action),
+            active_weaknesses = (
+                tuple(self._predicates.active_weaknesses())
+                if self._predicates is not None
+                else ()
+            )
+            return simulate_action_execution(
+                action,
+                resolve_active_weakness=lambda weakness_id: next(
+                    (
+                        weakness
+                        for weakness in active_weaknesses
+                        if weakness.id == weakness_id
+                    ),
+                    None,
+                ),
             )
         result = self.action_backend.execute(action)
         if result.service_health:
@@ -1134,18 +1049,6 @@ class OpenRangeRuntime:
         if mode == "frozen_policy":
             return 1.25
         return 1.0
-
-    def _active_weakness(self, weakness_id: str):
-        if self._predicates is None:
-            return None
-        return next(
-            (
-                weakness
-                for weakness in self._predicates.active_weaknesses()
-                if weakness.id == weakness_id
-            ),
-            None,
-        )
 
     def _reference_attack_trace(self):
         traces = self._require_snapshot().reference_bundle.reference_attack_traces

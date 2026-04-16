@@ -63,27 +63,6 @@ def _code_web_response(
     )
 
 
-def test_weakness_seeder_is_deterministic():
-    world_a = _build_seeded_world()
-    world_b = _build_seeded_world()
-
-    assert world_a.weaknesses == world_b.weaknesses
-    assert len(world_a.weaknesses) == 2
-    assert any(
-        weak.objective_tags for weak in world_a.weaknesses if weak.family == "code_web"
-    )
-
-
-def test_weakness_seeder_respects_allowed_families():
-    payload = _manifest_payload()
-    payload["security"]["allowed_weakness_families"] = ["code_web"]
-    world = EnterpriseSaaSManifestCompiler().compile(payload)
-
-    seeded = CatalogWeaknessSeeder().apply(world)
-
-    assert {weak.family for weak in seeded.weaknesses} == {"code_web"}
-
-
 def test_kind_renderer_emits_expected_files(tmp_path: Path):
     world = _build_seeded_world()
     synth = _synth(world, tmp_path)

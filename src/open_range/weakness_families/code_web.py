@@ -5,6 +5,7 @@ from __future__ import annotations
 from open_range.admission import ReferenceAction
 from open_range.code_web import (
     code_web_payload,
+    code_web_realization_content,
     code_web_realizations,
     code_web_remediation_command,
 )
@@ -14,7 +15,7 @@ from open_range.weakness_families.common import (
     WeaknessBuildContext,
     assemble_weakness_spec,
 )
-from open_range.world_ir import WeaknessSpec, WorldIR
+from open_range.world_ir import WeaknessRealizationSpec, WeaknessSpec, WorldIR
 
 
 def mutation_target_service(world: WorldIR) -> str | None:
@@ -91,3 +92,11 @@ def normalize_target(
 ) -> tuple[str, str, str]:
     del world, kind
     return (target, target_kind, target_ref)
+
+
+def render_realization_content(
+    world: WorldIR,
+    weakness: WeaknessSpec,
+    realization: WeaknessRealizationSpec,
+) -> str:
+    return code_web_realization_content(world, weakness, realization)

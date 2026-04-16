@@ -4,11 +4,13 @@ from __future__ import annotations
 
 import json
 import shlex
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from typing import Any, Protocol
 from urllib.parse import urlencode
 
 from open_range.async_utils import run_async
+from open_range.audit import command_text_for_action
 from open_range.cluster import BootedRelease
 from open_range.code_web import code_web_cleanup_commands, code_web_guard_path
 from open_range.effect_markers import effect_marker_cleanup_command
@@ -43,6 +45,103 @@ class ActionBackend(Protocol):
         self, service_paths: dict[str, tuple[str, ...]]
     ) -> tuple[IntegritySample, ...]: ...
     def record_event(self, event: Any) -> None: ...
+
+
+class PathPredicateEngine(Protocol):
+    def shortest_path(self, origin: str, target: str) -> tuple[str, ...]: ...
+
+
+def simulate_action_execution(
+    action: Action,
+    *,
+    resolve_active_weakness: Callable[[str], WeaknessSpec | None],
+) -> ActionExecution:
+    directive = control_directive(action, default="contain")
+    weakness_id = str(
+        action.payload.get("weakness_id", action.payload.get("weakness", ""))
+    ).strip()
+    if action.kind in {"api", "shell", "mail"} and weakness_id:
+        weakness = resolve_active_weakness(weakness_id)
+        if weakness is None:
+            return ActionExecution(
+                stderr=f"weakness {weakness_id} unavailable", ok=False
+            )
+        return ActionExecution(
+            stdout=str(action.payload.get("expect_contains", ""))
+            or f"exercised {weakness.kind}",
+        )
+    return ActionExecution(
+        stdout=str(action.payload.get("expect_contains", ""))
+        if action.kind in {"api", "shell", "mail"}
+        else "",
+        containment_applied=action.kind == "control" and directive == "contain",
+        patch_applied=action.kind == "control" and directive in {"patch", "mitigate"},
+        recovery_applied=action.kind == "control"
+        and directive in {"recover", "restore"},
+        executed_command=command_text_for_action(action),
+        runner_service=action.payload.get("origin", action.actor_id),
+        target_service=action_target(action),
+    )
+
+
+def select_live_red_origin(
+    snapshot: RuntimeSnapshot,
+    *,
+    predicates: PathPredicateEngine,
+    red_footholds: set[str] | frozenset[str],
+    last_red_target: str,
+    target: str,
+) -> str:
+    if not target:
+        return last_red_target or "sandbox-red"
+    service_ids = {service.id for service in snapshot.world.services}
+    candidate_ids = service_ids & set(red_footholds)
+    if last_red_target in service_ids:
+        candidate_ids.add(last_red_target)
+    reachable = {
+        origin
+        for origin in candidate_ids
+        if _foothold_can_reach_target(snapshot, origin, target)
+    }
+    if not reachable:
+        return last_red_target or "sandbox-red"
+    return min(
+        reachable,
+        key=lambda origin: (len(predicates.shortest_path(origin, target)), origin),
+    )
+
+
+def _foothold_can_reach_target(
+    snapshot: RuntimeSnapshot, origin: str, target: str
+) -> bool:
+    origin_zone = _service_zone(snapshot, origin)
+    target_zone = _service_zone(snapshot, target)
+    if not origin_zone or not target_zone:
+        return False
+    return _zone_can_reach(snapshot, origin_zone, target_zone)
+
+
+def _service_zone(snapshot: RuntimeSnapshot, service_id: str) -> str:
+    host_zone_by_id = {host.id: host.zone for host in snapshot.world.hosts}
+    service = next(
+        (item for item in snapshot.world.services if item.id == service_id), None
+    )
+    if service is None:
+        return ""
+    return host_zone_by_id.get(service.host, "")
+
+
+def _zone_can_reach(snapshot: RuntimeSnapshot, from_zone: str, to_zone: str) -> bool:
+    if from_zone == to_zone:
+        return True
+    rules = snapshot.artifacts.chart_values.get("firewallRules", ())
+    return any(
+        rule.get("action") == "allow"
+        and rule.get("fromZone") == from_zone
+        and rule.get("toZone") == to_zone
+        for rule in rules
+        if isinstance(rule, dict)
+    )
 
 
 class PodActionBackend:

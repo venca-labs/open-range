@@ -6,7 +6,11 @@ from types import SimpleNamespace
 import pytest
 
 from open_range.cluster import ExecResult
-from open_range.execution import PodActionBackend
+from open_range.execution import (
+    PodActionBackend,
+    select_live_red_origin,
+    simulate_action_execution,
+)
 from open_range.runtime_types import Action, IntegritySample
 from open_range.world_ir import ServiceSpec
 
@@ -154,3 +158,85 @@ def test_capture_integrity_hashes_or_marks_missing_live_paths() -> None:
             digest="",
         ),
     )
+
+
+def test_simulate_action_execution_rejects_missing_weakness() -> None:
+    action = Action(
+        actor_id="red",
+        role="red",
+        kind="shell",
+        payload={"weakness_id": "weak-missing", "expect_contains": "owned"},
+    )
+
+    result = simulate_action_execution(
+        action,
+        resolve_active_weakness=lambda weakness_id: None,
+    )
+
+    assert result.ok is False
+    assert result.stderr == "weakness weak-missing unavailable"
+
+
+def test_select_live_red_origin_prefers_shortest_reachable_foothold() -> None:
+    snapshot = SimpleNamespace(
+        world=SimpleNamespace(
+            services=(
+                ServiceSpec(
+                    id="svc-web",
+                    kind="web_app",
+                    host="web-1",
+                    ports=(80,),
+                    dependencies=(),
+                    telemetry_surfaces=(),
+                ),
+                ServiceSpec(
+                    id="svc-idp",
+                    kind="idp",
+                    host="idp-1",
+                    ports=(389,),
+                    dependencies=(),
+                    telemetry_surfaces=(),
+                ),
+                ServiceSpec(
+                    id="svc-fileshare",
+                    kind="fileshare",
+                    host="files-1",
+                    ports=(445,),
+                    dependencies=(),
+                    telemetry_surfaces=(),
+                ),
+            ),
+            hosts=(
+                SimpleNamespace(id="web-1", zone="dmz"),
+                SimpleNamespace(id="idp-1", zone="management"),
+                SimpleNamespace(id="files-1", zone="management"),
+            ),
+        ),
+        artifacts=SimpleNamespace(
+            chart_values={
+                "firewallRules": (
+                    {
+                        "action": "allow",
+                        "fromZone": "dmz",
+                        "toZone": "management",
+                    },
+                )
+            }
+        ),
+    )
+
+    class FakePredicates:
+        def shortest_path(self, origin: str, target: str) -> tuple[str, ...]:
+            if origin == "svc-web":
+                return (origin, target)
+            return (origin, "svc-web", target)
+
+    origin = select_live_red_origin(
+        snapshot,
+        predicates=FakePredicates(),
+        red_footholds={"svc-web", "svc-idp"},
+        last_red_target="svc-idp",
+        target="svc-fileshare",
+    )
+
+    assert origin == "svc-web"

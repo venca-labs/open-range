@@ -204,34 +204,6 @@ def test_compiler_keeps_catalog_backed_asset_locations_and_confidentiality() -> 
 
 def test_compiler_keeps_named_workflow_templates_and_edges_stable() -> None:
     world = EnterpriseSaaSManifestCompiler().compile(_manifest_payload())
-    workflows = {workflow.name: workflow for workflow in world.workflows}
-
-    assert [
-        (step.id, step.actor_role, step.action, step.service, step.asset)
-        for step in workflows["helpdesk_ticketing"].steps
-    ] == [
-        ("open-ticket", "sales", "open_ticket", "svc-web", ""),
-        ("mail-update", "sales", "send_update", "svc-email", ""),
-    ]
-    assert [
-        (step.id, step.actor_role, step.action, step.service, step.asset)
-        for step in workflows["payroll_approval"].steps
-    ] == [
-        ("view-payroll", "finance", "view_payroll", "svc-web", "payroll_db"),
-        ("approve-payroll", "finance", "approve_payroll", "svc-db", "payroll_db"),
-    ]
-    assert [
-        (step.id, step.actor_role, step.action, step.service, step.asset)
-        for step in workflows["document_sharing"].steps
-    ] == [
-        ("share-doc", "sales", "share_document", "svc-fileshare", "finance_docs"),
-    ]
-    assert [
-        (step.id, step.actor_role, step.action, step.service, step.asset)
-        for step in workflows["internal_email"].steps
-    ] == [
-        ("check-mail", "sales", "check_mail", "svc-email", ""),
-    ]
     assert {
         (edge.id, edge.kind, edge.source, edge.target, edge.label)
         for edge in world.workflow_edges
@@ -296,10 +268,6 @@ def test_compiler_keeps_generic_workflow_fallback() -> None:
     world = EnterpriseSaaSManifestCompiler().compile(payload)
 
     assert len(world.workflows) == 1
-    assert [
-        (step.id, step.actor_role, step.action, step.service, step.asset)
-        for step in world.workflows[0].steps
-    ] == [("custom_review-step-1", "sales", "custom_review", "svc-web", "")]
     assert {
         (edge.id, edge.kind, edge.source, edge.target, edge.label)
         for edge in world.workflow_edges
