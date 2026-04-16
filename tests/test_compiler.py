@@ -145,3 +145,165 @@ def test_compiler_rejects_npc_profiles_for_unknown_roles():
 
     with pytest.raises(ValueError, match="npc_profiles references unknown role"):
         EnterpriseSaaSManifestCompiler().compile(payload)
+
+
+def test_compiler_keeps_catalog_backed_role_homes_and_routines() -> None:
+    world = EnterpriseSaaSManifestCompiler().compile(_manifest_payload())
+    users = {user.id: user for user in world.users}
+    credentials = {credential.subject: credential for credential in world.credentials}
+    personas = {persona.id: persona for persona in world.green_personas}
+
+    assert users["finance-01"].primary_host == "files-1"
+    assert credentials["finance-01"].scope == ("svc-idp", "svc-fileshare")
+    assert personas["finance-01"].home_host == "files-1"
+    assert personas["finance-01"].routine == (
+        "check_mail",
+        "open_payroll_dashboard",
+        "access_fileshare",
+    )
+    assert users["it_admin-01"].primary_host == "idp-1"
+    assert credentials["it_admin-01"].scope == ("svc-idp", "svc-idp")
+    assert personas["it_admin-01"].routine == (
+        "review_idp",
+        "triage_alerts",
+        "reset_password",
+    )
+    assert users["engineer-01"].primary_host == "web-1"
+    assert personas["engineer-01"].routine == (
+        "check_mail",
+        "browse_app",
+        "access_fileshare",
+    )
+
+
+def test_compiler_keeps_catalog_backed_asset_locations_and_confidentiality() -> None:
+    payload = _manifest_payload()
+    payload["assets"].append({"id": "status_report", "class": "operational"})
+
+    world = EnterpriseSaaSManifestCompiler().compile(payload)
+    assets = {asset.id: asset for asset in world.assets}
+
+    assert assets["finance_docs"].owner_service == "svc-fileshare"
+    assert (
+        assets["finance_docs"].location == "svc-fileshare:/srv/shared/finance_docs.txt"
+    )
+    assert assets["finance_docs"].confidentiality == "critical"
+    assert assets["payroll_db"].owner_service == "svc-db"
+    assert assets["payroll_db"].location == "svc-db://main/payroll_db"
+    assert assets["payroll_db"].confidentiality == "critical"
+    assert assets["idp_admin_cred"].owner_service == "svc-idp"
+    assert assets["idp_admin_cred"].location == "svc-idp://secrets/idp_admin_cred"
+    assert assets["idp_admin_cred"].confidentiality == "high"
+    assert assets["status_report"].owner_service == "svc-web"
+    assert (
+        assets["status_report"].location
+        == "svc-web:/var/www/html/content/status_report.txt"
+    )
+    assert assets["status_report"].confidentiality == "medium"
+
+
+def test_compiler_keeps_named_workflow_templates_and_edges_stable() -> None:
+    world = EnterpriseSaaSManifestCompiler().compile(_manifest_payload())
+    workflows = {workflow.name: workflow for workflow in world.workflows}
+
+    assert [
+        (step.id, step.actor_role, step.action, step.service, step.asset)
+        for step in workflows["helpdesk_ticketing"].steps
+    ] == [
+        ("open-ticket", "sales", "open_ticket", "svc-web", ""),
+        ("mail-update", "sales", "send_update", "svc-email", ""),
+    ]
+    assert [
+        (step.id, step.actor_role, step.action, step.service, step.asset)
+        for step in workflows["payroll_approval"].steps
+    ] == [
+        ("view-payroll", "finance", "view_payroll", "svc-web", "payroll_db"),
+        ("approve-payroll", "finance", "approve_payroll", "svc-db", "payroll_db"),
+    ]
+    assert [
+        (step.id, step.actor_role, step.action, step.service, step.asset)
+        for step in workflows["document_sharing"].steps
+    ] == [
+        ("share-doc", "sales", "share_document", "svc-fileshare", "finance_docs"),
+    ]
+    assert [
+        (step.id, step.actor_role, step.action, step.service, step.asset)
+        for step in workflows["internal_email"].steps
+    ] == [
+        ("check-mail", "sales", "check_mail", "svc-email", ""),
+    ]
+    assert {
+        (edge.id, edge.kind, edge.source, edge.target, edge.label)
+        for edge in world.workflow_edges
+    } == {
+        (
+            "workflow-helpdesk_ticketing-1",
+            "workflow",
+            "sales",
+            "svc-web",
+            "open_ticket",
+        ),
+        (
+            "workflow-helpdesk_ticketing-2",
+            "workflow",
+            "sales",
+            "svc-email",
+            "send_update",
+        ),
+        (
+            "workflow-payroll_approval-1",
+            "workflow",
+            "finance",
+            "svc-web",
+            "view_payroll",
+        ),
+        (
+            "workflow-payroll_approval-2",
+            "workflow",
+            "finance",
+            "svc-db",
+            "approve_payroll",
+        ),
+        (
+            "workflow-document_sharing-1",
+            "workflow",
+            "sales",
+            "svc-fileshare",
+            "share_document",
+        ),
+        ("workflow-internal_email-1", "workflow", "sales", "svc-email", "check_mail"),
+    }
+    assert {
+        (edge.id, edge.kind, edge.source, edge.target, edge.label)
+        for edge in world.data_edges
+    } == {
+        ("data-payroll_approval-1", "data", "svc-web", "payroll_db", "view_payroll"),
+        ("data-payroll_approval-2", "data", "svc-db", "payroll_db", "approve_payroll"),
+        (
+            "data-document_sharing-1",
+            "data",
+            "svc-fileshare",
+            "finance_docs",
+            "share_document",
+        ),
+    }
+
+
+def test_compiler_keeps_generic_workflow_fallback() -> None:
+    payload = _manifest_payload()
+    payload["business"]["workflows"] = ["custom_review"]
+
+    world = EnterpriseSaaSManifestCompiler().compile(payload)
+
+    assert len(world.workflows) == 1
+    assert [
+        (step.id, step.actor_role, step.action, step.service, step.asset)
+        for step in world.workflows[0].steps
+    ] == [("custom_review-step-1", "sales", "custom_review", "svc-web", "")]
+    assert {
+        (edge.id, edge.kind, edge.source, edge.target, edge.label)
+        for edge in world.workflow_edges
+    } == {
+        ("workflow-custom_review-1", "workflow", "sales", "svc-web", "custom_review"),
+    }
+    assert not world.data_edges

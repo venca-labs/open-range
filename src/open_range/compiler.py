@@ -5,11 +5,13 @@ from __future__ import annotations
 from typing import Protocol
 
 from open_range.build_config import DEFAULT_BUILD_CONFIG, BuildConfig
-from open_range.catalog.services import (
-    ROLE_HOME_SERVICE_BY_ROLE,
-    host_for_service,
-    service_catalog_entry_for_kind,
+from open_range.catalog.assets import (
+    asset_confidentiality_for_class,
+    asset_placement_rule_for_id,
 )
+from open_range.catalog.roles import home_service_for_role, routine_for_role
+from open_range.catalog.services import host_for_service, service_catalog_entry_for_kind
+from open_range.catalog.workflows import workflow_step_templates_for_name
 from open_range.manifest import (
     EnterpriseSaaSManifest,
     ManifestAsset,
@@ -134,7 +136,7 @@ class EnterpriseSaaSManifestCompiler:
                 )
 
         users, groups, credentials, personas = self._expand_users(parsed, build_config)
-        workflows, workflow_edges = self._compile_workflows(parsed, workflow_names)
+        workflows, workflow_edges = self._compile_workflows(workflow_names)
         assets = tuple(self._place_asset(asset) for asset in parsed.assets)
 
         red_objectives = tuple(
@@ -311,7 +313,7 @@ class EnterpriseSaaSManifestCompiler:
             else:
                 scaled_count = count
             member_ids = []
-            home_service = ROLE_HOME_SERVICE_BY_ROLE.get(role, "svc-web")
+            home_service = home_service_for_role(role)
             home_host = self._host_for_service(home_service)
             for idx in range(1, scaled_count + 1):
                 user_id = f"{role}-{idx:02d}"
@@ -356,13 +358,21 @@ class EnterpriseSaaSManifestCompiler:
 
     def _compile_workflows(
         self,
-        manifest: EnterpriseSaaSManifest,
         workflow_names: tuple[str, ...],
     ) -> tuple[tuple[WorkflowSpec, ...], tuple[EdgeSpec, ...]]:
         workflows = []
         workflow_edges = []
         for workflow_name in workflow_names:
-            steps = self._workflow_steps(workflow_name)
+            steps = tuple(
+                WorkflowStepSpec(
+                    id=step.id,
+                    actor_role=step.actor_role,
+                    action=step.action,
+                    service=step.service,
+                    asset=step.asset,
+                )
+                for step in workflow_step_templates_for_name(workflow_name)
+            )
             workflows.append(
                 WorkflowSpec(
                     id=f"wf-{workflow_name}",
@@ -394,94 +404,14 @@ class EnterpriseSaaSManifestCompiler:
         return tuple(workflows), tuple(workflow_edges)
 
     @staticmethod
-    def _workflow_steps(workflow_name: str) -> tuple[WorkflowStepSpec, ...]:
-        if workflow_name == "helpdesk_ticketing":
-            return (
-                WorkflowStepSpec(
-                    id="open-ticket",
-                    actor_role="sales",
-                    action="open_ticket",
-                    service="svc-web",
-                ),
-                WorkflowStepSpec(
-                    id="mail-update",
-                    actor_role="sales",
-                    action="send_update",
-                    service="svc-email",
-                ),
-            )
-        if workflow_name == "payroll_approval":
-            return (
-                WorkflowStepSpec(
-                    id="view-payroll",
-                    actor_role="finance",
-                    action="view_payroll",
-                    service="svc-web",
-                    asset="payroll_db",
-                ),
-                WorkflowStepSpec(
-                    id="approve-payroll",
-                    actor_role="finance",
-                    action="approve_payroll",
-                    service="svc-db",
-                    asset="payroll_db",
-                ),
-            )
-        if workflow_name == "document_sharing":
-            return (
-                WorkflowStepSpec(
-                    id="share-doc",
-                    actor_role="sales",
-                    action="share_document",
-                    service="svc-fileshare",
-                    asset="finance_docs",
-                ),
-            )
-        if workflow_name == "internal_email":
-            return (
-                WorkflowStepSpec(
-                    id="check-mail",
-                    actor_role="sales",
-                    action="check_mail",
-                    service="svc-email",
-                ),
-            )
-        return (
-            WorkflowStepSpec(
-                id=f"{workflow_name}-step-1",
-                actor_role="sales",
-                action=workflow_name,
-                service="svc-web",
-            ),
-        )
-
-    @staticmethod
     def _place_asset(asset: ManifestAsset) -> AssetSpec:
-        asset_id = asset.id.lower()
-        if "db" in asset_id:
-            service = "svc-db"
-            location = f"svc-db://main/{asset.id}"
-        elif any(token in asset_id for token in ("doc", "file", "share")):
-            service = "svc-fileshare"
-            location = f"svc-fileshare:/srv/shared/{asset.id}.txt"
-        elif any(token in asset_id for token in ("cred", "password", "token", "key")):
-            service = "svc-idp"
-            location = f"svc-idp://secrets/{asset.id}"
-        else:
-            service = "svc-web"
-            location = f"svc-web:/var/www/html/content/{asset.id}.txt"
-
-        confidentiality = {
-            "crown_jewel": "critical",
-            "sensitive": "high",
-            "operational": "medium",
-        }[asset.asset_class]
+        rule = asset_placement_rule_for_id(asset.id)
         return AssetSpec(
             id=asset.id,
             asset_class=asset.asset_class,
-            location=location,
-            owner_service=service,
-            confidentiality=confidentiality,
+            location=rule.location_template.format(asset_id=asset.id),
+            owner_service=rule.owner_service,
+            confidentiality=asset_confidentiality_for_class(asset.asset_class),
         )
 
     @staticmethod
@@ -519,7 +449,7 @@ class EnterpriseSaaSManifestCompiler:
             department=department,
             home_host=home_host,
             mailbox=mailbox,
-            routine=cls._routine_for_role(role),
+            routine=routine_for_role(role),
         )
         if profile is None:
             return persona
@@ -529,11 +459,3 @@ class EnterpriseSaaSManifestCompiler:
         if profile.routine is not None:
             updates["routine"] = profile.routine
         return persona.model_copy(update=updates)
-
-    @staticmethod
-    def _routine_for_role(role: str) -> tuple[str, ...]:
-        if role == "finance":
-            return ("check_mail", "open_payroll_dashboard", "access_fileshare")
-        if role == "it_admin":
-            return ("review_idp", "triage_alerts", "reset_password")
-        return ("check_mail", "browse_app", "access_fileshare")

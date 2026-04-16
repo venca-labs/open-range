@@ -1,11 +1,20 @@
 """Catalog contracts and data for bounded enterprise world facts."""
 
+from open_range.catalog.assets import (
+    ASSET_CONFIDENTIALITY_SPECS,
+    ASSET_PLACEMENT_RULE_SPECS,
+    asset_confidentiality_for_class,
+    asset_placement_rule_for_id,
+)
 from open_range.catalog.contracts import (
     OBJECTIVE_RESOLUTION_KINDS,
     STANDARD_ATTACK_OBJECTIVE_NAMES,
+    AssetConfidentialitySpec,
+    AssetPlacementRuleSpec,
     ObjectiveGraderKind,
     ObjectiveResolutionKind,
     ObjectiveRuleSpec,
+    PersonaDefaultsSpec,
     ProbeTemplateKind,
     ProbeTemplateSpec,
     ServiceCatalogEntry,
@@ -14,6 +23,8 @@ from open_range.catalog.contracts import (
     WeaknessKindSpec,
     WeaknessObjectiveTagSpec,
     WeaknessObservabilitySurfaceSpec,
+    WorkflowTemplateSpec,
+    WorkflowTemplateStepSpec,
 )
 from open_range.catalog.objectives import (
     OBJECTIVE_RULE_SPECS,
@@ -35,8 +46,14 @@ from open_range.catalog.probes import (
     workflow_effect_markers_for_kind,
     workflow_kind_uses_email_delivery,
 )
-from open_range.catalog.services import (
+from open_range.catalog.roles import (
+    ROLE_DEFAULT_SPECS,
     ROLE_HOME_SERVICE_BY_ROLE,
+    home_service_for_role,
+    role_defaults_for_role,
+    routine_for_role,
+)
+from open_range.catalog.services import (
     SERVICE_CATALOG,
     host_for_service,
     service_catalog_entry_for_id,
@@ -61,11 +78,18 @@ from open_range.catalog.weaknesses import (
     supported_weakness_kinds_for_family,
     weakness_family_contract,
 )
+from open_range.catalog.workflows import (
+    WORKFLOW_TEMPLATE_SPECS,
+    workflow_step_templates_for_name,
+    workflow_template_for_name,
+)
 
 __all__ = [
     "OBJECTIVE_RESOLUTION_KINDS",
     "OBJECTIVE_RULE_SPECS",
     "STANDARD_ATTACK_OBJECTIVE_NAMES",
+    "ASSET_CONFIDENTIALITY_SPECS",
+    "ASSET_PLACEMENT_RULE_SPECS",
     "WEAKNESS_OBJECTIVE_TAG_SPECS",
     "WEAKNESS_EXPECTED_EVENT_SPECS",
     "WEAKNESS_FAMILY_CONTRACTS",
@@ -75,11 +99,15 @@ __all__ = [
     "DEFAULT_DETERMINISM_PROBE_TEMPLATES",
     "DEFAULT_SHORTCUT_PROBE_TEMPLATES",
     "SHORTCUT_WEB_ROUTE_PROBE_SPECS",
+    "AssetConfidentialitySpec",
+    "AssetPlacementRuleSpec",
     "ObjectiveGraderKind",
     "ObjectiveResolutionKind",
     "ObjectiveRuleSpec",
+    "PersonaDefaultsSpec",
     "ProbeTemplateKind",
     "ProbeTemplateSpec",
+    "ROLE_DEFAULT_SPECS",
     "ROLE_HOME_SERVICE_BY_ROLE",
     "SERVICE_CATALOG",
     "ServiceCatalogEntry",
@@ -88,12 +116,18 @@ __all__ = [
     "WeaknessKindSpec",
     "WeaknessObservabilitySurfaceSpec",
     "WeaknessObjectiveTagSpec",
+    "WORKFLOW_TEMPLATE_SPECS",
+    "WorkflowTemplateSpec",
+    "WorkflowTemplateStepSpec",
     "all_supported_weakness_kinds",
+    "asset_confidentiality_for_class",
+    "asset_placement_rule_for_id",
     "available_weakness_families_for_service_kinds",
     "benchmark_tags_for_family",
     "default_target_kind_for_family",
     "detection_for_reference_step_action",
     "expected_events_for_weakness",
+    "home_service_for_role",
     "host_for_service",
     "identity_effect_markers_for_kind",
     "is_supported_weakness_kind",
@@ -105,6 +139,8 @@ __all__ = [
     "precondition_mode_for_family",
     "public_objective_predicate_names",
     "reference_action_for_weakness_family",
+    "role_defaults_for_role",
+    "routine_for_role",
     "service_catalog_entry_for_id",
     "service_catalog_entry_for_kind",
     "service_kind_names",
@@ -114,4 +150,6 @@ __all__ = [
     "weakness_objective_tags_for_kind",
     "workflow_effect_markers_for_kind",
     "workflow_kind_uses_email_delivery",
+    "workflow_step_templates_for_name",
+    "workflow_template_for_name",
 ]

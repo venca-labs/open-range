@@ -71,7 +71,7 @@ Some current private helper files are transitional seams, not the end-state pack
 
 The next real win is not another `admit.py` split. The next win is:
 
-1. move compiler workflow, asset placement, and persona defaults into catalog data
+1. [x] move compiler workflow, asset placement, and persona defaults into catalog data
 2. finish the remaining `probe_planner.py` ranking and fallback switchboards after the family step builders settle
 3. move admission onto real subsystem packages instead of root helper files
 4. keep behavior stable with parity tests before deleting the old logic
@@ -82,5 +82,5 @@ The next real win is not another `admit.py` split. The next win is:
   - move family ranking, exploit steps, effect markers, and readback expectations out of the giant planner switchboards
   - likely boundary: extend `open_range.weakness_families` or add `open_range.reference_families`
 - `src/open_range/compiler.py`
-  - move workflow templates, asset placement rules, and persona routines into catalog data
+  - finish deleting transitional compiler helpers now that workflow templates, asset placement rules, and persona defaults live under `open_range.catalog`
   - keep the compiler focused on assembling `WorldIR` from declared contracts

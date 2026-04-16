@@ -67,13 +67,6 @@ SERVICE_CATALOG: tuple[ServiceCatalogEntry, ...] = (
     ),
 )
 
-ROLE_HOME_SERVICE_BY_ROLE: dict[str, str] = {
-    "sales": "svc-web",
-    "engineer": "svc-web",
-    "finance": "svc-fileshare",
-    "it_admin": "svc-idp",
-}
-
 _SERVICE_BY_KIND = {entry.kind: entry for entry in SERVICE_CATALOG}
 _SERVICE_BY_ID = {entry.service_id: entry for entry in SERVICE_CATALOG}
 

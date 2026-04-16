@@ -78,6 +78,41 @@ class ServiceCatalogEntry:
     telemetry_surfaces: tuple[str, ...]
 
 
+@dataclass(frozen=True, slots=True)
+class PersonaDefaultsSpec:
+    role: str
+    home_service: str
+    routine: tuple[str, ...]
+
+
+@dataclass(frozen=True, slots=True)
+class AssetPlacementRuleSpec:
+    match_tokens: tuple[str, ...]
+    owner_service: str
+    location_template: str
+
+
+@dataclass(frozen=True, slots=True)
+class AssetConfidentialitySpec:
+    asset_class: str
+    confidentiality: Literal["low", "medium", "high", "critical"]
+
+
+@dataclass(frozen=True, slots=True)
+class WorkflowTemplateStepSpec:
+    id: str
+    actor_role: str
+    action: str
+    service: str = ""
+    asset: str = ""
+
+
+@dataclass(frozen=True, slots=True)
+class WorkflowTemplateSpec:
+    name: str
+    steps: tuple[WorkflowTemplateStepSpec, ...]
+
+
 WeaknessPreconditionMode = Literal[
     "code_web",
     "config_identity",
