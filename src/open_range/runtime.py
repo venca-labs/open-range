@@ -29,8 +29,10 @@ from open_range.runtime_reducers import (
     blue_objectives_after_continuity,
     continuity_for_service_health,
     reduce_blue_control,
+    reduce_blue_finding,
     reduce_observation_state,
     reduce_red_action,
+    select_scripted_internal_blue_action,
 )
 from open_range.runtime_types import (
     Action,
@@ -541,38 +543,39 @@ class OpenRangeRuntime:
             event_type = finding_event_type(action)
             target = str(action.payload.get("target", ""))
             matched = self._find_detectable_event(event_type, target, visible_only=True)
-            if matched is not None:
+            transition = reduce_blue_finding(
+                matched_event=matched,
+                detected_event_ids=self._detected_event_ids,
+                blue_detected=self._blue_detected,
+            )
+            self._blue_detected = transition.blue_detected
+            self._detected_event_ids = transition.detected_event_ids
+            self._blue_objectives_satisfied.update(transition.satisfied_objectives)
+            if transition.event_spec is not None:
                 emitted.append(
                     emit_event(
-                        event_type="DetectionAlertRaised",
+                        event_type=transition.event_spec.event_type,
                         actor="blue",
                         source_entity="blue",
-                        target_entity=matched.target_entity,
+                        target_entity=transition.event_spec.target_entity,
                         malicious=False,
                         observability_surfaces=("svc-siem",),
-                        linked_objective_predicates=(
-                            "intrusion_detected(initial_access)",
-                        ),
+                        linked_objective_predicates=transition.event_spec.linked_objective_predicates,
                     )
                 )
-                self._blue_detected = True
-                self._blue_objectives_satisfied.add(
-                    "intrusion_detected(initial_access)"
-                )
-                self._detected_event_ids.add(matched.id)
+            if matched is not None:
                 reward_delta += self.reward_engine.on_blue_detection(
                     matched,
                     shaping_enabled=self._episode_config.blue_detection_shaping,
                     false_positive_penalty_enabled=self._episode_config.false_positive_penalty_enabled,
                 )
-                stdout = f"validated finding for {matched.event_type}"
             else:
                 reward_delta += self.reward_engine.on_blue_detection(
                     None,
                     shaping_enabled=self._episode_config.blue_detection_shaping,
                     false_positive_penalty_enabled=self._episode_config.false_positive_penalty_enabled,
                 )
-                stdout = "finding rejected as false positive"
+            stdout = transition.stdout
         elif action.kind == "control":
             target = action_target(action)
             directive = control_directive(action, default="contain")
@@ -1092,26 +1095,13 @@ class OpenRangeRuntime:
             if step is None:
                 return Action(actor_id="blue", role="blue", kind="sleep", payload={})
             return reference_runtime_action("blue", step)
-        for event in self._visible_events("blue"):
-            if event.malicious and event.id not in self._detected_event_ids:
-                return Action(
-                    actor_id="blue",
-                    role="blue",
-                    kind="submit_finding",
-                    payload={
-                        "event_type": event.event_type,
-                        "target": event.target_entity,
-                    },
-                )
-        remaining = sorted(self._remaining_red_targets() - self._contained_targets)
-        if remaining and self._blue_detected:
-            return Action(
-                actor_id="blue",
-                role="blue",
-                kind="control",
-                payload={"target": remaining[0], "action": "contain"},
-            )
-        return Action(actor_id="blue", role="blue", kind="sleep", payload={})
+        return select_scripted_internal_blue_action(
+            visible_events=self._visible_events("blue"),
+            detected_event_ids=self._detected_event_ids,
+            remaining_red_targets=self._remaining_red_targets(),
+            contained_targets=self._contained_targets,
+            blue_detected=self._blue_detected,
+        )
 
     def _resolved_opponent_mode(self, actor: ExternalRole) -> str:
         mode = (

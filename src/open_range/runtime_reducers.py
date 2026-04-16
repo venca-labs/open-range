@@ -14,6 +14,7 @@ from open_range.runtime_events import (
 from open_range.runtime_types import Action, RuntimeEvent
 
 SERVICE_HEALTH_BLUE_OBJECTIVE = "service_health_above(0.9)"
+BLUE_DETECTION_OBJECTIVE = "intrusion_detected(initial_access)"
 BLUE_CONTAINMENT_OBJECTIVE = "intrusion_contained(before_asset_read)"
 OBSERVATION_ALERT_EVENT_TYPES = frozenset(
     {
@@ -36,10 +37,19 @@ class RedActionReduction:
 
 
 @dataclass(frozen=True, slots=True)
-class BlueControlEventSpec:
+class BlueActionEventSpec:
     event_type: str
     target_entity: str
     linked_objective_predicates: tuple[str, ...] = ()
+
+
+@dataclass(frozen=True, slots=True)
+class BlueFindingTransition:
+    stdout: str
+    detected_event_ids: set[str]
+    blue_detected: bool
+    satisfied_objectives: tuple[str, ...] = ()
+    event_spec: BlueActionEventSpec | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -48,7 +58,7 @@ class BlueControlTransition:
     contained_targets: set[str]
     patched_targets: set[str]
     path_broken: bool = False
-    event_spec: BlueControlEventSpec | None = None
+    event_spec: BlueActionEventSpec | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -147,12 +157,12 @@ def reduce_blue_control(
         and (live.containment_applied or live.patch_applied)
     )
     linked_objectives = (BLUE_CONTAINMENT_OBJECTIVE,) if path_broken else ()
-    event_spec: BlueControlEventSpec | None = None
+    event_spec: BlueActionEventSpec | None = None
 
     if target and live.containment_applied:
         next_contained.add(target)
         next_patched.discard(target)
-        event_spec = BlueControlEventSpec(
+        event_spec = BlueActionEventSpec(
             event_type="ContainmentApplied",
             target_entity=target,
             linked_objective_predicates=linked_objectives,
@@ -160,7 +170,7 @@ def reduce_blue_control(
     elif target and live.patch_applied:
         next_patched.add(target)
         next_contained.discard(target)
-        event_spec = BlueControlEventSpec(
+        event_spec = BlueActionEventSpec(
             event_type="PatchApplied",
             target_entity=target,
             linked_objective_predicates=linked_objectives,
@@ -168,7 +178,7 @@ def reduce_blue_control(
     elif target and live.recovery_applied:
         next_contained.discard(target)
         next_patched.discard(target)
-        event_spec = BlueControlEventSpec(
+        event_spec = BlueActionEventSpec(
             event_type="RecoveryCompleted",
             target_entity=target,
         )
@@ -208,6 +218,63 @@ def reduce_blue_control(
         path_broken=path_broken,
         event_spec=event_spec,
     )
+
+
+def reduce_blue_finding(
+    *,
+    matched_event: RuntimeEvent | None,
+    detected_event_ids: set[str] | frozenset[str],
+    blue_detected: bool,
+) -> BlueFindingTransition:
+    next_detected_event_ids = set(detected_event_ids)
+    if matched_event is None:
+        return BlueFindingTransition(
+            stdout="finding rejected as false positive",
+            detected_event_ids=next_detected_event_ids,
+            blue_detected=blue_detected,
+        )
+    next_detected_event_ids.add(matched_event.id)
+    return BlueFindingTransition(
+        stdout=f"validated finding for {matched_event.event_type}",
+        detected_event_ids=next_detected_event_ids,
+        blue_detected=True,
+        satisfied_objectives=(BLUE_DETECTION_OBJECTIVE,),
+        event_spec=BlueActionEventSpec(
+            event_type="DetectionAlertRaised",
+            target_entity=matched_event.target_entity,
+            linked_objective_predicates=(BLUE_DETECTION_OBJECTIVE,),
+        ),
+    )
+
+
+def select_scripted_internal_blue_action(
+    *,
+    visible_events: tuple[RuntimeEvent, ...] | list[RuntimeEvent],
+    detected_event_ids: set[str] | frozenset[str],
+    remaining_red_targets: set[str] | frozenset[str],
+    contained_targets: set[str] | frozenset[str],
+    blue_detected: bool,
+) -> Action:
+    for event in visible_events:
+        if event.malicious and event.id not in detected_event_ids:
+            return Action(
+                actor_id="blue",
+                role="blue",
+                kind="submit_finding",
+                payload={
+                    "event_type": event.event_type,
+                    "target": event.target_entity,
+                },
+            )
+    remaining = sorted(set(remaining_red_targets) - set(contained_targets))
+    if remaining and blue_detected:
+        return Action(
+            actor_id="blue",
+            role="blue",
+            kind="control",
+            payload={"target": remaining[0], "action": "contain"},
+        )
+    return Action(actor_id="blue", role="blue", kind="sleep", payload={})
 
 
 def reduce_observation_state(

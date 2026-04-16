@@ -6,13 +6,16 @@ from open_range.admission.models import ReferenceAction
 from open_range.execution import ActionExecution
 from open_range.runtime_reducers import (
     BLUE_CONTAINMENT_OBJECTIVE,
+    BLUE_DETECTION_OBJECTIVE,
     OBSERVATION_ALERT_EVENT_TYPES,
     SERVICE_HEALTH_BLUE_OBJECTIVE,
     blue_objectives_after_continuity,
     continuity_for_service_health,
     reduce_blue_control,
+    reduce_blue_finding,
     reduce_observation_state,
     reduce_red_action,
+    select_scripted_internal_blue_action,
 )
 from open_range.runtime_types import Action, RuntimeEvent
 
@@ -199,6 +202,85 @@ def test_reduce_blue_control_clears_state_on_recovery() -> None:
     assert transition.patched_targets == set()
     assert transition.event_spec is not None
     assert transition.event_spec.event_type == "RecoveryCompleted"
+
+
+def test_reduce_blue_finding_keeps_detection_event_and_objective_policy() -> None:
+    matched_event = RuntimeEvent(
+        id="evt-7",
+        event_type="InitialAccess",
+        actor="red",
+        time=1.0,
+        source_entity="red",
+        target_entity="svc-web",
+        malicious=True,
+        observability_surfaces=("web_access",),
+    )
+
+    transition = reduce_blue_finding(
+        matched_event=matched_event,
+        detected_event_ids=set(),
+        blue_detected=False,
+    )
+
+    assert transition.stdout == "validated finding for InitialAccess"
+    assert transition.blue_detected is True
+    assert transition.detected_event_ids == {"evt-7"}
+    assert transition.satisfied_objectives == (BLUE_DETECTION_OBJECTIVE,)
+    assert transition.event_spec is not None
+    assert transition.event_spec.event_type == "DetectionAlertRaised"
+
+
+def test_reduce_blue_finding_keeps_false_positive_path() -> None:
+    transition = reduce_blue_finding(
+        matched_event=None,
+        detected_event_ids={"evt-1"},
+        blue_detected=True,
+    )
+
+    assert transition.stdout == "finding rejected as false positive"
+    assert transition.blue_detected is True
+    assert transition.detected_event_ids == {"evt-1"}
+    assert transition.satisfied_objectives == ()
+    assert transition.event_spec is None
+
+
+def test_select_scripted_internal_blue_action_detects_before_containment() -> None:
+    visible_events = (
+        RuntimeEvent(
+            id="evt-1",
+            event_type="InitialAccess",
+            actor="red",
+            time=1.0,
+            source_entity="red",
+            target_entity="svc-web",
+            malicious=True,
+            observability_surfaces=("web_access",),
+        ),
+    )
+
+    action = select_scripted_internal_blue_action(
+        visible_events=visible_events,
+        detected_event_ids=set(),
+        remaining_red_targets={"svc-web"},
+        contained_targets=set(),
+        blue_detected=False,
+    )
+
+    assert action.kind == "submit_finding"
+    assert action.payload == {"event_type": "InitialAccess", "target": "svc-web"}
+
+
+def test_select_scripted_internal_blue_action_contains_after_detection() -> None:
+    action = select_scripted_internal_blue_action(
+        visible_events=(),
+        detected_event_ids={"evt-1"},
+        remaining_red_targets={"svc-db", "svc-web"},
+        contained_targets={"svc-web"},
+        blue_detected=True,
+    )
+
+    assert action.kind == "control"
+    assert action.payload == {"target": "svc-db", "action": "contain"}
 
 
 def test_reduce_observation_state_consumes_reward_and_marks_first_observation() -> None:
