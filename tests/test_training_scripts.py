@@ -106,3 +106,27 @@ def test_tiny_sft_tokenize_rows_returns_trainer_ready_items() -> None:
     assert tokenized[0]["input_ids"]
     assert tokenized[0]["attention_mask"]
     assert tokenized[0]["labels"] == tokenized[0]["input_ids"]
+
+
+def test_grpo_runner_applies_backend_overrides() -> None:
+    module = _load_module(
+        Path(__file__).resolve().parents[1] / "scripts" / "run_grpo.py",
+        "run_grpo_backend_override_test",
+    )
+
+    overrides = module.BackendOverrides(
+        model="moonshotai/kimi-k2-instruct",
+        base_url="https://integrate.api.nvidia.com/v1/",
+        asr_url="http://asr.local",
+        tts_url="http://tts.local",
+    )
+    env: dict[str, str] = {}
+    applied = overrides.apply(env)
+
+    assert applied == {
+        "OPENRANGE_MODEL_ID": "moonshotai/kimi-k2-instruct",
+        "OPENRANGE_BASE_URL": "https://integrate.api.nvidia.com/v1/",
+        "OPENRANGE_ASR_URL": "http://asr.local",
+        "OPENRANGE_TTS_URL": "http://tts.local",
+    }
+    assert env == applied

@@ -1,4 +1,4 @@
-"""Optional deterministic sim-plane for cheap bootstrap traces."""
+"""Internal deterministic sim-plane for cheap bootstrap traces."""
 
 from __future__ import annotations
 
@@ -6,8 +6,9 @@ from typing import Protocol
 
 from pydantic import BaseModel, ConfigDict, Field
 
+from open_range._reference_replay import action_for_reference_step
 from open_range.episode_config import EpisodeConfig
-from open_range.runtime import ReferenceDrivenRuntime
+from open_range.runtime import OpenRangeRuntime
 from open_range.runtime_types import Action
 from open_range.snapshot import RuntimeSnapshot
 
@@ -53,7 +54,7 @@ class ReferenceSimPlane:
         defense_trace = snapshot.reference_bundle.reference_defense_traces[
             defense_index
         ]
-        runtime = ReferenceDrivenRuntime()
+        runtime = OpenRangeRuntime()
         runtime.reset(
             snapshot,
             EpisodeConfig(
@@ -73,11 +74,12 @@ class ReferenceSimPlane:
         while not runtime.state().done:
             decision = runtime.next_decision()
             if decision.actor == "red":
-                action = self._red_step(red_steps, red_idx)
+                step = red_steps[min(red_idx, len(red_steps) - 1)]
                 red_idx += 1
             else:
-                action = self._blue_step(blue_steps, blue_idx)
+                step = blue_steps[min(blue_idx, len(blue_steps) - 1)]
                 blue_idx += 1
+            action = action_for_reference_step(snapshot, decision.actor, step)
             result = runtime.act(decision.actor, action)
             turns.append(
                 SimTurn(
@@ -96,23 +98,3 @@ class ReferenceSimPlane:
             winner=score.winner,
             turns=tuple(turns),
         )
-
-    @staticmethod
-    def _red_step(red_steps, idx: int) -> Action:
-        step = red_steps[min(idx, len(red_steps) - 1)]
-        payload = dict(step.payload)
-        if step.target:
-            payload.setdefault("target", step.target)
-        return Action(actor_id="red", role="red", kind=step.kind, payload=payload)
-
-    @staticmethod
-    def _blue_step(blue_steps, idx: int) -> Action:
-        step = blue_steps[min(idx, len(blue_steps) - 1)]
-        payload = dict(step.payload)
-        if step.target:
-            payload.setdefault("target", step.target)
-        if step.kind == "submit_finding":
-            payload["event_type"] = str(
-                payload.get("event", payload.get("event_type", "InitialAccess"))
-            )
-        return Action(actor_id="blue", role="blue", kind=step.kind, payload=payload)

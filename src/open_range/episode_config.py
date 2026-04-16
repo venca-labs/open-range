@@ -8,7 +8,6 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from open_range.audit import AuditConfig
 
-
 TrainingMode = Literal[
     "red_only", "blue_only_live", "blue_only_from_prefix", "joint_pool"
 ]

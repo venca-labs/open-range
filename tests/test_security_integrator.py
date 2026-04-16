@@ -7,13 +7,14 @@ from pathlib import Path
 
 import pytest
 
-from open_range.security_runtime import materialize_security_runtime
+from open_range.image_policy import DB_MTLS_HELPER_IMAGE
 from open_range.security_integrator import (
     DEFAULT_TIER_MAP,
     SecurityIntegrator,
     SecurityIntegratorConfig,
     _default_scopes_for_service,
 )
+from open_range.security_runtime import materialize_security_runtime
 
 
 def _has_cryptography() -> bool:
@@ -33,9 +34,8 @@ def _has_cryptography() -> bool:
 @pytest.fixture
 def sample_world():
     """Minimal WorldIR for testing."""
-    from tests.support import manifest_payload
-
     from open_range.pipeline import BuildPipeline
+    from tests.support import manifest_payload
 
     pipeline = BuildPipeline()
     candidate = pipeline.build(manifest_payload(), Path("/tmp/test-integrator"))
@@ -238,6 +238,15 @@ class TestMTLSIntegration:
         assert ctx.mtls["enabled"] is True
         cert_files = list((render_dir / "security" / "mtls").glob("*/*.pem"))
         assert len(cert_files) >= 3
+        assert any(
+            payload.mount_path == "/etc/mysql/conf.d/openrange-client-mtls.cnf"
+            for payload in ctx.service_runtime["svc-web"].payloads
+        )
+        web_sidecar = ctx.service_runtime["svc-web"].sidecars[0]
+        assert web_sidecar.name == "db-client-mtls"
+        assert web_sidecar.image == DB_MTLS_HELPER_IMAGE
+        assert web_sidecar.command == ("/bin/sh", "-lc", "sleep infinity")
+        assert web_sidecar.include_service_payloads is True
         assert ctx.service_runtime["svc-idp"].env["LDAP_TLS_VERIFY_CLIENT"] == "demand"
         assert ctx.service_runtime["svc-idp"].env["LDAP_TLS_CRT_FILENAME"] == "ldap.crt"
         assert any(
@@ -247,6 +256,10 @@ class TestMTLSIntegration:
         assert any(port.port == 636 for port in ctx.service_runtime["svc-idp"].ports)
         assert any(
             payload.mount_path == "/etc/mysql/conf.d/openrange-mtls.cnf"
+            for payload in ctx.service_runtime["svc-db"].payloads
+        )
+        assert any(
+            payload.mount_path == "/docker-entrypoint-initdb.d/02-openrange-mtls.sql"
             for payload in ctx.service_runtime["svc-db"].payloads
         )
 

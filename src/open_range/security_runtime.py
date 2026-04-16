@@ -387,6 +387,9 @@ def _mtls_files(
 
     services, _ = _service_zone_layout(world)
     service_kinds = {service.id: service.kind for service in world.services}
+    service_dependencies = {
+        service.id: tuple(service.dependencies) for service in world.services
+    }
     now = _DETERMINISTIC_CERT_EPOCH
     # Keep deterministic render-time certs valid across calendar time.
     # The explicit expired_cert weakness remains the supported way to
@@ -520,7 +523,30 @@ def _mtls_files(
                 "ssl-key=/etc/mtls/key.pem\n"
                 "require_secure_transport=ON\n"
             )
-
+            file_contents[f"security/mtls/{service_id}/mysql-init.sql"] = (
+                "CREATE USER IF NOT EXISTS 'app'@'%' IDENTIFIED WITH mysql_native_password BY 'app-pass';\n"
+                "CREATE USER IF NOT EXISTS 'app'@'localhost' IDENTIFIED WITH mysql_native_password BY 'app-pass';\n"
+                "ALTER USER 'app'@'%' IDENTIFIED WITH mysql_native_password BY 'app-pass';\n"
+                "ALTER USER 'app'@'localhost' IDENTIFIED WITH mysql_native_password BY 'app-pass';\n"
+                "ALTER USER 'app'@'%' REQUIRE X509;\n"
+                "ALTER USER 'app'@'localhost' REQUIRE X509;\n"
+                "GRANT ALL PRIVILEGES ON app.* TO 'app'@'%';\n"
+                "GRANT ALL PRIVILEGES ON app.* TO 'app'@'localhost';\n"
+                "FLUSH PRIVILEGES;\n"
+            )
+        if "svc-db" in service_dependencies.get(service_id, ()):
+            file_contents[f"security/mtls/{service_id}/mysql-client.cnf"] = (
+                "[client]\n"
+                "host=svc-db\n"
+                "user=app\n"
+                "password=app-pass\n"
+                "database=app\n"
+                "protocol=TCP\n"
+                "connect-timeout=5\n"
+                "ssl-ca=/etc/mtls/ca.pem\n"
+                "ssl-cert=/etc/mtls/cert.pem\n"
+                "ssl-key=/etc/mtls/key.pem\n"
+            )
     return file_contents
 
 

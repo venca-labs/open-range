@@ -206,7 +206,8 @@ surface of an asynchronous event loop.
 Red tries to move forward on the offensive path and satisfy terminal objectives.
 
 If red is internal, runtime usually follows the next reference attack step.
-If red is external, your policy chooses from the public decision surface.
+If red is external, your policy turns observations into concrete `Action`
+objects and submits them through `act()`.
 
 Red progress is grounded by the hidden reference path and by objective/event
 checks. The red side is not rewarded for nice prose or for merely naming an
@@ -228,8 +229,8 @@ simple built-in heuristic:
 - submit a finding
 - contain a remaining red target
 
-If blue is external, your policy receives blue observations and acts through the
-same public decision surface.
+If blue is external, your policy receives blue observations and emits concrete
+runtime actions through the same `act()` surface.
 
 ## Does Blue Really Patch Things
 
@@ -301,8 +302,8 @@ That means:
 Each row can include:
 
 - observation
-- candidate actions
 - chosen action
+- chosen action text
 - emitted events
 - reward delta
 - winner

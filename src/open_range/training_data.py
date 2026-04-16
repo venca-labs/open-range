@@ -1,9 +1,9 @@
-"""Branch-native training data schema and rendering helpers."""
+"""Branch-native trace row schema and export helpers."""
 
 from __future__ import annotations
 
 import json
-from typing import Any, Literal
+from typing import Literal
 from urllib.parse import urlencode
 
 from pydantic import BaseModel, ConfigDict, Field
@@ -14,19 +14,9 @@ from open_range.objectives import StandardAttackObjective
 from open_range.runtime_types import Action, Observation, RuntimeEvent
 from open_range.snapshot import RuntimeSnapshot
 
-
 TraceSource = Literal["runtime", "sim"]
 TraceSplit = Literal["train", "val", "test"]
-TeacherSource = Literal["reference_runtime", "reference_sim", "scripted_runtime"]
-CounterfactualLabel = Literal[
-    "teacher",
-    "alternative",
-    "probe",
-    "false_positive",
-    "continuity_damaging",
-    "sleep",
-    "unknown",
-]
+ActionSource = Literal["reference_runtime", "reference_sim"]
 _HIDDEN_ACTION_PAYLOAD_KEYS = frozenset({"service_command"})
 
 
@@ -50,17 +40,9 @@ class TraceWeakness(_StrictModel):
     objective_tags: tuple[StandardAttackObjective, ...] = Field(default_factory=tuple)
 
 
-class TraceCandidate(_StrictModel):
-    label: str = Field(min_length=1)
-    action: Action
-    text: str
-    selected: bool = False
-    counterfactual_label: CounterfactualLabel = "unknown"
-
-
 class TraceDecisionRow(_StrictModel):
     trace_source: TraceSource
-    teacher_source: TeacherSource
+    action_source: ActionSource
     split: TraceSplit
     snapshot_id: str = Field(min_length=1)
     world_id: str = Field(min_length=1)
@@ -72,7 +54,6 @@ class TraceDecisionRow(_StrictModel):
     role: Literal["red", "blue"]
     decision_index: int = Field(ge=0)
     observation: Observation
-    candidate_actions: tuple[TraceCandidate, ...] = Field(default_factory=tuple)
     chosen_action: Action
     chosen_action_text: str
     result_stdout: str = ""
@@ -166,162 +147,6 @@ def render_action_text(action: Action) -> str:
     if action.kind == "sleep":
         return "sleep 1"
     return json.dumps({"kind": action.kind, "payload": action.payload}, sort_keys=True)
-
-
-def render_candidate_completion(candidate: TraceCandidate) -> str:
-    payload = json.dumps(candidate.action.model_dump(mode="json"), sort_keys=True)
-    return (
-        f"<choice>{candidate.label}</choice>\n"
-        f"<action_text>{candidate.text}</action_text>\n"
-        f"<action_json>{payload}</action_json>"
-    )
-
-
-def row_to_sft_record(row: TraceDecisionRow) -> dict[str, Any]:
-    selected = next(
-        (candidate for candidate in row.candidate_actions if candidate.selected), None
-    )
-    if selected is None:
-        raise ValueError("trace row must contain exactly one selected candidate")
-    return {
-        "messages": [
-            {"role": "system", "content": system_prompt_for_role(row.role)},
-            {"role": "user", "content": render_decision_prompt(row)},
-            {"role": "assistant", "content": render_candidate_completion(selected)},
-        ],
-        "split": row.split,
-        "snapshot_id": row.snapshot_id,
-        "world_id": row.world_id,
-        "world_hash": row.world_hash,
-        "lineage_root_world_id": row.lineage.root_world_id,
-        "lineage_generation": row.lineage.generation,
-        "lineage_parent_world_id": row.lineage.parent_world_id,
-        "lineage_mutation_ops": list(row.lineage.mutation_ops),
-        "mode": row.mode,
-        "start_state": row.start_state,
-        "prompt_mode": row.episode_config.prompt_mode,
-        "role": row.role,
-        "trace_source": row.trace_source,
-        "teacher_source": row.teacher_source,
-        "benchmark_tags": list(row.benchmark_tags),
-        "weaknesses": [weak.model_dump(mode="json") for weak in row.weaknesses],
-        "chosen_label": selected.label,
-        "winner": row.winner,
-        "terminal_reason": row.terminal_reason,
-        "grounded_effects": list(row.grounded_effects),
-        "mitigation_effects": list(row.mitigation_effects),
-    }
-
-
-def render_decision_prompt(row: TraceDecisionRow) -> str:
-    return build_decision_prompt(
-        snapshot_id=row.snapshot_id,
-        world_id=row.world_id,
-        world_hash=row.world_hash,
-        lineage=row.lineage,
-        mode=row.mode,
-        start_state=row.start_state,
-        role=row.role,
-        decision_index=row.decision_index,
-        observation=row.observation,
-        candidate_actions=row.candidate_actions,
-        weaknesses=row.weaknesses,
-        benchmark_tags=row.benchmark_tags,
-        trace_source=row.trace_source,
-        teacher_source=row.teacher_source,
-        split=row.split,
-        prompt_mode=row.episode_config.prompt_mode,
-        include_hidden_context=False,
-    )
-
-
-def build_decision_prompt(
-    *,
-    snapshot_id: str,
-    world_id: str,
-    world_hash: str,
-    lineage: TraceLineage,
-    mode: str,
-    start_state: str,
-    role: Literal["red", "blue"],
-    decision_index: int,
-    observation: Observation,
-    candidate_actions: tuple[TraceCandidate, ...],
-    weaknesses: tuple[TraceWeakness, ...],
-    benchmark_tags: tuple[str, ...],
-    trace_source: TraceSource,
-    teacher_source: TeacherSource,
-    split: TraceSplit,
-    prompt_mode: str,
-    include_hidden_context: bool = False,
-) -> str:
-    visible = _visible_event_lines(observation.visible_events)
-    candidates = "\n".join(
-        f"- [{candidate.label}] {candidate.text}" for candidate in candidate_actions
-    )
-    lines = [
-        f"sim_time={observation.sim_time:.2f}\n"
-        f"last_stdout={observation.stdout or 'none'}\n"
-        f"alerts_delta={len(observation.alerts_delta)}\n"
-        f"service_health={_service_health_text(observation)}\n"
-        f"visible_events:\n{visible}\n"
-        "candidate_actions:\n"
-        f"{candidates}"
-    ]
-    if include_hidden_context:
-        lines.insert(
-            0,
-            f"trace_source={trace_source}\n"
-            f"teacher_source={teacher_source}\n"
-            f"split={split}\n"
-            f"snapshot_id={snapshot_id}\n"
-            f"world_id={world_id}\n"
-            f"world_hash={world_hash}\n"
-            f"lineage_root_world_id={lineage.root_world_id}\n"
-            f"lineage_generation={lineage.generation}\n"
-            f"lineage_mutation_ops={','.join(lineage.mutation_ops) or 'none'}\n"
-            f"mode={mode}\n"
-            f"start_state={start_state}\n"
-            f"prompt_mode={prompt_mode}\n"
-            f"role={role}\n"
-            f"decision_index={decision_index}\n",
-        )
-        weaknesses_text = "\n".join(
-            f"- {weak.family}:{weak.kind}@{weak.target} tags={','.join(weak.benchmark_tags) or 'none'} objectives={','.join(weak.objective_tags) or 'none'}"
-            for weak in weaknesses
-        )
-        lines.append(f"benchmark_tags={','.join(benchmark_tags) or 'none'}\n")
-        lines.append(f"weaknesses:\n{weaknesses_text or '- none'}\n")
-    return "".join(lines)
-
-
-def system_prompt_for_role(role: Literal["red", "blue"]) -> str:
-    if role == "red":
-        return (
-            "You are the red operator in OpenRange. "
-            "Choose exactly one candidate action that best advances the validated attack path."
-        )
-    return (
-        "You are the blue operator in OpenRange. "
-        "Choose exactly one candidate action that best detects or mitigates the attack while preserving continuity."
-    )
-
-
-def _service_health_text(observation: Observation) -> str:
-    if not observation.service_health:
-        return "unknown"
-    return ", ".join(
-        f"{entry.service_id}={entry.health:.2f}" for entry in observation.service_health
-    )
-
-
-def _visible_event_lines(events: tuple[RuntimeEvent, ...]) -> str:
-    if not events:
-        return "- none"
-    return "\n".join(
-        f"- {event.event_type} src={event.source_entity} dst={event.target_entity} malicious={str(event.malicious).lower()}"
-        for event in events[-6:]
-    )
 
 
 def trace_weaknesses(snapshot: RuntimeSnapshot) -> tuple[TraceWeakness, ...]:

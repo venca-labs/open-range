@@ -1,4 +1,4 @@
-"""Reference-driven runtime with simulated time and internal green progression."""
+"""Decision-loop runtime with simulated time and internal green progression."""
 
 from __future__ import annotations
 
@@ -33,8 +33,8 @@ from open_range.runtime_types import (
 from open_range.snapshot import RuntimeSnapshot
 
 
-class ReferenceDrivenRuntime:
-    """Runtime for admitted snapshots with actor-specific decisions."""
+class OpenRangeRuntime:
+    """Decision-loop runtime for admitted snapshots with actor-specific decisions."""
 
     def __init__(
         self,
@@ -56,7 +56,7 @@ class ReferenceDrivenRuntime:
         self._red_reward_shaping = 0.0
         self._blue_reward_shaping = 0.0
         self._red_progress = 0
-        self._blue_internal_progress = 0
+        self._blue_progress = 0
         self._blue_detected = False
         self._blue_contained = False
         self._contained_targets: set[str] = set()
@@ -95,7 +95,7 @@ class ReferenceDrivenRuntime:
         self._red_reward_shaping = 0.0
         self._blue_reward_shaping = 0.0
         self._red_progress = 0
-        self._blue_internal_progress = 0
+        self._blue_progress = 0
         self._blue_detected = False
         self._blue_contained = False
         self._contained_targets = set()
@@ -268,7 +268,7 @@ class ReferenceDrivenRuntime:
 
     @staticmethod
     def matches_reference_step(action: Action, expected, live_stdout: str) -> bool:
-        return ReferenceDrivenRuntime._matches_step(action, expected, live_stdout)
+        return OpenRangeRuntime._matches_step(action, expected, live_stdout)
 
     def _apply_prefix_start(self) -> None:
         if self._snapshot is None:
@@ -533,9 +533,7 @@ class ReferenceDrivenRuntime:
 
         emitted: list[RuntimeEvent] = []
         reward_delta = 0.0
-        expected_internal = None
-        if internal and self._resolved_opponent_mode("blue") in {"reference", "replay"}:
-            expected_internal = self._next_blue_step()
+        expected_reference = self._next_blue_step()
         live = self._execute_live_action(action)
         audit = self._observe_action(action, live, controlled=not internal)
         emit_event = self._audit_emit_event(audit)
@@ -698,10 +696,10 @@ class ReferenceDrivenRuntime:
         self._blue_reward_shaping += reward_delta
         if not internal:
             self._last_reward_delta["blue"] += reward_delta
-        elif expected_internal is not None and self._matches_step(
-            action, expected_internal, live.stdout
+        if expected_reference is not None and self._matches_step(
+            action, expected_reference, live.stdout
         ):
-            self._blue_internal_progress += 1
+            self._blue_progress += 1
         self._append_suspicious_audit_event(action, audit, emitted)
         self._record_action_audit(audit, emitted)
 
@@ -781,9 +779,9 @@ class ReferenceDrivenRuntime:
         if self._snapshot is None:
             return None
         trace = self._reference_defense_trace()
-        if self._blue_internal_progress >= len(trace.steps):
+        if self._blue_progress >= len(trace.steps):
             return None
-        return trace.steps[self._blue_internal_progress]
+        return trace.steps[self._blue_progress]
 
     @staticmethod
     def _matches_step(action: Action, expected, live_stdout: str) -> bool:

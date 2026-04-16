@@ -1,4 +1,4 @@
-"""Standalone OpenRange CLI for the rewritten branch."""
+"""Standalone OpenRange CLI."""
 
 from __future__ import annotations
 
@@ -12,16 +12,18 @@ from typing import Any
 import click
 import yaml
 
+from open_range.backend_overrides import BackendOverrides
 from open_range.build_config import BuildConfig
 from open_range.cluster import KindBackend
+from open_range.episode_config import EpisodeConfig
 from open_range.eval_remote_model_rollouts import (
     DEFAULT_ENDPOINT,
     DEFAULT_MODEL,
     evaluate_remote_model_rollouts,
 )
-from open_range.episode_config import EpisodeConfig
 from open_range.k3d_runner import K3dBackend
 from open_range.pipeline import BuildPipeline
+from open_range.resources import load_bundled_manifest
 from open_range.service import OpenRange
 from open_range.store import FileSnapshotStore
 from open_range.tracegen import generate_trace_dataset
@@ -40,11 +42,15 @@ def _configure_logging(verbose: bool) -> None:
     )
 
 
-def _load_manifest(path: str) -> dict[str, Any]:
-    manifest_path = Path(path)
-    if not manifest_path.exists():
-        raise click.ClickException(f"manifest not found: {manifest_path}")
-    payload = yaml.safe_load(manifest_path.read_text(encoding="utf-8"))
+def _load_manifest(source: str) -> dict[str, Any]:
+    manifest_path = Path(source)
+    if manifest_path.exists():
+        payload = yaml.safe_load(manifest_path.read_text(encoding="utf-8"))
+    else:
+        try:
+            payload = load_bundled_manifest(source)
+        except FileNotFoundError as exc:
+            raise click.ClickException(f"manifest not found: {source}") from exc
     if not isinstance(payload, dict):
         raise click.ClickException(
             f"manifest must be a YAML mapping, got {type(payload).__name__}"
@@ -102,10 +108,46 @@ def _live_backend_for_option(cluster_backend: str) -> KindBackend | K3dBackend |
 @click.option(
     "-v", "--verbose", is_flag=True, default=False, help="Enable debug logging."
 )
+@click.option(
+    "--model",
+    default=None,
+    help="Override default backend AI model (e.g. moonshotai/kimi-k2-instruct).",
+)
+@click.option(
+    "--base-url",
+    default=None,
+    help="Override default HTTP backend AI URL (e.g. https://integrate.api.nvidia.com/v1/).",
+)
+@click.option(
+    "--asr-url",
+    default=None,
+    help="Override Parakeet ASR endpoint.",
+)
+@click.option(
+    "--tts-url",
+    default=None,
+    help="Override Riva FastPitch TTS endpoint.",
+)
 @click.version_option(package_name="open-range", prog_name="openrange")
-def cli(verbose: bool) -> None:
+@click.pass_context
+def cli(
+    ctx: click.Context,
+    verbose: bool,
+    model: str | None,
+    base_url: str | None,
+    asr_url: str | None,
+    tts_url: str | None,
+) -> None:
     """Build, admit, and run immutable OpenRange snapshots."""
     _configure_logging(verbose)
+    overrides = BackendOverrides(
+        model=model,
+        base_url=base_url,
+        asr_url=asr_url,
+        tts_url=tts_url,
+    )
+    ctx.ensure_object(dict)
+    ctx.obj["backend_overrides"] = overrides
 
 
 @cli.command("build")
@@ -113,8 +155,8 @@ def cli(verbose: bool) -> None:
     "-m",
     "--manifest",
     required=True,
-    type=click.Path(exists=True),
-    help="Path to manifest YAML.",
+    type=str,
+    help="Path to manifest YAML or bundled manifest name.",
 )
 @click.option(
     "-o",
@@ -196,8 +238,8 @@ def build_cmd(
     "-m",
     "--manifest",
     required=True,
-    type=click.Path(exists=True),
-    help="Path to manifest YAML.",
+    type=str,
+    help="Path to manifest YAML or bundled manifest name.",
 )
 @click.option(
     "-o",
@@ -378,8 +420,8 @@ def reset_cmd(
     "-m",
     "--manifest",
     required=True,
-    type=click.Path(exists=True),
-    help="Path to manifest YAML.",
+    type=str,
+    help="Path to manifest YAML or bundled manifest name.",
 )
 @click.option(
     "-o",
@@ -537,6 +579,12 @@ def eval_cmd(
         quiet=True,
     )
     report_path = _write_json(result, Path(output_path))
+    reference_match_rate = float(
+        result.get("reference_match_rate", result.get("exact_pick_rate", 0.0))
+    )
+    valid_action_rate = float(
+        result.get("valid_action_rate", result.get("valid_response_rate", 0.0))
+    )
 
     click.echo(f"Remote model eval written to {report_path}")
     click.echo(f"  Endpoint: {result['endpoint']}")
@@ -544,27 +592,25 @@ def eval_cmd(
     click.echo(f"  Validation Profile: {result['validation_profile']}")
     click.echo(f"  Snapshots: {result['snapshot_count']}")
     click.echo(f"  Red Win Rate: {result['red_win_rate']:.3f}")
-    click.echo(f"  Exact Pick Rate: {result['exact_pick_rate']:.3f}")
-    click.echo(f"  Valid Response Rate: {result['valid_response_rate']:.3f}")
+    click.echo(f"  Reference Match Rate: {reference_match_rate:.3f}")
+    click.echo(f"  Valid Action Rate: {valid_action_rate:.3f}")
     click.echo(f"  Avg Latency (ms): {result['avg_latency_ms']:.1f}")
 
 
 @cli.command("grpo")
 @click.option(
     "--model",
-    default="/workspace/outputs/sft-merged",
-    show_default=True,
+    required=True,
     help="Path to the SFT checkpoint used by the Qwen-focused GRPO runner.",
 )
 @click.option(
     "--data",
-    default="/workspace/data/grpo_combined.jsonl",
-    show_default=True,
+    required=True,
     help="Path to the GRPO JSONL training data.",
 )
 @click.option(
     "--output",
-    default="/workspace/outputs/grpo",
+    default="./grpo-output",
     show_default=True,
     help="Output directory for GRPO artifacts.",
 )
@@ -609,7 +655,9 @@ def eval_cmd(
     type=int,
     help="Number of GRPO epochs.",
 )
+@click.pass_context
 def grpo_cmd(
+    ctx: click.Context,
     model: str,
     data: str,
     output: str,
@@ -622,6 +670,9 @@ def grpo_cmd(
 ) -> None:
     """Run the advanced GRPO training path through the standalone Qwen runner."""
     runner = _repo_script("run_grpo.py")
+    backend_overrides: BackendOverrides = ctx.find_root().obj.get(
+        "backend_overrides", BackendOverrides()
+    )
     command = [
         sys.executable,
         str(runner),
@@ -644,6 +695,7 @@ def grpo_cmd(
         "--epochs",
         str(epochs),
     ]
+    backend_overrides.append_grpo_args(command)
     result = subprocess.run(command, check=False)
     if result.returncode != 0:
         raise SystemExit(result.returncode)

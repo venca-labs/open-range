@@ -5,7 +5,7 @@
   <br />
   <img src="https://img.shields.io/badge/Package-open--range-blue" alt="Package: open-range" />
   <img src="https://img.shields.io/badge/Runtime-red%2Fblue%2Fgreen-red" alt="Runtime: red/blue/green" />
-  <img src="https://img.shields.io/badge/License-Apache_2.0-blue.svg" alt="License: Apache 2.0" />
+  <img src="https://img.shields.io/badge/License-MIT-blue.svg" alt="License: MIT" />
 </div>
 
 OpenRange is a manifest-first cyber range for training red and blue agents in
@@ -44,53 +44,53 @@ training-data generation.
 | **Roles** | Usually red only | Red, blue, and green in one runtime |
 | **Training data** | External transcripts or logs | Branch-native traces from admitted snapshots |
 
+## Try it now
+
+The fastest way to experience OpenRange locally is directly through the PyPI package. This requires no external dependencies and runs the engine fully offline over a synthetic simulation plane.
+
+```bash
+pip install open-range
+openrange admit -m tier1_basic.yaml -o /tmp/openrange-build --store-dir /tmp/openrange-snapshots --validation-profile graph_only
+```
+
+This deterministic pipeline will immediately compile a tier-1 enterprise environment, synthesize internal vulnerabilities, and freeze it into an immutable snapshot. You can then trace an episode by invoking `openrange reset --store-dir /tmp/openrange-snapshots --sample-seed 7`.
+
+## Offline Exploration vs Live Ranges
+
+OpenRange splits execution into two physical planes:
+1. **Offline Exploration:** The default `graph_only` path builds and runs episodes instantly in-memory via `TinyWorld` and synthetic decision tracking. Ideal for iterating on scenarios and RL tuning.
+2. **Live Ranges:** The `full` profile renders live Kubernetes architectures (`kind`), deploys genuine service images, and exposes physical web interfaces. This path provides high-fidelity validation.
+
 ## What You Can Do
 
 - Build and admit worlds from strict manifests
 - Run red/blue/green episodes over immutable snapshots
 - Sample snapshots from train and eval pools
 - Generate branch-native trace datasets for training
-- Use offline admission for local iteration or live validation when running with
-  Kind
+- Use offline admission for local iteration or live validation when running with Kind
 
-- [Architecture](docs/architecture.md)
-- [Training Data Spec](docs/training-data-spec.md)
-- [Benchmark Offensive Coverage](docs/benchmark-offensive-coverage.md)
-- [Effect Grounding](docs/effect-grounding.md)
-- [Weakness Lifecycle](docs/weakness-lifecycle.md)
-- [NPC Profiles](docs/npc-profiles.md)
-## Quick Start
+## Documentation
 
-### 1. Install
+- [How an Episode Works](docs/how-an-episode-works.md): practical runtime walkthrough
+- [Architecture](docs/architecture.md): package layers and runtime boundaries
+- [Training Data Spec](docs/training-data-spec.md): canonical trace and export contract
+- [Benchmark Offensive Coverage](docs/benchmark-offensive-coverage.md): web-offensive slice and objective grounding
+- [Effect Grounding](docs/effect-grounding.md): grounded effect and mitigation semantics
+- [Weakness Lifecycle](docs/weakness-lifecycle.md): weakness realization, admission, and mutation
+- [NPC Profiles](docs/npc-profiles.md): green-user behavior shaping
+
+## Getting Started
+
+### 1. Install from Source
+
+If you want to modify OpenRange or build on top of it:
 
 ```bash
 uv sync
 uv run openrange --help
 ```
 
-Or install the package directly:
-
-```bash
-pip install .
-openrange --help
-```
-
-### 2. Run the Small Demo
-
-This is the fastest way to see the package working end to end without setting up
-Kind:
-
-```bash
-uv run openrange-demo
-```
-
-You can also point it at a checked-in manifest:
-
-```bash
-uv run openrange-demo --manifest manifests/tier1_basic.yaml
-```
-
-### 3. Admit a Snapshot Locally
+### 2. Admit a Snapshot Locally
 
 For a local first run, use the explicit offline profile:
 
@@ -114,7 +114,7 @@ uv run openrange reset \
 `graph_only` is the cheapest offline path. `full` and `graph_plus_live` require
 a live Kind-backed setup.
 
-### 4. Generate Trace Data
+### 3. Generate Trace Data
 
 ```bash
 uv run openrange traces \
@@ -129,9 +129,12 @@ to admitted snapshots.
 
 ## Python API
 
+You can programmatically compose and manage OpenRange episodes using the exact same public API that powers the CLI:
+
 ```python
 from open_range import BuildConfig, BuildPipeline, EpisodeConfig, OpenRange, load_bundled_manifest
 
+# 1. Build and Admit an immutable snapshot
 pipeline = BuildPipeline()
 candidate = pipeline.build(
     load_bundled_manifest("tier1_basic.yaml"),
@@ -140,27 +143,20 @@ candidate = pipeline.build(
 )
 snapshot = pipeline.admit(candidate)
 
+# 2. Spin up the Simulator Engine
 env = OpenRange()
 state = env.reset(snapshot.snapshot_id, EpisodeConfig(mode="blue_only_live"))
+
+# 3. Step the Loop
 decision = env.next_decision()
 
-print(state.snapshot_id)
-print(decision.actor, decision.obs.sim_time)
+print(f"Active Snapshot: {state.snapshot_id}")
+print(f"Awaiting turn from: {decision.actor} @ time: {decision.obs.sim_time}")
 ```
-
-## Start Here
-
-- [How an Episode Works](docs/how-an-episode-works.md): practical runtime walkthrough
-- [Architecture](docs/architecture.md): package layers and runtime boundaries
-- [V1 Scope](docs/v1-paper-scope.md): product and claim boundary
-- [Training Data Spec](docs/training-data-spec.md): canonical trace/export contract
-- [Weakness Lifecycle](docs/weakness-lifecycle.md): weakness realization, admission, and mutation
-- [Benchmark Offensive Coverage](docs/benchmark-offensive-coverage.md): web-offensive slice and objective grounding
-- [Effect Grounding](docs/effect-grounding.md): grounded effect and mitigation semantics
 
 ## Scope
 
-The current branch focuses on a validator-admitted enterprise web-security
+OpenRange currently focuses on a validator-admitted enterprise web-security
 training slice:
 
 - exact web flaws plus config, secret, workflow, and telemetry weaknesses
@@ -170,9 +166,9 @@ training slice:
 - blue detection, containment, and continuity under green-user noise
 
 It does not expose the old public golden-path architecture or the legacy
-OpenEnv HTTP server surface from `main`.
+OpenEnv HTTP server surface.
 
-## Optional extras
+## Optional Extras
 
 Training dependencies are optional:
 
@@ -180,14 +176,7 @@ Training dependencies are optional:
 uv sync --extra training
 ```
 
-The package also ships a bootstrap example that compares a cheap sim-plane trace
-with a runtime episode:
-
-```bash
-uv run openrange-bootstrap-demo
-```
-
-## License
+## Evaluation
 
 For environment-side evaluation over admitted snapshots and sequential mutations:
 
@@ -228,25 +217,9 @@ The generator also writes role/source shards such as:
 - `sft_red_all.jsonl`
 - `sft_blue_all.jsonl`
 
-## Experimental model probe
+## Container Image
 
-This is an optional bounded red-only probe that loads a tiny LoRA adapter and
-uses it to score a small candidate action set at each runtime decision.
-It is intentionally narrower than a full policy evaluation: it is
-reference-conditioned and red-only because the current tiny bootstrap dataset is
-not yet a full red/blue runtime-action corpus.
-
-```bash
-uv run scripts/eval_model_rollouts.py \
-  --adapter /tmp/openrange-sft-tiny-split/adapter \
-  --manifest manifests/tier1_basic.yaml \
-  --mutations 3 \
-  --out /tmp/openrange-model-rollout.json
-```
-
-## Container image
-
-The root [Dockerfile](Dockerfile) now builds a CLI image for the standalone package:
+The root [Dockerfile](Dockerfile) builds a CLI image for the standalone package:
 
 ```bash
 docker build -t openrange .
@@ -259,7 +232,7 @@ docker run --rm openrange --help
 uv run -m pytest tests -q
 ```
 
-## Development checks
+## Development
 
 ```bash
 uv sync
@@ -269,4 +242,7 @@ uv run pytest
 uv run pre-commit install
 uv run pre-commit run --all-files
 ```
-Apache 2.0
+
+## License
+
+MIT

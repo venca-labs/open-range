@@ -5,7 +5,7 @@ from __future__ import annotations
 from open_range.episode_config import EpisodeConfig
 from open_range.execution import PodActionBackend
 from open_range.probe_planner import runtime_action
-from open_range.runtime import ReferenceDrivenRuntime
+from open_range.runtime import OpenRangeRuntime
 from open_range.runtime_types import Action
 from open_range.snapshot import RuntimeSnapshot
 
@@ -19,7 +19,7 @@ def run_red_reference(
 ):
     del episode_seed
     trace = snapshot.reference_bundle.reference_attack_traces[trace_index]
-    runtime = ReferenceDrivenRuntime(action_backend=backend)
+    runtime = OpenRangeRuntime(action_backend=backend)
     runtime.reset(
         snapshot,
         EpisodeConfig(
@@ -61,7 +61,7 @@ def run_blue_reference(
     attack_index = trace_index % max(
         1, len(snapshot.reference_bundle.reference_attack_traces)
     )
-    runtime = ReferenceDrivenRuntime(action_backend=backend)
+    runtime = OpenRangeRuntime(action_backend=backend)
     runtime.reset(
         snapshot,
         EpisodeConfig(

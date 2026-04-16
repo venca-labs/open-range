@@ -33,7 +33,7 @@ The canonical export unit is one decision row per external actor decision.
 Each row must carry:
 
 - `trace_source`
-- `teacher_source`
+- `action_source`
 - `split`
 - `snapshot_id`
 - `world_id`
@@ -45,8 +45,8 @@ Each row must carry:
 - `role`
 - `decision_index`
 - `observation`
-- `candidate_actions`
 - `chosen_action`
+- `chosen_action_text`
 - `emitted_events`
 - `result_stdout`
 - `result_stderr`
@@ -65,36 +65,27 @@ This is the ground-truth training substrate.
 Default prompt/rendering rule:
 
 - exported row metadata may include weakness inventory and benchmark tags
-- default decision prompts used for SFT/eval must mirror the runtime observation surface
-- hidden weakness inventory, benchmark tags, snapshot ids, lineage ids, split labels, teacher-source labels, and other evaluator-only context must be excluded from the default prompt text unless an explicit research/debug export asks for them
+- default SFT/eval prompts must mirror the runtime observation surface, with completions rendered as concrete `Action` JSON
+- hidden weakness inventory, benchmark tags, snapshot ids, lineage ids, split labels, action-source labels, and other evaluator-only context must be excluded from the default prompt text unless an explicit research/debug export asks for them
 
-## Decision Surface
+## Action Contract
 
-Training should happen on the actual OpenRange decision surface:
+Training should happen on the actual OpenRange runtime action contract:
 
-- candidate action selection
-- ranked next-action preference
-- preference / reranking over counterfactuals
+- observe the current runtime state
+- emit the next concrete `Action`
+- score the resulting grounded effects and mitigation effects
 
 OpenRange V1 should not treat unconstrained free-form generation as the primary learning objective.
 
-## Candidate Actions
+## Action Sources
 
 Each exported decision row includes:
 
-- one teacher action
-- bounded alternative actions
-- counterfactual labels where available
+- one chosen runtime action
+- the source of that action, such as `reference_runtime` or `reference_sim`
 
-Minimum counterfactual coverage:
-
-- `teacher`
-- `probe`
-- `false_positive`
-- `continuity_damaging`
-- `sleep`
-
-This is especially important for blue, where many actions are superficially plausible but strategically wrong.
+This keeps trace export grounded in the public runtime loop while distinguishing live runtime rows from sim-derived bootstrap rows.
 
 ## Role Coverage
 
@@ -134,7 +125,7 @@ over claiming a full `patch`.
 
 The canonical trace rows may be transformed into training views, including:
 
-- `decision_sft.jsonl` for small causal-LM warmup
+- `decision_sft.jsonl` for small causal-LM warmup over observation-to-action completions
 - ranking/preference datasets
 
 Derived views must preserve snapshot and lineage metadata.
@@ -151,7 +142,7 @@ The default export should also write clean shards for:
 The default branch-native learning sequence is:
 
 1. generate raw trace rows from admitted snapshots
-2. generate branch-native decision SFT rows
+2. generate branch-native action-completion SFT rows
 3. train small models on that branch-native data
 4. evaluate in-loop on admitted snapshots and mutations
 5. use larger-scale RL only after those stages

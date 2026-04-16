@@ -10,6 +10,10 @@ from typing import Any, Protocol
 
 import yaml
 
+from open_range.image_policy import (
+    SANDBOX_IMAGE_BY_ROLE,
+    service_image_for_kind,
+)
 from open_range.runtime_extensions import (
     RenderExtensions,
     apply_service_runtime_extensions,
@@ -20,25 +24,7 @@ from open_range.snapshot import KindArtifacts
 from open_range.synth import SynthArtifacts
 from open_range.world_ir import GreenPersona, ServiceSpec, WorldIR
 
-
 _CHART_DIR = Path(__file__).resolve().parent / "chart"
-
-_IMAGE_BY_KIND = {
-    "web_app": "php:8.1-apache",
-    "email": "namshi/smtp:latest",
-    "idp": "osixia/openldap:1.5.0",
-    "fileshare": "dperson/samba:latest",
-    "db": "mysql:8.0",
-    "siem": "busybox:1.36",
-}
-
-_DEFAULT_SANDBOX_MULTITOOL_IMAGE = "wbitt/network-multitool:alpine-extra"
-
-_SANDBOX_IMAGE_BY_ROLE = {
-    "red": _DEFAULT_SANDBOX_MULTITOOL_IMAGE,
-    "blue": _DEFAULT_SANDBOX_MULTITOOL_IMAGE,
-    "green": "busybox:1.36",
-}
 
 
 class KindRenderer(Protocol):
@@ -152,7 +138,7 @@ class EnterpriseSaaSKindRenderer:
                 "host": service.host,
                 "zone": host.zone,
                 "kind": service.kind,
-                "image": _IMAGE_BY_KIND.get(service.kind, "ubuntu:22.04"),
+                "image": service_image_for_kind(service.kind),
                 "ports": [{"name": f"p{port}", "port": port} for port in service.ports],
                 "dependencies": list(service.dependencies),
                 "telemetry_surfaces": list(service.telemetry_surfaces),
@@ -172,7 +158,7 @@ class EnterpriseSaaSKindRenderer:
             "sandbox-red": {
                 "enabled": True,
                 "zone": "external" if "external" in world.zones else world.zones[0],
-                "image": _SANDBOX_IMAGE_BY_ROLE["red"],
+                "image": SANDBOX_IMAGE_BY_ROLE["red"],
                 "role": "red",
                 "command": ["/bin/sh", "-lc", "sleep infinity"],
             },
@@ -181,7 +167,7 @@ class EnterpriseSaaSKindRenderer:
                 "zone": "management"
                 if "management" in world.zones
                 else world.zones[-1],
-                "image": _SANDBOX_IMAGE_BY_ROLE["blue"],
+                "image": SANDBOX_IMAGE_BY_ROLE["blue"],
                 "role": "blue",
                 "command": ["/bin/sh", "-lc", "sleep infinity"],
             },
@@ -277,7 +263,7 @@ class EnterpriseSaaSKindRenderer:
 
     @staticmethod
     def _image_digest_for(kind: str) -> str:
-        image = _IMAGE_BY_KIND.get(kind, "ubuntu:22.04")
+        image = service_image_for_kind(kind)
         digest = hashlib.sha256(image.encode("utf-8")).hexdigest()[:24]
         return f"{image}@sha256:{digest}"
 
@@ -411,7 +397,7 @@ def _green_sandbox(persona: GreenPersona, host_by_id: dict[str, Any]) -> dict[st
     return {
         "enabled": True,
         "zone": zone,
-        "image": _SANDBOX_IMAGE_BY_ROLE["green"],
+        "image": SANDBOX_IMAGE_BY_ROLE["green"],
         "role": "green",
         "persona": persona.id,
         "mailbox": persona.mailbox,

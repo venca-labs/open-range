@@ -9,17 +9,19 @@ from pathlib import Path
 from tempfile import TemporaryDirectory
 from typing import Any
 
+from open_range._reference_replay import (
+    action_for_reference_step,
+    reference_trace_pairs,
+)
+from open_range._reference_sim import ReferenceSimPlane
 from open_range._runtime_store import hydrate_runtime_snapshot
 from open_range.build_config import OFFLINE_BUILD_CONFIG
 from open_range.curriculum import FrontierMutationPolicy, PopulationStats
-from open_range.decision_surface import reference_trace_pairs, trace_actions
-from open_range.driver import ScriptedRuntimeAgent
 from open_range.episode_config import EpisodeConfig
 from open_range.pipeline import BuildPipeline
 from open_range.resources import load_bundled_manifest
-from open_range.runtime import ReferenceDrivenRuntime
+from open_range.runtime import OpenRangeRuntime
 from open_range.runtime_types import EpisodeScore
-from open_range.sim import ReferenceSimPlane
 from open_range.snapshot import RuntimeSnapshot
 from open_range.store import FileSnapshotStore
 
@@ -42,30 +44,18 @@ def _load_manifest(source: str | Path | None) -> dict[str, Any]:
     return load_bundled_manifest(str(source))
 
 
-def _scripted_agent(
-    snapshot: RuntimeSnapshot, actor: str, *, trace_index: int
-) -> ScriptedRuntimeAgent:
-    return ScriptedRuntimeAgent(trace_actions(snapshot, actor, trace_index=trace_index))
-
-
 def _run_mode(
     snapshot: RuntimeSnapshot, episode_config: EpisodeConfig
 ) -> dict[str, Any]:
     pair_reports: list[dict[str, Any]] = []
     for attack_idx, defense_idx in reference_trace_pairs(snapshot, episode_config.mode):
-        runtime = ReferenceDrivenRuntime()
-        red_agent = _scripted_agent(snapshot, "red", trace_index=attack_idx)
-        blue_agent = _scripted_agent(snapshot, "blue", trace_index=defense_idx)
-        state = runtime.reset(
+        runtime = OpenRangeRuntime()
+        runtime.reset(
             snapshot,
             episode_config,
             reference_attack_index=attack_idx,
             reference_defense_index=defense_idx,
         )
-        if state.controls_red:
-            red_agent.reset(f"snapshot={snapshot.snapshot_id}", "red")
-        if state.controls_blue:
-            blue_agent.reset(f"snapshot={snapshot.snapshot_id}", "blue")
 
         turns = 0
         while not runtime.state().done:
@@ -75,8 +65,14 @@ def _run_mode(
                 if runtime.state().done:
                     break
                 raise
-            agent = red_agent if decision.actor == "red" else blue_agent
-            runtime.act(decision.actor, agent.act(decision.obs))
+            runtime.act(
+                decision.actor,
+                action_for_reference_step(
+                    snapshot,
+                    decision.actor,
+                    runtime.reference_step(decision.actor),
+                ),
+            )
             turns += 1
 
         score = runtime.score()

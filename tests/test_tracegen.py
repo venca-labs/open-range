@@ -33,12 +33,14 @@ def test_generate_trace_dataset_writes_raw_and_decision_views(tmp_path: Path) ->
     assert len(sft_rows) == report.rows
     assert {"runtime", "sim"} <= {row["trace_source"] for row in raw_rows}
     assert {"red", "blue"} <= {row["role"] for row in raw_rows}
+    assert {"reference_runtime", "reference_sim"} <= {
+        row["action_source"] for row in raw_rows
+    }
     assert {"red_only", "blue_only_live", "blue_only_from_prefix", "joint_pool"} <= {
         row["mode"] for row in raw_rows
     }
-    assert all(
-        "candidate_actions" in row and row["candidate_actions"] for row in raw_rows
-    )
+    assert all("candidate_actions" not in row for row in raw_rows)
+    assert all("chosen_action" in row and row["chosen_action"] for row in raw_rows)
     assert all(
         "grounded_effects" in row and "mitigation_effects" in row for row in raw_rows
     )
@@ -50,8 +52,8 @@ def test_generate_trace_dataset_writes_raw_and_decision_views(tmp_path: Path) ->
     assert all(entry["split"] in {"train", "val", "test"} for entry in sft_rows)
     assert "sft.red.runtime" in report.shard_paths
     assert "sft.blue.runtime" in report.shard_paths
-    assert "sft.red.teacher.reference_runtime" in report.shard_paths
-    assert "sft.red.teacher.scripted_runtime" in report.shard_paths
+    assert "sft.red.source.reference_runtime" in report.shard_paths
+    assert "sft.red.source.reference_sim" in report.shard_paths
     assert Path(report.shard_paths["sft.red.runtime"]).exists()
     assert Path(report.shard_paths["raw.red.all"]).exists()
 

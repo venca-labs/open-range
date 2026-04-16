@@ -7,35 +7,33 @@ from copy import deepcopy
 from pathlib import Path
 from typing import Any
 
-from open_range._runtime_store import hydrate_runtime_snapshot
-from open_range.build_config import BuildConfig, OFFLINE_BUILD_CONFIG
-from open_range.curriculum import FrontierMutationPolicy, PopulationStats
-from open_range.decision_surface import (
-    candidate_actions,
-    expected_step,
+from open_range._decision_sft import row_to_sft_record
+from open_range._reference_replay import (
+    action_for_reference_step,
     reference_trace_pairs,
-    scripted_choice,
-    select_candidate,
-    teacher_action,
 )
+from open_range._runtime_store import hydrate_runtime_snapshot
+from open_range.build_config import OFFLINE_BUILD_CONFIG, BuildConfig
+from open_range.curriculum import FrontierMutationPolicy, PopulationStats
 from open_range.episode_config import EpisodeConfig
 from open_range.pipeline import BuildPipeline
-from open_range.runtime import ReferenceDrivenRuntime
+from open_range.runtime import OpenRangeRuntime
 from open_range.snapshot import RuntimeSnapshot
 from open_range.store import FileSnapshotStore
 from open_range.training_data import (
+    ActionSource,
     TraceDatasetReport,
     TraceDecisionRow,
     TraceLineage,
+    TraceSource,
+    TraceSplit,
     grounded_effects_for_result,
     mitigation_effects_for_result,
     public_trace_action,
     render_action_text,
-    row_to_sft_record,
     trace_benchmark_tags,
     trace_weaknesses,
 )
-
 
 DEFAULT_RUNTIME_MODES = ("red_only", "blue_only_live", "blue_only_from_prefix")
 MAX_MUTATION_ATTEMPTS = 4
@@ -137,7 +135,7 @@ class TraceDatasetGenerator:
                                     mode="joint_pool", scheduler_mode="strict_turns"
                                 ),
                                 trace_source="sim",
-                                teacher_source="reference_sim",
+                                action_source="reference_sim",
                                 split=dataset_split,
                                 lineage_root=lineage_root,
                                 attack_trace_index=attack_idx,
@@ -153,19 +151,7 @@ class TraceDatasetGenerator:
                                 snapshot,
                                 _episode_config_for(mode),
                                 trace_source="runtime",
-                                teacher_source="reference_runtime",
-                                split=dataset_split,
-                                lineage_root=lineage_root,
-                                attack_trace_index=attack_idx,
-                                defense_trace_index=defense_idx,
-                            )
-                        )
-                        raw_rows.extend(
-                            self._episode_rows(
-                                snapshot,
-                                _episode_config_for(mode),
-                                trace_source="runtime",
-                                teacher_source="scripted_runtime",
+                                action_source="reference_runtime",
                                 split=dataset_split,
                                 lineage_root=lineage_root,
                                 attack_trace_index=attack_idx,
@@ -183,21 +169,7 @@ class TraceDatasetGenerator:
                                     mode="joint_pool", scheduler_mode="strict_turns"
                                 ),
                                 trace_source="runtime",
-                                teacher_source="reference_runtime",
-                                split=dataset_split,
-                                lineage_root=lineage_root,
-                                attack_trace_index=attack_idx,
-                                defense_trace_index=defense_idx,
-                            )
-                        )
-                        raw_rows.extend(
-                            self._episode_rows(
-                                snapshot,
-                                EpisodeConfig(
-                                    mode="joint_pool", scheduler_mode="strict_turns"
-                                ),
-                                trace_source="runtime",
-                                teacher_source="scripted_runtime",
+                                action_source="reference_runtime",
                                 split=dataset_split,
                                 lineage_root=lineage_root,
                                 attack_trace_index=attack_idx,
@@ -233,34 +205,20 @@ class TraceDatasetGenerator:
         snapshot: RuntimeSnapshot,
         episode_config: EpisodeConfig,
         *,
-        trace_source: str,
-        teacher_source: str,
-        split: str,
+        trace_source: TraceSource,
+        action_source: ActionSource,
+        split: TraceSplit,
         lineage_root: str,
         attack_trace_index: int = 0,
         defense_trace_index: int = 0,
     ) -> list[TraceDecisionRow]:
-        runtime = ReferenceDrivenRuntime()
+        runtime = OpenRangeRuntime()
         runtime.reset(
             snapshot,
             episode_config,
             reference_attack_index=attack_trace_index,
             reference_defense_index=defense_trace_index,
         )
-        teacher_steps = {
-            "red": list(
-                snapshot.reference_bundle.reference_attack_traces[
-                    attack_trace_index
-                ].steps
-            ),
-            "blue": list(
-                snapshot.reference_bundle.reference_defense_traces[
-                    defense_trace_index
-                ].steps
-            ),
-        }
-        teacher_progress = {"red": 0, "blue": 0}
-        actor_decisions = {"red": 0, "blue": 0}
         rows: list[TraceDecisionRow] = []
         decision_index = 0
 
@@ -272,43 +230,15 @@ class TraceDatasetGenerator:
                     break
                 raise
             actor = decision.actor
-            expected = expected_step(teacher_steps[actor], teacher_progress[actor])
-            teacher_choice = teacher_action(snapshot, actor, expected)
-            candidates = candidate_actions(
-                snapshot,
-                actor=actor,
-                observation=decision.obs,
-                expected_action=teacher_choice,
-                remaining_targets=runtime.remaining_red_targets(),
-            )
-            if teacher_source == "scripted_runtime":
-                chosen_action = scripted_choice(
-                    actor=actor,
-                    observation=decision.obs,
-                    candidates=candidates,
-                    decision_count=actor_decisions[actor],
-                )
-                candidates = select_candidate(candidates, chosen_action)
-            else:
-                chosen_action = teacher_choice
+            expected = runtime.reference_step(actor)
+            chosen_action = action_for_reference_step(snapshot, actor, expected)
             result = runtime.act(actor, chosen_action)
-            if expected is not None and runtime.matches_reference_step(
-                chosen_action, expected, result.stdout
-            ):
-                teacher_progress[actor] += 1
-            actor_decisions[actor] += 1
-            public_candidates = tuple(
-                candidate.model_copy(
-                    update={"action": public_trace_action(candidate.action)}
-                )
-                for candidate in candidates
-            )
             public_action = public_trace_action(chosen_action)
             rows.append(
                 TraceDecisionRow(
-                    trace_source=trace_source,  # type: ignore[arg-type]
-                    teacher_source=teacher_source,  # type: ignore[arg-type]
-                    split=split,  # type: ignore[arg-type]
+                    trace_source=trace_source,
+                    action_source=action_source,
+                    split=split,
                     snapshot_id=snapshot.snapshot_id,
                     world_id=snapshot.world.world_id,
                     world_hash=snapshot.world_hash,
@@ -324,7 +254,6 @@ class TraceDatasetGenerator:
                     role=actor,
                     decision_index=decision_index,
                     observation=decision.obs,
-                    candidate_actions=public_candidates,
                     chosen_action=public_action,
                     chosen_action_text=render_action_text(public_action),
                     result_stdout=result.stdout,
@@ -480,14 +409,10 @@ def _write_role_source_shards(
                 f"raw.{role}.{source}",
                 [row for row in role_rows if row.trace_source == source],
             )
-        for teacher_source in (
-            "reference_runtime",
-            "scripted_runtime",
-            "reference_sim",
-        ):
+        for action_source in ("reference_runtime", "reference_sim"):
             add(
-                f"raw.{role}.teacher.{teacher_source}",
-                [row for row in role_rows if row.teacher_source == teacher_source],
+                f"raw.{role}.source.{action_source}",
+                [row for row in role_rows if row.action_source == action_source],
             )
 
     for name, selected in shard_rows.items():
@@ -507,16 +432,10 @@ def _write_role_source_shards(
                 sft_rows[f"sft.{role}.{source}"] = [
                     row_to_sft_record(row) for row in selected
                 ]
-        for teacher_source in (
-            "reference_runtime",
-            "scripted_runtime",
-            "reference_sim",
-        ):
-            selected = [
-                row for row in role_rows if row.teacher_source == teacher_source
-            ]
+        for action_source in ("reference_runtime", "reference_sim"):
+            selected = [row for row in role_rows if row.action_source == action_source]
             if selected:
-                sft_rows[f"sft.{role}.teacher.{teacher_source}"] = [
+                sft_rows[f"sft.{role}.source.{action_source}"] = [
                     row_to_sft_record(row) for row in selected
                 ]
 

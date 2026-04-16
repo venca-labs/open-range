@@ -33,6 +33,7 @@ from typing import Any
 
 from pydantic import BaseModel, Field
 
+from open_range.image_policy import DB_MTLS_HELPER_IMAGE
 from open_range.runtime_extensions import (
     RuntimePort,
     RuntimeSidecar,
@@ -254,11 +255,13 @@ class SecurityIntegrator:
         # Build service→zone mapping from WorldIR
         services: dict[str, str] = {}
         service_kinds: dict[str, str] = {}
+        service_dependencies: dict[str, tuple[str, ...]] = {}
         host_by_id = {h.id: h for h in world.hosts}
         for svc in world.services:
             zone = host_by_id[svc.host].zone if svc.host in host_by_id else "default"
             services[svc.id] = zone
             service_kinds[svc.id] = svc.kind
+            service_dependencies[svc.id] = tuple(svc.dependencies)
 
         domain = "range.local"
 
@@ -269,7 +272,14 @@ class SecurityIntegrator:
             self._integrate_encryption(ctx, world, services, rng)
 
         if tier_cfg.mtls:
-            self._integrate_mtls(ctx, services, service_kinds, domain, rng)
+            self._integrate_mtls(
+                ctx,
+                services,
+                service_kinds,
+                service_dependencies,
+                domain,
+                rng,
+            )
 
         if tier_cfg.npc_credential_lifecycle:
             self._integrate_npc_lifecycle(ctx)
@@ -477,6 +487,7 @@ class SecurityIntegrator:
         ctx: SecurityContext,
         services: dict[str, str],
         service_kinds: dict[str, str],
+        service_dependencies: dict[str, tuple[str, ...]],
         domain: str,
         rng: random.Random,
     ) -> None:
@@ -562,6 +573,35 @@ class SecurityIntegrator:
                         key="security-mtls-mysql.cnf",
                         mount_path="/etc/mysql/conf.d/openrange-mtls.cnf",
                         source_path=f"security/mtls/{svc_name}/mysql.cnf",
+                    ),
+                )
+                ctx.append_payload(
+                    svc_name,
+                    ctx.runtime_payload(
+                        key="security-mtls-mysql-init.sql",
+                        mount_path="/docker-entrypoint-initdb.d/02-openrange-mtls.sql",
+                        source_path=f"security/mtls/{svc_name}/mysql-init.sql",
+                    ),
+                )
+            if "svc-db" in service_dependencies.get(svc_name, ()):
+                ctx.append_payload(
+                    svc_name,
+                    ctx.runtime_payload(
+                        key="security-mtls-mysql-client.cnf",
+                        mount_path="/etc/mysql/conf.d/openrange-client-mtls.cnf",
+                        source_path=f"security/mtls/{svc_name}/mysql-client.cnf",
+                    ),
+                )
+            if service_kind == "web_app" and "svc-db" in service_dependencies.get(
+                svc_name, ()
+            ):
+                ctx.append_sidecar(
+                    svc_name,
+                    RuntimeSidecar(
+                        name="db-client-mtls",
+                        image=DB_MTLS_HELPER_IMAGE,
+                        command=("/bin/sh", "-lc", "sleep infinity"),
+                        include_service_payloads=True,
                     ),
                 )
 

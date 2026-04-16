@@ -3,9 +3,9 @@
 from __future__ import annotations
 
 from open_range.admission import (
+    ReferenceBundle,
     ValidatorCheckReport,
     ValidatorStageReport,
-    ReferenceBundle,
 )
 from open_range.predicates import PredicateEngine
 from open_range.world_ir import WorldIR

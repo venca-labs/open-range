@@ -26,7 +26,6 @@ from open_range.runtime_types import (
 )
 from open_range.snapshot import RuntimeSnapshot
 
-
 DEFAULT_SUSPICIOUS_PATTERNS = (
     r"\b(?:apt|apt-get|apk|yum|dnf)\s+(?:install|add)\b",
     r"\bpip(?:3)?\s+install\b",

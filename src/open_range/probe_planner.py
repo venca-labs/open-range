@@ -2,9 +2,9 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
 import json
 import shlex
+from dataclasses import dataclass
 
 from open_range.admission import (
     ProbeSpec,
@@ -12,7 +12,7 @@ from open_range.admission import (
     ReferenceBundle,
     ReferenceTrace,
 )
-from open_range.build_config import BuildConfig, DEFAULT_BUILD_CONFIG
+from open_range.build_config import DEFAULT_BUILD_CONFIG, BuildConfig
 from open_range.code_web import code_web_payload
 from open_range.effect_markers import (
     effect_marker_content,

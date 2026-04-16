@@ -25,7 +25,6 @@ from open_range.world_ir import (
     WorldIR,
 )
 
-
 PoolSplit = Literal["train", "eval"]
 MutationKind = Literal[
     "add_host",
@@ -63,6 +62,7 @@ class ParentScore(_StrictModel):
     world_id: str = Field(min_length=1)
     total: float
     signals: dict[str, float] = Field(default_factory=dict)
+    contributions: dict[str, float] = Field(default_factory=dict)
 
 
 class MutationOp(_StrictModel):
@@ -85,9 +85,19 @@ class MutationPolicy(Protocol):
 class FrontierMutationPolicy:
     """Heuristic deterministic curriculum policy for admitted worlds."""
 
+    def score_weights(self) -> dict[str, float]:
+        return {
+            "stability": 0.35,
+            "frontier": 0.30,
+            "novelty": 0.15,
+            "signal_richness": 0.10,
+            "coverage": 0.10,
+        }
+
     def score_parents(
         self, population: list[PopulationStats]
     ) -> tuple[ParentScore, ...]:
+        weights = self.score_weights()
         ranked: list[ParentScore] = []
         for entry in population:
             if entry.split != "train":
@@ -96,24 +106,25 @@ class FrontierMutationPolicy:
             frontier = max(0.0, 1.0 - abs(entry.red_win_rate - 0.5) * 2.0)
             signal_richness = min(entry.blue_signal_points / 6.0, 1.0)
             coverage = min(entry.episodes / 10.0, 1.0)
-            total = (
-                0.35 * stability
-                + 0.30 * frontier
-                + 0.15 * entry.novelty
-                + 0.10 * signal_richness
-                + 0.10 * coverage
-            )
+            signals = {
+                "stability": stability,
+                "frontier": frontier,
+                "novelty": entry.novelty,
+                "signal_richness": signal_richness,
+                "coverage": coverage,
+            }
+            contributions = {
+                name: signals[name] * weight for name, weight in weights.items()
+            }
+            total = sum(contributions.values())
             ranked.append(
                 ParentScore(
                     snapshot_id=entry.snapshot_id,
                     world_id=entry.world_id,
                     total=round(total, 6),
-                    signals={
-                        "stability": round(stability, 6),
-                        "frontier": round(frontier, 6),
-                        "novelty": round(entry.novelty, 6),
-                        "signal_richness": round(signal_richness, 6),
-                        "coverage": round(coverage, 6),
+                    signals={name: round(value, 6) for name, value in signals.items()},
+                    contributions={
+                        name: round(value, 6) for name, value in contributions.items()
                     },
                 )
             )

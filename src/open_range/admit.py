@@ -5,27 +5,27 @@ from __future__ import annotations
 import json
 import shutil
 import subprocess
-import time
 from pathlib import Path
 from typing import Callable, Protocol
 from urllib.parse import urlencode
 
-from open_range.admission_plan import admission_stages, profile_requires_live
-from open_range.admission_scoring import report_summary
 from open_range.admission import (
+    ReferenceBundle,
     ValidatorCheckReport,
     ValidatorReport,
     ValidatorStageReport,
-    ReferenceBundle,
 )
+from open_range.admission_plan import admission_stages, profile_requires_live
+from open_range.admission_scoring import report_summary
 from open_range.async_utils import run_async
-from open_range.build_config import BuildConfig, DEFAULT_BUILD_CONFIG
+from open_range.build_config import DEFAULT_BUILD_CONFIG, BuildConfig
 from open_range.cluster import KindBackend, LiveBackend
 from open_range.counterfactuals import clear_runtime_markers, remediation_command
 from open_range.encryption_enforcement import check_encryption_enforcement
 from open_range.execution import PodActionBackend
 from open_range.identity_enforcement import check_identity_enforcement
 from open_range.k3d_runner import K3dBackend
+from open_range.live_checks import check_live_db_mtls, check_live_service_smoke
 from open_range.mtls_enforcement import check_mtls_enforcement
 from open_range.objectives import evaluate_objective_grader_live
 from open_range.predicates import PredicateEngine
@@ -234,7 +234,8 @@ class LocalAdmissionController:
             snapshot = _ephemeral_snapshot(world, artifacts, reference_bundle)
             backend = PodActionBackend()
             backend.bind(snapshot, release)
-            checks.append(_live_service_smoke_check(world, release))
+            checks.append(check_live_service_smoke(world, release))
+            checks.append(check_live_db_mtls(world, release))
             clear_runtime_markers(release, world)
             checks.append(_live_red_reference_check(snapshot, release, backend))
             checks.append(_live_siem_ingest_check(release))
@@ -869,72 +870,6 @@ def _ephemeral_snapshot(
         reference_bundle=reference_bundle,
         world_hash=world_hash(world),
     )
-
-
-def _live_service_smoke_check(world: WorldIR, release) -> ValidatorCheckReport:
-    failures: list[str] = []
-    for service in world.services:
-        runner = _smoke_runner_for_service(world, service.id)
-        cmd = _smoke_probe_command(service)
-        last_error = "smoke failed"
-        ok = False
-        attempts = 10 if service.kind == "db" else 3
-        retry_delay_s = 2.0 if service.kind == "db" else 1.0
-        for attempt in range(attempts):
-            result = run_async(release.pods.exec(runner, cmd, timeout=10.0))
-            if result.ok:
-                ok = True
-                break
-            last_error = result.stderr or result.stdout or "smoke failed"
-            if attempt + 1 < attempts:
-                time.sleep(retry_delay_s)
-        if not ok:
-            failures.append(f"{service.id}:{last_error}")
-    return ValidatorCheckReport(
-        name="live_service_smoke",
-        passed=not failures,
-        details={"failures": failures},
-        error="; ".join(failures),
-    )
-
-
-def _smoke_runner_for_service(world: WorldIR, service_id: str) -> str:
-    service_by_id = {service.id: service for service in world.services}
-    host_zone_by_id = {host.id: host.zone for host in world.hosts}
-    service = service_by_id[service_id]
-    zone = host_zone_by_id.get(service.host, "")
-    if zone in {"dmz", "external"}:
-        return "sandbox-red"
-    if zone == "management":
-        return "sandbox-blue"
-    if zone in {"corp", "data"}:
-        runner = _first_green_sandbox_in_zones(world, ("dmz", "corp", zone))
-        if runner:
-            return runner
-    runner = _first_green_sandbox_in_zones(world, (zone,))
-    if runner:
-        return runner
-    return "sandbox-blue" if zone == "management" else "sandbox-red"
-
-
-def _first_green_sandbox_in_zones(world: WorldIR, zones: tuple[str, ...]) -> str:
-    host_zone_by_id = {host.id: host.zone for host in world.hosts}
-    allowed = set(zones)
-    for persona in world.green_personas:
-        zone = host_zone_by_id.get(persona.home_host, "")
-        if zone in allowed:
-            safe = "".join(ch.lower() if ch.isalnum() else "-" for ch in persona.id)
-            return f"sandbox-green-{safe.strip('-')}"
-    return ""
-
-
-def _smoke_probe_command(service: ServiceSpec) -> str:
-    port = service.ports[0] if service.ports else 80
-    if service.id == "svc-web":
-        return f"wget -qO- http://{service.id}:{port}/ | grep -q OpenRange"
-    if service.id == "svc-siem":
-        return "wget -qO- http://svc-siem:9200/all.log >/dev/null"
-    return f"nc -z -w 3 {service.id} {port}"
 
 
 def _live_red_reference_check(

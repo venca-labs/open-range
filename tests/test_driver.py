@@ -2,13 +2,13 @@ from __future__ import annotations
 
 from pathlib import Path
 
+from open_range._episode_driver import ScriptedRuntimeAgent, TandemEpisodeDriver
 from open_range._runtime_store import hydrate_runtime_snapshot
 from open_range.admit import LocalAdmissionController
 from open_range.compiler import EnterpriseSaaSManifestCompiler
-from open_range.driver import ScriptedRuntimeAgent, TandemEpisodeDriver
 from open_range.episode_config import EpisodeConfig
 from open_range.render import EnterpriseSaaSKindRenderer
-from open_range.runtime import ReferenceDrivenRuntime
+from open_range.runtime import OpenRangeRuntime
 from open_range.runtime_types import Action
 from open_range.store import FileSnapshotStore
 from open_range.synth import EnterpriseSaaSWorldSynthesizer
@@ -37,7 +37,7 @@ def _snapshot(tmp_path: Path):
 
 def test_tandem_driver_runs_joint_pool_episode(tmp_path: Path):
     snapshot = _snapshot(tmp_path)
-    runtime = ReferenceDrivenRuntime()
+    runtime = OpenRangeRuntime()
     driver = TandemEpisodeDriver(runtime)
 
     red_trace = snapshot.reference_bundle.reference_attack_traces[0].steps
@@ -85,7 +85,7 @@ def test_tandem_driver_runs_joint_pool_episode(tmp_path: Path):
 
 def test_driver_can_run_blue_only_prefix_episode(tmp_path: Path):
     snapshot = _snapshot(tmp_path)
-    runtime = ReferenceDrivenRuntime()
+    runtime = OpenRangeRuntime()
     driver = TandemEpisodeDriver(runtime)
 
     red_trace = snapshot.reference_bundle.reference_attack_traces[0].steps

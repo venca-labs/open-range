@@ -5,12 +5,13 @@ from pathlib import Path
 from types import SimpleNamespace
 
 from open_range._runtime_store import load_runtime_snapshot
-from open_range.cluster import ExecResult
 from open_range.admit import LocalAdmissionController
 from open_range.build_config import BuildConfig
+from open_range.cluster import ExecResult
 from open_range.code_web import code_web_payload
 from open_range.compiler import EnterpriseSaaSManifestCompiler
 from open_range.curriculum import FrontierMutationPolicy, PopulationStats
+from open_range.image_policy import SANDBOX_IMAGE_BY_ROLE, service_image_for_kind
 from open_range.pipeline import BuildPipeline
 from open_range.predicates import PredicateEngine
 from open_range.render import EnterpriseSaaSKindRenderer
@@ -24,6 +25,7 @@ from tests.support import (
 )
 
 admit_mod = importlib.import_module("open_range.admit")
+live_checks_mod = importlib.import_module("open_range.live_checks")
 
 
 def _manifest_payload() -> dict:
@@ -104,11 +106,11 @@ def test_kind_renderer_emits_expected_files(tmp_path: Path):
     assert "sandbox-red" in artifacts.chart_values["sandboxes"]
     assert (
         artifacts.chart_values["sandboxes"]["sandbox-red"]["image"]
-        == "wbitt/network-multitool:alpine-extra"
+        == SANDBOX_IMAGE_BY_ROLE["red"]
     )
     assert (
         artifacts.chart_values["sandboxes"]["sandbox-blue"]["image"]
-        == "wbitt/network-multitool:alpine-extra"
+        == SANDBOX_IMAGE_BY_ROLE["blue"]
     )
     assert (
         artifacts.chart_values["services"]["svc-db"]["payloads"][0]["mountPath"]
@@ -131,7 +133,7 @@ def test_kind_renderer_emits_expected_files(tmp_path: Path):
         for rule in artifacts.chart_values["firewallRules"]
     )
     assert artifacts.pinned_image_digests["svc-web"].startswith(
-        "php:8.1-apache@sha256:"
+        f"{service_image_for_kind('web_app')}@sha256:"
     )
 
 
@@ -450,7 +452,7 @@ def test_live_service_smoke_check_uses_reachable_zone_runners() -> None:
             calls.append((service, cmd))
             return ExecResult(stdout="ok", stderr="", exit_code=0)
 
-    report = admit_mod._live_service_smoke_check(
+    report = live_checks_mod.check_live_service_smoke(
         world, SimpleNamespace(pods=FakePods())
     )
     calls_by_target = {
@@ -464,6 +466,51 @@ def test_live_service_smoke_check_uses_reachable_zone_runners() -> None:
     assert calls_by_target["svc-siem"] == "sandbox-blue"
     assert calls_by_target["svc-fileshare"].startswith("sandbox-green-")
     assert calls_by_target["svc-db"].startswith("sandbox-green-")
+
+
+def test_live_db_mtls_check_proves_client_cert_required(tmp_path: Path) -> None:
+    pipeline = BuildPipeline(store=FileSnapshotStore(tmp_path / "snapshots"))
+    candidate = pipeline.build(
+        _manifest_payload(),
+        tmp_path / "rendered-security",
+        BuildConfig(
+            validation_profile="graph_only",
+            security_integration_enabled=True,
+            security_tier=3,
+        ),
+    )
+    calls: list[tuple[str, str]] = []
+
+    class FakePods:
+        async def exec(
+            self,
+            service: str,
+            cmd: str,
+            timeout: float = 30.0,
+            *,
+            container: str | None = None,
+        ) -> ExecResult:
+            del timeout
+            calls.append((service, container or "", cmd))
+            if container == "db-client-mtls":
+                return ExecResult(stdout="1\n", stderr="", exit_code=0)
+            if "mysql --protocol=TCP" in cmd:
+                return ExecResult(stdout="", stderr="ERROR 1045 (28000)", exit_code=1)
+            return ExecResult(stdout="", stderr="miss", exit_code=1)
+
+    report = live_checks_mod.check_live_db_mtls(
+        candidate.world, SimpleNamespace(pods=FakePods())
+    )
+
+    assert report.passed is True
+    assert calls[0][0] == "svc-web"
+    assert calls[0][1] == "db-client-mtls"
+    assert (
+        "--defaults-extra-file=/etc/mysql/conf.d/openrange-client-mtls.cnf"
+        in calls[0][2]
+    )
+    assert calls[1][0] == "sandbox-red"
+    assert "--ssl-cert=/etc/mtls/cert.pem" not in calls[1][2]
 
 
 def test_admission_controller_rejects_world_without_telemetry(tmp_path: Path):

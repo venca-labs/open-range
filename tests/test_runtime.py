@@ -6,18 +6,19 @@ import time
 from pathlib import Path
 from types import SimpleNamespace
 
-from open_range._runtime_store import hydrate_runtime_snapshot
 import pytest
 
+from open_range._runtime_store import hydrate_runtime_snapshot
 from open_range.admit import LocalAdmissionController
 from open_range.cluster import ExecResult
 from open_range.code_web import code_web_payload
 from open_range.compiler import EnterpriseSaaSManifestCompiler
 from open_range.episode_config import EpisodeConfig
-from open_range.green import ScriptedGreenScheduler
 from open_range.execution import PodActionBackend
+from open_range.green import ScriptedGreenScheduler
+from open_range.probe_planner import runtime_action
 from open_range.render import EnterpriseSaaSKindRenderer
-from open_range.runtime import ReferenceDrivenRuntime
+from open_range.runtime import OpenRangeRuntime
 from open_range.runtime_types import Action, RuntimeEvent
 from open_range.store import FileSnapshotStore
 from open_range.synth import EnterpriseSaaSWorldSynthesizer
@@ -64,7 +65,7 @@ def _code_web_response(
 def _benchmark_runtime_ms_per_action(
     snapshot, *, audit_enabled: bool, action_count: int
 ) -> float:
-    runtime = ReferenceDrivenRuntime()
+    runtime = OpenRangeRuntime()
     runtime.reset(
         snapshot,
         EpisodeConfig(
@@ -97,7 +98,7 @@ def _benchmark_runtime_ms_per_action(
 
 def test_joint_pool_next_decision_returns_actor_specific_observations(tmp_path: Path):
     snapshot = _snapshot(tmp_path)
-    runtime = ReferenceDrivenRuntime()
+    runtime = OpenRangeRuntime()
     state = runtime.reset(
         snapshot,
         EpisodeConfig(mode="joint_pool", green_enabled=False),
@@ -137,7 +138,7 @@ def test_joint_pool_next_decision_returns_actor_specific_observations(tmp_path: 
 
 def test_runtime_keeps_green_internal_and_never_exposes_green_decisions(tmp_path: Path):
     snapshot = _snapshot(tmp_path)
-    runtime = ReferenceDrivenRuntime()
+    runtime = OpenRangeRuntime()
     runtime.reset(
         snapshot,
         EpisodeConfig(mode="joint_pool", green_enabled=True),
@@ -162,7 +163,7 @@ def test_runtime_keeps_green_internal_and_never_exposes_green_decisions(tmp_path
 
 def test_one_day_prompt_mode_exposes_high_level_risky_surfaces(tmp_path: Path):
     snapshot = _snapshot(tmp_path)
-    runtime = ReferenceDrivenRuntime()
+    runtime = OpenRangeRuntime()
     runtime.reset(
         snapshot,
         EpisodeConfig(mode="red_only", prompt_mode="one_day", green_enabled=False),
@@ -179,7 +180,7 @@ def test_one_day_prompt_mode_exposes_high_level_risky_surfaces(tmp_path: Path):
 
 def test_blue_only_from_prefix_starts_blue_after_compromise_prefix(tmp_path: Path):
     snapshot = _snapshot(tmp_path)
-    runtime = ReferenceDrivenRuntime()
+    runtime = OpenRangeRuntime()
     state = runtime.reset(
         snapshot,
         EpisodeConfig(
@@ -203,7 +204,7 @@ def test_blue_only_from_prefix_delivery_and_click_do_not_collapse_without_matchi
 ):
     snapshot = _snapshot(tmp_path)
 
-    delivery_runtime = ReferenceDrivenRuntime()
+    delivery_runtime = OpenRangeRuntime()
     delivery_runtime.reset(
         snapshot,
         EpisodeConfig(
@@ -219,7 +220,7 @@ def test_blue_only_from_prefix_delivery_and_click_do_not_collapse_without_matchi
         for event in delivery_decision.obs.visible_events
     )
 
-    click_runtime = ReferenceDrivenRuntime()
+    click_runtime = OpenRangeRuntime()
     click_runtime.reset(
         snapshot,
         EpisodeConfig(
@@ -238,7 +239,7 @@ def test_blue_only_from_prefix_delivery_and_click_do_not_collapse_without_matchi
 
 def test_blue_only_live_can_win_by_detect_and_contain(tmp_path: Path):
     snapshot = _snapshot(tmp_path)
-    runtime = ReferenceDrivenRuntime()
+    runtime = OpenRangeRuntime()
     runtime.reset(
         snapshot,
         EpisodeConfig(mode="blue_only_live", green_enabled=False),
@@ -281,7 +282,7 @@ def test_blue_only_live_can_win_by_detect_and_contain(tmp_path: Path):
 
 def test_runtime_flags_mock_git_clone_in_episode_audit(tmp_path: Path):
     snapshot = _snapshot(tmp_path)
-    runtime = ReferenceDrivenRuntime()
+    runtime = OpenRangeRuntime()
     runtime.reset(
         snapshot,
         EpisodeConfig(
@@ -320,7 +321,7 @@ def test_runtime_hides_suspicious_audit_only_events_from_decision_observations(
     tmp_path: Path,
 ):
     snapshot = _snapshot(tmp_path)
-    runtime = ReferenceDrivenRuntime()
+    runtime = OpenRangeRuntime()
     runtime.reset(
         snapshot,
         EpisodeConfig(
@@ -351,7 +352,7 @@ def test_runtime_hides_suspicious_audit_only_events_from_decision_observations(
 
 def test_runtime_audit_only_events_do_not_trigger_green_reactions(tmp_path: Path):
     snapshot = _snapshot(tmp_path)
-    runtime = ReferenceDrivenRuntime()
+    runtime = OpenRangeRuntime()
     runtime.reset(
         snapshot,
         EpisodeConfig(
@@ -459,7 +460,7 @@ def test_runtime_tags_emitted_events_when_a_live_action_matches_audit_pattern(
     backend.bind(
         snapshot, SimpleNamespace(release_name="or-test", pods=FakePods(pod_ids))
     )
-    runtime = ReferenceDrivenRuntime(action_backend=backend)
+    runtime = OpenRangeRuntime(action_backend=backend)
     runtime.reset(
         snapshot,
         EpisodeConfig(
@@ -491,7 +492,7 @@ def test_runtime_tags_emitted_events_when_a_live_action_matches_audit_pattern(
 
 def test_runtime_serialized_events_keep_suspicious_fields(tmp_path: Path):
     snapshot = _snapshot(tmp_path)
-    runtime = ReferenceDrivenRuntime()
+    runtime = OpenRangeRuntime()
     runtime.reset(
         snapshot,
         EpisodeConfig(
@@ -521,7 +522,7 @@ def test_runtime_serialized_events_keep_suspicious_fields(tmp_path: Path):
 
 def test_runtime_hard_done_rejects_more_decisions_and_actions(tmp_path: Path):
     snapshot = _snapshot(tmp_path)
-    runtime = ReferenceDrivenRuntime()
+    runtime = OpenRangeRuntime()
     runtime.reset(
         snapshot,
         EpisodeConfig(
@@ -551,14 +552,14 @@ def test_runtime_matching_rejects_extra_api_path_when_reference_has_no_path() ->
         payload={"target": "svc-web", "path": "/"},
     )
 
-    assert ReferenceDrivenRuntime._matches_step(action, expected, "ok") is False
+    assert OpenRangeRuntime._matches_step(action, expected, "ok") is False
 
 
 def test_runtime_prefers_shortest_live_foothold_for_next_red_origin(
     tmp_path: Path,
 ) -> None:
     snapshot = _snapshot(tmp_path)
-    runtime = ReferenceDrivenRuntime()
+    runtime = OpenRangeRuntime()
     runtime.reset(snapshot, EpisodeConfig(mode="red_only", green_enabled=False))
     runtime._red_footholds = {"svc-web", "svc-idp"}
     runtime._last_red_target = "svc-idp"
@@ -567,7 +568,7 @@ def test_runtime_prefers_shortest_live_foothold_for_next_red_origin(
 
 
 def test_runtime_internal_snapshot_helpers_raise_clear_errors_without_reset() -> None:
-    runtime = ReferenceDrivenRuntime()
+    runtime = OpenRangeRuntime()
 
     with pytest.raises(RuntimeError, match="runtime has no active snapshot"):
         runtime._briefing_text("red")
@@ -632,7 +633,7 @@ def test_runtime_live_containment_blocks_future_red_step(tmp_path: Path):
     backend.bind(
         snapshot, SimpleNamespace(release_name="or-test", pods=FakePods(pod_ids))
     )
-    runtime = ReferenceDrivenRuntime(action_backend=backend)
+    runtime = OpenRangeRuntime(action_backend=backend)
     runtime.reset(
         snapshot,
         EpisodeConfig(mode="joint_pool", green_enabled=False),
@@ -733,7 +734,7 @@ def test_runtime_live_patch_blocks_future_red_step_and_emits_patch_event(
     backend.bind(
         snapshot, SimpleNamespace(release_name="or-test", pods=FakePods(pod_ids))
     )
-    runtime = ReferenceDrivenRuntime(action_backend=backend)
+    runtime = OpenRangeRuntime(action_backend=backend)
     runtime.reset(
         snapshot,
         EpisodeConfig(mode="joint_pool", green_enabled=False),
@@ -851,7 +852,7 @@ def test_runtime_live_patch_can_disable_exact_web_handler(tmp_path: Path):
     backend.bind(
         snapshot, SimpleNamespace(release_name="or-test", pods=FakePods(pod_ids))
     )
-    runtime = ReferenceDrivenRuntime(action_backend=backend)
+    runtime = OpenRangeRuntime(action_backend=backend)
     runtime.reset(
         snapshot,
         EpisodeConfig(mode="joint_pool", green_enabled=False),
@@ -893,7 +894,7 @@ def test_runtime_live_patch_can_disable_exact_web_handler(tmp_path: Path):
 
 def test_runtime_accepts_mitigate_as_patch_alias(tmp_path: Path):
     snapshot = _snapshot(tmp_path)
-    runtime = ReferenceDrivenRuntime()
+    runtime = OpenRangeRuntime()
     runtime.reset(
         snapshot,
         EpisodeConfig(mode="joint_pool", green_enabled=False),
@@ -932,7 +933,7 @@ def test_internal_blue_controller_modes_are_not_aliases(tmp_path: Path):
     snapshot = _snapshot(tmp_path)
     first_step = snapshot.reference_bundle.reference_attack_traces[0].steps[0]
 
-    reference_runtime = ReferenceDrivenRuntime()
+    reference_runtime = OpenRangeRuntime()
     reference_runtime.reset(
         snapshot,
         EpisodeConfig(
@@ -957,7 +958,7 @@ def test_internal_blue_controller_modes_are_not_aliases(tmp_path: Path):
     assert reference_action.kind == "shell"
     assert reference_action.payload["action"] == "observe_events"
 
-    scripted_runtime = ReferenceDrivenRuntime()
+    scripted_runtime = OpenRangeRuntime()
     scripted_runtime.reset(
         snapshot,
         EpisodeConfig(
@@ -983,9 +984,38 @@ def test_internal_blue_controller_modes_are_not_aliases(tmp_path: Path):
     assert scripted_action.payload["target"] == first_step.target
 
 
+def test_external_blue_reference_step_advances_between_decisions(tmp_path: Path):
+    snapshot = _snapshot(tmp_path)
+    defense_trace = snapshot.reference_bundle.reference_defense_traces[0]
+    assert len(defense_trace.steps) >= 2
+
+    runtime = OpenRangeRuntime()
+    runtime.reset(
+        snapshot,
+        EpisodeConfig(
+            mode="blue_only_live",
+            opponent_red="reference",
+            green_enabled=False,
+            telemetry_delay_enabled=False,
+            telemetry_delay_profile="none",
+        ),
+        reference_defense_index=0,
+    )
+
+    first_decision = runtime.next_decision()
+    assert first_decision.actor == "blue"
+    assert runtime.reference_step("blue") == defense_trace.steps[0]
+
+    runtime.act("blue", runtime_action("blue", defense_trace.steps[0]))
+
+    second_decision = runtime.next_decision()
+    assert second_decision.actor == "blue"
+    assert runtime.reference_step("blue") == defense_trace.steps[1]
+
+
 def test_next_decision_raises_done_after_internal_terminal_progress(tmp_path: Path):
     snapshot = _snapshot(tmp_path)
-    runtime = ReferenceDrivenRuntime()
+    runtime = OpenRangeRuntime()
     runtime.reset(
         snapshot,
         EpisodeConfig(mode="red_only", opponent_blue="scripted", green_enabled=False),
@@ -1007,7 +1037,7 @@ def test_green_branch_backends_are_not_aliases(tmp_path: Path):
     snapshot = _snapshot(tmp_path)
     first_step = snapshot.reference_bundle.reference_attack_traces[0].steps[0]
 
-    scripted_runtime = ReferenceDrivenRuntime()
+    scripted_runtime = OpenRangeRuntime()
     scripted_runtime.reset(
         snapshot,
         EpisodeConfig(
@@ -1036,7 +1066,7 @@ def test_green_branch_backends_are_not_aliases(tmp_path: Path):
         event for event in scripted_runtime.export_events() if event.actor == "green"
     ]
 
-    orchestrated_runtime = ReferenceDrivenRuntime()
+    orchestrated_runtime = OpenRangeRuntime()
     orchestrated_runtime.reset(
         snapshot,
         EpisodeConfig(

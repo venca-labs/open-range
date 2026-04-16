@@ -1,15 +1,16 @@
 from __future__ import annotations
 
-from pathlib import Path
 import shutil
 import subprocess
+from pathlib import Path
 
-from open_range._runtime_store import hydrate_runtime_snapshot
 import pytest
 
+from open_range._runtime_store import hydrate_runtime_snapshot
 from open_range.build_config import BuildConfig
 from open_range.compiler import EnterpriseSaaSManifestCompiler
 from open_range.episode_config import EpisodeConfig
+from open_range.image_policy import DB_MTLS_HELPER_IMAGE
 from open_range.manifest import validate_manifest
 from open_range.pipeline import BuildPipeline
 from open_range.render import EnterpriseSaaSKindRenderer
@@ -120,9 +121,16 @@ def test_build_config_can_enable_security_integration(tmp_path: Path):
     idp_service = candidate.artifacts.chart_values["services"]["svc-idp"]
     idp_env = idp_service["env"]
     idp_payloads = idp_service["payloads"]
+    web_service = candidate.artifacts.chart_values["services"]["svc-web"]
+    web_payloads = web_service["payloads"]
     db_service = candidate.artifacts.chart_values["services"]["svc-db"]
     db_payloads = db_service["payloads"]
     idp_sidecar = idp_service["sidecars"][0]
+    web_sidecar = next(
+        sidecar
+        for sidecar in web_service["sidecars"]
+        if sidecar["name"] == "db-client-mtls"
+    )
 
     assert any(
         payload["mountPath"] == "/opt/openrange/identity_provider_server.py"
@@ -154,9 +162,19 @@ def test_build_config_can_enable_security_integration(tmp_path: Path):
         payload["mountPath"] == "/etc/openrange/wrapped_dek.json"
         for payload in db_payloads
     )
+    assert any(
+        payload["mountPath"] == "/etc/mysql/conf.d/openrange-client-mtls.cnf"
+        for payload in web_payloads
+    )
+    assert web_sidecar["image"] == DB_MTLS_HELPER_IMAGE
+    assert web_sidecar["command"] == ["/bin/sh", "-lc", "sleep infinity"]
     assert any(payload["mountPath"] == "/etc/mtls/cert.pem" for payload in db_payloads)
     assert any(
         payload["mountPath"] == "/etc/mysql/conf.d/openrange-mtls.cnf"
+        for payload in db_payloads
+    )
+    assert any(
+        payload["mountPath"] == "/docker-entrypoint-initdb.d/02-openrange-mtls.sql"
         for payload in db_payloads
     )
     mysql_tls_config = next(
@@ -164,8 +182,20 @@ def test_build_config_can_enable_security_integration(tmp_path: Path):
         for payload in db_service["payloads"]
         if payload["mountPath"] == "/etc/mysql/conf.d/openrange-mtls.cnf"
     )
+    mysql_mtls_init = next(
+        payload["content"]
+        for payload in db_service["payloads"]
+        if payload["mountPath"] == "/docker-entrypoint-initdb.d/02-openrange-mtls.sql"
+    )
+    mysql_client_config = next(
+        payload["content"]
+        for payload in web_service["payloads"]
+        if payload["mountPath"] == "/etc/mysql/conf.d/openrange-client-mtls.cnf"
+    )
     assert "require_secure_transport=ON" in mysql_tls_config
     assert "ssl-cert=/etc/mtls/cert.pem" in mysql_tls_config
+    assert "REQUIRE X509" in mysql_mtls_init
+    assert "ssl-cert=/etc/mtls/cert.pem" in mysql_client_config
 
 
 def test_security_integration_renders_idp_runtime_hooks_with_helm(tmp_path: Path):

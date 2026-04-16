@@ -1,4 +1,4 @@
-"""Run a bounded red-only rollout probe against a remote chat-completions model."""
+"""Run an action-first remote model rollout eval against admitted snapshots."""
 
 from __future__ import annotations
 
@@ -12,22 +12,24 @@ from tempfile import TemporaryDirectory
 from typing import Any, Literal
 
 import httpx
+from pydantic import ValidationError
 
+from open_range._decision_sft import build_decision_prompt, system_prompt_for_role
+from open_range._reference_replay import action_for_reference_step
 from open_range._runtime_store import hydrate_runtime_snapshot
 from open_range.build_config import BuildConfig
 from open_range.curriculum import FrontierMutationPolicy, PopulationStats
-from open_range.decision_surface import candidate_actions, teacher_action
 from open_range.episode_config import EpisodeConfig
 from open_range.pipeline import BuildPipeline
 from open_range.resources import load_bundled_manifest
-from open_range.runtime import ReferenceDrivenRuntime
+from open_range.runtime import OpenRangeRuntime
+from open_range.runtime_types import Action
 from open_range.snapshot import RuntimeSnapshot
 from open_range.store import FileSnapshotStore
 from open_range.training_data import (
-    TraceCandidate,
     TraceLineage,
-    build_decision_prompt,
-    system_prompt_for_role,
+    public_trace_action,
+    render_action_text,
 )
 
 DEFAULT_ENDPOINT = os.environ.get(
@@ -36,6 +38,9 @@ DEFAULT_ENDPOINT = os.environ.get(
 DEFAULT_MODEL = os.environ.get("OPENAI_MODEL", "gemma-4-31b-sft")
 VALIDATION_PROFILES = ("full", "no_necessity", "graph_plus_live", "graph_only")
 ValidationProfile = Literal["full", "no_necessity", "graph_plus_live", "graph_only"]
+_ACTION_EXAMPLE = (
+    '{"actor_id":"red","role":"red","kind":"sleep","payload":{},"timeout_s":30.0}'
+)
 
 
 def _default_manifest_name() -> str:
@@ -60,15 +65,13 @@ def _load_manifest(source: str | Path | None) -> dict[str, Any]:
     return load_bundled_manifest(str(source))
 
 
-def teacher_pick_rate(picks: list[dict[str, Any]]) -> float:
+def reference_match_rate(picks: list[dict[str, Any]]) -> float:
     if not picks:
         return 0.0
-    return sum(1 for pick in picks if pick.get("chosen_label") == "teacher") / len(
-        picks
-    )
+    return sum(1 for pick in picks if pick.get("reference_match")) / len(picks)
 
 
-def valid_pick_rate(picks: list[dict[str, Any]]) -> float:
+def valid_action_rate(picks: list[dict[str, Any]]) -> float:
     if not picks:
         return 0.0
     return sum(1 for pick in picks if pick.get("valid_response")) / len(picks)
@@ -81,9 +84,8 @@ def avg_latency_ms(picks: list[dict[str, Any]]) -> float:
 
 
 def build_messages(
-    snapshot: RuntimeSnapshot, observation, candidates, decision_index: int
+    snapshot: RuntimeSnapshot, observation, decision_index: int
 ) -> list[dict[str, str]]:
-    labels = ", ".join(candidate.label for candidate in candidates)
     user_prompt = build_decision_prompt(
         snapshot_id=snapshot.snapshot_id,
         world_id=snapshot.world.world_id,
@@ -99,47 +101,25 @@ def build_messages(
         role="red",
         decision_index=decision_index,
         observation=observation,
-        candidate_actions=candidates,
         weaknesses=(),
         benchmark_tags=(),
         trace_source="runtime",
-        teacher_source="reference_runtime",
+        action_source="reference_runtime",
         split="test",
         prompt_mode="zero_day",
     )
     return [
-        {
-            "role": "system",
-            "content": (
-                system_prompt_for_role("red")
-                + " Return JSON only with exactly one chosen label. "
-                + 'Use the format {"label":"<candidate label>"}. '
-                + "Do not invent new actions or labels."
-            ),
-        },
+        {"role": "system", "content": system_prompt_for_role("red")},
         {
             "role": "user",
             "content": (
                 user_prompt
-                + "\n\nValid labels: "
-                + labels
-                + '\nReturn JSON only, for example {"label":"teacher"}.'
+                + "\nReturn JSON only."
+                + "\nAllowed action kinds: shell, api, mail, control, submit_finding, sleep."
+                + f"\nExample: {_ACTION_EXAMPLE}"
             ),
         },
     ]
-
-
-def red_candidates(
-    runtime: ReferenceDrivenRuntime, snapshot: RuntimeSnapshot, observation
-) -> tuple[TraceCandidate, ...]:
-    expected = runtime.reference_step("red")
-    return candidate_actions(
-        snapshot,
-        actor="red",
-        observation=observation,
-        expected_action=teacher_action(snapshot, "red", expected),
-        remaining_targets=runtime.remaining_red_targets(),
-    )
 
 
 def _message_content_text(content: Any) -> str:
@@ -170,64 +150,99 @@ def _strip_code_fence(text: str) -> str:
     return "\n".join(lines).strip()
 
 
-def parse_choice_label(text: str, valid_labels: list[str]) -> str:
-    if not text.strip():
-        return ""
+def _extract_json_candidates(text: str) -> list[str]:
     stripped = _strip_code_fence(text)
-    lowered = {label.lower(): label for label in valid_labels}
-
-    for candidate_text in (stripped, stripped.strip('"').strip("'")):
-        match = lowered.get(candidate_text.lower())
-        if match is not None:
-            return match
-
-    try:
-        payload = json.loads(stripped)
-    except json.JSONDecodeError:
-        payload = None
-
-    if isinstance(payload, dict):
-        for key in ("label", "choice", "candidate", "selected_label"):
-            value = payload.get(key)
-            if isinstance(value, str):
-                match = lowered.get(value.lower())
-                if match is not None:
-                    return match
-    elif isinstance(payload, str):
-        match = lowered.get(payload.lower())
-        if match is not None:
-            return match
-
-    for label in valid_labels:
-        variants = (
-            f"<choice>{label}</choice>",
-            f'"label":"{label}"',
-            f'"choice":"{label}"',
-            f"[{label}]",
-            f"`{label}`",
-        )
-        if any(variant in stripped for variant in variants):
-            return label
-
-    return ""
+    candidates: list[str] = [stripped]
+    if "<action_json>" in stripped and "</action_json>" in stripped:
+        start = stripped.index("<action_json>") + len("<action_json>")
+        end = stripped.index("</action_json>", start)
+        candidates.append(stripped[start:end].strip())
+    first = stripped.find("{")
+    last = stripped.rfind("}")
+    if first != -1 and last != -1 and first < last:
+        candidates.append(stripped[first : last + 1].strip())
+    seen: set[str] = set()
+    return [
+        candidate
+        for candidate in candidates
+        if candidate and not (candidate in seen or seen.add(candidate))
+    ]
 
 
-def _fallback_candidate(candidates: tuple[TraceCandidate, ...]) -> TraceCandidate:
-    for candidate in candidates:
-        if candidate.label == "sleep":
-            return candidate
-    return candidates[0]
+def _coerce_action_payload(payload: dict[str, Any]) -> dict[str, Any]:
+    nested = payload.get("action")
+    if isinstance(nested, dict):
+        payload = dict(nested)
+    nested_json = payload.get("action_json")
+    if isinstance(nested_json, dict):
+        payload = dict(nested_json)
+
+    candidate = dict(payload)
+    candidate["actor_id"] = "red"
+    candidate["role"] = "red"
+    payload_dict = candidate.get("payload")
+    if not isinstance(payload_dict, dict):
+        payload_dict = {}
+    for key in (
+        "target",
+        "command",
+        "path",
+        "query",
+        "event_type",
+        "event",
+        "action",
+        "subject",
+        "to",
+    ):
+        if key in candidate and key not in payload_dict:
+            payload_dict[key] = candidate.pop(key)
+    candidate["payload"] = payload_dict
+    candidate.setdefault("timeout_s", 30.0)
+    return candidate
+
+
+def parse_action_response(text: str) -> tuple[Action | None, str]:
+    if not text.strip():
+        return None, "empty response"
+
+    last_error = "could not parse action json"
+    for candidate_text in _extract_json_candidates(text):
+        try:
+            payload = json.loads(candidate_text)
+        except json.JSONDecodeError as exc:
+            last_error = f"invalid json: {exc.msg}"
+            continue
+        if isinstance(payload, str):
+            try:
+                payload = json.loads(payload)
+            except json.JSONDecodeError as exc:
+                last_error = f"invalid nested json: {exc.msg}"
+                continue
+        if not isinstance(payload, dict):
+            last_error = f"expected JSON object, got {type(payload).__name__}"
+            continue
+        try:
+            action = Action.model_validate(_coerce_action_payload(payload))
+        except ValidationError as exc:
+            last_error = str(exc)
+            continue
+        return action, ""
+    return None, last_error
+
+
+def _fallback_action() -> Action:
+    return Action(actor_id="red", role="red", kind="sleep", payload={})
 
 
 @dataclass(frozen=True)
 class RemoteChoice:
-    candidate: TraceCandidate
+    action: Action
     raw_text: str
-    parsed_label: str
     valid: bool
     latency_ms: float
     finish_reason: str
     usage: dict[str, Any]
+    parse_error: str = ""
 
 
 class RemoteChatClient:
@@ -256,9 +271,7 @@ class RemoteChatClient:
     def close(self) -> None:
         self._client.close()
 
-    def choose(
-        self, *, messages: list[dict[str, str]], candidates: tuple[TraceCandidate, ...]
-    ) -> RemoteChoice:
+    def choose(self, *, messages: list[dict[str, str]]) -> RemoteChoice:
         headers = {"Content-Type": "application/json"}
         if self.api_key:
             headers["Authorization"] = f"Bearer {self.api_key}"
@@ -266,7 +279,7 @@ class RemoteChatClient:
             "model": self.model,
             "messages": messages,
             "temperature": self.temperature,
-            "max_tokens": 48,
+            "max_tokens": 160,
         }
         started = time.perf_counter()
         response = self._client.post(self.endpoint, json=payload, headers=headers)
@@ -275,22 +288,17 @@ class RemoteChatClient:
         body = response.json()
         choice = body["choices"][0]
         raw_text = _message_content_text(choice.get("message", {}).get("content", ""))
-        parsed_label = parse_choice_label(
-            raw_text, [candidate.label for candidate in candidates]
-        )
-        candidate = (
-            next(option for option in candidates if option.label == parsed_label)
-            if parsed_label
-            else _fallback_candidate(candidates)
-        )
+        action, parse_error = parse_action_response(raw_text)
+        if action is None:
+            action = _fallback_action()
         return RemoteChoice(
-            candidate=candidate,
+            action=action,
             raw_text=raw_text,
-            parsed_label=parsed_label,
-            valid=bool(parsed_label),
+            valid=not parse_error,
             latency_ms=latency_ms,
             finish_reason=str(choice.get("finish_reason", "")),
             usage=body.get("usage", {}) if isinstance(body.get("usage"), dict) else {},
+            parse_error=parse_error,
         )
 
 
@@ -351,8 +359,8 @@ def evaluate_remote_model_rollouts(
             snapshots.append(current)
 
         reports: list[dict[str, Any]] = []
-        exact_picks = 0
-        valid_picks = 0
+        reference_matches = 0
+        valid_actions = 0
         total_picks = 0
         red_wins = 0
         total_pairs = 0
@@ -370,7 +378,7 @@ def evaluate_remote_model_rollouts(
                     max(1, len(snapshot.reference_bundle.reference_attack_traces))
                 ):
                     total_pairs += 1
-                    runtime = ReferenceDrivenRuntime()
+                    runtime = OpenRangeRuntime()
                     runtime.reset(
                         snapshot,
                         EpisodeConfig(
@@ -389,34 +397,54 @@ def evaluate_remote_model_rollouts(
                             if runtime.state().done:
                                 break
                             raise
-                        candidates = red_candidates(runtime, snapshot, decision.obs)
-                        choice = client.choose(
-                            messages=build_messages(
-                                snapshot, decision.obs, candidates, turns
-                            ),
-                            candidates=candidates,
+                        expected_step = runtime.reference_step("red")
+                        reference_action = action_for_reference_step(
+                            snapshot, "red", expected_step
                         )
-                        runtime.act("red", choice.candidate.action)
+                        choice = client.choose(
+                            messages=build_messages(snapshot, decision.obs, turns)
+                        )
+                        result = runtime.act("red", choice.action)
+                        reference_match = (
+                            runtime.matches_reference_step(
+                                choice.action, expected_step, result.stdout
+                            )
+                            if expected_step is not None
+                            else public_trace_action(choice.action).model_dump(
+                                mode="json"
+                            )
+                            == public_trace_action(reference_action).model_dump(
+                                mode="json"
+                            )
+                        )
                         turns += 1
                         total_picks += 1
                         latency_total_ms += choice.latency_ms
-                        if choice.candidate.label == "teacher":
-                            exact_picks += 1
+                        if reference_match:
+                            reference_matches += 1
                         if choice.valid:
-                            valid_picks += 1
+                            valid_actions += 1
                         picks.append(
                             {
-                                "chosen_label": choice.candidate.label,
-                                "parsed_label": choice.parsed_label,
+                                "chosen_action": public_trace_action(
+                                    choice.action
+                                ).model_dump(mode="json"),
+                                "chosen_action_text": render_action_text(choice.action),
+                                "reference_action": public_trace_action(
+                                    reference_action
+                                ).model_dump(mode="json"),
+                                "reference_action_text": render_action_text(
+                                    reference_action
+                                ),
+                                "reference_match": reference_match,
                                 "valid_response": choice.valid,
                                 "raw_response": choice.raw_text,
+                                "parse_error": choice.parse_error,
                                 "finish_reason": choice.finish_reason,
                                 "latency_ms": choice.latency_ms,
                                 "usage": choice.usage,
-                                "candidates": [
-                                    {"label": candidate.label}
-                                    for candidate in candidates
-                                ],
+                                "result_stdout": result.stdout,
+                                "result_stderr": result.stderr,
                             }
                         )
 
@@ -435,8 +463,10 @@ def evaluate_remote_model_rollouts(
                             "red_reward": score.red_reward,
                             "blue_reward": score.blue_reward,
                             "turns": turns,
-                            "exact_pick_rate": teacher_pick_rate(picks),
-                            "valid_response_rate": valid_pick_rate(picks),
+                            "reference_match_rate": reference_match_rate(picks),
+                            "exact_pick_rate": reference_match_rate(picks),
+                            "valid_action_rate": valid_action_rate(picks),
+                            "valid_response_rate": valid_action_rate(picks),
                             "avg_latency_ms": avg_latency_ms(picks),
                             "picks": picks,
                         }
@@ -451,8 +481,20 @@ def evaluate_remote_model_rollouts(
                         / len(pair_reports)
                         if pair_reports
                         else 0.0,
+                        "reference_match_rate": sum(
+                            report["reference_match_rate"] for report in pair_reports
+                        )
+                        / len(pair_reports)
+                        if pair_reports
+                        else 0.0,
                         "exact_pick_rate": sum(
                             report["exact_pick_rate"] for report in pair_reports
+                        )
+                        / len(pair_reports)
+                        if pair_reports
+                        else 0.0,
+                        "valid_action_rate": sum(
+                            report["valid_action_rate"] for report in pair_reports
                         )
                         / len(pair_reports)
                         if pair_reports
@@ -483,8 +525,12 @@ def evaluate_remote_model_rollouts(
             "validation_profile": validation_profile,
             "snapshot_count": len(reports),
             "red_win_rate": red_wins / total_pairs if total_pairs else 0.0,
-            "exact_pick_rate": exact_picks / total_picks if total_picks else 0.0,
-            "valid_response_rate": valid_picks / total_picks if total_picks else 0.0,
+            "reference_match_rate": (
+                reference_matches / total_picks if total_picks else 0.0
+            ),
+            "exact_pick_rate": reference_matches / total_picks if total_picks else 0.0,
+            "valid_action_rate": valid_actions / total_picks if total_picks else 0.0,
+            "valid_response_rate": valid_actions / total_picks if total_picks else 0.0,
             "avg_latency_ms": latency_total_ms / total_picks if total_picks else 0.0,
             "reports": reports,
         }
@@ -495,15 +541,15 @@ def evaluate_remote_model_rollouts(
             print(f"validation_profile={result['validation_profile']}")
             print(f"snapshots={result['snapshot_count']}")
             print(f"red_win_rate={result['red_win_rate']:.3f}")
-            print(f"exact_pick_rate={result['exact_pick_rate']:.3f}")
-            print(f"valid_response_rate={result['valid_response_rate']:.3f}")
+            print(f"reference_match_rate={result['reference_match_rate']:.3f}")
+            print(f"valid_action_rate={result['valid_action_rate']:.3f}")
             print(f"avg_latency_ms={result['avg_latency_ms']:.1f}")
         return result
 
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
-        description="Run a bounded remote-model OpenRange rollout probe."
+        description="Run an action-first remote-model OpenRange rollout eval."
     )
     parser.add_argument(
         "--endpoint",

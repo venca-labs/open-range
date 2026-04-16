@@ -7,7 +7,6 @@ from typing import Any
 
 from open_range.runtime_types import Action
 
-
 _RED_MILESTONES = frozenset(
     {
         "InitialAccess",
