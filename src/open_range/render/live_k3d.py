@@ -13,7 +13,7 @@ import subprocess
 from dataclasses import dataclass
 from pathlib import Path
 
-from open_range.runtime.cluster import KindBackend
+from .live import KindBackend
 
 logger = logging.getLogger(__name__)
 

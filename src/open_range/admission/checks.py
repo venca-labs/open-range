@@ -13,16 +13,13 @@ from open_range.admission.models import (
     ValidatorReport,
 )
 from open_range.admission.mtls import check_mtls_enforcement
-from open_range.admission.references import (
-    build_reference_bundle,
-    run_blue_reference,
-    run_red_reference,
-)
+from open_range.admission.references import build_reference_bundle
 from open_range.admission.registry import admission_check
 from open_range.admission.remediation import remediation_command
 from open_range.build_config import BuildConfig
 from open_range.catalog.services import service_kind_names
 from open_range.objectives.engine import PredicateEngine
+from open_range.runtime.replay import run_blue_reference, run_red_reference
 from open_range.snapshot import KindArtifacts, RuntimeSnapshot, world_hash
 from open_range.world_ir import WorldIR
 

@@ -13,7 +13,7 @@ from open_range.render import (
     EnterpriseSaaSKindRenderer,
     service_image_for_kind,
 )
-from open_range.runtime.cluster import ExecResult
+from open_range.render.live import ExecResult
 from open_range.store import BuildPipeline, FileSnapshotStore, load_runtime_snapshot
 from open_range.synth import EnterpriseSaaSWorldSynthesizer
 from open_range.training.curriculum import FrontierMutationPolicy, PopulationStats

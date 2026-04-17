@@ -5,7 +5,6 @@ from __future__ import annotations
 import json
 from dataclasses import dataclass
 
-from open_range.admission.actions import runtime_action
 from open_range.admission.models import (
     ProbeSpec,
     ReferenceAction,
@@ -29,11 +28,7 @@ from open_range.catalog.probes import (
     smoke_probe_template,
     telemetry_blindspot_targets,
 )
-from open_range.episode_config import EpisodeConfig
 from open_range.objectives.engine import PredicateEngine
-from open_range.runtime.execution import PodActionBackend
-from open_range.runtime_types import Action
-from open_range.snapshot import RuntimeSnapshot
 from open_range.weaknesses import build_reference_plan_for_weakness
 from open_range.world_ir import WorldIR
 
@@ -242,92 +237,6 @@ def build_reference_bundle(
     world: WorldIR, build_config: BuildConfig = DEFAULT_BUILD_CONFIG
 ) -> ReferenceBundle:
     return ReferencePlanner(world=world, build_config=build_config).build()
-
-
-def run_red_reference(
-    snapshot: RuntimeSnapshot,
-    backend: PodActionBackend | None = None,
-    *,
-    episode_seed: int,
-    trace_index: int = 0,
-):
-    from open_range.runtime import OpenRangeRuntime
-
-    del episode_seed
-    trace = snapshot.reference_bundle.reference_attack_traces[trace_index]
-    runtime = OpenRangeRuntime(action_backend=backend)
-    runtime.reset(
-        snapshot,
-        EpisodeConfig(
-            mode="red_only",
-            opponent_blue="none",
-            episode_horizon_minutes=max(5, len(trace.steps) + 2),
-        ),
-        reference_attack_index=trace_index,
-    )
-    outputs: list[str] = []
-    for step in trace.steps:
-        try:
-            decision = runtime.next_decision()
-        except RuntimeError:
-            if runtime.state().done:
-                break
-            raise
-        if decision.actor != "red":
-            break
-        result = runtime.act("red", runtime_action("red", step))
-        outputs.append(result.stdout or result.stderr)
-    score = runtime.score()
-    events = tuple(event.model_dump(mode="json") for event in runtime.export_events())
-    health = tuple(sorted(runtime.state().service_health.items()))
-    return score, events, health, outputs
-
-
-def run_blue_reference(
-    snapshot: RuntimeSnapshot,
-    backend: PodActionBackend | None = None,
-    *,
-    trace_index: int = 0,
-):
-    from open_range.runtime import OpenRangeRuntime
-
-    trace = snapshot.reference_bundle.reference_defense_traces[trace_index]
-    attack_index = trace_index % max(
-        1, len(snapshot.reference_bundle.reference_attack_traces)
-    )
-    runtime = OpenRangeRuntime(action_backend=backend)
-    runtime.reset(
-        snapshot,
-        EpisodeConfig(
-            mode="blue_only_live",
-            opponent_red="reference",
-            episode_horizon_minutes=max(6, len(trace.steps) + 3),
-        ),
-        reference_attack_index=attack_index,
-        reference_defense_index=trace_index,
-    )
-    outputs: list[str] = []
-    step_idx = 0
-    while not runtime.state().done:
-        try:
-            decision = runtime.next_decision()
-        except RuntimeError:
-            if runtime.state().done:
-                break
-            raise
-        step = trace.steps[step_idx] if step_idx < len(trace.steps) else None
-        action = (
-            runtime_action("blue", step)
-            if step is not None
-            else Action(actor_id="blue", role="blue", kind="sleep", payload={})
-        )
-        result = runtime.act("blue", action)
-        outputs.append(result.stdout or result.stderr)
-        if decision.actor != "blue":
-            break
-        if step is not None:
-            step_idx += 1
-    return runtime.score(), outputs
 
 
 def _reference_starts(world: WorldIR, engine: PredicateEngine) -> tuple[str, ...]:

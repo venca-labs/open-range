@@ -4,7 +4,7 @@ from pathlib import Path
 from types import SimpleNamespace
 
 from open_range.episode_config import EpisodeConfig
-from open_range.runtime.cluster import ExecResult
+from open_range.render.live import ExecResult
 from open_range.runtime_types import Action
 from open_range.service import OpenRange
 from open_range.store import BuildPipeline, FileSnapshotStore, hydrate_runtime_snapshot

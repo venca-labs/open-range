@@ -27,6 +27,7 @@ from open_range.manifest import (
     validate_manifest,
 )
 from open_range.objectives import ObjectiveGraderSpec, StandardAttackObjective
+from open_range.render.live import ExecResult
 from open_range.resources import (
     bundled_docs_dir,
     bundled_manifest_dir,
@@ -39,7 +40,6 @@ from open_range.resources import (
     load_bundled_schema,
     resource_root,
 )
-from open_range.runtime.cluster import ExecResult
 from open_range.runtime_types import (
     Action,
     Decision,

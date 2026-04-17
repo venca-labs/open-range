@@ -5,7 +5,7 @@ from types import SimpleNamespace
 
 import pytest
 
-from open_range.runtime.cluster import ExecResult
+from open_range.render.live import ExecResult
 from open_range.runtime.execution import (
     PodActionBackend,
     select_live_red_origin,
