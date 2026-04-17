@@ -5,12 +5,12 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, Any
 
 from open_range.admission.models import ValidatorCheckReport
-from open_range.async_utils import run_async
 from open_range.config import EpisodeConfig
 from open_range.contracts.snapshot import RuntimeSnapshot
 from open_range.objectives.engine import PredicateEngine
 from open_range.runtime.execution import PodActionBackend, clear_runtime_markers
 from open_range.runtime.replay import action_for_reference_step, run_red_reference
+from open_range.support.async_utils import run_async
 from open_range.weaknesses import remediation_command_for_weakness
 
 if TYPE_CHECKING:

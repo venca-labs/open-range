@@ -3,7 +3,7 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-from open_range.resources import load_bundled_manifest
+from open_range.support.resources import load_bundled_manifest
 from open_range.training.tracegen import generate_trace_dataset
 
 

@@ -5,13 +5,13 @@ from pathlib import Path
 import yaml
 
 from open_range.manifest import validate_manifest
-from open_range.resources import (
+from open_range.store import BuildPipeline
+from open_range.support.resources import (
     bundled_manifest_names,
     bundled_manifest_path,
     load_bundled_manifest,
     load_bundled_manifest_registry,
 )
-from open_range.store import BuildPipeline
 
 
 def test_checked_in_manifests_validate_and_compile(tmp_path: Path):

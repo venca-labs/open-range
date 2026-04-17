@@ -38,6 +38,8 @@ This is the target, not the current state:
 - support packages for shared contracts and config:
   - `open_range.config`
   - `open_range.contracts`
+  - `open_range.support`
+  - `open_range.sdk`
 
 ## Top-Level Story
 
@@ -61,7 +63,8 @@ The intended shape is:
 - shared support code should move out of the root into support packages such as:
   - `config`
   - `contracts`
-  - `resources`
+  - `support`
+  - `sdk`
 - `open_range.__init__` should be a small guided surface, closer to `strands`:
   - export the main stage anchors
   - avoid becoming a giant symbol dump
@@ -142,8 +145,8 @@ story.
 - [ ] remove stale compatibility helpers
 - [x] add a test guardrail so new top-level helper modules fail fast
 - [ ] shrink the top-level package surface
-  - current branch state: root `src/open_range/*.py` files are down to `4`
-  - recent cuts moved `runtime`, `weaknesses`, `manifest`, `compiler`, `synth`, `render`, `admission`, `store`, and `training` behind subsystem packages, moved shared build and episode config under `open_range.config`, and moved world, snapshot, and runtime contracts under `open_range.contracts`
+  - current branch state: root `src/open_range/*.py` files are down to `1`
+  - recent cuts moved `runtime`, `weaknesses`, `manifest`, `compiler`, `synth`, `render`, `admission`, `store`, and `training` behind subsystem packages, moved shared build and episode config under `open_range.config`, moved world, snapshot, and runtime contracts under `open_range.contracts`, and moved the public client plus support helpers under `open_range.sdk` and `open_range.support`
 - [ ] move shared root config/contracts behind support packages so the root reads
   like stage entrypoints instead of contract clutter
   - [x] move `build_config.py` and `episode_config.py` under `open_range.config`
@@ -156,7 +159,7 @@ The next real win is:
 
 1. finish the remaining `code_web` offline simulation split now that the subsystem is packaged
 2. keep behavior stable with parity tests before deleting the old logic
-3. move the remaining root support clutter such as `async_utils.py`, `resources.py`, and `service.py` behind clearer support or sdk-facing package names
+3. keep trimming stage-package internals and the giant root `__init__.py` so the package story stays obvious without turning the root back into wrapper theater
 
 ## Next Large Targets
 

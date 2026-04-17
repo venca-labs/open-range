@@ -5,7 +5,6 @@ from __future__ import annotations
 import shlex
 from collections.abc import Iterable, Mapping
 
-from open_range.async_utils import run_async
 from open_range.objectives.common import (
     db_query_command,
     event_linked_predicates,
@@ -18,6 +17,7 @@ from open_range.objectives.effects import (
     effect_marker_token,
 )
 from open_range.objectives.models import ObjectiveGraderSpec
+from open_range.support.async_utils import run_async
 
 
 def evaluate_objective_grader_live(

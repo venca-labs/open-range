@@ -15,21 +15,16 @@ SRC_ROOT = REPO_ROOT / "src" / "open_range"
 
 ALLOWED_ROOT_FILES = {
     "__init__.py",
-    "async_utils.py",
-    "resources.py",
-    "service.py",
     "cli.py",
 }
 
-SHARED_ROOT_MODULES = {
-    "async_utils",
-    "resources",
-    "service",
-}
+SHARED_ROOT_MODULES: set[str] = set()
 
 SHARED_SUPPORT_PACKAGES = {
     "config",
     "contracts",
+    "sdk",
+    "support",
 }
 
 REQUIRED_STAGE_PACKAGES = {

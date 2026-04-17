@@ -40,7 +40,16 @@ from open_range.manifest import (
 )
 from open_range.objectives import ObjectiveGraderSpec, StandardAttackObjective
 from open_range.render.live import ExecResult
-from open_range.resources import (
+from open_range.sdk import OpenRange
+from open_range.store import (
+    BuildPipeline,
+    CandidateWorld,
+    FileSnapshotStore,
+    admit,
+    admit_child,
+    build,
+)
+from open_range.support.resources import (
     bundled_docs_dir,
     bundled_manifest_dir,
     bundled_manifest_names,
@@ -51,15 +60,6 @@ from open_range.resources import (
     load_bundled_manifest_registry,
     load_bundled_schema,
     resource_root,
-)
-from open_range.service import OpenRange
-from open_range.store import (
-    BuildPipeline,
-    CandidateWorld,
-    FileSnapshotStore,
-    admit,
-    admit_child,
-    build,
 )
 from open_range.training.curriculum import FrontierMutationPolicy, PopulationStats
 from open_range.training.data import (

@@ -15,9 +15,9 @@ import yaml
 from open_range.config import BuildConfig, EpisodeConfig
 from open_range.render.live import KindBackend
 from open_range.render.live_k3d import K3dBackend
-from open_range.resources import load_bundled_manifest
-from open_range.service import OpenRange
+from open_range.sdk import OpenRange
 from open_range.store import BuildPipeline, FileSnapshotStore
+from open_range.support.resources import load_bundled_manifest
 from open_range.training.backend_overrides import BackendOverrides
 from open_range.training.tracegen import generate_trace_dataset
 
