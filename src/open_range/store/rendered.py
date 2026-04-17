@@ -9,7 +9,7 @@ from typing import Any
 
 import yaml
 
-from open_range.build_config import BuildConfig
+from open_range.config import BuildConfig
 from open_range.render import CiliumPolicyGenerator
 from open_range.snapshot import KindArtifacts
 

@@ -7,8 +7,7 @@ from copy import deepcopy
 from pathlib import Path
 from typing import Any
 
-from open_range.build_config import OFFLINE_BUILD_CONFIG, BuildConfig
-from open_range.episode_config import EpisodeConfig
+from open_range.config import OFFLINE_BUILD_CONFIG, BuildConfig, EpisodeConfig
 from open_range.runtime import OpenRangeRuntime
 from open_range.runtime.replay import (
     action_for_reference_step,

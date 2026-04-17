@@ -23,11 +23,59 @@ The branch can be long-lived. The rule is simple: do not trust chat context to h
 
 This is the target, not the current state:
 
-- `open_range.catalog`
-- `open_range.admission`
-- `open_range.runtime`
-- `open_range.training`
-- `open_range.world`
+- stage packages at the root:
+  - `open_range.manifest`
+  - `open_range.compiler`
+  - `open_range.weaknesses`
+  - `open_range.objectives`
+  - `open_range.synth`
+  - `open_range.render`
+  - `open_range.admission`
+  - `open_range.store`
+  - `open_range.runtime`
+  - `open_range.training`
+  - `open_range.catalog`
+- support packages for shared contracts and config:
+  - `open_range.config`
+  - later `open_range.contracts` if the remaining root contract files move
+
+## Top-Level Story
+
+The root package should tell the stage story, not drown the reader in shared
+types and config files.
+
+The intended shape is:
+
+- stage packages are the first thing you see:
+  - `manifest`
+  - `compiler`
+  - `weaknesses`
+  - `objectives`
+  - `synth`
+  - `render`
+  - `admission`
+  - `store`
+  - `runtime`
+  - `training`
+  - `catalog`
+- shared support code should move out of the root into support packages such as:
+  - `config`
+  - `contracts`
+  - `resources`
+- `open_range.__init__` should be a small guided surface, closer to `strands`:
+  - export the main stage anchors
+  - avoid becoming a giant symbol dump
+
+The root should not be mostly:
+
+- `build_config.py`
+- `episode_config.py`
+- `runtime_types.py`
+- `snapshot.py`
+- `world_ir.py`
+
+Those are real contracts, but they should not dominate the top-level package
+story.
 
 ## Rewrite Order
 
@@ -94,8 +142,13 @@ This is the target, not the current state:
 - [ ] remove stale compatibility helpers
 - [x] add a test guardrail so new top-level helper modules fail fast
 - [ ] shrink the top-level package surface
-  - current branch state: root `src/open_range/*.py` files are down to `42`
-  - recent cuts moved `runtime`, `code_web`, `admit`, `weaknesses`, `tracegen`, `audit`, `execution`, `predicates`, `synth`, `compiler`, `curriculum`, `manifest`, and `pipeline` behind subsystem packages, and folded reference planning into `open_range.admission`
+  - current branch state: root `src/open_range/*.py` files are down to `7`
+  - recent cuts moved `runtime`, `weaknesses`, `manifest`, `compiler`, `synth`, `render`, `admission`, `store`, and `training` behind subsystem packages, and moved shared build and episode config under `open_range.config`
+- [ ] move shared root config/contracts behind support packages so the root reads
+  like stage entrypoints instead of contract clutter
+  - start with `build_config.py` and `episode_config.py`
+  - then move `runtime_types.py`, `snapshot.py`, and `world_ir.py`
+  - keep the architecture contract test aligned with the new root story
 
 ## Immediate Next Slice
 
@@ -118,4 +171,4 @@ The next real win is:
   - stop using one surface as the build, admit, synth, runtime, and live-patching switchboard for exact web flaws
 - remaining root reduction work
   - the rewrite-touched subsystems now resolve through package paths instead of flat root files
-  - the next drop from `42` toward the issue target needs to come from untouched legacy root modules or by splitting the new packages into smaller internal modules and deleting old seams
+  - the next cleanup should move more shared contracts out of the root so the first thing a reader sees is the stage packages, not contract files

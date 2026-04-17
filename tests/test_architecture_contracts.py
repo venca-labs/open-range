@@ -16,8 +16,6 @@ SRC_ROOT = REPO_ROOT / "src" / "open_range"
 ALLOWED_ROOT_FILES = {
     "__init__.py",
     "async_utils.py",
-    "build_config.py",
-    "episode_config.py",
     "runtime_types.py",
     "snapshot.py",
     "world_ir.py",
@@ -28,13 +26,15 @@ ALLOWED_ROOT_FILES = {
 
 SHARED_ROOT_MODULES = {
     "async_utils",
-    "build_config",
-    "episode_config",
     "runtime_types",
     "snapshot",
     "world_ir",
     "resources",
     "service",
+}
+
+SHARED_SUPPORT_PACKAGES = {
+    "config",
 }
 
 REQUIRED_STAGE_PACKAGES = {
@@ -153,9 +153,11 @@ def test_major_stage_packages_are_not_single_file_wrappers() -> None:
 
 def test_top_level_entries_stay_small_and_stage_shaped() -> None:
     entries = sorted(_top_level_code_entries())
-    allowed = REQUIRED_STAGE_PACKAGES | {
-        path[:-3] for path in ALLOWED_ROOT_FILES if path.endswith(".py")
-    }
+    allowed = (
+        REQUIRED_STAGE_PACKAGES
+        | SHARED_SUPPORT_PACKAGES
+        | {path[:-3] for path in ALLOWED_ROOT_FILES if path.endswith(".py")}
+    )
     extras = [entry for entry in entries if entry not in allowed]
 
     assert not extras, (
@@ -164,7 +166,9 @@ def test_top_level_entries_stay_small_and_stage_shaped() -> None:
 
 
 def test_stage_packages_do_not_import_stray_top_level_modules() -> None:
-    allowed_import_targets = REQUIRED_STAGE_PACKAGES | SHARED_ROOT_MODULES
+    allowed_import_targets = (
+        REQUIRED_STAGE_PACKAGES | SHARED_ROOT_MODULES | SHARED_SUPPORT_PACKAGES
+    )
     failures: list[str] = []
 
     for package_name in sorted(REQUIRED_STAGE_PACKAGES):

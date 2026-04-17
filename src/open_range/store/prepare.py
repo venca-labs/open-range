@@ -4,8 +4,8 @@ from __future__ import annotations
 
 from typing import Any
 
-from open_range.build_config import BuildConfig
 from open_range.compiler import EnterpriseSaaSManifestCompiler
+from open_range.config import BuildConfig
 from open_range.manifest import EnterpriseSaaSManifest, validate_manifest
 from open_range.render import (
     EnterpriseSaaSKindRenderer,

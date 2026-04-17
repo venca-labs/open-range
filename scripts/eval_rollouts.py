@@ -9,8 +9,7 @@ from pathlib import Path
 from tempfile import TemporaryDirectory
 from typing import Any
 
-from open_range.build_config import OFFLINE_BUILD_CONFIG
-from open_range.episode_config import EpisodeConfig
+from open_range.config import OFFLINE_BUILD_CONFIG, EpisodeConfig
 from open_range.resources import load_bundled_manifest
 from open_range.runtime import OpenRangeRuntime
 from open_range.runtime.replay import (

@@ -3,7 +3,7 @@ from __future__ import annotations
 from pathlib import Path
 from types import SimpleNamespace
 
-from open_range.episode_config import EpisodeConfig
+from open_range.config import EpisodeConfig
 from open_range.render.live import ExecResult
 from open_range.runtime_types import Action
 from open_range.service import OpenRange

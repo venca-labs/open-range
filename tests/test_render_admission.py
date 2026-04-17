@@ -5,8 +5,8 @@ from pathlib import Path
 from types import SimpleNamespace
 
 from open_range.admission.controller import LocalAdmissionController
-from open_range.build_config import BuildConfig
 from open_range.compiler import EnterpriseSaaSManifestCompiler
+from open_range.config import BuildConfig
 from open_range.objectives.engine import PredicateEngine
 from open_range.render import (
     SANDBOX_IMAGE_BY_ROLE,

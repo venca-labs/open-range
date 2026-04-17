@@ -21,7 +21,7 @@ import shutil
 from pathlib import Path
 from typing import Any
 
-from open_range.build_config import BuildConfig
+from open_range.config import BuildConfig
 from open_range.resources import load_bundled_manifest
 from open_range.training.tracegen import generate_trace_dataset
 

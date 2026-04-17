@@ -12,8 +12,7 @@ from typing import Any
 import click
 import yaml
 
-from open_range.build_config import BuildConfig
-from open_range.episode_config import EpisodeConfig
+from open_range.config import BuildConfig, EpisodeConfig
 from open_range.render.live import KindBackend
 from open_range.render.live_k3d import K3dBackend
 from open_range.resources import load_bundled_manifest

@@ -6,7 +6,7 @@ from dataclasses import dataclass
 from typing import Any
 
 from open_range.catalog.probes import runtime_payload_for_reference_action
-from open_range.episode_config import EpisodeConfig
+from open_range.config import EpisodeConfig
 from open_range.runtime.execution import PodActionBackend
 from open_range.runtime_types import (
     Action,

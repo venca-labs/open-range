@@ -10,7 +10,7 @@ from collections import Counter
 from dataclasses import dataclass
 from typing import Any, Callable
 
-from open_range.episode_config import AuditConfig
+from open_range.config import AuditConfig
 from open_range.runtime_types import (
     Action,
     ActionDiversitySummary,

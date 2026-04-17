@@ -13,14 +13,15 @@ from open_range.admission.controller import (
     AdmissionController,
     LocalAdmissionController,
 )
-from open_range.build_config import (
+from open_range.compiler import EnterpriseSaaSManifestCompiler
+from open_range.config import (
     DEFAULT_BUILD_CONFIG,
+    DEFAULT_EPISODE_CONFIG,
     OFFLINE_BUILD_CONFIG,
     OFFLINE_REFERENCE_BUILD_CONFIG,
     BuildConfig,
+    EpisodeConfig,
 )
-from open_range.compiler import EnterpriseSaaSManifestCompiler
-from open_range.episode_config import DEFAULT_EPISODE_CONFIG, EpisodeConfig
 from open_range.manifest import (
     EnterpriseSaaSManifest,
     manifest_schema,

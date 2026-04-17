@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from open_range.admission.plan import admission_stages
 from open_range.admission.registry import registered_admission_checks
-from open_range.build_config import BuildConfig
+from open_range.config import BuildConfig
 
 
 def test_admission_stage_plan_only_references_registered_checks() -> None:

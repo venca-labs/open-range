@@ -10,7 +10,7 @@ import pytest
 
 from open_range.admission.controller import LocalAdmissionController
 from open_range.compiler import EnterpriseSaaSManifestCompiler
-from open_range.episode_config import EpisodeConfig
+from open_range.config import EpisodeConfig
 from open_range.render import EnterpriseSaaSKindRenderer
 from open_range.render.live import ExecResult
 from open_range.runtime import OpenRangeRuntime

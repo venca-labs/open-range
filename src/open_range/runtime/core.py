@@ -6,7 +6,7 @@ from math import inf
 from typing import Literal
 from uuid import uuid4
 
-from open_range.episode_config import DEFAULT_EPISODE_CONFIG, EpisodeConfig
+from open_range.config import DEFAULT_EPISODE_CONFIG, EpisodeConfig
 from open_range.objectives.engine import PredicateEngine
 from open_range.runtime.briefing import observation_stdout, service_health_tuple
 from open_range.runtime.events import (

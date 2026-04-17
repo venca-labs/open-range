@@ -6,8 +6,8 @@ from pathlib import Path
 from typing import Any
 
 from open_range.admission.controller import LocalAdmissionController
-from open_range.build_config import DEFAULT_BUILD_CONFIG, BuildConfig
 from open_range.compiler import EnterpriseSaaSManifestCompiler
+from open_range.config import DEFAULT_BUILD_CONFIG, BuildConfig
 from open_range.manifest import EnterpriseSaaSManifest
 from open_range.render import EnterpriseSaaSKindRenderer, SecurityIntegrator
 from open_range.snapshot import Snapshot

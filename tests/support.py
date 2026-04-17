@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from copy import deepcopy
 
-from open_range.build_config import OFFLINE_BUILD_CONFIG, OFFLINE_REFERENCE_BUILD_CONFIG
+from open_range.config import OFFLINE_BUILD_CONFIG, OFFLINE_REFERENCE_BUILD_CONFIG
 
 __all__ = ["OFFLINE_BUILD_CONFIG", "OFFLINE_REFERENCE_BUILD_CONFIG", "manifest_payload"]
 

@@ -6,9 +6,8 @@ from pathlib import Path
 
 import pytest
 
-from open_range.build_config import BuildConfig
 from open_range.compiler import EnterpriseSaaSManifestCompiler
-from open_range.episode_config import EpisodeConfig
+from open_range.config import BuildConfig, EpisodeConfig
 from open_range.manifest import validate_manifest
 from open_range.render import (
     DB_MTLS_HELPER_IMAGE,

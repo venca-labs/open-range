@@ -7,7 +7,7 @@ from collections import defaultdict, deque
 from math import floor
 from typing import Any, Protocol
 
-from open_range.episode_config import EpisodeConfig
+from open_range.config import EpisodeConfig
 from open_range.runtime_types import Action, RuntimeEvent
 from open_range.snapshot import RuntimeSnapshot
 from open_range.world_ir import GreenPersona

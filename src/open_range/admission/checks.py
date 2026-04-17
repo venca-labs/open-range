@@ -22,9 +22,9 @@ from open_range.admission.references import (
     build_reference_bundle,
     ephemeral_runtime_snapshot,
 )
-from open_range.admission.registry import admission_check
-from open_range.build_config import BuildConfig
+from open_range.admission.registry import CheckFunc, admission_check
 from open_range.catalog.services import service_kind_names
+from open_range.config import BuildConfig
 from open_range.objectives.engine import PredicateEngine
 from open_range.runtime.replay import run_red_reference
 from open_range.snapshot import KindArtifacts, world_hash
@@ -32,7 +32,6 @@ from open_range.weaknesses import remediation_command_for_weakness
 from open_range.world_ir import WorldIR
 
 
-@admission_check("manifest_compliance")
 def _check_manifest_compliance(
     world: WorldIR, _artifacts: KindArtifacts, _wb: ReferenceBundle | None
 ) -> ValidatorCheckReport:
@@ -49,7 +48,6 @@ def _check_manifest_compliance(
     )
 
 
-@admission_check("graph_consistency")
 def _check_graph_consistency(
     world: WorldIR, _artifacts: KindArtifacts, _wb: ReferenceBundle | None
 ) -> ValidatorCheckReport:
@@ -103,7 +101,6 @@ def _check_graph_consistency(
     )
 
 
-@admission_check("path_solvability")
 def _check_path_solvability(
     world: WorldIR, _artifacts: KindArtifacts, _wb: ReferenceBundle | None
 ) -> ValidatorCheckReport:
@@ -128,7 +125,6 @@ def _check_path_solvability(
     )
 
 
-@admission_check("objective_grounding")
 def _check_objective_grounding(
     world: WorldIR, _artifacts: KindArtifacts, _wb: ReferenceBundle | None
 ) -> ValidatorCheckReport:
@@ -155,7 +151,6 @@ def _check_objective_grounding(
     )
 
 
-@admission_check("topology_workflow_consistency")
 def _check_workflow_consistency(
     world: WorldIR, _artifacts: KindArtifacts, _wb: ReferenceBundle | None
 ) -> ValidatorCheckReport:
@@ -180,7 +175,6 @@ def _check_workflow_consistency(
     )
 
 
-@admission_check("render_outputs")
 def _check_render_outputs(
     _world: WorldIR, artifacts: KindArtifacts, _wb: ReferenceBundle | None
 ) -> ValidatorCheckReport:
@@ -193,28 +187,24 @@ def _check_render_outputs(
     )
 
 
-@admission_check("identity_enforcement")
 def _check_identity_enforcement(
     world: WorldIR, artifacts: KindArtifacts, wb: ReferenceBundle | None
 ) -> ValidatorCheckReport:
     return check_identity_enforcement(world, artifacts, wb)
 
 
-@admission_check("encryption_enforcement")
 def _check_encryption_enforcement(
     world: WorldIR, artifacts: KindArtifacts, wb: ReferenceBundle | None
 ) -> ValidatorCheckReport:
     return check_encryption_enforcement(world, artifacts, wb)
 
 
-@admission_check("mtls_enforcement")
 def _check_mtls_enforcement(
     world: WorldIR, artifacts: KindArtifacts, wb: ReferenceBundle | None
 ) -> ValidatorCheckReport:
     return check_mtls_enforcement(world, artifacts, wb)
 
 
-@admission_check("service_health")
 def _check_service_health_contract(
     world: WorldIR, artifacts: KindArtifacts, _wb: ReferenceBundle | None
 ) -> ValidatorCheckReport:
@@ -231,7 +221,6 @@ def _check_service_health_contract(
     )
 
 
-@admission_check("siem_ingest")
 def _check_siem_ingest(
     world: WorldIR, _artifacts: KindArtifacts, _wb: ReferenceBundle | None
 ) -> ValidatorCheckReport:
@@ -252,7 +241,6 @@ def _check_siem_ingest(
     )
 
 
-@admission_check("isolation")
 def _check_isolation(
     world: WorldIR, _artifacts: KindArtifacts, _wb: ReferenceBundle | None
 ) -> ValidatorCheckReport:
@@ -270,7 +258,6 @@ def _check_isolation(
     )
 
 
-@admission_check("difficulty_envelope")
 def _check_difficulty_envelope(
     world: WorldIR, _artifacts: KindArtifacts, _wb: ReferenceBundle | None
 ) -> ValidatorCheckReport:
@@ -297,7 +284,6 @@ def _check_difficulty_envelope(
     )
 
 
-@admission_check("red_reference")
 def _check_red_reference(
     world: WorldIR, artifacts: KindArtifacts, wb: ReferenceBundle | None
 ) -> ValidatorCheckReport:
@@ -311,7 +297,6 @@ def _check_red_reference(
     return check_red_reference(ephemeral_runtime_snapshot(world, artifacts, wb))
 
 
-@admission_check("blue_reference")
 def _check_blue_reference(
     world: WorldIR, artifacts: KindArtifacts, wb: ReferenceBundle | None
 ) -> ValidatorCheckReport:
@@ -325,7 +310,6 @@ def _check_blue_reference(
     return check_blue_reference(ephemeral_runtime_snapshot(world, artifacts, wb))
 
 
-@admission_check("necessity")
 def _check_necessity(
     world: WorldIR, artifacts: KindArtifacts, wb: ReferenceBundle | None
 ) -> ValidatorCheckReport:
@@ -394,7 +378,6 @@ def _check_necessity(
     )
 
 
-@admission_check("shortcut_probes")
 def _check_shortcut_probes(
     world: WorldIR, artifacts: KindArtifacts, wb: ReferenceBundle | None
 ) -> ValidatorCheckReport:
@@ -425,7 +408,6 @@ def _check_shortcut_probes(
     )
 
 
-@admission_check("determinism")
 def _check_determinism(
     world: WorldIR, artifacts: KindArtifacts, wb: ReferenceBundle | None
 ) -> ValidatorCheckReport:
@@ -563,3 +545,30 @@ def _mailbox_leak_allowed(world: WorldIR, ref: str) -> bool:
         weakness.kind == "token_in_email" and weakness.target_ref == ref
         for weakness in world.weaknesses
     )
+
+
+_BUILTIN_ADMISSION_CHECKS: tuple[tuple[str, CheckFunc], ...] = (
+    ("manifest_compliance", _check_manifest_compliance),
+    ("graph_consistency", _check_graph_consistency),
+    ("path_solvability", _check_path_solvability),
+    ("objective_grounding", _check_objective_grounding),
+    ("topology_workflow_consistency", _check_workflow_consistency),
+    ("render_outputs", _check_render_outputs),
+    ("identity_enforcement", _check_identity_enforcement),
+    ("encryption_enforcement", _check_encryption_enforcement),
+    ("mtls_enforcement", _check_mtls_enforcement),
+    ("service_health", _check_service_health_contract),
+    ("siem_ingest", _check_siem_ingest),
+    ("isolation", _check_isolation),
+    ("difficulty_envelope", _check_difficulty_envelope),
+    ("red_reference", _check_red_reference),
+    ("blue_reference", _check_blue_reference),
+    ("necessity", _check_necessity),
+    ("shortcut_probes", _check_shortcut_probes),
+    ("determinism", _check_determinism),
+)
+
+
+def register_builtin_admission_checks() -> None:
+    for name, check in _BUILTIN_ADMISSION_CHECKS:
+        admission_check(name)(check)

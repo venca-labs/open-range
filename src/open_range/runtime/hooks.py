@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from open_range.episode_config import AuditConfig
+from open_range.config import AuditConfig
 from open_range.runtime.audit import (
     ActionAuditObservation,
     ActionAuditor,

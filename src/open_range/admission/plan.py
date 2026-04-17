@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from open_range.build_config import BuildConfig
+from open_range.config import BuildConfig
 
 
 @dataclass(frozen=True, slots=True)

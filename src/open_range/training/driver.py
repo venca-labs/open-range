@@ -5,7 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Protocol
 
-from open_range.episode_config import DEFAULT_EPISODE_CONFIG, EpisodeConfig
+from open_range.config import DEFAULT_EPISODE_CONFIG, EpisodeConfig
 from open_range.runtime import OpenRangeRuntime
 from open_range.runtime_types import Action, Observation
 from open_range.snapshot import RuntimeSnapshot

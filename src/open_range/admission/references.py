@@ -12,7 +12,6 @@ from open_range.admission.models import (
     ReferenceTrace,
     ValidatorReport,
 )
-from open_range.build_config import DEFAULT_BUILD_CONFIG, BuildConfig
 from open_range.catalog.contracts import ProbeTemplateSpec
 from open_range.catalog.probes import (
     DEFAULT_DETERMINISM_PROBE_TEMPLATES,
@@ -29,6 +28,7 @@ from open_range.catalog.probes import (
     smoke_probe_template,
     telemetry_blindspot_targets,
 )
+from open_range.config import DEFAULT_BUILD_CONFIG, BuildConfig
 from open_range.objectives.engine import PredicateEngine
 from open_range.snapshot import KindArtifacts, RuntimeSnapshot, world_hash
 from open_range.weaknesses import build_reference_plan_for_weakness

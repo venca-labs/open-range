@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from open_range.episode_config import DEFAULT_EPISODE_CONFIG, EpisodeConfig
+from open_range.config import DEFAULT_EPISODE_CONFIG, EpisodeConfig
 from open_range.render.live import BootedRelease, LiveBackend
 from open_range.runtime import OpenRangeRuntime
 from open_range.runtime.execution import ActionBackend, PodActionBackend

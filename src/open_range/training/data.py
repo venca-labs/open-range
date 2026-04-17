@@ -6,8 +6,7 @@ from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
-from open_range.build_config import BuildConfig
-from open_range.episode_config import EpisodeConfig
+from open_range.config import BuildConfig, EpisodeConfig
 from open_range.objectives import StandardAttackObjective
 from open_range.runtime_types import Action, Observation, RuntimeEvent
 

@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from open_range.build_config import BuildConfig
+from open_range.config import BuildConfig
 from open_range.manifest import EnterpriseSaaSManifest
 
 

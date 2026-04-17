@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from open_range.build_config import DEFAULT_BUILD_CONFIG, BuildConfig
+from open_range.config import DEFAULT_BUILD_CONFIG, BuildConfig
 from open_range.manifest import EnterpriseSaaSManifest, validate_manifest
 from open_range.world_ir import (
     GreenWorkloadSpec,
