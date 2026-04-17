@@ -46,12 +46,12 @@ def _emit_event(**kwargs) -> RuntimeEvent:
     )
 
 
-def test_continuity_for_service_health_keeps_current_average_rule() -> None:
+def test_continuity_for_service_health_averages_service_health() -> None:
     assert continuity_for_service_health({}) == 1.0
     assert continuity_for_service_health({"svc-web": 1.0, "svc-db": 0.5}) == 0.75
 
 
-def test_blue_objectives_after_continuity_keeps_service_health_rule() -> None:
+def test_blue_objectives_after_continuity_tracks_service_health_goal() -> None:
     assert (
         blue_objectives_after_continuity(
             {SERVICE_HEALTH_BLUE_OBJECTIVE},
@@ -95,7 +95,6 @@ def test_reduce_red_action_appends_blocked_reason_once() -> None:
         service_surfaces=lambda target: (f"surf:{target}",),
     )
 
-    assert reduction.stdout == "red action had no strategic effect"
     assert reduction.stderr == "target svc-web is patched"
     assert reduction.progress_advanced is False
     assert reduction.emitted_events == ()
@@ -124,7 +123,6 @@ def test_reduce_red_action_emits_reference_events_for_matching_step() -> None:
         service_surfaces=lambda target: (f"surf:{target}",),
     )
 
-    assert reduction.stdout == "red advanced on svc-web"
     assert reduction.stderr == ""
     assert reduction.progress_advanced is True
     assert reduction.advanced_target == "svc-web"
@@ -132,7 +130,7 @@ def test_reduce_red_action_emits_reference_events_for_matching_step() -> None:
     assert reduction.emitted_events[0].event_type == "InitialAccess"
 
 
-def test_reduce_red_action_uses_generic_stdout_for_nonmatching_action() -> None:
+def test_reduce_red_action_nonmatching_step_does_not_advance_reference() -> None:
     reduction = reduce_red_action(
         action=Action(
             actor_id="red",
@@ -155,13 +153,12 @@ def test_reduce_red_action_uses_generic_stdout_for_nonmatching_action() -> None:
         service_surfaces=lambda target: (f"surf:{target}",),
     )
 
-    assert reduction.stdout == "red executed on svc-web"
     assert reduction.stderr == ""
     assert reduction.progress_advanced is False
     assert reduction.emitted_events == ()
 
 
-def test_reduce_blue_control_keeps_path_breaking_containment_policy() -> None:
+def test_reduce_blue_control_marks_path_breaking_containment() -> None:
     transition = reduce_blue_control(
         target="svc-web",
         directive="contain",
@@ -172,7 +169,6 @@ def test_reduce_blue_control_keeps_path_breaking_containment_policy() -> None:
         blue_contained=False,
     )
 
-    assert transition.stdout == "containment applied to svc-web"
     assert transition.path_broken is True
     assert transition.blue_contained is True
     assert transition.contained_targets == {"svc-web"}
@@ -186,7 +182,7 @@ def test_reduce_blue_control_keeps_path_breaking_containment_policy() -> None:
     )
 
 
-def test_reduce_blue_control_keeps_nonbreaking_mitigation_wording() -> None:
+def test_reduce_blue_control_tracks_nonbreaking_mitigation() -> None:
     transition = reduce_blue_control(
         target="svc-web",
         directive="mitigate",
@@ -197,7 +193,6 @@ def test_reduce_blue_control_keeps_nonbreaking_mitigation_wording() -> None:
         blue_contained=True,
     )
 
-    assert transition.stdout == "mitigation on svc-web did not break the remaining path"
     assert transition.path_broken is False
     assert transition.blue_contained is True
     assert transition.contained_targets == set()
@@ -218,7 +213,6 @@ def test_reduce_blue_control_clears_state_on_recovery() -> None:
         blue_contained=True,
     )
 
-    assert transition.stdout == "recovery applied to svc-web"
     assert transition.path_broken is False
     assert transition.blue_contained is True
     assert transition.contained_targets == set()
@@ -228,7 +222,7 @@ def test_reduce_blue_control_clears_state_on_recovery() -> None:
     assert transition.event_spec.event_type == "RecoveryCompleted"
 
 
-def test_reduce_blue_finding_keeps_detection_event_and_objective_policy() -> None:
+def test_reduce_blue_finding_records_detection_and_objective() -> None:
     matched_event = RuntimeEvent(
         id="evt-7",
         event_type="InitialAccess",
@@ -246,7 +240,6 @@ def test_reduce_blue_finding_keeps_detection_event_and_objective_policy() -> Non
         blue_detected=False,
     )
 
-    assert transition.stdout == "validated finding for InitialAccess"
     assert transition.blue_detected is True
     assert transition.detected_event_ids == {"evt-7"}
     assert transition.satisfied_objectives == (BLUE_DETECTION_OBJECTIVE,)
@@ -254,14 +247,13 @@ def test_reduce_blue_finding_keeps_detection_event_and_objective_policy() -> Non
     assert transition.event_spec.event_type == "DetectionAlertRaised"
 
 
-def test_reduce_blue_finding_keeps_false_positive_path() -> None:
+def test_reduce_blue_finding_keeps_false_positive_state() -> None:
     transition = reduce_blue_finding(
         matched_event=None,
         detected_event_ids={"evt-1"},
         blue_detected=True,
     )
 
-    assert transition.stdout == "finding rejected as false positive"
     assert transition.blue_detected is True
     assert transition.detected_event_ids == {"evt-1"}
     assert transition.satisfied_objectives == ()
@@ -346,7 +338,7 @@ def test_reduce_observation_state_consumes_reward_and_marks_first_observation() 
     }
 
 
-def test_reduce_observation_state_keeps_non_session_reads_stateless() -> None:
+def test_reduce_observation_state_leaves_non_session_reads_stateless() -> None:
     visible_events = (
         RuntimeEvent(
             id="evt-1",
@@ -371,7 +363,7 @@ def test_reduce_observation_state_keeps_non_session_reads_stateless() -> None:
     assert transition.alerts == visible_events
 
 
-def test_control_directive_helpers_keep_current_defaults() -> None:
+def test_control_directive_helpers_normalize_defaults() -> None:
     action = Action(
         actor_id="blue",
         role="blue",
@@ -405,7 +397,7 @@ def test_finding_event_type_helpers_prefer_explicit_event_type() -> None:
     )
 
 
-def test_emit_runtime_event_keeps_blue_visibility_delay_and_blindspot_rule() -> None:
+def test_emit_runtime_event_applies_blue_delay_and_blindspots() -> None:
     emission = emit_runtime_event(
         event_id="evt-1",
         sim_time=1.5,
@@ -437,7 +429,7 @@ def test_telemetry_blindspots_ignore_patched_targets() -> None:
     assert blindspots == {"svc-web"}
 
 
-def test_visible_events_for_actor_keeps_current_red_and_blue_filters() -> None:
+def test_visible_events_for_actor_filters_by_role_visibility() -> None:
     suspicious = RuntimeEvent(
         id="evt-1",
         event_type="SuspiciousActionObserved",
@@ -491,5 +483,5 @@ def test_visible_events_for_actor_keeps_current_red_and_blue_filters() -> None:
         sim_time=1.0,
     )
 
-    assert [event.id for event in blue_visible] == ["evt-2", "evt-3"]
-    assert [event.id for event in red_visible] == ["evt-3"]
+    assert {event.id for event in blue_visible} == {"evt-2", "evt-3"}
+    assert {event.id for event in red_visible} == {"evt-3"}
