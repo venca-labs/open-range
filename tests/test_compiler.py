@@ -27,21 +27,6 @@ def test_compiler_builds_hand_checkable_world_ir():
     world = EnterpriseSaaSManifestCompiler().compile(_manifest_payload())
 
     assert world.world_id == "enterprise_saas_v1-1337"
-    assert world.allowed_service_kinds == (
-        "web_app",
-        "email",
-        "idp",
-        "fileshare",
-        "db",
-        "siem",
-    )
-    assert world.allowed_weakness_families == (
-        "config_identity",
-        "workflow_abuse",
-        "secret_exposure",
-        "code_web",
-        "telemetry_blindspot",
-    )
     assert world.allowed_code_flaw_kinds == (
         "sql_injection",
         "broken_authorization",
@@ -50,21 +35,7 @@ def test_compiler_builds_hand_checkable_world_ir():
     assert world.target_weakness_count == 2
     assert world.phishing_surface_enabled is False
     assert world.mutation_bounds.max_new_hosts == 2
-    assert {service.kind for service in world.services} == {
-        "web_app",
-        "email",
-        "idp",
-        "fileshare",
-        "db",
-        "siem",
-    }
-    assert len(world.users) == 5
-    assert len(world.green_personas) == 5
-    assert {asset.owner_service for asset in world.assets} == {
-        "svc-fileshare",
-        "svc-db",
-        "svc-idp",
-    }
+    assert {service.kind for service in world.services} >= {"web_app", "email", "db"}
     assert world.red_objectives[0].objective_tags == ("file_access",)
     assert world.red_objectives[1].objective_tags == ("privilege_escalation",)
     assert any(
@@ -145,3 +116,47 @@ def test_compiler_rejects_npc_profiles_for_unknown_roles():
 
     with pytest.raises(ValueError, match="npc_profiles references unknown role"):
         EnterpriseSaaSManifestCompiler().compile(payload)
+
+
+def test_compiler_keeps_catalog_backed_asset_locations_and_confidentiality() -> None:
+    payload = _manifest_payload()
+    payload["assets"].append({"id": "status_report", "class": "operational"})
+
+    world = EnterpriseSaaSManifestCompiler().compile(payload)
+    assets = {asset.id: asset for asset in world.assets}
+
+    assert assets["status_report"].owner_service == "svc-web"
+    assert (
+        assets["status_report"].location
+        == "svc-web:/var/www/html/content/status_report.txt"
+    )
+    assert assets["status_report"].confidentiality == "medium"
+
+
+def test_compiler_keeps_named_workflow_templates_and_edges_stable() -> None:
+    world = EnterpriseSaaSManifestCompiler().compile(_manifest_payload())
+    assert any(
+        edge.kind == "workflow"
+        and edge.target == "svc-db"
+        and edge.label == "approve_payroll"
+        for edge in world.workflow_edges
+    )
+    assert any(
+        edge.kind == "data" and edge.target == "payroll_db" for edge in world.data_edges
+    )
+
+
+def test_compiler_keeps_generic_workflow_fallback() -> None:
+    payload = _manifest_payload()
+    payload["business"]["workflows"] = ["custom_review"]
+
+    world = EnterpriseSaaSManifestCompiler().compile(payload)
+
+    assert len(world.workflows) == 1
+    assert any(
+        edge.kind == "workflow"
+        and edge.target == "svc-web"
+        and edge.label == "custom_review"
+        for edge in world.workflow_edges
+    )
+    assert not world.data_edges

@@ -21,12 +21,12 @@ import shutil
 from pathlib import Path
 from typing import Any
 
-from open_range.build_config import BuildConfig
-from open_range.resources import load_bundled_manifest
-from open_range.tracegen import generate_trace_dataset
+from open_range.config import OFFLINE_REFERENCE_BUILD_CONFIG
+from open_range.support.resources import load_bundled_manifest
+from open_range.training.tracegen import generate_trace_dataset
 
 DEFAULT_MODEL = "HuggingFaceTB/SmolLM2-360M-Instruct"
-TRACE_BUILD_CONFIG = BuildConfig(validation_profile="graph_only")
+TRACE_BUILD_CONFIG = OFFLINE_REFERENCE_BUILD_CONFIG
 DEFAULT_TRACESET_ROOT = Path("/tmp/openrange-trace-train-data-runtime")
 
 

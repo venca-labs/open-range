@@ -4,6 +4,7 @@ import json
 import subprocess
 import sys
 from pathlib import Path
+from types import SimpleNamespace
 
 import yaml
 from click.testing import CliRunner
@@ -138,6 +139,44 @@ def test_reset_command_loads_snapshot_from_store(tmp_path: Path):
     assert "Next Actor:" in reset_result.output
 
 
+def test_reset_command_closes_service(monkeypatch, tmp_path: Path) -> None:
+    closed = {"value": False}
+
+    class FakeService:
+        def __init__(self, *args, **kwargs) -> None:
+            del args, kwargs
+
+        def reset(self, *args, **kwargs):
+            del args, kwargs
+            return SimpleNamespace(
+                snapshot_id="snap-1",
+                episode_id="ep-1",
+                sim_time=0.0,
+                controls_red=True,
+                controls_blue=False,
+                next_actor="red",
+            )
+
+        def close(self) -> None:
+            closed["value"] = True
+
+    monkeypatch.setattr(cli_module, "OpenRange", FakeService)
+
+    result = CliRunner().invoke(
+        cli,
+        [
+            "reset",
+            "--store-dir",
+            str(tmp_path / "snapshots"),
+            "--sample-seed",
+            "1",
+        ],
+    )
+
+    assert result.exit_code == 0, result.output
+    assert closed["value"] is True
+
+
 def test_traces_command_writes_branch_native_datasets(tmp_path: Path):
     manifest_path = _write_manifest(tmp_path)
     output_dir = tmp_path / "traces"
@@ -162,6 +201,47 @@ def test_traces_command_writes_branch_native_datasets(tmp_path: Path):
     assert (output_dir / "decision_sft.jsonl").exists()
     assert (output_dir / "report.json").exists()
     assert "Trace dataset written to" in result.output
+
+
+def test_traces_command_uses_reference_validated_profile(
+    monkeypatch, tmp_path: Path
+) -> None:
+    captured = {}
+
+    def fake_generate_trace_dataset(manifest, output_dir, **kwargs):
+        del manifest
+        captured["build_config"] = kwargs["build_config"]
+        output_dir.mkdir(parents=True, exist_ok=True)
+        return SimpleNamespace(
+            rows=1,
+            raw_path=str(output_dir / "trace_rows.jsonl"),
+            decision_sft_path=str(output_dir / "decision_sft.jsonl"),
+            shard_paths={},
+            model_dump=lambda mode="json": {
+                "rows": 1,
+                "raw_path": str(output_dir / "trace_rows.jsonl"),
+                "decision_sft_path": str(output_dir / "decision_sft.jsonl"),
+                "shard_paths": {},
+            },
+        )
+
+    monkeypatch.setattr(
+        cli_module, "generate_trace_dataset", fake_generate_trace_dataset
+    )
+
+    result = CliRunner().invoke(
+        cli,
+        [
+            "traces",
+            "--manifest",
+            str(_write_manifest(tmp_path)),
+            "--output",
+            str(tmp_path / "traces"),
+        ],
+    )
+
+    assert result.exit_code == 0, result.output
+    assert captured["build_config"].validation_profile == "no_necessity"
 
 
 def test_grpo_command_invokes_standalone_runner(monkeypatch):

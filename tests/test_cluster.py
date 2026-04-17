@@ -5,11 +5,11 @@ from subprocess import CompletedProcess
 
 import pytest
 
-import open_range.cluster as cluster_mod
-import open_range.k3d_runner as k3d_mod
-from open_range.async_utils import run_async
-from open_range.cluster import KindBackend, PodSet
-from open_range.k3d_runner import K3dBackend
+import open_range.render.live as cluster_mod
+import open_range.render.live_k3d as k3d_mod
+from open_range.render.live import KindBackend, PodSet
+from open_range.render.live_k3d import K3dBackend
+from open_range.support.async_utils import run_async
 
 
 class _FakeProc:

@@ -3,17 +3,19 @@ from __future__ import annotations
 from pathlib import Path
 from types import SimpleNamespace
 
-from open_range._episode_driver import ScriptedRuntimeAgent, TandemEpisodeDriver
-from open_range._runtime_store import hydrate_runtime_snapshot, load_world_ir
-from open_range.admit import LocalAdmissionController
-from open_range.build_config import BuildConfig
-from open_range.cluster import ExecResult
-from open_range.code_web import code_web_payload
-from open_range.episode_config import EpisodeConfig
-from open_range.pipeline import BuildPipeline
-from open_range.runtime_types import Action
-from open_range.service import OpenRange
-from open_range.store import FileSnapshotStore
+from open_range.admission.controller import LocalAdmissionController
+from open_range.config import BuildConfig, EpisodeConfig
+from open_range.contracts.runtime import Action
+from open_range.render.live import ExecResult
+from open_range.sdk import OpenRange
+from open_range.store import (
+    BuildPipeline,
+    FileSnapshotStore,
+    hydrate_runtime_snapshot,
+    load_world_ir,
+)
+from open_range.training.driver import ScriptedRuntimeAgent, TandemEpisodeDriver
+from open_range.weaknesses.code_web import code_web_payload
 from tests.support import OFFLINE_BUILD_CONFIG, manifest_payload
 
 
@@ -190,7 +192,9 @@ def test_live_backend_integration_carries_logs_from_runtime_events(tmp_path: Pat
     class FakeBackend:
         def boot(self, *, snapshot_id: str, artifacts_dir: Path):
             boots.append(snapshot_id)
-            if built_world is not None and built_world.world_id == snapshot_id:
+            if built_world is not None and snapshot_id.startswith(
+                f"{built_world.world_id}-"
+            ):
                 world = built_world
             else:
                 world = load_world_ir(store, snapshot_id)

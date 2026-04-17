@@ -2,15 +2,13 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from open_range._runtime_store import load_world_ir
 from open_range.compiler import EnterpriseSaaSManifestCompiler
-from open_range.curriculum import (
+from open_range.store import BuildPipeline, FileSnapshotStore, load_world_ir
+from open_range.training.curriculum import (
     FrontierMutationPolicy,
     PopulationStats,
     propose_mutations,
 )
-from open_range.pipeline import BuildPipeline
-from open_range.store import FileSnapshotStore
 from open_range.weaknesses import CatalogWeaknessSeeder
 from tests.support import OFFLINE_BUILD_CONFIG, manifest_payload
 

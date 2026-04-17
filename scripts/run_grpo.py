@@ -22,10 +22,10 @@ import sys
 from pathlib import Path
 
 try:
-    from open_range.backend_overrides import BackendOverrides
+    from open_range.training.backend_overrides import BackendOverrides
 except ModuleNotFoundError:
     sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
-    from open_range.backend_overrides import BackendOverrides
+    from open_range.training.backend_overrides import BackendOverrides
 
 logging.basicConfig(
     level=logging.INFO,

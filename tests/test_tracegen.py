@@ -3,8 +3,11 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-from open_range.resources import load_bundled_manifest
-from open_range.tracegen import generate_trace_dataset
+from open_range.support.resources import load_bundled_manifest
+from open_range.training.tracegen import (
+    DEFAULT_TRACE_BUILD_CONFIG,
+    generate_trace_dataset,
+)
 
 
 def _read_jsonl(path: Path) -> list[dict]:
@@ -56,6 +59,10 @@ def test_generate_trace_dataset_writes_raw_and_decision_views(tmp_path: Path) ->
     assert "sft.red.source.reference_sim" in report.shard_paths
     assert Path(report.shard_paths["sft.red.runtime"]).exists()
     assert Path(report.shard_paths["raw.red.all"]).exists()
+
+
+def test_trace_generation_defaults_to_reference_validated_builds() -> None:
+    assert DEFAULT_TRACE_BUILD_CONFIG.validation_profile == "no_necessity"
 
 
 def test_generate_trace_dataset_handles_multi_mutation_joint_pool(

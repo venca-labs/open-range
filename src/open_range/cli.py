@@ -12,16 +12,14 @@ from typing import Any
 import click
 import yaml
 
-from open_range.backend_overrides import BackendOverrides
-from open_range.build_config import BuildConfig
-from open_range.cluster import KindBackend
-from open_range.episode_config import EpisodeConfig
-from open_range.k3d_runner import K3dBackend
-from open_range.pipeline import BuildPipeline
-from open_range.resources import load_bundled_manifest
-from open_range.service import OpenRange
-from open_range.store import FileSnapshotStore
-from open_range.tracegen import generate_trace_dataset
+from open_range.config import BuildConfig, EpisodeConfig
+from open_range.render.live import KindBackend
+from open_range.render.live_k3d import K3dBackend
+from open_range.sdk import OpenRange
+from open_range.store import BuildPipeline, FileSnapshotStore
+from open_range.support.resources import load_bundled_manifest
+from open_range.training.backend_overrides import BackendOverrides
+from open_range.training.tracegen import generate_trace_dataset
 
 LOG_FORMAT = "%(asctime)s [%(levelname)s] %(name)s: %(message)s"
 LOG_DATE_FORMAT = "%H:%M:%S"
@@ -394,20 +392,23 @@ def reset_cmd(
         store=FileSnapshotStore(store_dir),
         live_backend=_live_backend_for_option(live_cluster_backend),
     )
-    state = service.reset(
-        snapshot_id,
-        EpisodeConfig(mode=mode, episode_horizon_minutes=horizon),
-        split=split,
-        strategy=strategy,
-        sample_seed=sample_seed,
-    )
+    try:
+        state = service.reset(
+            snapshot_id,
+            EpisodeConfig(mode=mode, episode_horizon_minutes=horizon),
+            split=split,
+            strategy=strategy,
+            sample_seed=sample_seed,
+        )
 
-    click.echo(f"Episode ready on {state.snapshot_id}")
-    click.echo(f"  Episode ID: {state.episode_id}")
-    click.echo(f"  Sim Time: {state.sim_time:.2f}")
-    click.echo(f"  Controls Red: {state.controls_red}")
-    click.echo(f"  Controls Blue: {state.controls_blue}")
-    click.echo(f"  Next Actor: {state.next_actor or 'n/a'}")
+        click.echo(f"Episode ready on {state.snapshot_id}")
+        click.echo(f"  Episode ID: {state.episode_id}")
+        click.echo(f"  Sim Time: {state.sim_time:.2f}")
+        click.echo(f"  Controls Red: {state.controls_red}")
+        click.echo(f"  Controls Blue: {state.controls_blue}")
+        click.echo(f"  Next Actor: {state.next_actor or 'n/a'}")
+    finally:
+        service.close()
 
 
 @cli.command("traces")
@@ -469,7 +470,7 @@ def traces_cmd(
         output_dir,
         manifest_source=manifest,
         build_config=_build_config_from_options(
-            validation_profile="graph_only",
+            validation_profile="no_necessity",
             security_tier=security_tier,
         ),
         roots=roots,

@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from open_range.admit import LocalAdmissionController
+from open_range.admission.controller import LocalAdmissionController
 from open_range.compiler import EnterpriseSaaSManifestCompiler
 from open_range.render import EnterpriseSaaSKindRenderer
 from open_range.synth import EnterpriseSaaSWorldSynthesizer
@@ -331,4 +331,45 @@ def test_synthesizer_seeds_mailbox_realizations_for_email_borne_kinds(tmp_path: 
         )
         email_payloads = synth.service_payloads["svc-email"]
         assert any(file.mount_path.endswith(suffix) for file in email_payloads)
-        assert any(kind in "\n".join(messages) for messages in synth.mailboxes.values())
+        assert all(
+            "weakness_id=" not in "\n".join(messages)
+            and "kind=" not in "\n".join(messages)
+            for messages in synth.mailboxes.values()
+        )
+
+
+def test_synthesizer_keeps_workflow_mailbox_templates(tmp_path: Path):
+    cases = (
+        "phishing_credential_capture",
+        "internal_request_impersonation",
+    )
+
+    for kind in cases:
+        payload = _manifest_payload()
+        payload["security"]["pinned_weaknesses"] = [
+            {
+                "family": "workflow_abuse",
+                "kind": kind,
+                "target": "workflow:internal_email",
+            }
+        ]
+        world = CatalogWeaknessSeeder().apply(
+            EnterpriseSaaSManifestCompiler().compile(payload)
+        )
+        synth = EnterpriseSaaSWorldSynthesizer().synthesize(
+            world, tmp_path / f"mail-{kind}"
+        )
+
+        mailbox_file = next(
+            file
+            for file in synth.service_payloads["svc-email"]
+            if file.mount_path.endswith(f"{kind}.eml")
+        )
+        subject_line = next(
+            line
+            for line in mailbox_file.content.splitlines()
+            if line.startswith("Subject:")
+        )
+        assert any(
+            subject_line in "\n".join(messages) for messages in synth.mailboxes.values()
+        )
