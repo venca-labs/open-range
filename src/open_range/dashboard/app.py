@@ -32,6 +32,11 @@ def create_app(
     snapshot_id: str | None = None,
     validation_profile: str = "graph_only",
     live: bool = False,
+    green_branch_backend: str = "npc",
+    green_profile: str = "high",
+    npc_mode: str = "offline",
+    llm_model: str | None = None,
+    llm_endpoint: str | None = None,
 ) -> Any:
     """Create the dashboard FastAPI app wired to a real OpenRange runtime."""
     try:
@@ -48,6 +53,7 @@ def create_app(
     bridge = EventBridge()
     store = FileSnapshotStore(store_dir)
     runtime = OpenRangeRuntime(event_sink=bridge.push)
+    default_episode_config = EpisodeConfig()
 
     live_backend = None
     action_backend = None
@@ -230,14 +236,16 @@ def create_app(
                 snapshot_id,
                 EpisodeConfig(
                     mode="joint_pool",
-                    green_branch_backend="npc",
-                    green_profile="high",
-                    npc_mode="online",
+                    green_branch_backend=green_branch_backend,
+                    green_profile=green_profile,
+                    npc_mode=npc_mode,
+                    llm_model=llm_model or default_episode_config.llm_model,
+                    llm_endpoint=llm_endpoint or default_episode_config.llm_endpoint,
                 ),
             )
-        except Exception:
+        except Exception as exc:
             logger.exception("Reset failed")
-            return {"error": "reset failed"}
+            return {"error": str(exc) or "reset failed"}
 
         _topology = _extract_topology()
         return {

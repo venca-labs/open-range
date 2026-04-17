@@ -626,17 +626,43 @@ def grpo_cmd(
     help="Connect to real Docker/Kind infrastructure (no mocks).",
 )
 @click.option(
+    "--green-backend",
+    default="npc",
+    show_default=True,
+    type=click.Choice(["scripted", "small_llm", "workflow_orchestrator", "npc"]),
+    help="Green activity backend to run inside the dashboard episode.",
+)
+@click.option(
+    "--green-profile",
+    default="high",
+    show_default=True,
+    type=click.Choice(["off", "low", "medium", "high"]),
+    help="Green activity intensity for the dashboard episode.",
+)
+@click.option(
+    "--npc-mode",
+    default="offline",
+    show_default=True,
+    type=click.Choice(["offline", "online"]),
+    help="NPC execution mode when --green-backend npc is selected.",
+)
+@click.option(
     "--no-browser",
     is_flag=True,
     default=False,
     help="Do not auto-open the browser.",
 )
+@click.pass_context
 def dashboard_cmd(
+    ctx: click.Context,
     store_dir: str,
     snapshot_id: str | None,
     port: int,
     host: str,
     live: bool,
+    green_backend: str,
+    green_profile: str,
+    npc_mode: str,
     no_browser: bool,
 ) -> None:
     """Launch the Sims-like episode dashboard in a browser."""
@@ -650,7 +676,19 @@ def dashboard_cmd(
 
     from open_range.dashboard.app import create_app
 
-    app = create_app(store_dir=store_dir, snapshot_id=snapshot_id, live=live)
+    backend_overrides: BackendOverrides = ctx.find_root().obj.get(
+        "backend_overrides", BackendOverrides()
+    )
+    app = create_app(
+        store_dir=store_dir,
+        snapshot_id=snapshot_id,
+        live=live,
+        green_branch_backend=green_backend,
+        green_profile=green_profile,
+        npc_mode=npc_mode,
+        llm_model=backend_overrides.model,
+        llm_endpoint=backend_overrides.base_url,
+    )
 
     url = f"http://{host}:{port}"
     click.echo(f"🏢 OpenRange Dashboard starting at {url}")

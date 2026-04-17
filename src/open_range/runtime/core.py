@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 from collections.abc import Callable
 from math import inf
 from typing import Literal
@@ -60,6 +61,10 @@ from open_range.runtime.replay import (
     prefix_satisfied,
 )
 from open_range.runtime.rewards import RewardEngine
+
+
+def _npc_credentials_present() -> bool:
+    return bool(os.environ.get("NVIDIA_API_KEY") or os.environ.get("OPENAI_API_KEY"))
 
 
 class OpenRangeRuntime:
@@ -147,11 +152,20 @@ class OpenRangeRuntime:
             requested_defense_index=reference_defense_index,
         )
         if episode_config.green_branch_backend == "npc":
-            if not isinstance(self.green_scheduler, NPCGreenScheduler):
-                self.green_scheduler = NPCGreenScheduler(
-                    model=episode_config.llm_model,
-                    base_url=episode_config.llm_endpoint,
-                )
+            if episode_config.npc_mode == "online":
+                if not _npc_credentials_present():
+                    raise RuntimeError(
+                        "green_branch_backend='npc' with npc_mode='online' "
+                        "requires NVIDIA_API_KEY or OPENAI_API_KEY"
+                    )
+                if not isinstance(self.green_scheduler, NPCGreenScheduler):
+                    self.green_scheduler = NPCGreenScheduler(
+                        model=episode_config.llm_model,
+                        base_url=episode_config.llm_endpoint,
+                    )
+                    self._hooks.set_green_scheduler(self.green_scheduler)
+            elif not isinstance(self.green_scheduler, ScriptedGreenScheduler):
+                self.green_scheduler = ScriptedGreenScheduler()
                 self._hooks.set_green_scheduler(self.green_scheduler)
         elif not isinstance(self.green_scheduler, ScriptedGreenScheduler):
             self.green_scheduler = ScriptedGreenScheduler()

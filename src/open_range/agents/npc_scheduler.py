@@ -58,6 +58,16 @@ class NPCGreenScheduler(GreenScheduler):
         self._ready_actions.clear()
         self._last_advanced_slot = -1
         self._event_buffer.clear()
+        self._npc_world = None
+        self._npc_agents = {}
+
+        if self._available:
+            try:
+                from tinytroupe.agent.tiny_person import TinyPerson
+
+                TinyPerson.clear_agents()
+            except Exception:
+                logger.exception("Failed to clear TinyTroupe agent registry")
 
         if (
             not self._available
@@ -65,17 +75,14 @@ class NPCGreenScheduler(GreenScheduler):
             or episode_config.green_profile == "off"
         ):
             self._npc_world = None
-            self._npc_agents = {}
             return
 
         personas = snapshot.world.green_personas
         if not personas:
             self._npc_world = None
-            self._npc_agents = {}
             return
 
         # Initialize npc agents from personas
-        self._npc_agents = {}
         for p in personas:
             agent = persona_to_npc(p)
             self._npc_agents[p.id] = agent
@@ -126,7 +133,8 @@ class NPCGreenScheduler(GreenScheduler):
                 continue
 
             # Retrieve only actions generated in the recent step horizons
-            recent_episodes = agent.episodic_memory.retrieve_recent(n=5)
+            recent_episodes = agent.episodic_memory.retrieve_recent()
+            recent_episodes = recent_episodes[-5:]
             for ep in recent_episodes:
                 if isinstance(ep, dict) and ep.get("role") == "assistant":
                     content_obj = ep.get("content", {})
