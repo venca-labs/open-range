@@ -3,6 +3,8 @@ from __future__ import annotations
 import ast
 from pathlib import Path
 
+import open_range
+
 REPO_ROOT = Path(__file__).resolve().parents[1]
 SRC_ROOT = REPO_ROOT / "src" / "open_range"
 
@@ -88,6 +90,26 @@ def test_root_file_surface_matches_target() -> None:
         "root file surface is still larger than the target architecture allows:\n"
         + "\n".join(extras)
     )
+
+
+def test_root_package_exports_small_guided_surface() -> None:
+    assert set(open_range.__all__) == {
+        "BuildConfig",
+        "BuildPipeline",
+        "DEFAULT_BUILD_CONFIG",
+        "DEFAULT_EPISODE_CONFIG",
+        "EnterpriseSaaSManifest",
+        "EpisodeConfig",
+        "OFFLINE_BUILD_CONFIG",
+        "OFFLINE_REFERENCE_BUILD_CONFIG",
+        "OpenRange",
+        "Snapshot",
+        "WorldIR",
+        "load_bundled_manifest",
+        "manifest_schema",
+        "validate_manifest",
+        "world_hash",
+    }
 
 
 def test_root_private_helpers_are_gone() -> None:
