@@ -32,13 +32,28 @@ def render_action_text(action: Action) -> str:
         path = str(action.payload.get("path", "/") or "/")
         if not path.startswith("/"):
             path = f"/{path}"
+        method = str(action.payload.get("method", "GET") or "GET").upper()
+        headers = action.payload.get("headers")
+        user_agent = str(action.payload.get("user_agent", "")).strip()
+        body = str(action.payload.get("body", "")).strip()
         query = action.payload.get("query")
         query_text = ""
         if isinstance(query, dict) and query:
             query_text = "?" + urlencode(
                 [(str(key), str(value)) for key, value in query.items()], doseq=True
             )
-        return f"curl -s http://{target}{path}{query_text}"
+        parts = ["curl", "-s"]
+        if method != "GET":
+            parts.extend(["-X", method])
+        if user_agent:
+            parts.extend(["-A", json.dumps(user_agent)])
+        if isinstance(headers, dict):
+            for key, value in headers.items():
+                parts.extend(["-H", json.dumps(f"{key}: {value}")])
+        if body:
+            parts.extend(["--data-raw", json.dumps(body)])
+        parts.append(f"http://{target}{path}{query_text}")
+        return " ".join(parts)
     if action.kind == "shell":
         command = str(action.payload.get("command", "")).strip()
         if command:

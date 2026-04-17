@@ -77,7 +77,7 @@ def test_decision_prompt_can_optionally_include_hidden_context() -> None:
 
 
 def test_observation_and_action_result_stay_separate_contracts() -> None:
-    from open_range.runtime_types import ActionResult
+    from open_range.contracts.runtime import ActionResult
 
     observation_schema = Observation.model_json_schema()
     result_schema = ActionResult.model_json_schema()

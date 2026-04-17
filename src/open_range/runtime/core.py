@@ -157,6 +157,7 @@ class OpenRangeRuntime:
             done=False,
             winner="",
             terminal_reason="",
+            execution_mode="live" if self.action_backend is not None else "offline",
             continuity=continuity,
             service_health=service_health,
             controls_red=episode_config.controls_red,
@@ -253,6 +254,9 @@ class OpenRangeRuntime:
         )
 
     def state(self) -> EpisodeState:
+        self._state.execution_mode = (
+            "live" if self.action_backend is not None else "offline"
+        )
         self._state.red_objectives_satisfied = tuple(
             sorted(self._red_objectives_satisfied)
         )
