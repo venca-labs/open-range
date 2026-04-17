@@ -3,10 +3,8 @@ from __future__ import annotations
 from types import SimpleNamespace
 
 from open_range.compiler import EnterpriseSaaSManifestCompiler
-from open_range.objectives import (
-    evaluate_objective_grader_live,
-)
 from open_range.objectives.engine import PredicateEngine
+from open_range.objectives.live import evaluate_objective_grader_live
 from open_range.weaknesses import CatalogWeaknessSeeder
 from tests.support import manifest_payload
 
