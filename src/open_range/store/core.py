@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import json
 import shutil
 import time
@@ -48,6 +49,23 @@ def _validator_report_path(store_dir: str | Path, snapshot_id: str) -> Path:
     return _snapshot_dir(store_dir, snapshot_id) / "validator_report.json"
 
 
+def _snapshot_fingerprint(wb: ReferenceBundle, vr: ValidatorReport) -> str:
+    payload = {
+        "references": wb.model_dump(mode="json"),
+        "mode": vr.mode,
+        "stages": [
+            {
+                "name": stage.name,
+                "checks": [check.name for check in stage.checks],
+            }
+            for stage in vr.stages
+        ],
+    }
+    return hashlib.sha256(
+        json.dumps(payload, sort_keys=True, separators=(",", ":")).encode("utf-8")
+    ).hexdigest()[:8]
+
+
 class FileSnapshotStore:
     """Persist immutable snapshots as JSON on disk."""
 
@@ -65,7 +83,10 @@ class FileSnapshotStore:
         *,
         split: PoolSplit = "train",
     ) -> Snapshot:
-        snapshot_id = f"{world.world_id}-{split}-{world_hash(world)[:8]}"
+        snapshot_id = (
+            f"{world.world_id}-{split}-{world_hash(world)[:8]}-"
+            f"{_snapshot_fingerprint(wb, vr)}"
+        )
         existing = _snapshot_path(self.store_dir, snapshot_id)
         if existing.exists():
             return self.load(snapshot_id)

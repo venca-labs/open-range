@@ -4,6 +4,7 @@ import shutil
 from pathlib import Path
 
 from open_range.store import BuildPipeline, FileSnapshotStore
+from open_range.store.build import CandidateWorld
 from tests.support import OFFLINE_BUILD_CONFIG, manifest_payload
 
 
@@ -26,7 +27,7 @@ def test_pipeline_builds_and_admits_snapshot(tmp_path: Path):
     assert snapshot.artifacts_dir != candidate.artifacts.render_dir
     assert Path(snapshot.artifacts_dir).exists()
     assert Path(snapshot.state_seed_dir).exists()
-    assert snapshot.snapshot_id.split("-")[-2] == "train"
+    assert f"-train-{snapshot.world_hash[:8]}-" in snapshot.snapshot_id
     assert all(
         not check.details
         for stage in snapshot.validator_report.stages
@@ -72,5 +73,17 @@ def test_pipeline_reuses_existing_snapshot_for_same_world_and_split(tmp_path: Pa
 
     first = pipeline.admit(candidate, split="train")
     second = pipeline.admit(candidate, split="train")
+    third = pipeline.admit(
+        CandidateWorld(
+            world=candidate.world,
+            synth=candidate.synth,
+            artifacts=candidate.artifacts,
+            build_config=candidate.build_config.model_copy(
+                update={"blue_reference_count": 2}
+            ),
+        ),
+        split="train",
+    )
 
     assert second.snapshot_id == first.snapshot_id
+    assert third.snapshot_id != first.snapshot_id

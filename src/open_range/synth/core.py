@@ -48,8 +48,8 @@ class EnterpriseSaaSWorldSynthesizer:
             "service_payload_counts": {
                 service_id: len(files) for service_id, files in payloads.items()
             },
-            "mailboxes": {
-                mailbox: list(messages) for mailbox, messages in mailboxes.items()
+            "mailbox_message_counts": {
+                mailbox: len(messages) for mailbox, messages in mailboxes.items()
             },
         }
         summary_path = outdir / "synth-summary.json"

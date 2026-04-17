@@ -423,12 +423,27 @@ class OpenRangeRuntime:
             prompt_mode=self._episode_config.prompt_mode,
             predicates=self._predicates,
         )
+        public_visible = (
+            visible
+            if actor == "red"
+            else tuple(
+                event.model_copy(update={"malicious": False}) for event in visible
+            )
+        )
+        public_alerts = (
+            transition.alerts
+            if actor == "red"
+            else tuple(
+                event.model_copy(update={"malicious": False})
+                for event in transition.alerts
+            )
+        )
         return Observation(
             actor_id=actor,
             sim_time=round(self._state.sim_time, 4),
             stdout=stdout,
-            visible_events=visible,
-            alerts_delta=transition.alerts,
+            visible_events=public_visible,
+            alerts_delta=public_alerts,
             service_health=service_health_tuple(self._state.service_health),
             reward_delta=transition.reward_delta,
             done=self._state.done,

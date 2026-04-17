@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import json
 from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
@@ -454,37 +453,9 @@ def _artifact_shortcut_findings(world: WorldIR, artifacts: KindArtifacts) -> lis
     if not materials:
         return findings
 
-    summary_payload: dict[str, object] | None = None
-    summary_path = next(
-        (
-            Path(path)
-            for path in artifacts.rendered_files
-            if path.endswith("synth-summary.json")
-        ),
-        None,
-    )
-    if summary_path is not None and summary_path.exists():
-        try:
-            summary_payload = json.loads(summary_path.read_text(encoding="utf-8"))
-        except json.JSONDecodeError:
-            summary_payload = None
-
-    if isinstance(summary_payload, dict):
-        mailboxes = summary_payload.get("mailboxes", {})
-        if isinstance(mailboxes, dict):
-            for mailbox, messages in mailboxes.items():
-                joined = (
-                    "\n".join(str(message) for message in messages)
-                    if isinstance(messages, list)
-                    else str(messages)
-                )
-                for ref, material in materials.items():
-                    if material in joined and not _mailbox_leak_allowed(world, ref):
-                        findings.append(f"mailbox_secret_leak:{mailbox}:{ref}")
-
     for file_path in artifacts.rendered_files:
         path = Path(file_path)
-        if not path.exists() or path.name == "synth-summary.json":
+        if not path.exists():
             continue
         service_id = _artifact_service_id(path, public_services)
         if service_id is None:
@@ -549,13 +520,6 @@ def _public_leak_allowed(world: WorldIR, service_id: str, ref: str) -> bool:
         weakness.family == "secret_exposure"
         and weakness.target == service_id
         and weakness.target_ref == ref
-        for weakness in world.weaknesses
-    )
-
-
-def _mailbox_leak_allowed(world: WorldIR, ref: str) -> bool:
-    return any(
-        weakness.kind == "token_in_email" and weakness.target_ref == ref
         for weakness in world.weaknesses
     )
 

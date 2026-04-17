@@ -193,6 +193,10 @@ def check_blue_reference(
 ) -> ValidatorCheckReport:
     per_trace = []
     passed = True
+    blue_objectives = {
+        objective.id: objective.predicate
+        for objective in snapshot.world.blue_objectives
+    }
     for trace_index, trace in enumerate(
         snapshot.reference_bundle.reference_defense_traces
     ):
@@ -226,10 +230,25 @@ def check_blue_reference(
             if step is not None:
                 step_idx += 1
         score = runtime.score()
+        missing_objective_ids = tuple(
+            objective_id
+            for objective_id in trace.objective_ids
+            if objective_id not in blue_objectives
+        )
+        required_predicates = tuple(
+            blue_objectives[objective_id]
+            for objective_id in trace.objective_ids
+            if objective_id in blue_objectives
+        )
+        satisfied_predicates = tuple(sorted(score.blue_objectives_satisfied))
         trace_passed = (
             score.winner == "blue"
             and score.done
-            and len(trace.objective_ids) <= len(snapshot.world.blue_objectives)
+            and not missing_objective_ids
+            and all(
+                predicate in score.blue_objectives_satisfied
+                for predicate in required_predicates
+            )
         )
         passed = passed and trace_passed
         per_trace.append(
@@ -238,6 +257,9 @@ def check_blue_reference(
                 "step_count": len(trace.steps),
                 "winner": score.winner,
                 "terminal_reason": score.terminal_reason,
+                "required_predicates": required_predicates,
+                "satisfied_predicates": satisfied_predicates,
+                "missing_objective_ids": missing_objective_ids,
                 "outputs": outputs,
                 "passed": trace_passed,
             }

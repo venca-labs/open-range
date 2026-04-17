@@ -170,7 +170,6 @@ def materialize_security_runtime(
 
     return RenderExtensions(
         services=services,
-        values={"security": security_runtime.summary()},
         summary_updates={
             "security_tier": security_runtime.tier,
             "security_integration_enabled": True,
@@ -200,9 +199,6 @@ def _build_security_file_contents(
     file_contents.update(_encryption_files(world, security_runtime))
     file_contents.update(_mtls_files(world, security_runtime))
     file_contents.update(_npc_files(security_runtime))
-    file_contents["security/security-context.json"] = (
-        json.dumps(security_runtime.summary(), indent=2, sort_keys=True) + "\n"
-    )
     return file_contents
 
 

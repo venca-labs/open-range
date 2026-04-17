@@ -71,6 +71,8 @@ def test_kind_renderer_emits_expected_files(tmp_path: Path):
     assert Path(artifacts.manifest_summary_path).exists()
     assert Path(synth.summary_path).exists()
     assert "svc-web" in artifacts.chart_values["services"]
+    assert "mailboxes" not in artifacts.chart_values
+    assert "weaknesses" not in artifacts.chart_values
     assert artifacts.chart_values["services"]["svc-web"]["enabled"] is True
     assert (
         artifacts.chart_values["services"]["svc-web"]["payloads"][0]["mountPath"]

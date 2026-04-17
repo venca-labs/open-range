@@ -134,8 +134,8 @@ def test_build_config_can_enable_security_integration(tmp_path: Path):
     ].payloads[0]
     assert idp_payload_spec.source_path.startswith("security/idp/")
     assert "content" not in idp_payload_spec.model_dump(by_alias=True)
-    assert candidate.artifacts.chart_values["security"]["tier"] == 3
-    assert any(
+    assert "security" not in candidate.artifacts.chart_values
+    assert not any(
         path.endswith("security/security-context.json")
         for path in candidate.artifacts.rendered_files
     )
@@ -293,7 +293,7 @@ def test_security_runtime_materialization_is_deterministic(tmp_path: Path):
     for relative_path in (
         "security/encryption/wrapped_dek.json",
         "security/mtls/svc-db/key.pem",
-        "security/security-context.json",
+        "security/idp/config.json",
     ):
         assert (tmp_path / "render-a" / relative_path).read_text(encoding="utf-8") == (
             tmp_path / "render-b" / relative_path
