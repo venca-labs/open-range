@@ -3,9 +3,6 @@
 from __future__ import annotations
 
 import random
-from collections.abc import Callable
-from dataclasses import dataclass
-from types import ModuleType
 from typing import Protocol
 
 from open_range.catalog.weaknesses import (
@@ -31,11 +28,19 @@ from open_range.objectives.engine import PredicateEngine
 from ..objectives.effects import effect_marker_cleanup_command, effect_marker_service
 from .code_web import code_web_cleanup_commands
 from .families import (
-    code_web,
-    config_identity,
-    secret_exposure,
-    telemetry_blindspot,
-    workflow_abuse,
+    code_web as code_web_family,
+)
+from .families import (
+    config_identity as config_identity_family,
+)
+from .families import (
+    secret_exposure as secret_exposure_family,
+)
+from .families import (
+    telemetry_blindspot as telemetry_blindspot_family,
+)
+from .families import (
+    workflow_abuse as workflow_abuse_family,
 )
 from .families.common import (
     RedReferencePlan,
@@ -61,6 +66,39 @@ __all__ = [
 
 class WeaknessSeeder(Protocol):
     def apply(self, world: WorldIR, seed: int | None = None) -> WorldIR: ...
+
+
+class WeaknessFamilyModule(Protocol):
+    def build(self, context: WeaknessBuildContext) -> WeaknessSpec: ...
+    def seed_defaults(self, world: WorldIR) -> tuple[str, str]: ...
+    def default_kind(self, world: WorldIR, target: str, target_ref: str) -> str: ...
+    def normalize_target(
+        self,
+        world: WorldIR,
+        kind: str,
+        target: str,
+        target_kind: str,
+        target_ref: str,
+    ) -> tuple[str, str, str]: ...
+    def mutation_target_service(self, world: WorldIR) -> str | None: ...
+    def mutation_spec(
+        self,
+        world: WorldIR,
+        target_service: str,
+    ) -> tuple[str, str, str]: ...
+    def build_red_reference_plan(
+        self,
+        world: WorldIR,
+        engine: PredicateEngine,
+        start: str,
+        weakness: WeaknessSpec,
+    ) -> RedReferencePlan: ...
+    def render_realization_content(
+        self,
+        world: WorldIR,
+        weakness: WeaknessSpec,
+        realization: WeaknessRealizationSpec,
+    ) -> str: ...
 
 
 class CatalogWeaknessSeeder:
@@ -89,52 +127,20 @@ class CatalogWeaknessSeeder:
         return world.model_copy(update={"weaknesses": weaknesses, "lineage": lineage})
 
 
-@dataclass(frozen=True, slots=True)
-class _FamilyOps:
-    build: Callable[[WeaknessBuildContext], WeaknessSpec]
-    seed_defaults: Callable[[WorldIR], tuple[str, str]]
-    default_kind: Callable[[WorldIR, str, str], str]
-    normalize_target: Callable[[WorldIR, str, str, str, str], tuple[str, str, str]]
-    mutation_target_service: Callable[[WorldIR], str | None]
-    mutation_spec: Callable[[WorldIR, str], tuple[str, str, str]]
-    build_red_reference_plan: Callable[
-        [WorldIR, PredicateEngine, str, WeaknessSpec], RedReferencePlan
-    ]
-    render_realization_content: Callable[
-        [WorldIR, WeaknessSpec, WeaknessRealizationSpec], str
-    ]
-
-
-def _module_ops(module: ModuleType) -> _FamilyOps:
-    return _FamilyOps(
-        build=module.build,
-        seed_defaults=module.seed_defaults,
-        default_kind=module.default_kind,
-        normalize_target=module.normalize_target,
-        mutation_target_service=module.mutation_target_service,
-        mutation_spec=module.mutation_spec,
-        build_red_reference_plan=module.build_red_reference_plan,
-        render_realization_content=module.render_realization_content,
-    )
-
-
-_FAMILY_REGISTRY = {
-    module.__name__.rpartition(".")[2]: _module_ops(module)
-    for module in (
-        code_web,
-        workflow_abuse,
-        secret_exposure,
-        config_identity,
-        telemetry_blindspot,
-    )
+_FAMILY_MODULES: dict[str, WeaknessFamilyModule] = {
+    "code_web": code_web_family,
+    "workflow_abuse": workflow_abuse_family,
+    "secret_exposure": secret_exposure_family,
+    "config_identity": config_identity_family,
+    "telemetry_blindspot": telemetry_blindspot_family,
 }
 
 
-def _family_ops(family: str, *, label: str) -> _FamilyOps:
-    ops = _FAMILY_REGISTRY.get(family)
-    if ops is None:
+def _family_module(family: str, *, label: str) -> WeaknessFamilyModule:
+    module = _FAMILY_MODULES.get(family)
+    if module is None:
         raise ValueError(f"unsupported weakness family {family!r} for {label}")
-    return ops
+    return module
 
 
 def build_catalog_weakness(
@@ -149,8 +155,8 @@ def build_catalog_weakness(
 ) -> WeaknessSpec:
     if not is_supported_weakness_kind(family, kind):
         raise ValueError(f"unsupported kind {kind!r} for family {family!r}")
-    ops = _family_ops(family, label="builder")
-    target, target_kind, target_ref = ops.normalize_target(
+    module = _family_module(family, label="builder")
+    target, target_kind, target_ref = module.normalize_target(
         world, kind, target, target_kind, target_ref
     )
     defaults = weakness_build_defaults(
@@ -159,7 +165,7 @@ def build_catalog_weakness(
         target=target,
         target_ref=target_ref,
     )
-    return ops.build(
+    return module.build(
         WeaknessBuildContext(
             world=world,
             family=family,
@@ -181,12 +187,12 @@ def build_catalog_weakness(
 
 
 def seed_catalog_weakness(world: WorldIR, family: str) -> WeaknessSpec:
-    ops = _family_ops(family, label="seed defaults")
-    target, target_ref = ops.seed_defaults(world)
+    module = _family_module(family, label="seed defaults")
+    target, target_ref = module.seed_defaults(world)
     return build_catalog_weakness(
         world,
         family,
-        kind=ops.default_kind(world, target, target_ref),
+        kind=module.default_kind(world, target, target_ref),
         target=target,
         target_kind=default_target_kind_for_family(family),
         target_ref=target_ref,
@@ -194,9 +200,10 @@ def seed_catalog_weakness(world: WorldIR, family: str) -> WeaknessSpec:
 
 
 def mutation_target_service(world: WorldIR, family: str) -> str | None:
-    return _family_ops(family, label="mutation target service").mutation_target_service(
-        world
-    )
+    return _family_module(
+        family,
+        label="mutation target service",
+    ).mutation_target_service(world)
 
 
 def mutation_spec(
@@ -204,7 +211,7 @@ def mutation_spec(
     family: str,
     target_service: str,
 ) -> tuple[str, str, str]:
-    return _family_ops(family, label="mutation spec").mutation_spec(
+    return _family_module(family, label="mutation spec").mutation_spec(
         world, target_service
     )
 
@@ -215,7 +222,7 @@ def build_reference_plan_for_weakness(
     start: str,
     weakness: WeaknessSpec,
 ) -> RedReferencePlan:
-    return _family_ops(
+    return _family_module(
         weakness.family,
         label="red reference builder",
     ).build_red_reference_plan(world, engine, start, weakness)
@@ -226,7 +233,7 @@ def render_realization_content(
     weakness: WeaknessSpec,
     realization: WeaknessRealizationSpec,
 ) -> str:
-    return _family_ops(
+    return _family_module(
         weakness.family,
         label="realization renderer",
     ).render_realization_content(world, weakness, realization)
