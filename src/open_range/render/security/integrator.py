@@ -28,7 +28,6 @@ import logging
 import os
 import random
 from copy import deepcopy
-from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 from pydantic import BaseModel, Field
@@ -49,7 +48,6 @@ from .runtime import (
     SecurityPayloadSpec,
     SecurityRuntimeSpec,
     SecurityServiceRuntimeSpec,
-    materialize_security_runtime,
 )
 
 logger = logging.getLogger(__name__)
@@ -299,21 +297,6 @@ class SecurityIntegrator:
             tier_cfg.npc_credential_lifecycle,
         )
         return ctx.build()
-
-    def integrate(
-        self,
-        world: WorldIR,
-        *,
-        tier: int = 1,
-        render_dir: object | None = None,
-    ) -> SecurityRuntimeSpec:
-        """Backward-compatible helper for callers still expecting file output."""
-
-        runtime = self.plan(world, tier=tier)
-        if render_dir is not None:
-            render_world = world.model_copy(update={"security_runtime": runtime})
-            materialize_security_runtime(render_world, Path(render_dir))
-        return runtime
 
     # ------------------------------------------------------------------
     # Identity Provider

@@ -26,6 +26,21 @@ def _has_cryptography() -> bool:
         return False
 
 
+def _plan_and_materialize(
+    integrator: SecurityIntegrator,
+    sample_world,
+    render_dir: Path,
+    *,
+    tier: int,
+):
+    runtime = integrator.plan(sample_world, tier=tier)
+    materialize_security_runtime(
+        sample_world.model_copy(update={"security_runtime": runtime}),
+        render_dir,
+    )
+    return runtime
+
+
 # ---------------------------------------------------------------------------
 # Fixtures
 # ---------------------------------------------------------------------------
@@ -101,7 +116,12 @@ class TestSecurityTierConfig:
 class TestIntegratorDisabled:
     def test_noop_when_disabled(self, sample_world, render_dir):
         integrator = SecurityIntegrator(SecurityIntegratorConfig(enabled=False))
-        ctx = integrator.integrate(sample_world, render_dir=render_dir, tier=3)
+        ctx = _plan_and_materialize(
+            integrator,
+            sample_world,
+            render_dir,
+            tier=3,
+        )
         assert ctx.tier == 3
         assert not ctx.identity_provider
         assert not ctx.encryption
@@ -109,7 +129,12 @@ class TestIntegratorDisabled:
 
     def test_noop_for_tier1(self, sample_world, render_dir):
         integrator = SecurityIntegrator(SecurityIntegratorConfig(enabled=True))
-        ctx = integrator.integrate(sample_world, render_dir=render_dir, tier=1)
+        ctx = _plan_and_materialize(
+            integrator,
+            sample_world,
+            render_dir,
+            tier=1,
+        )
         # Tier 1 has no security features
         assert not ctx.identity_provider
         assert not ctx.encryption
@@ -126,7 +151,12 @@ class TestIntegratorDisabled:
 class TestIdentityIntegration:
     def test_identity_provider_added_for_tier2(self, sample_world, render_dir):
         integrator = SecurityIntegrator(SecurityIntegratorConfig(enabled=True))
-        ctx = integrator.integrate(sample_world, render_dir=render_dir, tier=2)
+        ctx = _plan_and_materialize(
+            integrator,
+            sample_world,
+            render_dir,
+            tier=2,
+        )
 
         assert ctx.identity_provider
         assert ctx.identity_provider["enabled"] is True
@@ -134,7 +164,12 @@ class TestIdentityIntegration:
 
     def test_idp_config_written(self, sample_world, render_dir):
         integrator = SecurityIntegrator(SecurityIntegratorConfig(enabled=True))
-        integrator.integrate(sample_world, render_dir=render_dir, tier=2)
+        _plan_and_materialize(
+            integrator,
+            sample_world,
+            render_dir,
+            tier=2,
+        )
 
         data = json.loads(
             (render_dir / "security" / "idp" / "config.json").read_text(
@@ -145,7 +180,12 @@ class TestIdentityIntegration:
 
     def test_idp_runtime_files_written(self, sample_world, render_dir):
         integrator = SecurityIntegrator(SecurityIntegratorConfig(enabled=True))
-        integrator.integrate(sample_world, render_dir=render_dir, tier=2)
+        _plan_and_materialize(
+            integrator,
+            sample_world,
+            render_dir,
+            tier=2,
+        )
 
         assert (render_dir / "security" / "idp" / "startup.sh").exists()
         assert (
@@ -156,7 +196,12 @@ class TestIdentityIntegration:
         self, sample_world, render_dir
     ):
         integrator = SecurityIntegrator(SecurityIntegratorConfig(enabled=True))
-        ctx = integrator.integrate(sample_world, render_dir=render_dir, tier=2)
+        ctx = _plan_and_materialize(
+            integrator,
+            sample_world,
+            render_dir,
+            tier=2,
+        )
 
         idp_sidecar = ctx.service_runtime["svc-idp"].sidecars[0]
 
@@ -168,7 +213,12 @@ class TestIdentityIntegration:
         self, sample_world, render_dir
     ):
         integrator = SecurityIntegrator(SecurityIntegratorConfig(enabled=True))
-        ctx = integrator.integrate(sample_world, render_dir=render_dir, tier=2)
+        ctx = _plan_and_materialize(
+            integrator,
+            sample_world,
+            render_dir,
+            tier=2,
+        )
         render_world = sample_world.model_copy(update={"security_runtime": ctx})
         extensions = materialize_security_runtime(render_world, render_dir)
 
@@ -182,7 +232,12 @@ class TestIdentityIntegration:
 
     def test_spiffe_ids_in_identities(self, sample_world, render_dir):
         integrator = SecurityIntegrator(SecurityIntegratorConfig(enabled=True))
-        ctx = integrator.integrate(sample_world, render_dir=render_dir, tier=2)
+        ctx = _plan_and_materialize(
+            integrator,
+            sample_world,
+            render_dir,
+            tier=2,
+        )
 
         for svc_name, identity in ctx.identity_provider["service_identities"].items():
             assert identity["identity_uri"].startswith("spiffe://range.local/")
@@ -201,7 +256,12 @@ class TestEncryptionIntegration:
         integrator = SecurityIntegrator(
             SecurityIntegratorConfig(enabled=True, encryption_fraction=1.0)
         )
-        ctx = integrator.integrate(sample_world, render_dir=render_dir, tier=2)
+        ctx = _plan_and_materialize(
+            integrator,
+            sample_world,
+            render_dir,
+            tier=2,
+        )
 
         assert ctx.encryption
         assert ctx.encryption["enabled"] is True
@@ -210,7 +270,12 @@ class TestEncryptionIntegration:
         integrator = SecurityIntegrator(
             SecurityIntegratorConfig(enabled=True, encryption_fraction=1.0)
         )
-        integrator.integrate(sample_world, render_dir=render_dir, tier=2)
+        _plan_and_materialize(
+            integrator,
+            sample_world,
+            render_dir,
+            tier=2,
+        )
 
         data = json.loads(
             (render_dir / "security" / "encryption" / "wrapped_dek.json").read_text(
@@ -232,7 +297,12 @@ class TestMTLSIntegration:
     )
     def test_mtls_certs_generated_for_tier3(self, sample_world, render_dir):
         integrator = SecurityIntegrator(SecurityIntegratorConfig(enabled=True))
-        ctx = integrator.integrate(sample_world, render_dir=render_dir, tier=3)
+        ctx = _plan_and_materialize(
+            integrator,
+            sample_world,
+            render_dir,
+            tier=3,
+        )
 
         assert ctx.mtls
         assert ctx.mtls["enabled"] is True
@@ -268,7 +338,12 @@ class TestMTLSIntegration:
     )
     def test_mtls_not_for_tier2(self, sample_world, render_dir):
         integrator = SecurityIntegrator(SecurityIntegratorConfig(enabled=True))
-        ctx = integrator.integrate(sample_world, render_dir=render_dir, tier=2)
+        ctx = _plan_and_materialize(
+            integrator,
+            sample_world,
+            render_dir,
+            tier=2,
+        )
         assert not ctx.mtls
 
 
@@ -283,7 +358,12 @@ class TestMTLSIntegration:
 class TestNPCLifecycleIntegration:
     def test_npc_lifecycle_configured_for_tier3(self, sample_world, render_dir):
         integrator = SecurityIntegrator(SecurityIntegratorConfig(enabled=True))
-        ctx = integrator.integrate(sample_world, render_dir=render_dir, tier=3)
+        ctx = _plan_and_materialize(
+            integrator,
+            sample_world,
+            render_dir,
+            tier=3,
+        )
 
         assert ctx.npc_credential_lifecycle
         assert ctx.npc_credential_lifecycle["enabled"] is True
@@ -291,7 +371,12 @@ class TestNPCLifecycleIntegration:
 
     def test_npc_lifecycle_not_for_tier2(self, sample_world, render_dir):
         integrator = SecurityIntegrator(SecurityIntegratorConfig(enabled=True))
-        ctx = integrator.integrate(sample_world, render_dir=render_dir, tier=2)
+        ctx = _plan_and_materialize(
+            integrator,
+            sample_world,
+            render_dir,
+            tier=2,
+        )
         assert not ctx.npc_credential_lifecycle
 
 
@@ -326,7 +411,12 @@ class TestFullIntegration:
     def test_tier3_full_stack(self, sample_world, render_dir):
         """Tier 3 should integrate all security modules."""
         integrator = SecurityIntegrator(SecurityIntegratorConfig(enabled=True))
-        ctx = integrator.integrate(sample_world, render_dir=render_dir, tier=3)
+        ctx = _plan_and_materialize(
+            integrator,
+            sample_world,
+            render_dir,
+            tier=3,
+        )
 
         assert ctx.identity_provider
         assert ctx.encryption
