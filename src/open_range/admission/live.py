@@ -11,12 +11,11 @@ from open_range.admission.models import (
     ReferenceBundle,
     ValidatorCheckReport,
     ValidatorStageReport,
-    validator_check_report,
 )
+from open_range.admission.reference_checks import run_live_reference_checks
 from open_range.admission.references import ephemeral_runtime_snapshot
 from open_range.async_utils import run_async
 from open_range.catalog.probes import SHORTCUT_WEB_ROUTE_PROBE_SPECS
-from open_range.runtime.replay import run_live_reference_checks
 from open_range.snapshot import KindArtifacts, RuntimeSnapshot
 from open_range.world_ir import ServiceSpec, WorldIR
 
@@ -85,10 +84,7 @@ def run_live_backend_checks(
         snapshot = ephemeral_runtime_snapshot(world, artifacts, reference_bundle)
         checks.append(check_live_service_smoke(world, release))
         checks.append(check_live_db_mtls(world, release))
-        checks.extend(
-            validator_check_report(check)
-            for check in run_live_reference_checks(snapshot, release)
-        )
+        checks.extend(run_live_reference_checks(snapshot, release))
         checks.append(_live_shortcut_probe_check(snapshot, release))
 
         live_info = {

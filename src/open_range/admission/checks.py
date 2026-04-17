@@ -10,9 +10,14 @@ from open_range.admission.identity import check_identity_enforcement
 from open_range.admission.models import (
     ReferenceBundle,
     ValidatorCheckReport,
-    validator_check_report,
 )
 from open_range.admission.mtls import check_mtls_enforcement
+from open_range.admission.reference_checks import (
+    check_blue_reference,
+    check_determinism,
+    check_red_reference,
+    reference_trace_bindings,
+)
 from open_range.admission.references import (
     build_reference_bundle,
     ephemeral_runtime_snapshot,
@@ -21,13 +26,7 @@ from open_range.admission.registry import admission_check
 from open_range.build_config import BuildConfig
 from open_range.catalog.services import service_kind_names
 from open_range.objectives.engine import PredicateEngine
-from open_range.runtime.replay import (
-    check_blue_reference,
-    check_determinism,
-    check_red_reference,
-    reference_trace_bindings,
-    run_red_reference,
-)
+from open_range.runtime.replay import run_red_reference
 from open_range.snapshot import KindArtifacts, world_hash
 from open_range.weaknesses import remediation_command_for_weakness
 from open_range.world_ir import WorldIR
@@ -309,9 +308,7 @@ def _check_red_reference(
             details={"trace_id": "", "step_count": 0},
             error="no valid red reference",
         )
-    return validator_check_report(
-        check_red_reference(ephemeral_runtime_snapshot(world, artifacts, wb))
-    )
+    return check_red_reference(ephemeral_runtime_snapshot(world, artifacts, wb))
 
 
 @admission_check("blue_reference")
@@ -325,9 +322,7 @@ def _check_blue_reference(
             details={"trace_id": "", "step_count": 0},
             error="no valid blue reference",
         )
-    return validator_check_report(
-        check_blue_reference(ephemeral_runtime_snapshot(world, artifacts, wb))
-    )
+    return check_blue_reference(ephemeral_runtime_snapshot(world, artifacts, wb))
 
 
 @admission_check("necessity")
@@ -441,15 +436,15 @@ def _check_determinism(
             blue_reference_count=len(wb.reference_defense_traces) if wb else 1,
         ),
     )
-    return validator_check_report(
-        check_determinism(
-            ephemeral_runtime_snapshot(world, artifacts, wb or regenerated),
-            reference_bundle_stable=(
-                wb is not None
-                and regenerated.model_dump(mode="json") == wb.model_dump(mode="json")
-            ),
+    report = check_determinism(
+        ephemeral_runtime_snapshot(world, artifacts, wb or regenerated),
+        reference_bundle_stable=(
+            wb is not None
+            and regenerated.model_dump(mode="json") == wb.model_dump(mode="json")
         ),
-        extra_details={"world_hash": world_hash(world)},
+    )
+    return report.model_copy(
+        update={"details": {**report.details, "world_hash": world_hash(world)}}
     )
 
 
