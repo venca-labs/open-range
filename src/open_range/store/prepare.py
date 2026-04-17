@@ -12,8 +12,8 @@ from open_range.render import (
     K3dRenderer,
     SecurityIntegrator,
     SecurityIntegratorConfig,
-    SecurityRuntimeSpec,
 )
+from open_range.render.security.runtime import SecurityRuntimeSpec
 from open_range.weaknesses import CatalogWeaknessSeeder
 from open_range.world_ir import WorldIR
 

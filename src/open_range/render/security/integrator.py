@@ -30,16 +30,17 @@ import random
 from copy import deepcopy
 from importlib import import_module
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from pydantic import BaseModel, Field
-
-from open_range.world_ir import WorldIR
 
 from ..extensions import (
     RuntimePort,
     RuntimeSidecar,
 )
+
+if TYPE_CHECKING:
+    from open_range.world_ir import WorldIR
 from ..images import DB_MTLS_HELPER_IMAGE
 from .runtime import (
     SecurityPayloadSpec,
