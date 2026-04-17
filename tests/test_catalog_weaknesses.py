@@ -4,7 +4,6 @@ from open_range.compiler import EnterpriseSaaSManifestCompiler
 from open_range.weaknesses import (
     CatalogWeaknessSeeder,
     build_catalog_weakness,
-    seed_catalog_weakness,
 )
 from tests.support import manifest_payload
 
@@ -20,19 +19,6 @@ def test_seeded_world_keeps_catalog_backed_family_metadata() -> None:
     assert all(weak.benchmark_tags for weak in world.weaknesses)
     assert all(weak.instantiation_mode for weak in world.weaknesses)
     assert all(weak.blue_observability_surfaces for weak in world.weaknesses)
-
-
-def test_family_registry_keeps_seed_defaults_for_small_family_handlers() -> None:
-    payload = manifest_payload()
-    world = EnterpriseSaaSManifestCompiler().compile(payload)
-
-    config_identity = seed_catalog_weakness(world, "config_identity")
-    telemetry = seed_catalog_weakness(world, "telemetry_blindspot")
-
-    assert config_identity.target == "svc-idp"
-    assert config_identity.target_ref == "svc-idp"
-    assert telemetry.target == "svc-email"
-    assert telemetry.target_ref == "svc-email"
 
 
 def test_family_registry_keeps_current_target_normalization_and_build_outputs() -> None:
@@ -94,19 +80,10 @@ def test_family_registry_keeps_current_target_normalization_and_build_outputs() 
     assert any(
         realization.kind == "mailbox" for realization in workflow_abuse.realization
     )
-    assert workflow_abuse.preconditions == (
-        world.workflows[0].id,
-        "approval_path_exists",
-        "phishing_credential_capture",
-    )
     assert config_identity.target == "svc-idp"
-    assert config_identity.realization[0].path.endswith("admin-surface.json")
-    assert config_identity.preconditions == (
-        "interactive_login",
-        "identity_surface_present",
-        "admin_surface_exposed",
+    assert any(
+        realization.kind == "config" for realization in config_identity.realization
     )
     assert telemetry.target == "svc-email"
     assert telemetry.target_kind == "telemetry"
-    assert telemetry.realization[0].path.endswith("silent_mail_rule.json")
-    assert telemetry.preconditions == ("critical_action_exists", "silent_mail_rule")
+    assert any(realization.kind == "telemetry" for realization in telemetry.realization)

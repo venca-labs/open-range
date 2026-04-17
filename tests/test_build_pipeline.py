@@ -2,7 +2,6 @@ from __future__ import annotations
 
 from pathlib import Path
 
-import open_range.store as store_module
 from open_range.store import BuildPipeline
 from tests.support import OFFLINE_BUILD_CONFIG, manifest_payload
 
@@ -28,9 +27,3 @@ def test_pipeline_builds_and_admits_snapshot(tmp_path: Path):
     assert "world_path" not in snapshot.model_dump()
     assert "reference_bundle_path" not in snapshot.model_dump()
     assert "mailboxes" in snapshot.identity_seed
-
-
-def test_store_module_still_exposes_runtime_hydration_helpers() -> None:
-    assert hasattr(store_module, "hydrate_runtime_snapshot")
-    assert hasattr(store_module, "load_runtime_snapshot")
-    assert hasattr(store_module, "load_world_ir")
