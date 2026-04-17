@@ -14,9 +14,10 @@ from typing import TYPE_CHECKING, Any
 
 import yaml
 
+from open_range.contracts.render import KindArtifacts
+
 from .extensions import RenderExtensions
 from .kind import EnterpriseSaaSKindRenderer
-from .models import KindArtifacts
 
 if TYPE_CHECKING:
     from open_range.contracts.world import ServiceSpec, WorldIR

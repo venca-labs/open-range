@@ -10,13 +10,14 @@ from typing import TYPE_CHECKING, Any
 
 import yaml
 
+from open_range.contracts.render import KindArtifacts
+
 from .extensions import (
     RenderExtensions,
     apply_service_runtime_extensions,
     merge_render_extensions,
 )
 from .images import SANDBOX_IMAGE_BY_ROLE, service_image_for_kind
-from .models import KindArtifacts
 from .security.runtime import materialize_security_runtime
 
 if TYPE_CHECKING:
