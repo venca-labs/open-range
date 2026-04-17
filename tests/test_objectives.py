@@ -37,6 +37,28 @@ def test_predicate_engine_builds_service_native_graders_for_red_objectives() -> 
     )
 
 
+def test_predicate_engine_tracks_supported_blue_objectives() -> None:
+    world = EnterpriseSaaSManifestCompiler().compile(manifest_payload())
+    predicates = PredicateEngine(world)
+
+    assert predicates.supports_blue_objective("intrusion_detected(initial_access)")
+    assert predicates.supports_blue_objective("intrusion_contained(before_asset_read)")
+    assert predicates.supports_blue_objective("service_health_above(0.99)")
+    assert not predicates.supports_blue_objective(
+        "intrusion_detected(credential_obtained)"
+    )
+
+    assert predicates.evaluate_blue_objectives(
+        initial_access_detected=True,
+        contained_before_asset_read=True,
+        continuity=1.0,
+    ) == {
+        "intrusion_detected(initial_access)",
+        "intrusion_contained(before_asset_read)",
+        "service_health_above(0.9)",
+    }
+
+
 def test_live_event_backed_admin_grader_still_requires_the_event() -> None:
     payload = manifest_payload()
     payload["security"]["pinned_weaknesses"] = [

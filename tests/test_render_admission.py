@@ -200,6 +200,39 @@ def test_admission_controller_offline_witness_can_ground_pinned_non_code_weaknes
     assert report.admitted is True
 
 
+def test_admission_rejects_unsupported_runtime_blue_objective(tmp_path: Path) -> None:
+    payload = _manifest_payload()
+    payload["objectives"]["blue"] = [
+        {"predicate": "intrusion_detected(credential_obtained)"},
+        {"predicate": "intrusion_contained(before_asset_read)"},
+        {"predicate": "service_health_above(0.9)"},
+    ]
+    world = CatalogWeaknessSeeder().apply(
+        EnterpriseSaaSManifestCompiler().compile(payload)
+    )
+    artifacts = EnterpriseSaaSKindRenderer().render(
+        world, _synth(world, tmp_path), tmp_path / "rendered-unsupported-blue"
+    )
+
+    _reference_bundle, report = LocalAdmissionController(mode="fail_fast").admit(
+        world, artifacts, OFFLINE_REFERENCE_BUILD_CONFIG
+    )
+
+    objective_grounding = next(
+        check
+        for stage in report.stages
+        if stage.name == "static"
+        for check in stage.checks
+        if check.name == "objective_grounding"
+    )
+    assert report.admitted is False
+    assert objective_grounding.passed is False
+    assert (
+        "unsupported runtime blue objective intrusion_detected(credential_obtained)"
+        in objective_grounding.error
+    )
+
+
 def test_mutated_world_blue_reference_does_not_claim_initial_access_from_later_event(
     tmp_path: Path,
 ) -> None:
@@ -677,12 +710,30 @@ def test_snapshot_store_persists_v1_snapshot(tmp_path: Path):
     snapshot = store.create(world, artifacts, reference_bundle, report, synth=synth)
     loaded = load_runtime_snapshot(store, snapshot.snapshot_id)
 
+    assert snapshot.snapshot_id == loaded.snapshot_id
+    assert snapshot.db_seed_state == {}
+    assert snapshot.file_assets == {}
+    assert not any(Path(snapshot.state_seed_dir).iterdir())
+    assert not (Path(snapshot.artifacts_dir) / "security").exists()
+    assert not (Path(snapshot.artifacts_dir) / "synth").exists()
+    assert all(
+        "content" not in payload
+        for service in snapshot.artifacts.chart_values["services"].values()
+        for payload in service.get("payloads", ())
+    )
     assert loaded.snapshot_id == snapshot.snapshot_id
     assert loaded.world_id == world.world_id
     assert loaded.seed == world.seed
     assert loaded.world.world_id == world.world_id
     assert loaded.validator_report.admitted is True
     assert loaded.reference_bundle.reference_attack_traces
+    assert loaded.artifacts_dir != snapshot.artifacts_dir
+    assert loaded.state_seed_dir != snapshot.state_seed_dir
+    assert any(
+        "content" in payload
+        for service in loaded.artifacts.chart_values["services"].values()
+        for payload in service.get("payloads", ())
+    )
     assert Path(loaded.validator_report_path).exists()
     assert all(
         not check.details

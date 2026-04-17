@@ -134,10 +134,16 @@ def test_joint_pool_next_decision_returns_actor_specific_observations(tmp_path: 
         for event in blue_decision.obs.visible_events
     )
     assert not any(event.malicious for event in blue_decision.obs.visible_events)
+    assert all(event.actor != "red" for event in blue_decision.obs.visible_events)
+    assert all(
+        event.source_entity != "red" for event in blue_decision.obs.visible_events
+    )
     assert any(
         event.event_type == "InitialAccess" for event in blue_decision.obs.alerts_delta
     )
     assert not any(event.malicious for event in blue_decision.obs.alerts_delta)
+    assert all(event.actor != "red" for event in blue_decision.obs.alerts_delta)
+    assert all(event.source_entity != "red" for event in blue_decision.obs.alerts_delta)
 
 
 def test_runtime_keeps_green_internal_and_never_exposes_green_decisions(tmp_path: Path):

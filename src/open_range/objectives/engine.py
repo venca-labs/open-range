@@ -9,7 +9,7 @@ from dataclasses import dataclass
 from open_range.contracts.world import AssetSpec, ServiceSpec, WeaknessSpec, WorldIR
 
 from .evaluation import evaluate_red_objectives
-from .expr import predicate_inner
+from .expr import parse_predicate, predicate_inner
 from .models import ObjectiveGraderSpec
 from .resolution import resolve_objective
 
@@ -193,17 +193,56 @@ class PredicateEngine:
     def blue_terminal_satisfied(
         self,
         *,
-        red_terminal: bool,
-        blue_detected: bool,
-        blue_contained: bool,
-        continuity: float,
-        continuity_threshold: float,
-        continuity_enforced: bool,
+        satisfied_predicates: set[str] | frozenset[str],
     ) -> bool:
-        continuity_ok = (
-            continuity >= continuity_threshold if continuity_enforced else True
-        )
-        return not red_terminal and blue_detected and blue_contained and continuity_ok
+        required = {
+            objective.predicate
+            for objective in self.world.blue_objectives
+            if objective.terminal
+        }
+        return bool(required) and required <= set(satisfied_predicates)
+
+    def supports_blue_objective(self, predicate: str) -> bool:
+        expr = parse_predicate(predicate)
+        if expr.name == "intrusion_detected":
+            return expr.inner == "initial_access"
+        if expr.name == "intrusion_contained":
+            return expr.inner == "before_asset_read"
+        if expr.name != "service_health_above":
+            return False
+        try:
+            threshold = float(expr.inner)
+        except ValueError:
+            return False
+        return 0.0 <= threshold <= 1.0
+
+    def evaluate_blue_objectives(
+        self,
+        *,
+        initial_access_detected: bool,
+        contained_before_asset_read: bool,
+        continuity: float,
+    ) -> set[str]:
+        satisfied: set[str] = set()
+        for objective in self.world.blue_objectives:
+            expr = parse_predicate(objective.predicate)
+            if expr.name == "intrusion_detected":
+                if expr.inner == "initial_access" and initial_access_detected:
+                    satisfied.add(objective.predicate)
+                continue
+            if expr.name == "intrusion_contained":
+                if expr.inner == "before_asset_read" and contained_before_asset_read:
+                    satisfied.add(objective.predicate)
+                continue
+            if expr.name != "service_health_above":
+                continue
+            try:
+                threshold = float(expr.inner)
+            except ValueError:
+                continue
+            if continuity >= threshold:
+                satisfied.add(objective.predicate)
+        return satisfied
 
 
 def predicate_engine(world: WorldIR) -> PredicateEngine:

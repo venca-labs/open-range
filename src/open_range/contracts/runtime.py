@@ -6,7 +6,7 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
-ActorRole = Literal["red", "blue", "green"]
+ActorRole = Literal["red", "blue", "green", "unknown"]
 ExternalRole = Literal["red", "blue"]
 ActionKind = Literal["shell", "api", "mail", "control", "submit_finding", "sleep"]
 EventType = Literal[

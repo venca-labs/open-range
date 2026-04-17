@@ -147,6 +147,11 @@ def _check_objective_grounding(
         if not predicates.is_groundable(objective.predicate):
             issues.append(objective.predicate)
             continue
+        if objective.owner == "blue" and not predicates.supports_blue_objective(
+            objective.predicate
+        ):
+            issues.append(f"unsupported runtime blue objective {objective.predicate}")
+            continue
         grader = predicates.objective_grader(objective.predicate)
         if objective.owner == "red" and grader is None:
             issues.append(f"missing service-native grader for {objective.predicate}")

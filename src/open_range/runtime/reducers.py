@@ -16,9 +16,17 @@ from open_range.runtime.events import (
 from open_range.runtime.execution import ActionExecution
 from open_range.runtime.replay import action_for_reference_step
 
-SERVICE_HEALTH_BLUE_OBJECTIVE = "service_health_above(0.9)"
-BLUE_DETECTION_OBJECTIVE = "intrusion_detected(initial_access)"
-BLUE_CONTAINMENT_OBJECTIVE = "intrusion_contained(before_asset_read)"
+DETECTABLE_EVENT_TYPES = frozenset(
+    {
+        "InitialAccess",
+        "CredentialObtained",
+        "UnauthorizedCredentialUse",
+        "PrivilegeEscalation",
+        "CrossZoneTraversal",
+        "SensitiveAssetRead",
+        "PersistenceEstablished",
+    }
+)
 OBSERVATION_ALERT_EVENT_TYPES = frozenset(
     {
         "DetectionAlertRaised",
@@ -51,7 +59,6 @@ class BlueFindingTransition:
     detected_event_ids: set[str]
     blue_detected: bool
     initial_access_detected: bool
-    satisfied_objectives: tuple[str, ...] = ()
     event_spec: BlueActionEventSpec | None = None
 
 
@@ -61,7 +68,6 @@ class BlueControlTransition:
     contained_targets: set[str]
     patched_targets: set[str]
     blue_contained: bool
-    satisfied_objectives: tuple[str, ...] = ()
     path_broken: bool = False
     event_spec: BlueActionEventSpec | None = None
 
@@ -79,23 +85,6 @@ def continuity_for_service_health(service_health: Mapping[str, float]) -> float:
     if not service_health:
         return 1.0
     return sum(service_health.values()) / len(service_health)
-
-
-def blue_objectives_after_continuity(
-    current: set[str] | frozenset[str],
-    *,
-    continuity: float,
-    continuity_threshold: float,
-    continuity_enforced: bool,
-) -> set[str]:
-    updated = set(current)
-    if not continuity_enforced:
-        return updated
-    if continuity < continuity_threshold:
-        updated.discard(SERVICE_HEALTH_BLUE_OBJECTIVE)
-    else:
-        updated.add(SERVICE_HEALTH_BLUE_OBJECTIVE)
-    return updated
 
 
 def reduce_red_action(
@@ -162,7 +151,6 @@ def reduce_blue_control(
         and target in remaining_red_targets
         and (live.containment_applied or live.patch_applied)
     )
-    linked_objectives = (BLUE_CONTAINMENT_OBJECTIVE,) if path_broken else ()
     next_blue_contained = blue_contained or path_broken
     event_spec: BlueActionEventSpec | None = None
 
@@ -221,7 +209,6 @@ def reduce_blue_control(
         contained_targets=next_contained,
         patched_targets=next_patched,
         blue_contained=next_blue_contained,
-        satisfied_objectives=linked_objectives,
         path_broken=path_broken,
         event_spec=event_spec,
     )
@@ -255,9 +242,6 @@ def reduce_blue_finding(
         detected_event_ids=next_detected_event_ids,
         blue_detected=True,
         initial_access_detected=initial_access_detected,
-        satisfied_objectives=(
-            (BLUE_DETECTION_OBJECTIVE,) if initial_access_detected else ()
-        ),
         event_spec=BlueActionEventSpec(
             event_type="DetectionAlertRaised",
             target_entity=matched_event.target_entity,
@@ -291,7 +275,10 @@ def select_scripted_internal_blue_action(
     blue_detected: bool,
 ) -> Action:
     for event in visible_events:
-        if event.malicious and event.id not in detected_event_ids:
+        if (
+            event.event_type in DETECTABLE_EVENT_TYPES
+            and event.id not in detected_event_ids
+        ):
             return Action(
                 actor_id="blue",
                 role="blue",
@@ -387,7 +374,8 @@ def reduce_observation_state(
         alerts=tuple(
             event
             for event in visible_events
-            if event.malicious or event.event_type in OBSERVATION_ALERT_EVENT_TYPES
+            if event.event_type in DETECTABLE_EVENT_TYPES
+            or event.event_type in OBSERVATION_ALERT_EVENT_TYPES
         ),
         reward_delta=previous_reward_delta,
         observed_event_ids=set(observed_event_ids)
@@ -401,18 +389,8 @@ def reduce_observation_state(
 
 def update_continuity_state(
     service_health: Mapping[str, float],
-    blue_objectives: set[str] | frozenset[str],
-    *,
-    continuity_threshold: float,
-    continuity_enforced: bool,
-) -> tuple[float, set[str]]:
-    continuity = continuity_for_service_health(service_health)
-    return continuity, blue_objectives_after_continuity(
-        blue_objectives,
-        continuity=continuity,
-        continuity_threshold=continuity_threshold,
-        continuity_enforced=continuity_enforced,
-    )
+) -> float:
+    return continuity_for_service_health(service_health)
 
 
 def evaluate_terminal_state(
@@ -422,11 +400,7 @@ def evaluate_terminal_state(
     events: tuple[RuntimeEvent, ...],
     service_health: Mapping[str, float],
     red_objectives_satisfied: set[str] | frozenset[str],
-    blue_detected: bool,
-    blue_contained: bool,
-    continuity: float,
-    continuity_threshold: float,
-    continuity_enforced: bool,
+    blue_objectives_satisfied: set[str] | frozenset[str],
     sim_time: float,
     episode_horizon: float,
 ) -> tuple[set[str], str, str]:
@@ -440,12 +414,7 @@ def evaluate_terminal_state(
         if predicates.red_terminal_satisfied(objectives):
             return objectives, "red", "red_terminal"
         if predicates.blue_terminal_satisfied(
-            red_terminal=False,
-            blue_detected=blue_detected,
-            blue_contained=blue_contained,
-            continuity=continuity,
-            continuity_threshold=continuity_threshold,
-            continuity_enforced=continuity_enforced,
+            satisfied_predicates=blue_objectives_satisfied
         ):
             return objectives, "blue", "blue_terminal"
     if sim_time >= episode_horizon:

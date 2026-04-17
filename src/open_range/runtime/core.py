@@ -172,6 +172,7 @@ class OpenRangeRuntime:
         )
         self.green_scheduler.reset(snapshot, episode_config)
         self._apply_prefix_start()
+        self._refresh_blue_objectives()
         self._advance_until_external_decision()
         return self.state()
 
@@ -423,27 +424,12 @@ class OpenRangeRuntime:
             prompt_mode=self._episode_config.prompt_mode,
             predicates=self._predicates,
         )
-        public_visible = (
-            visible
-            if actor == "red"
-            else tuple(
-                event.model_copy(update={"malicious": False}) for event in visible
-            )
-        )
-        public_alerts = (
-            transition.alerts
-            if actor == "red"
-            else tuple(
-                event.model_copy(update={"malicious": False})
-                for event in transition.alerts
-            )
-        )
         return Observation(
             actor_id=actor,
             sim_time=round(self._state.sim_time, 4),
             stdout=stdout,
-            visible_events=public_visible,
-            alerts_delta=public_alerts,
+            visible_events=visible,
+            alerts_delta=transition.alerts,
             service_health=service_health_tuple(self._state.service_health),
             reward_delta=transition.reward_delta,
             done=self._state.done,
@@ -587,10 +573,10 @@ class OpenRangeRuntime:
                 self._blue_detected_initial_access or transition.initial_access_detected
             )
             self._detected_event_ids = transition.detected_event_ids
-            self._blue_objectives_satisfied.update(transition.satisfied_objectives)
             event = emit_blue_action_event(transition.event_spec, emit_event=emit_event)
             if event is not None:
                 emitted.append(event)
+            self._refresh_blue_objectives()
             reward_delta += self.reward_engine.on_blue_detection(
                 matched,
                 shaping_enabled=self._episode_config.blue_detection_shaping,
@@ -613,21 +599,13 @@ class OpenRangeRuntime:
             self._contained_targets = transition.contained_targets
             self._patched_targets = transition.patched_targets
             self._blue_contained = transition.blue_contained
-            self._blue_objectives_satisfied.update(transition.satisfied_objectives)
             event = emit_blue_action_event(transition.event_spec, emit_event=emit_event)
             if event is not None:
                 emitted.append(event)
 
             stdout = transition.stdout
-            (
-                self._state.continuity,
-                self._blue_objectives_satisfied,
-            ) = update_continuity_state(
-                self._state.service_health,
-                self._blue_objectives_satisfied,
-                continuity_threshold=self._episode_config.continuity_threshold,
-                continuity_enforced=self._episode_config.continuity_enforced,
-            )
+            self._state.continuity = update_continuity_state(self._state.service_health)
+            self._refresh_blue_objectives()
             reward_delta += self.reward_engine.on_blue_containment(
                 target=target,
                 path_broken=transition.path_broken,
@@ -675,11 +653,7 @@ class OpenRangeRuntime:
             events=self._event_log.export(),
             service_health=self._state.service_health,
             red_objectives_satisfied=self._red_objectives_satisfied,
-            blue_detected=self._blue_detected_initial_access,
-            blue_contained=self._blue_contained,
-            continuity=self._state.continuity,
-            continuity_threshold=self._episode_config.continuity_threshold,
-            continuity_enforced=self._episode_config.continuity_enforced,
+            blue_objectives_satisfied=self._blue_objectives_satisfied,
             sim_time=self._state.sim_time,
             episode_horizon=self._episode_config.episode_horizon,
         )
@@ -738,16 +712,18 @@ class OpenRangeRuntime:
         )
         if result.service_health:
             self._state.service_health.update(result.service_health)
-            (
-                self._state.continuity,
-                self._blue_objectives_satisfied,
-            ) = update_continuity_state(
-                self._state.service_health,
-                self._blue_objectives_satisfied,
-                continuity_threshold=self._episode_config.continuity_threshold,
-                continuity_enforced=self._episode_config.continuity_enforced,
-            )
+            self._state.continuity = update_continuity_state(self._state.service_health)
+            self._refresh_blue_objectives()
         return result
+
+    def _refresh_blue_objectives(self) -> None:
+        if self._predicates is None:
+            return
+        self._blue_objectives_satisfied = self._predicates.evaluate_blue_objectives(
+            initial_access_detected=self._blue_detected_initial_access,
+            contained_before_asset_read=self._blue_contained,
+            continuity=self._state.continuity,
+        )
 
     def _advance_due_time(self, actor: ExternalRole) -> None:
         cadence = (

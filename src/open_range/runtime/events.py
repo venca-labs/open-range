@@ -49,6 +49,18 @@ EmitEvent = Callable[..., RuntimeEvent]
 ServiceSurfaceResolver = Callable[[str], tuple[str, ...]]
 
 
+def _public_blue_event(event: RuntimeEvent) -> RuntimeEvent:
+    if not event.malicious and event.actor != "red":
+        return event
+    return event.model_copy(
+        update={
+            "actor": "unknown",
+            "source_entity": "unknown",
+            "malicious": False,
+        }
+    )
+
+
 class RuntimeEventLog:
     """Own runtime event storage, visibility, and export state."""
 
@@ -232,7 +244,7 @@ def visible_events_for_actor(
             continue
         if actor == "blue":
             if event.observability_surfaces:
-                visible.append(event)
+                visible.append(_public_blue_event(event))
             continue
         if event.actor == "red":
             visible.append(event)

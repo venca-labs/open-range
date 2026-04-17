@@ -20,11 +20,8 @@ from open_range.runtime.events import (
 )
 from open_range.runtime.execution import ActionExecution
 from open_range.runtime.reducers import (
-    BLUE_CONTAINMENT_OBJECTIVE,
-    BLUE_DETECTION_OBJECTIVE,
+    DETECTABLE_EVENT_TYPES,
     OBSERVATION_ALERT_EVENT_TYPES,
-    SERVICE_HEALTH_BLUE_OBJECTIVE,
-    blue_objectives_after_continuity,
     continuity_for_service_health,
     reduce_blue_control,
     reduce_blue_finding,
@@ -49,33 +46,6 @@ def _emit_event(**kwargs) -> RuntimeEvent:
 def test_continuity_for_service_health_averages_service_health() -> None:
     assert continuity_for_service_health({}) == 1.0
     assert continuity_for_service_health({"svc-web": 1.0, "svc-db": 0.5}) == 0.75
-
-
-def test_blue_objectives_after_continuity_tracks_service_health_goal() -> None:
-    assert (
-        blue_objectives_after_continuity(
-            {SERVICE_HEALTH_BLUE_OBJECTIVE},
-            continuity=0.4,
-            continuity_threshold=0.9,
-            continuity_enforced=True,
-        )
-        == set()
-    )
-    assert blue_objectives_after_continuity(
-        set(),
-        continuity=0.95,
-        continuity_threshold=0.9,
-        continuity_enforced=True,
-    ) == {SERVICE_HEALTH_BLUE_OBJECTIVE}
-    assert (
-        blue_objectives_after_continuity(
-            set(),
-            continuity=0.2,
-            continuity_threshold=0.9,
-            continuity_enforced=False,
-        )
-        == set()
-    )
 
 
 def test_reduce_red_action_appends_blocked_reason_once() -> None:
@@ -173,7 +143,6 @@ def test_reduce_blue_control_marks_path_breaking_containment() -> None:
     assert transition.blue_contained is True
     assert transition.contained_targets == {"svc-web"}
     assert transition.patched_targets == set()
-    assert transition.satisfied_objectives == (BLUE_CONTAINMENT_OBJECTIVE,)
     assert transition.event_spec is not None
     assert transition.event_spec.event_type == "ContainmentApplied"
 
@@ -193,7 +162,6 @@ def test_reduce_blue_control_tracks_nonbreaking_mitigation() -> None:
     assert transition.blue_contained is True
     assert transition.contained_targets == set()
     assert transition.patched_targets == {"svc-web"}
-    assert transition.satisfied_objectives == ()
     assert transition.event_spec is not None
     assert transition.event_spec.event_type == "PatchApplied"
 
@@ -213,7 +181,6 @@ def test_reduce_blue_control_clears_state_on_recovery() -> None:
     assert transition.blue_contained is True
     assert transition.contained_targets == set()
     assert transition.patched_targets == set()
-    assert transition.satisfied_objectives == ()
     assert transition.event_spec is not None
     assert transition.event_spec.event_type == "RecoveryCompleted"
 
@@ -239,7 +206,6 @@ def test_reduce_blue_finding_records_detection_and_objective() -> None:
     assert transition.blue_detected is True
     assert transition.initial_access_detected is True
     assert transition.detected_event_ids == {"evt-7"}
-    assert transition.satisfied_objectives == (BLUE_DETECTION_OBJECTIVE,)
     assert transition.event_spec is not None
     assert transition.event_spec.event_type == "DetectionAlertRaised"
 
@@ -254,7 +220,6 @@ def test_reduce_blue_finding_keeps_false_positive_state() -> None:
     assert transition.blue_detected is True
     assert transition.initial_access_detected is False
     assert transition.detected_event_ids == {"evt-1"}
-    assert transition.satisfied_objectives == ()
     assert transition.event_spec is None
 
 
@@ -280,7 +245,6 @@ def test_reduce_blue_finding_does_not_award_initial_access_objective_for_later_e
 
     assert transition.blue_detected is True
     assert transition.initial_access_detected is False
-    assert transition.satisfied_objectives == ()
 
 
 def test_reduce_blue_finding_ignores_duplicate_detection() -> None:
@@ -313,11 +277,11 @@ def test_select_scripted_internal_blue_action_detects_before_containment() -> No
         RuntimeEvent(
             id="evt-1",
             event_type="InitialAccess",
-            actor="red",
+            actor="unknown",
             time=1.0,
-            source_entity="red",
+            source_entity="unknown",
             target_entity="svc-web",
-            malicious=True,
+            malicious=False,
             observability_surfaces=("web_access",),
         ),
     )
@@ -384,6 +348,30 @@ def test_reduce_observation_state_consumes_reward_and_marks_first_observation() 
         "InitialAccess",
         "PatchApplied",
     }
+
+
+def test_reduce_observation_state_alerts_on_detectable_event_types() -> None:
+    visible_events = tuple(
+        RuntimeEvent(
+            id="evt-1",
+            event_type=next(iter(DETECTABLE_EVENT_TYPES)),
+            actor="unknown",
+            time=1.0,
+            source_entity="unknown",
+            target_entity="svc-web",
+            malicious=False,
+        )
+        for _ in range(1)
+    )
+
+    transition = reduce_observation_state(
+        visible_events=visible_events,
+        previous_reward_delta=0.0,
+        observed_event_ids=set(),
+        observation_count=0,
+    )
+
+    assert transition.alerts == visible_events
 
 
 def test_reduce_observation_state_leaves_non_session_reads_stateless() -> None:
