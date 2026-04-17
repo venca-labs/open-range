@@ -1,4 +1,13 @@
-from open_range.cilium_policies import CiliumPolicyGenerator
+from open_range.render.cilium import CiliumPolicyGenerator
+
+
+def test_default_deny_policy_includes_explicit_ingress_list() -> None:
+    generator = CiliumPolicyGenerator(name_prefix="or-demo")
+
+    policy = generator._default_deny("dmz", "or-demo-dmz")
+
+    assert policy["spec"]["endpointSelector"] == {}
+    assert policy["spec"]["ingress"] == []
 
 
 def test_dns_egress_selects_kubernetes_dns_labels_with_cilium_prefix() -> None:

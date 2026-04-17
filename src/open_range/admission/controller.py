@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import shutil
 import subprocess
 
 from open_range.admission.checks import BUILTIN_ADMISSION_CHECKS
@@ -19,7 +18,7 @@ from open_range.admission.scoring import report_summary
 from open_range.config import DEFAULT_BUILD_CONFIG, BuildConfig
 from open_range.contracts.snapshot import KindArtifacts, world_hash
 from open_range.contracts.world import WorldIR
-from open_range.render.live import KindBackend, LiveBackend
+from open_range.render.live import KindBackend, LiveBackend, resolve_host_binary
 from open_range.render.live_k3d import K3dBackend
 
 _CHECKS_BY_NAME = {spec.name: spec.fn for spec in BUILTIN_ADMISSION_CHECKS}
@@ -145,13 +144,15 @@ class LocalAdmissionController:
             return None
         if not profile_requires_live(build_config):
             return None
-        if not shutil.which("helm"):
+        if not resolve_host_binary("helm"):
             return None
         if build_config.cluster_backend == "k3d":
-            if not (shutil.which("k3d") and shutil.which("docker")):
+            k3d = resolve_host_binary("k3d")
+            docker = resolve_host_binary("docker")
+            if not (k3d and docker):
                 return None
             clusters = subprocess.run(
-                ["k3d", "cluster", "list", "-o", "json"],
+                [k3d, "cluster", "list", "-o", "json"],
                 capture_output=True,
                 text=True,
                 check=False,
@@ -163,10 +164,12 @@ class LocalAdmissionController:
                 k3d_agents=build_config.k3d_agents,
                 k3d_subnet=build_config.k3d_subnet,
             )
-        if not (shutil.which("kind") and shutil.which("docker")):
+        kind = resolve_host_binary("kind")
+        docker = resolve_host_binary("docker")
+        if not (kind and docker):
             return None
         clusters = subprocess.run(
-            ["kind", "get", "clusters"],
+            [kind, "get", "clusters"],
             capture_output=True,
             text=True,
             check=False,

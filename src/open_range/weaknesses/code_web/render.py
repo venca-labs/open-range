@@ -34,7 +34,7 @@ def code_web_realization_content(
         )
     if realization.path == effect_marker_path(weakness):
         return ""
-    return _route_template(world, weakness)
+    return _route_template(world, weakness).lstrip()
 
 
 def _route_template(world: WorldIR, weakness: WeaknessSpec) -> str:

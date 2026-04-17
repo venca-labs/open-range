@@ -147,9 +147,21 @@ class CiliumPolicyGenerator:
             to_zone = rule.get("toZone") or rule.get("to_zone", "")
             ports = rule.get("ports", [])
             if from_zone and to_zone:
-                namespace = f"{self.name_prefix}-{to_zone}"
                 policies.append(
-                    self._cross_zone_allow(from_zone, to_zone, namespace, ports)
+                    self._cross_zone_ingress_allow(
+                        from_zone,
+                        to_zone,
+                        f"{self.name_prefix}-{to_zone}",
+                        ports,
+                    )
+                )
+                policies.append(
+                    self._cross_zone_egress_allow(
+                        from_zone,
+                        to_zone,
+                        f"{self.name_prefix}-{from_zone}",
+                        ports,
+                    )
                 )
 
         return policies
@@ -267,20 +279,12 @@ class CiliumPolicyGenerator:
         namespace: str,
     ) -> dict[str, Any]:
         """Default-deny ingress (and optionally egress) for a zone namespace."""
-        policy_types = ["Ingress"]
         spec: dict[str, Any] = {
             "endpointSelector": {},
+            "ingress": [],
         }
-
         if self.config.default_deny_egress:
-            policy_types.append("Egress")
-
-        # CiliumNetworkPolicy uses ingress/egress empty lists for deny
-        spec["ingress"] = [{}]  # placeholder -- overridden by explicit deny
-        # Actually, for default deny: omit ingress entirely with empty selector
-        spec = {
-            "endpointSelector": {},
-        }
+            spec["egress"] = []
 
         return {
             "apiVersion": self.API_VERSION,
@@ -326,10 +330,21 @@ class CiliumPolicyGenerator:
                         ],
                     },
                 ],
+                "egress": [
+                    {
+                        "toEndpoints": [
+                            {
+                                "matchLabels": {
+                                    "k8s:io.kubernetes.pod.namespace": namespace,
+                                },
+                            },
+                        ],
+                    },
+                ],
             },
         }
 
-    def _cross_zone_allow(
+    def _cross_zone_ingress_allow(
         self,
         from_zone: str,
         to_zone: str,
@@ -364,13 +379,58 @@ class CiliumPolicyGenerator:
                 "namespace": namespace,
                 "labels": {
                     self.config.zone_label: to_zone,
-                    "openrange/policy-type": "cross-zone",
+                    "openrange/policy-type": "cross-zone-ingress",
                     "openrange/from-zone": from_zone,
                 },
             },
             "spec": {
                 "endpointSelector": {},
                 "ingress": [ingress_from],
+            },
+        }
+
+    def _cross_zone_egress_allow(
+        self,
+        from_zone: str,
+        to_zone: str,
+        namespace: str,
+        ports: list[int],
+    ) -> dict[str, Any]:
+        """Allow cross-zone egress based on firewall rules."""
+        to_namespace = f"{self.name_prefix}-{to_zone}"
+
+        egress_to: dict[str, Any] = {
+            "toEndpoints": [
+                {
+                    "matchLabels": {
+                        "k8s:io.kubernetes.pod.namespace": to_namespace,
+                    },
+                },
+            ],
+        }
+
+        if ports:
+            egress_to["toPorts"] = [
+                {
+                    "ports": [{"port": str(p), "protocol": "TCP"} for p in ports],
+                }
+            ]
+
+        return {
+            "apiVersion": self.API_VERSION,
+            "kind": self.KIND,
+            "metadata": {
+                "name": f"allow-egress-to-{to_zone}",
+                "namespace": namespace,
+                "labels": {
+                    self.config.zone_label: from_zone,
+                    "openrange/policy-type": "cross-zone-egress",
+                    "openrange/to-zone": to_zone,
+                },
+            },
+            "spec": {
+                "endpointSelector": {},
+                "egress": [egress_to],
             },
         }
 
@@ -399,7 +459,7 @@ class CiliumPolicyGenerator:
                             {
                                 "matchLabels": {
                                     "k8s:io.kubernetes.pod.namespace": "kube-system",
-                                    "k8s-app": "kube-dns",
+                                    "k8s:k8s-app": "kube-dns",
                                 },
                             },
                         ],
@@ -409,13 +469,6 @@ class CiliumPolicyGenerator:
                                     {"port": "53", "protocol": "UDP"},
                                     {"port": "53", "protocol": "TCP"},
                                 ],
-                                "rules": {
-                                    "dns": [
-                                        {
-                                            "matchPattern": self.config.dns_match_pattern,
-                                        },
-                                    ],
-                                },
                             },
                         ],
                     },

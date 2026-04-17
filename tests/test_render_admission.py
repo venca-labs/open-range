@@ -3,6 +3,7 @@ from __future__ import annotations
 from pathlib import Path
 from types import SimpleNamespace
 
+import open_range.admission.controller as controller_mod
 import open_range.admission.live as live_checks_mod
 from open_range.admission.controller import LocalAdmissionController
 from open_range.compiler import EnterpriseSaaSManifestCompiler
@@ -10,7 +11,7 @@ from open_range.config import BuildConfig
 from open_range.objectives.engine import PredicateEngine
 from open_range.render import EnterpriseSaaSKindRenderer
 from open_range.render.images import SANDBOX_IMAGE_BY_ROLE, service_image_for_kind
-from open_range.render.live import ExecResult
+from open_range.render.live import ExecResult, KindBackend
 from open_range.store import BuildPipeline, FileSnapshotStore, load_runtime_snapshot
 from open_range.synth import EnterpriseSaaSWorldSynthesizer
 from open_range.training.curriculum import FrontierMutationPolicy, PopulationStats
@@ -144,6 +145,33 @@ def test_admission_controller_admits_seeded_world(tmp_path: Path):
     )
     assert reference_bundle.reference_attack_traces
     assert reference_bundle.reference_defense_traces
+
+
+def test_auto_live_backend_uses_resolved_host_binaries(monkeypatch) -> None:
+    monkeypatch.setattr(
+        controller_mod,
+        "resolve_host_binary",
+        lambda name: {
+            "helm": "/opt/tools/helm",
+            "kind": "/opt/tools/kind",
+            "docker": "/opt/tools/docker",
+        }.get(name),
+    )
+    calls: list[list[str]] = []
+
+    def fake_run(args, **kwargs):
+        del kwargs
+        calls.append(list(args))
+        return SimpleNamespace(returncode=0, stdout="openrange\n")
+
+    monkeypatch.setattr(controller_mod.subprocess, "run", fake_run)
+
+    backend = LocalAdmissionController()._auto_live_backend(
+        BuildConfig(validation_profile="full", cluster_backend="kind")
+    )
+
+    assert isinstance(backend, KindBackend)
+    assert calls == [["/opt/tools/kind", "get", "clusters"]]
 
 
 def test_admission_controller_registers_security_stage_when_enabled(tmp_path: Path):
@@ -503,6 +531,31 @@ def test_live_service_smoke_check_uses_reachable_zone_runners() -> None:
     assert calls_by_target["svc-siem"] == "sandbox-blue"
     assert calls_by_target["svc-fileshare"].startswith("sandbox-green-")
     assert calls_by_target["svc-db"].startswith("sandbox-green-")
+
+
+def test_live_service_smoke_retries_svc_email_like_db(monkeypatch) -> None:
+    world = _build_seeded_world()
+    attempts_by_command: dict[str, int] = {}
+
+    monkeypatch.setattr(live_checks_mod.time, "sleep", lambda _seconds: None)
+
+    class FakePods:
+        async def exec(
+            self, service: str, cmd: str, timeout: float = 30.0
+        ) -> ExecResult:
+            del service, timeout
+            attempts_by_command[cmd] = attempts_by_command.get(cmd, 0) + 1
+            if "svc-email" in cmd and attempts_by_command[cmd] < 10:
+                return ExecResult(stdout="", stderr="warming up", exit_code=1)
+            return ExecResult(stdout="ok", stderr="", exit_code=0)
+
+    report = live_checks_mod.check_live_service_smoke(
+        world, SimpleNamespace(pods=FakePods())
+    )
+
+    assert report.passed is True
+    email_probe = next(cmd for cmd in attempts_by_command if "svc-email" in cmd)
+    assert attempts_by_command[email_probe] == 10
 
 
 def test_live_db_mtls_check_proves_client_cert_required(tmp_path: Path) -> None:

@@ -438,9 +438,12 @@ def test_build_config_can_select_k3d_and_cilium_outputs(tmp_path: Path):
         for path in candidate.artifacts.rendered_files
     )
     assert candidate.artifacts.chart_values["cilium"]["enabled"] is True
-    assert (
+    cilium_template = (
         Path(candidate.artifacts.chart_dir) / "templates" / "cilium-policies.yaml"
-    ).exists()
+    )
+    assert cilium_template.exists()
+    content = cilium_template.read_text(encoding="utf-8")
+    assert "{{ $.Values.global.namePrefix }}" in content
 
 
 def test_k3d_renderer_preserves_custom_chart_dir(tmp_path: Path):

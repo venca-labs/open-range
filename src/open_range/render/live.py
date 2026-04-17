@@ -329,6 +329,14 @@ class KindBackend:
             logger.warning(
                 "failed to uninstall release %s: %s", release.release_name, exc
             )
+        try:
+            self._delete_release_namespaces(release.release_name, release.chart_dir)
+        except Exception as exc:  # noqa: BLE001
+            logger.warning(
+                "failed to delete namespaces for release %s: %s",
+                release.release_name,
+                exc,
+            )
 
     def wait_until_healthy(self, release: BootedRelease, services: list[str]) -> None:
         deadline = time.monotonic() + self.health_timeout_s
@@ -399,6 +407,34 @@ class KindBackend:
             except RuntimeError:
                 pass
             self._run(args, timeout=self.install_timeout_s + 30.0)
+
+    def _delete_release_namespaces(self, release_name: str, chart_dir: Path) -> None:
+        namespaces = self._release_namespaces(release_name, chart_dir)
+        if not namespaces:
+            return
+        self._run(
+            [
+                *self.kubectl_cmd,
+                "delete",
+                "namespace",
+                *namespaces,
+                "--ignore-not-found=true",
+                "--wait=true",
+                f"--timeout={int(self.uninstall_timeout_s)}s",
+            ],
+            timeout=self.uninstall_timeout_s + 10.0,
+        )
+
+    @staticmethod
+    def _release_namespaces(release_name: str, chart_dir: Path) -> tuple[str, ...]:
+        values_path = chart_dir / "values.yaml"
+        if not values_path.exists():
+            return ()
+        values = yaml.safe_load(values_path.read_text(encoding="utf-8")) or {}
+        zones = values.get("zones")
+        if not isinstance(zones, dict):
+            return ()
+        return tuple(f"{release_name}-{zone_name}" for zone_name in zones)
 
     def _discover_pods(self, release_name: str) -> dict[str, str]:
         result = self._run(

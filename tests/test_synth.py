@@ -34,6 +34,12 @@ def test_synthesizer_generates_bounded_seed_artifacts(tmp_path: Path):
         file.mount_path == "/var/www/html/index.html"
         for file in synth.service_payloads["svc-web"]
     )
+    web_index = next(
+        file
+        for file in synth.service_payloads["svc-web"]
+        if file.mount_path == "/var/www/html/index.html"
+    )
+    assert "/search.php" in web_index.content
     assert any(
         file.mount_path == "/docker-entrypoint-initdb.d/01-init.sql"
         for file in synth.service_payloads["svc-db"]
@@ -112,9 +118,9 @@ def test_synthesizer_realizes_exact_code_web_templates_and_witness_routes(
         synth = EnterpriseSaaSWorldSynthesizer().synthesize(world, tmp_path / kind)
         web_payloads = synth.service_payloads["svc-web"]
         route_file = next(file for file in web_payloads if file.mount_path == route)
-        assert route_file.content.lstrip().startswith("<?php")
+        assert route_file.content.startswith("<?php")
         assert any(
-            file.mount_path == route and file.content.lstrip().startswith("<?php")
+            file.mount_path == route and file.content.startswith("<?php")
             for file in web_payloads
         )
         if kind == "sql_injection":
