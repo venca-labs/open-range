@@ -63,14 +63,6 @@ class ActiveWeaknessSource(Protocol):
     def active_weaknesses(self) -> tuple[WeaknessSpec, ...]: ...
 
 
-def live_action_backend(
-    snapshot: RuntimeSnapshot, release: BootedRelease
-) -> PodActionBackend:
-    backend = PodActionBackend()
-    backend.bind(snapshot, release)
-    return backend
-
-
 def clear_runtime_markers(release: BootedRelease, world: WorldIR) -> None:
     runtime_markers = "rm -f /tmp/openrange-contained /tmp/openrange-patched /srv/http/siem/egress-canary.log"
     for service in world.services:

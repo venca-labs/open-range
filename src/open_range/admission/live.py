@@ -11,19 +11,13 @@ from open_range.admission.models import (
     ReferenceBundle,
     ValidatorCheckReport,
     ValidatorStageReport,
+    validator_check_report,
 )
-from open_range.admission.references import (
-    ephemeral_runtime_snapshot,
-    reference_weakness_id,
-)
+from open_range.admission.references import ephemeral_runtime_snapshot
 from open_range.async_utils import run_async
 from open_range.catalog.probes import SHORTCUT_WEB_ROUTE_PROBE_SPECS
-from open_range.objectives import evaluate_objective_grader_live
-from open_range.objectives.engine import PredicateEngine
-from open_range.runtime.execution import clear_runtime_markers, live_action_backend
-from open_range.runtime.replay import run_blue_reference, run_red_reference
+from open_range.runtime.replay import run_live_reference_checks
 from open_range.snapshot import KindArtifacts, RuntimeSnapshot
-from open_range.weaknesses import remediation_command_for_weakness
 from open_range.world_ir import ServiceSpec, WorldIR
 
 _DB_MTLS_CLIENT_CONTAINER = "db-client-mtls"
@@ -89,23 +83,13 @@ def run_live_backend_checks(
         )
 
         snapshot = ephemeral_runtime_snapshot(world, artifacts, reference_bundle)
-        backend = live_action_backend(snapshot, release)
-
         checks.append(check_live_service_smoke(world, release))
         checks.append(check_live_db_mtls(world, release))
-
-        clear_runtime_markers(release, world)
-        checks.append(_live_red_reference_check(snapshot, release, backend))
-        checks.append(_live_siem_ingest_check(release))
-
-        for check in (
-            lambda: _live_blue_reference_check(snapshot, backend),
-            lambda: _live_determinism_check(snapshot, backend),
-            lambda: _live_necessity_check(snapshot, release, backend),
-            lambda: _live_shortcut_probe_check(snapshot, release),
-        ):
-            clear_runtime_markers(release, world)
-            checks.append(check())
+        checks.extend(
+            validator_check_report(check)
+            for check in run_live_reference_checks(snapshot, release)
+        )
+        checks.append(_live_shortcut_probe_check(snapshot, release))
 
         live_info = {
             "live_release": release.release_name,
@@ -231,234 +215,6 @@ def smoke_runner_for_service(world: WorldIR, service_id: str) -> str:
     if runner:
         return runner
     return "sandbox-blue" if zone == "management" else "sandbox-red"
-
-
-def _live_red_reference_check(
-    snapshot: RuntimeSnapshot, release, backend
-) -> ValidatorCheckReport:
-    predicates = PredicateEngine(snapshot.world)
-    per_trace = []
-    passed = True
-    for trace_index, trace in enumerate(
-        snapshot.reference_bundle.reference_attack_traces
-    ):
-        score, events, health, outputs = run_red_reference(
-            snapshot,
-            backend,
-            episode_seed=snapshot.world.seed,
-            trace_index=trace_index,
-        )
-        satisfied: set[str] = set()
-        for objective in snapshot.world.red_objectives:
-            grader = predicates.objective_grader(objective.predicate)
-            if grader is None:
-                continue
-            if evaluate_objective_grader_live(
-                objective.predicate,
-                grader,
-                snapshot=snapshot,
-                pods=release.pods,
-                events=events,
-                service_health=dict(health),
-                outputs=outputs,
-            ):
-                satisfied.add(objective.predicate)
-        trace_passed = (
-            score.winner == "red"
-            and score.done
-            and predicates.red_terminal_satisfied(satisfied)
-        )
-        passed = passed and trace_passed
-        per_trace.append(
-            {
-                "trace_id": trace.id,
-                "winner": score.winner,
-                "terminal_reason": score.terminal_reason,
-                "satisfied_predicates": sorted(satisfied),
-                "outputs": outputs,
-                "passed": trace_passed,
-            }
-        )
-    return ValidatorCheckReport(
-        name="live_red_reference",
-        passed=passed,
-        details={"trace_count": len(per_trace), "traces": per_trace},
-        error=""
-        if passed
-        else "live red reference did not satisfy terminal objectives",
-    )
-
-
-def _live_blue_reference_check(
-    snapshot: RuntimeSnapshot, backend
-) -> ValidatorCheckReport:
-    per_trace = []
-    passed = True
-    for trace_index, trace in enumerate(
-        snapshot.reference_bundle.reference_defense_traces
-    ):
-        score, outputs = run_blue_reference(snapshot, backend, trace_index=trace_index)
-        trace_passed = score.winner == "blue" and score.done
-        passed = passed and trace_passed
-        per_trace.append(
-            {
-                "trace_id": trace.id,
-                "winner": score.winner,
-                "terminal_reason": score.terminal_reason,
-                "outputs": outputs,
-                "passed": trace_passed,
-            }
-        )
-    return ValidatorCheckReport(
-        name="live_blue_reference",
-        passed=passed,
-        details={"trace_count": len(per_trace), "traces": per_trace},
-        error=""
-        if passed
-        else "live blue reference did not validate detect-and-contain path",
-    )
-
-
-def _live_siem_ingest_check(release) -> ValidatorCheckReport:
-    result = run_async(
-        release.pods.exec(
-            "svc-siem",
-            "grep -q 'InitialAccess' /srv/http/siem/all.log",
-            timeout=10.0,
-        )
-    )
-    return ValidatorCheckReport(
-        name="live_siem_ingest",
-        passed=result.ok,
-        details={"stdout": result.stdout.strip(), "stderr": result.stderr.strip()},
-        error="" if result.ok else "siem log sink did not record reference events",
-    )
-
-
-def _live_determinism_check(snapshot: RuntimeSnapshot, backend) -> ValidatorCheckReport:
-    trace_results = []
-    passed = True
-    for trace_index, trace in enumerate(
-        snapshot.reference_bundle.reference_attack_traces
-    ):
-        first_score, first_events, first_health, _first_outputs = run_red_reference(
-            snapshot,
-            backend,
-            episode_seed=snapshot.world.seed,
-            trace_index=trace_index,
-        )
-        second_score, second_events, second_health, _second_outputs = run_red_reference(
-            snapshot,
-            backend,
-            episode_seed=snapshot.world.seed,
-            trace_index=trace_index,
-        )
-        trace_passed = (
-            first_events == second_events
-            and first_health == second_health
-            and first_score.winner == second_score.winner
-            and first_score.terminal_reason == second_score.terminal_reason
-        )
-        passed = passed and trace_passed
-        trace_results.append(
-            {
-                "trace_id": trace.id,
-                "first_event_count": len(first_events),
-                "second_event_count": len(second_events),
-                "winner": first_score.winner,
-                "passed": trace_passed,
-            }
-        )
-    return ValidatorCheckReport(
-        name="live_determinism",
-        passed=passed,
-        details={"trace_count": len(trace_results), "traces": trace_results},
-        error="" if passed else "live reference replay is not deterministic",
-    )
-
-
-def _live_necessity_check(
-    snapshot: RuntimeSnapshot, release, backend
-) -> ValidatorCheckReport:
-    engine = PredicateEngine(snapshot.world)
-    trace_bindings = []
-    for trace_index, trace in enumerate(
-        snapshot.reference_bundle.reference_attack_traces
-    ):
-        weakness_id = reference_weakness_id(trace)
-        if not weakness_id:
-            continue
-        weakness = next(
-            (weak for weak in engine.active_weaknesses() if weak.id == weakness_id),
-            None,
-        )
-        if weakness is not None:
-            trace_bindings.append((trace_index, trace, weakness))
-    red_targets = {
-        step.target for _idx, trace, _weak in trace_bindings for step in trace.steps
-    }
-    candidate_weaknesses = sorted(
-        (weak for weak in engine.active_weaknesses() if weak.target in red_targets),
-        key=lambda weak: (
-            0 if weak.instantiation_mode == "exact_code" else 1,
-            0
-            if trace_bindings and weak.target == trace_bindings[0][1].steps[0].target
-            else 1,
-            weak.id,
-        ),
-    )
-    target_weakness = candidate_weaknesses[0] if candidate_weaknesses else None
-    if target_weakness is None:
-        return ValidatorCheckReport(
-            name="live_necessity",
-            passed=False,
-            details={"reason": "no reference-relevant weakness"},
-            error="no reference-relevant weakness available for live necessity check",
-        )
-    command = remediation_command_for_weakness(target_weakness)
-    if not command:
-        return ValidatorCheckReport(
-            name="live_necessity",
-            passed=False,
-            details={
-                "weakness_id": target_weakness.id,
-                "remediation": target_weakness.remediation,
-                "remediation_kind": target_weakness.remediation_kind,
-            },
-            error="weakness remediation is not executable",
-        )
-    apply_result = run_async(
-        release.pods.exec(target_weakness.target, command, timeout=10.0)
-    )
-    trace_index = next(
-        (idx for idx, _trace, weak in trace_bindings if weak.id == target_weakness.id),
-        0,
-    )
-    score, _events, _health, outputs = run_red_reference(
-        snapshot,
-        backend,
-        episode_seed=snapshot.world.seed,
-        trace_index=trace_index,
-    )
-    run_async(
-        release.pods.exec(
-            target_weakness.target,
-            "rm -f /tmp/openrange-contained /tmp/openrange-patched",
-            timeout=10.0,
-        )
-    )
-    passed = apply_result.ok and score.winner != "red"
-    return ValidatorCheckReport(
-        name="live_necessity",
-        passed=passed,
-        details={
-            "weakness_id": target_weakness.id,
-            "target": target_weakness.target,
-            "winner_after_remediation": score.winner,
-            "outputs": outputs,
-        },
-        error="" if passed else "live remediation did not break the reference path",
-    )
 
 
 def _live_shortcut_probe_check(

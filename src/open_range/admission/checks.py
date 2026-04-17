@@ -10,18 +10,24 @@ from open_range.admission.identity import check_identity_enforcement
 from open_range.admission.models import (
     ReferenceBundle,
     ValidatorCheckReport,
+    validator_check_report,
 )
 from open_range.admission.mtls import check_mtls_enforcement
 from open_range.admission.references import (
     build_reference_bundle,
     ephemeral_runtime_snapshot,
-    reference_weakness_id,
 )
 from open_range.admission.registry import admission_check
 from open_range.build_config import BuildConfig
 from open_range.catalog.services import service_kind_names
 from open_range.objectives.engine import PredicateEngine
-from open_range.runtime.replay import run_blue_reference, run_red_reference
+from open_range.runtime.replay import (
+    check_blue_reference,
+    check_determinism,
+    check_red_reference,
+    reference_trace_bindings,
+    run_red_reference,
+)
 from open_range.snapshot import KindArtifacts, world_hash
 from open_range.weaknesses import remediation_command_for_weakness
 from open_range.world_ir import WorldIR
@@ -303,52 +309,8 @@ def _check_red_reference(
             details={"trace_id": "", "step_count": 0},
             error="no valid red reference",
         )
-    snapshot = ephemeral_runtime_snapshot(world, artifacts, wb)
-    predicates = PredicateEngine(world)
-    per_trace = []
-    passed = True
-    satisfied_all: set[str] = set()
-    for trace_index, trace in enumerate(wb.reference_attack_traces):
-        score, events, health, outputs = run_red_reference(
-            snapshot,
-            None,
-            episode_seed=world.seed,
-            trace_index=trace_index,
-        )
-        satisfied = predicates.evaluate_red_objectives(
-            snapshot=snapshot,
-            events=events,
-            service_health=dict(health),
-        )
-        trace_passed = (
-            score.winner == "red"
-            and score.done
-            and predicates.red_terminal_satisfied(satisfied)
-        )
-        passed = passed and trace_passed
-        satisfied_all.update(satisfied)
-        per_trace.append(
-            {
-                "trace_id": trace.id,
-                "step_count": len(trace.steps),
-                "winner": score.winner,
-                "event_count": len(events),
-                "satisfied_predicates": sorted(satisfied),
-                "outputs": outputs,
-                "passed": trace_passed,
-            }
-        )
-    return ValidatorCheckReport(
-        name="red_reference",
-        passed=passed,
-        details={
-            "trace_count": len(per_trace),
-            "satisfied_predicates": sorted(satisfied_all),
-            "traces": per_trace,
-        },
-        error=""
-        if passed
-        else "offline red reference did not satisfy terminal objectives",
+    return validator_check_report(
+        check_red_reference(ephemeral_runtime_snapshot(world, artifacts, wb))
     )
 
 
@@ -363,33 +325,8 @@ def _check_blue_reference(
             details={"trace_id": "", "step_count": 0},
             error="no valid blue reference",
         )
-    snapshot = ephemeral_runtime_snapshot(world, artifacts, wb)
-    per_trace = []
-    passed = True
-    for trace_index, trace in enumerate(wb.reference_defense_traces):
-        score, outputs = run_blue_reference(snapshot, None, trace_index=trace_index)
-        trace_passed = (
-            score.winner == "blue"
-            and score.done
-            and len(trace.objective_ids) <= len(world.blue_objectives)
-        )
-        passed = passed and trace_passed
-        per_trace.append(
-            {
-                "trace_id": trace.id,
-                "step_count": len(trace.steps),
-                "winner": score.winner,
-                "outputs": outputs,
-                "passed": trace_passed,
-            }
-        )
-    return ValidatorCheckReport(
-        name="blue_reference",
-        passed=passed,
-        details={"trace_count": len(per_trace), "traces": per_trace},
-        error=""
-        if passed
-        else "offline blue reference did not validate detect-and-contain path",
+    return validator_check_report(
+        check_blue_reference(ephemeral_runtime_snapshot(world, artifacts, wb))
     )
 
 
@@ -402,15 +339,10 @@ def _check_necessity(
     executable_targets = {
         weak.target for weak in weaknesses if remediation_command_for_weakness(weak)
     }
-    trace_bindings = []
-    if wb is not None:
-        for trace_index, red_trace in enumerate(wb.reference_attack_traces):
-            weakness_id = reference_weakness_id(red_trace)
-            weakness = next(
-                (weak for weak in weaknesses if weak.id == weakness_id), None
-            )
-            if weakness is not None:
-                trace_bindings.append((trace_index, red_trace, weakness))
+    trace_bindings = reference_trace_bindings(
+        () if wb is None else wb.reference_attack_traces,
+        weaknesses,
+    )
     issues = []
     if not weaknesses:
         issues.append("no weakness targets")
@@ -440,7 +372,6 @@ def _check_necessity(
             score, _events, _health, outputs = run_red_reference(
                 ephemeral_runtime_snapshot(counterfactual_world, artifacts, wb),
                 None,
-                episode_seed=counterfactual_world.seed,
                 trace_index=trace_index,
             )
             trace_passed = score.winner != "red"
@@ -510,49 +441,15 @@ def _check_determinism(
             blue_reference_count=len(wb.reference_defense_traces) if wb else 1,
         ),
     )
-    snapshot = ephemeral_runtime_snapshot(world, artifacts, wb or regenerated)
-    trace_results = []
-    passed = wb is not None and regenerated.model_dump(mode="json") == wb.model_dump(
-        mode="json"
-    )
-    for trace_index, trace in enumerate((wb or regenerated).reference_attack_traces):
-        first_score, first_events, first_health, _first_outputs = run_red_reference(
-            snapshot,
-            None,
-            episode_seed=world.seed,
-            trace_index=trace_index,
-        )
-        second_score, second_events, second_health, _second_outputs = run_red_reference(
-            snapshot,
-            None,
-            episode_seed=world.seed,
-            trace_index=trace_index,
-        )
-        trace_passed = (
-            first_events == second_events
-            and first_health == second_health
-            and first_score.winner == second_score.winner
-            and first_score.terminal_reason == second_score.terminal_reason
-        )
-        passed = passed and trace_passed
-        trace_results.append(
-            {
-                "trace_id": trace.id,
-                "first_event_count": len(first_events),
-                "second_event_count": len(second_events),
-                "winner": first_score.winner,
-                "passed": trace_passed,
-            }
-        )
-    return ValidatorCheckReport(
-        name="determinism",
-        passed=passed,
-        details={
-            "world_hash": world_hash(world),
-            "trace_count": len(trace_results),
-            "traces": trace_results,
-        },
-        error="" if passed else "reference execution is not deterministic",
+    return validator_check_report(
+        check_determinism(
+            ephemeral_runtime_snapshot(world, artifacts, wb or regenerated),
+            reference_bundle_stable=(
+                wb is not None
+                and regenerated.model_dump(mode="json") == wb.model_dump(mode="json")
+            ),
+        ),
+        extra_details={"world_hash": world_hash(world)},
     )
 
 

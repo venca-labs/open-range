@@ -125,10 +125,15 @@ class ReferencePlanner:
         steps: list[ReferenceAction] = []
         current = start
         if exploit is not None:
-            exploit_steps, current, satisfied_predicates = _weakness_red_steps(
-                self.world, engine, start, exploit
+            plan = build_reference_plan_for_weakness(
+                self.world,
+                engine,
+                start,
+                exploit,
             )
-            steps.extend(exploit_steps)
+            steps.extend(list(plan.steps))
+            current = plan.current
+            satisfied_predicates = set(plan.satisfied_predicates)
         if not steps:
             steps.append(
                 ReferenceAction(
@@ -241,14 +246,6 @@ def build_reference_bundle(
     return ReferencePlanner(world=world, build_config=build_config).build()
 
 
-def reference_weakness_id(trace) -> str:
-    for step in getattr(trace, "steps", ()):
-        weakness_id = step.payload.get("weakness_id") or step.payload.get("weakness")
-        if isinstance(weakness_id, str):
-            return weakness_id
-    return ""
-
-
 def ephemeral_runtime_snapshot(
     world: WorldIR, artifacts: KindArtifacts, reference_bundle: ReferenceBundle
 ) -> RuntimeSnapshot:
@@ -323,13 +320,3 @@ def _probe_spec_from_template(template: ProbeTemplateSpec) -> ProbeSpec:
         description=template.description,
         command=template.command,
     )
-
-
-def _weakness_red_steps(
-    world,
-    engine: PredicateEngine,
-    start: str,
-    weakness,
-) -> tuple[list[ReferenceAction], str, set[str]]:
-    plan = build_reference_plan_for_weakness(world, engine, start, weakness)
-    return list(plan.steps), plan.current, set(plan.satisfied_predicates)

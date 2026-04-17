@@ -48,6 +48,18 @@ class ValidatorCheckReport(_StrictModel):
     error: str = ""
 
 
+def validator_check_report(
+    report: Any,
+    extra_details: dict[str, Any] | None = None,
+) -> ValidatorCheckReport:
+    return ValidatorCheckReport(
+        name=report.name,
+        passed=report.passed,
+        details={**report.details, **(extra_details or {})},
+        error=report.error,
+    )
+
+
 class ValidatorStageReport(_StrictModel):
     name: str = Field(min_length=1)
     passed: bool
