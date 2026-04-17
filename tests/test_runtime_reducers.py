@@ -4,7 +4,6 @@ from itertools import count
 from math import isinf
 from types import SimpleNamespace
 
-from open_range.admission.models import ReferenceAction
 from open_range.contracts.runtime import (
     Action,
     RuntimeEvent,
@@ -13,6 +12,7 @@ from open_range.contracts.runtime import (
     finding_event_type,
     finding_event_type_from_payload,
 )
+from open_range.contracts.validation import ReferenceAction
 from open_range.runtime.events import (
     emit_runtime_event,
     telemetry_blindspots,
