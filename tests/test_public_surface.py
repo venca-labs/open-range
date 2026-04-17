@@ -7,9 +7,40 @@ import open_range
 import open_range.runtime as runtime_module
 
 
+def test_top_level_package_exports_small_guided_surface() -> None:
+    assert set(open_range.__all__) == {
+        "BuildConfig",
+        "BuildPipeline",
+        "DEFAULT_BUILD_CONFIG",
+        "DEFAULT_EPISODE_CONFIG",
+        "EnterpriseSaaSManifest",
+        "EpisodeConfig",
+        "OFFLINE_BUILD_CONFIG",
+        "OFFLINE_REFERENCE_BUILD_CONFIG",
+        "OpenRange",
+        "Snapshot",
+        "WorldIR",
+        "load_bundled_manifest",
+        "manifest_schema",
+        "validate_manifest",
+        "world_hash",
+    }
+
+
 def test_top_level_package_keeps_internal_runtime_and_sft_helpers_private() -> None:
     forbidden = {
+        "Action",
+        "CandidateWorld",
+        "Decision",
+        "FileSnapshotStore",
+        "LocalAdmissionController",
+        "ReferenceBundle",
+        "RuntimeEvent",
+        "TraceDatasetGenerator",
+        "ValidatorReport",
         "build_decision_prompt",
+        "generate_trace_dataset",
+        "load_bundled_doc",
         "render_action_completion",
         "render_decision_prompt",
         "system_prompt_for_role",
