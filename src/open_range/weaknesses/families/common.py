@@ -5,7 +5,7 @@ from __future__ import annotations
 import shlex
 from dataclasses import dataclass
 
-from open_range.admission.models import ReferenceAction
+from open_range.contracts.validation import ReferenceAction
 from open_range.contracts.world import WeaknessRealizationSpec, WeaknessSpec, WorldIR
 from open_range.manifest import WeaknessFamily
 from open_range.objectives.engine import PredicateEngine

@@ -1,9 +1,10 @@
 from __future__ import annotations
 
-import importlib
 from pathlib import Path
 from types import SimpleNamespace
 
+import open_range.admission.controller as admission_controller_mod
+import open_range.admission.live as live_checks_mod
 from open_range.admission.controller import LocalAdmissionController
 from open_range.compiler import EnterpriseSaaSManifestCompiler
 from open_range.config import BuildConfig
@@ -24,9 +25,6 @@ from tests.support import (
     OFFLINE_REFERENCE_BUILD_CONFIG,
     manifest_payload,
 )
-
-admission_controller_mod = importlib.import_module("open_range.admission.controller")
-live_checks_mod = importlib.import_module("open_range.admission.live")
 
 
 def _manifest_payload() -> dict:

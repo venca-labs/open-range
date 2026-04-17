@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import json
 
-from open_range.admission.models import ReferenceAction
+from open_range.contracts.validation import ReferenceAction
 from open_range.contracts.world import WeaknessRealizationSpec, WeaknessSpec, WorldIR
 from open_range.objectives.engine import PredicateEngine
 

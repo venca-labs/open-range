@@ -20,8 +20,6 @@ ALLOWED_ROOT_FILES = {
     "cli.py",
 }
 
-SHARED_ROOT_MODULES: set[str] = set()
-
 SHARED_SUPPORT_PACKAGES = {
     "config",
     "contracts",
@@ -73,6 +71,78 @@ NON_ARCHITECTURE_DIRS = {
     "chart",
     "devtools",
     "templates",
+}
+
+TOP_LEVEL_PACKAGE_NAMES = REQUIRED_STAGE_PACKAGES | SHARED_SUPPORT_PACKAGES
+
+ALLOWED_STAGE_IMPORTS = {
+    "manifest": {"catalog", "objectives"},
+    "compiler": {"catalog", "config", "contracts", "manifest", "objectives"},
+    "weaknesses": {"catalog", "contracts", "manifest", "objectives"},
+    "objectives": {"catalog", "contracts", "support"},
+    "synth": {"contracts", "weaknesses"},
+    "render": {"contracts", "support", "synth"},
+    "admission": {
+        "catalog",
+        "config",
+        "contracts",
+        "objectives",
+        "render",
+        "runtime",
+        "support",
+        "weaknesses",
+    },
+    "store": {
+        "admission",
+        "compiler",
+        "config",
+        "contracts",
+        "manifest",
+        "render",
+        "synth",
+        "weaknesses",
+    },
+    "runtime": {
+        "catalog",
+        "config",
+        "contracts",
+        "objectives",
+        "render",
+        "support",
+        "weaknesses",
+    },
+    "training": {
+        "catalog",
+        "config",
+        "contracts",
+        "objectives",
+        "runtime",
+        "store",
+        "support",
+        "weaknesses",
+    },
+    "catalog": {"contracts", "objectives"},
+}
+
+ALLOWED_SUPPORT_IMPORTS = {
+    "config": {"manifest"},
+    "contracts": {"catalog", "manifest"},
+    "support": {"contracts"},
+    "sdk": {"config", "contracts", "render", "runtime", "store"},
+}
+
+FORBIDDEN_ENTRYPOINT_IMPORT_MODULES = {
+    "importlib",
+    "pkg_resources",
+    "pkgutil",
+}
+
+FORBIDDEN_ENTRYPOINT_CALL_NAMES = {
+    "__import__",
+    "entry_points",
+    "import_module",
+    "iter_modules",
+    "walk_packages",
 }
 
 
@@ -177,26 +247,37 @@ def test_top_level_entries_stay_small_and_stage_shaped() -> None:
     )
 
 
-def test_stage_packages_do_not_import_stray_top_level_modules() -> None:
-    allowed_import_targets = (
-        REQUIRED_STAGE_PACKAGES | SHARED_ROOT_MODULES | SHARED_SUPPORT_PACKAGES
-    )
+def test_stage_packages_follow_dependency_matrix() -> None:
     failures: list[str] = []
 
-    for package_name in sorted(REQUIRED_STAGE_PACKAGES):
-        package_root = SRC_ROOT / package_name
-        if not package_root.is_dir():
-            failures.append(f"{package_name}: missing")
-            continue
-
-        imported_targets = _package_import_targets(package_root)
-        stray_targets = sorted(imported_targets - allowed_import_targets)
-        if stray_targets:
-            failures.append(f"{package_name}: {', '.join(stray_targets)}")
+    for package_name, allowed_targets in sorted(ALLOWED_STAGE_IMPORTS.items()):
+        unexpected_targets = _unexpected_top_level_imports(
+            SRC_ROOT / package_name,
+            allowed_targets,
+        )
+        if unexpected_targets:
+            failures.append(f"{package_name}: {', '.join(unexpected_targets)}")
 
     assert not failures, (
-        "stage packages still import stray top-level modules instead of depending "
-        "on stage packages or shared contracts only:\n" + "\n".join(failures)
+        "stage packages still import across boundaries that do not match the "
+        "documented stage story:\n" + "\n".join(failures)
+    )
+
+
+def test_support_packages_follow_dependency_matrix() -> None:
+    failures: list[str] = []
+
+    for package_name, allowed_targets in sorted(ALLOWED_SUPPORT_IMPORTS.items()):
+        unexpected_targets = _unexpected_top_level_imports(
+            SRC_ROOT / package_name,
+            allowed_targets,
+        )
+        if unexpected_targets:
+            failures.append(f"{package_name}: {', '.join(unexpected_targets)}")
+
+    assert not failures, (
+        "support packages still reach into stage code in ways that blur package "
+        "ownership:\n" + "\n".join(failures)
     )
 
 
@@ -207,6 +288,21 @@ def test_contracts_package_does_not_import_render_or_admission() -> None:
     assert not forbidden, (
         "contracts still depends on stage packages that should depend on contracts "
         "instead:\n" + "\n".join(forbidden)
+    )
+
+
+def test_package_entrypoints_do_not_hide_import_bootstrap_hacks() -> None:
+    failures: list[str] = []
+
+    for entrypoint_path in sorted(_package_entrypoint_paths()):
+        violations = _entrypoint_hack_violations(entrypoint_path)
+        if violations:
+            package_name = _package_name_for_entrypoint(entrypoint_path)
+            failures.append(f"{package_name}: {', '.join(violations)}")
+
+    assert not failures, (
+        "package entrypoints still contain lazy import glue or side-effectful "
+        "bootstrap code:\n" + "\n".join(failures)
     )
 
 
@@ -256,6 +352,87 @@ def _package_import_targets(package_root: Path) -> set[str]:
                 targets.update(top_levels)
 
     return targets
+
+
+def _unexpected_top_level_imports(
+    package_root: Path, allowed_targets: set[str]
+) -> list[str]:
+    package_name = package_root.name
+    imported_targets = _package_import_targets(package_root) & TOP_LEVEL_PACKAGE_NAMES
+    unexpected_targets = sorted(imported_targets - allowed_targets - {package_name})
+    return unexpected_targets
+
+
+def _package_entrypoint_paths() -> tuple[Path, ...]:
+    package_names = REQUIRED_STAGE_PACKAGES | SHARED_SUPPORT_PACKAGES
+    return tuple(
+        [SRC_ROOT / "__init__.py"]
+        + [
+            SRC_ROOT / package_name / "__init__.py"
+            for package_name in sorted(package_names)
+            if (SRC_ROOT / package_name / "__init__.py").exists()
+        ]
+    )
+
+
+def _package_name_for_entrypoint(entrypoint_path: Path) -> str:
+    if entrypoint_path.parent == SRC_ROOT:
+        return "open_range"
+    return entrypoint_path.parent.name
+
+
+def _entrypoint_hack_violations(entrypoint_path: Path) -> list[str]:
+    tree = ast.parse(entrypoint_path.read_text(encoding="utf-8"))
+    violations: list[str] = []
+
+    for node in ast.walk(tree):
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)) and node.name in {
+            "__getattr__",
+            "__dir__",
+        }:
+            violations.append(node.name)
+        elif isinstance(node, ast.Import):
+            for alias in node.names:
+                if alias.name.split(".")[0] in FORBIDDEN_ENTRYPOINT_IMPORT_MODULES:
+                    violations.append(f"import {alias.name}")
+        elif isinstance(node, ast.ImportFrom):
+            module_name = (node.module or "").split(".")[0]
+            if module_name in FORBIDDEN_ENTRYPOINT_IMPORT_MODULES:
+                violations.append(f"from {node.module} import ...")
+
+    for node in tree.body:
+        if isinstance(node, ast.Expr) and isinstance(node.value, ast.Constant):
+            if isinstance(node.value.value, str):
+                continue
+        if _statement_contains_forbidden_call(node):
+            violations.append("top-level dynamic import/bootstrap call")
+
+    return sorted(set(violations))
+
+
+def _statement_contains_forbidden_call(node: ast.AST) -> bool:
+    for child in ast.walk(node):
+        if not isinstance(child, ast.Call):
+            continue
+        call_name = _call_name(child.func)
+        if call_name in FORBIDDEN_ENTRYPOINT_CALL_NAMES:
+            return True
+    return False
+
+
+def _call_name(func: ast.AST) -> str:
+    if isinstance(func, ast.Name):
+        return func.id
+    if isinstance(func, ast.Attribute):
+        parts: list[str] = []
+        current: ast.AST | None = func
+        while isinstance(current, ast.Attribute):
+            parts.append(current.attr)
+            current = current.value
+        if isinstance(current, ast.Name):
+            parts.append(current.id)
+        return ".".join(reversed(parts))
+    return ""
 
 
 def _top_level_target_from_import(module_name: str) -> str | None:

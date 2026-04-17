@@ -18,7 +18,7 @@ from open_range.contracts.runtime import (
 )
 from open_range.contracts.snapshot import RuntimeSnapshot
 from open_range.runtime.execution import PodActionBackend
-from open_range.training.trace_exports import normalize_trace_action
+from open_range.support.trace_actions import normalize_trace_action
 
 
 @dataclass(frozen=True, slots=True)

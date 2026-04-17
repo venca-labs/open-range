@@ -5,12 +5,12 @@ from __future__ import annotations
 import json
 import textwrap
 
-from open_range.admission.models import ReferenceAction
 from open_range.catalog.probes import (
     reference_action_for_weakness_family,
     workflow_effect_markers_for_kind,
     workflow_kind_uses_email_delivery,
 )
+from open_range.contracts.validation import ReferenceAction
 from open_range.contracts.world import WeaknessRealizationSpec, WeaknessSpec, WorldIR
 from open_range.objectives.effects import (
     effect_marker_content,
