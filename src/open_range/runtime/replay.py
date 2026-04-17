@@ -8,7 +8,6 @@ from typing import TYPE_CHECKING, Any
 from open_range.async_utils import run_async
 from open_range.catalog.probes import runtime_payload_for_reference_action
 from open_range.episode_config import EpisodeConfig
-from open_range.objectives import evaluate_objective_grader_live
 from open_range.objectives.engine import PredicateEngine
 from open_range.runtime.execution import PodActionBackend, clear_runtime_markers
 from open_range.runtime_types import (
@@ -214,13 +213,18 @@ def check_red_reference(
             backend,
             trace_index=trace_index,
         )
-        satisfied = _satisfied_red_predicates(
-            snapshot,
-            predicates,
-            events=events,
-            health=health,
-            outputs=outputs,
-            release=release,
+        satisfied = (
+            predicates.evaluate_red_objectives(
+                snapshot=snapshot, events=events, service_health=dict(health)
+            )
+            if release is None
+            else predicates.evaluate_red_objectives_live(
+                snapshot=snapshot,
+                pods=release.pods,
+                events=events,
+                service_health=dict(health),
+                outputs=tuple(outputs),
+            )
         )
         trace_passed = (
             score.winner == "red"
@@ -406,39 +410,6 @@ def run_live_reference_checks(
         clear_runtime_markers(release, snapshot.world)
         checks.append(check(snapshot, release, backend))
     return tuple(checks)
-
-
-def _satisfied_red_predicates(
-    snapshot: RuntimeSnapshot,
-    predicates: PredicateEngine,
-    *,
-    events: tuple[dict[str, Any], ...],
-    health: tuple[tuple[str, float], ...],
-    outputs: list[str],
-    release: BootedRelease | None,
-) -> set[str]:
-    if release is None:
-        return predicates.evaluate_red_objectives(
-            snapshot=snapshot,
-            events=events,
-            service_health=dict(health),
-        )
-    satisfied: set[str] = set()
-    for objective in snapshot.world.red_objectives:
-        grader = predicates.objective_grader(objective.predicate)
-        if grader is None:
-            continue
-        if evaluate_objective_grader_live(
-            objective.predicate,
-            grader,
-            snapshot=snapshot,
-            pods=release.pods,
-            events=events,
-            service_health=dict(health),
-            outputs=outputs,
-        ):
-            satisfied.add(objective.predicate)
-    return satisfied
 
 
 def _live_siem_ingest_check(release: BootedRelease) -> ReferenceCheck:
