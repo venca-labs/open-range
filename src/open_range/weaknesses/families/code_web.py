@@ -6,12 +6,9 @@ from open_range.admission.models import ReferenceAction
 from open_range.contracts.world import WeaknessRealizationSpec, WeaknessSpec, WorldIR
 from open_range.objectives.engine import PredicateEngine
 
-from ..code_web import (
-    code_web_payload,
-    code_web_realization_content,
-    code_web_realizations,
-    code_web_remediation_command,
-)
+from ..code_web.remediation import code_web_remediation_command
+from ..code_web.render import code_web_realization_content
+from ..code_web.specs import code_web_payload, code_web_realizations
 from .common import RedReferencePlan, WeaknessBuildContext, assemble_weakness_spec
 
 

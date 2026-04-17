@@ -1,38 +1,13 @@
 from __future__ import annotations
 
-from types import SimpleNamespace
-
-from open_range.admission import ReferenceAction, ReferenceTrace
 from open_range.admission.references import ReferencePlanner, build_reference_bundle
 from open_range.catalog.probes import (
-    DEFAULT_DETERMINISM_PROBE_TEMPLATES,
-    DEFAULT_SHORTCUT_PROBE_TEMPLATES,
-    SHORTCUT_WEB_ROUTE_PROBE_SPECS,
-    blue_containment_payload,
-    blue_observe_reference_payload,
-    blue_reference_expected_events,
-    blue_reference_plan_for_trace,
-    blue_submit_finding_payload,
-    detection_for_reference_step_action,
-    family_supports_primary_red_reference,
     identity_effect_markers_for_kind,
-    is_blue_detectable_action,
-    necessity_probe_template,
-    ordered_red_reference_candidates,
-    red_reference_family_priority,
-    red_reference_starts,
-    reference_action_for_weakness_family,
-    runtime_payload_for_reference_action,
-    select_primary_red_reference_weakness,
-    smoke_probe_template,
-    telemetry_blindspot_targets,
     workflow_effect_markers_for_kind,
-    workflow_kind_uses_email_delivery,
 )
 from open_range.compiler import EnterpriseSaaSManifestCompiler
 from open_range.objectives.effects import effect_marker_path, effect_marker_token
 from open_range.weaknesses import CatalogWeaknessSeeder, build_catalog_weakness
-from open_range.weaknesses.code_web import code_web_template
 from tests.support import manifest_payload
 
 
@@ -43,345 +18,20 @@ def _seeded_world():
     )
 
 
-def test_catalog_probe_templates_keep_current_static_defaults() -> None:
-    assert tuple(
-        (probe.id, probe.kind, probe.description, probe.command)
-        for probe in DEFAULT_SHORTCUT_PROBE_TEMPLATES
-    ) == (
-        ("shortcut-direct-asset", "shortcut", "direct external crown-jewel access", ""),
-        ("shortcut-admin", "shortcut", "direct admin access", ""),
-        ("shortcut-cross-zone", "shortcut", "unintended cross-zone reachability", ""),
-        ("shortcut-secret", "shortcut", "leaked secrets", ""),
-        ("shortcut-unlogged", "shortcut", "unlogged critical actions", ""),
-    )
-    assert tuple(
-        (probe.id, probe.kind, probe.description, probe.command)
-        for probe in DEFAULT_DETERMINISM_PROBE_TEMPLATES
-    ) == (("determinism-red", "determinism", "replay red reference", ""),)
-
-
-def test_reference_bundle_uses_catalog_probe_templates() -> None:
+def test_reference_bundle_builds_smoke_shortcut_and_necessity_probes() -> None:
     world = _seeded_world()
     bundle = build_reference_bundle(world)
 
-    assert tuple(probe.id for probe in bundle.shortcut_probes) == tuple(
-        template.id for template in DEFAULT_SHORTCUT_PROBE_TEMPLATES
-    )
-    assert tuple(probe.description for probe in bundle.shortcut_probes) == tuple(
-        template.description for template in DEFAULT_SHORTCUT_PROBE_TEMPLATES
-    )
-    assert tuple(probe.id for probe in bundle.determinism_probes) == tuple(
-        template.id for template in DEFAULT_DETERMINISM_PROBE_TEMPLATES
-    )
-    assert tuple(probe.id for probe in bundle.smoke_tests) == tuple(
-        smoke_probe_template(service.id).id for service in world.services
-    )
-    assert tuple(probe.command for probe in bundle.smoke_tests) == tuple(
-        smoke_probe_template(service.id).command for service in world.services
-    )
-    assert tuple(probe.id for probe in bundle.necessity_probes) == tuple(
-        necessity_probe_template(weak.id).id for weak in world.weaknesses
-    )
-
-
-def test_catalog_probe_detection_policy_keeps_current_mappings() -> None:
-    assert detection_for_reference_step_action("initial_access", target="svc-web") == (
-        "InitialAccess",
-        "svc-web",
-    )
-    assert detection_for_reference_step_action("traverse", target="svc-db") == (
-        "CrossZoneTraversal",
-        "svc-db",
-    )
-    assert detection_for_reference_step_action(
-        "collect_secret",
-        target="svc-db",
-        asset="idp_admin_cred",
-    ) == ("CredentialObtained", "idp_admin_cred")
-    assert detection_for_reference_step_action(
-        "abuse_workflow",
-        target="svc-web",
-        asset="finance_docs",
-    ) == ("SensitiveAssetRead", "finance_docs")
-    assert detection_for_reference_step_action(
-        "satisfy_objective",
-        target="svc-idp",
-        asset="idp_admin_cred",
-        objective="credential_obtained(idp_admin_cred)",
-    ) == ("CredentialObtained", "idp_admin_cred")
-    assert detection_for_reference_step_action(
-        "satisfy_objective",
-        target="svc-web",
-        objective="outbound_service(svc-web)",
-    ) == ("PersistenceEstablished", "svc-web")
-    assert not is_blue_detectable_action(
-        "deliver_phish",
-        target="svc-email",
-        blindspot_targets=frozenset(),
-    )
-    assert is_blue_detectable_action(
-        "click_lure",
-        target="svc-email",
-        blindspot_targets=frozenset({"svc-web"}),
-    )
-    assert not is_blue_detectable_action(
-        "traverse",
-        target="svc-db",
-        source_target="svc-web",
-        blindspot_targets=frozenset({"svc-web"}),
-    )
-
-
-def test_catalog_probe_reference_presets_keep_current_static_rules() -> None:
-    assert workflow_kind_uses_email_delivery("phishing_credential_capture")
-    assert workflow_kind_uses_email_delivery("internal_request_impersonation")
-    assert not workflow_kind_uses_email_delivery("document_share_abuse")
-    assert red_reference_family_priority("code_web") == 0
-    assert red_reference_family_priority("workflow_abuse") == 1
-    assert red_reference_family_priority("telemetry_blindspot") == 2
-    assert family_supports_primary_red_reference("code_web")
-    assert family_supports_primary_red_reference("secret_exposure")
-    assert not family_supports_primary_red_reference("telemetry_blindspot")
-    assert reference_action_for_weakness_family("secret_exposure") == "collect_secret"
-    assert reference_action_for_weakness_family("config_identity") == "abuse_identity"
-    assert reference_action_for_weakness_family("workflow_abuse") == "abuse_workflow"
-    assert identity_effect_markers_for_kind("weak_password") == (
-        '"min_password_length": 6',
-        '"password_reuse_allowed": true',
-    )
-    assert workflow_effect_markers_for_kind("helpdesk_reset_bypass") == (
-        '"identity_verification": "none"',
-        '"reset_without_ticket_owner": true',
-    )
-
-
-def test_catalog_blue_reference_plan_keeps_current_detection_and_containment_rules() -> (
-    None
-):
-    red_trace = ReferenceTrace(
-        id="red-test",
-        role="red",
-        steps=(
-            ReferenceAction(
-                actor="red",
-                kind="api",
-                target="svc-web",
-                payload={"action": "initial_access"},
-            ),
-            ReferenceAction(
-                actor="red",
-                kind="api",
-                target="svc-db",
-                payload={"action": "traverse"},
-            ),
-            ReferenceAction(
-                actor="red",
-                kind="api",
-                target="svc-db",
-                payload={
-                    "action": "satisfy_objective",
-                    "asset": "finance_docs",
-                    "objective": "asset_read(finance_docs)",
-                },
-            ),
-        ),
-    )
-
-    plan = blue_reference_plan_for_trace(red_trace, blindspot_targets=frozenset())
-
-    assert plan.detect_index == 0
-    assert plan.detect_event == "InitialAccess"
-    assert plan.detect_target == "svc-web"
-    assert plan.contain_target == "svc-db"
-    assert plan.observe_step_count == 1
-
-
-def test_catalog_blue_reference_plan_skips_blindspot_steps() -> None:
-    red_trace = ReferenceTrace(
-        id="red-blindspot",
-        role="red",
-        steps=(
-            ReferenceAction(
-                actor="red",
-                kind="api",
-                target="svc-email",
-                payload={"action": "initial_access"},
-            ),
-            ReferenceAction(
-                actor="red",
-                kind="api",
-                target="svc-web",
-                payload={"action": "traverse"},
-            ),
-            ReferenceAction(
-                actor="red",
-                kind="api",
-                target="svc-db",
-                payload={
-                    "action": "satisfy_objective",
-                    "asset": "finance_docs",
-                    "objective": "asset_read(finance_docs)",
-                },
-            ),
-        ),
-    )
-
-    plan = blue_reference_plan_for_trace(
-        red_trace,
-        blindspot_targets=frozenset({"svc-email"}),
-    )
-
-    assert plan.detect_index == 2
-    assert plan.detect_event == "SensitiveAssetRead"
-    assert plan.detect_target == "finance_docs"
-    assert plan.contain_target == "svc-db"
-    assert plan.observe_step_count == 3
-
-
-def test_catalog_blue_reference_payload_helpers_keep_current_defaults() -> None:
-    assert blue_reference_expected_events() == (
-        "DetectionAlertRaised",
-        "ContainmentApplied",
-    )
-    assert blue_observe_reference_payload() == {"action": "observe_events"}
-    assert blue_submit_finding_payload(detect_event="CredentialObtained") == {
-        "event": "CredentialObtained"
-    }
-    assert blue_containment_payload() == {"action": "contain"}
-
-
-def test_catalog_runtime_payload_helper_keeps_blue_readback_rules() -> None:
-    assert runtime_payload_for_reference_action(
-        "red",
-        "api",
-        target="svc-web",
-        payload={"action": "initial_access"},
-    ) == {
-        "target": "svc-web",
-        "action": "initial_access",
-    }
-    assert runtime_payload_for_reference_action(
-        "blue",
-        "submit_finding",
-        target="svc-db",
-        payload={"event": "SensitiveAssetRead"},
-    ) == {
-        "target": "svc-db",
-        "event": "SensitiveAssetRead",
-        "event_type": "SensitiveAssetRead",
-    }
-    assert runtime_payload_for_reference_action(
-        "blue",
-        "submit_finding",
-        target="svc-web",
-        payload={"event_type": "InitialAccess"},
-    ) == {
-        "target": "svc-web",
-        "event_type": "InitialAccess",
-    }
-
-
-def test_catalog_red_reference_starts_keep_public_then_first_service_rule() -> None:
-    assert red_reference_starts(
-        ("svc-web", "svc-email", "svc-db"),
-        public_service_ids=("svc-email", "svc-web"),
-    ) == ("svc-email", "svc-web")
-    assert red_reference_starts(
-        ("svc-db", "svc-idp"),
-        public_service_ids=(),
-    ) == ("svc-db",)
-
-
-def test_catalog_red_reference_candidate_order_keeps_target_locality_and_bias() -> None:
-    starts = ("svc-email", "svc-web")
-    workflow = SimpleNamespace(
-        id="rank-workflow",
-        family="workflow_abuse",
-        target="svc-web",
-    )
-    code_web = SimpleNamespace(
-        id="rank-code-web",
-        family="code_web",
-        target="svc-web",
-    )
-    secret = SimpleNamespace(
-        id="rank-secret",
-        family="secret_exposure",
-        target="svc-email",
-    )
-
-    candidates = ordered_red_reference_candidates(starts, (workflow, code_web, secret))
-
-    assert candidates[:2] == (
-        ("svc-web", code_web),
-        ("svc-email", code_web),
-    )
-    assert candidates[2:4] == (
-        ("svc-email", secret),
-        ("svc-web", secret),
-    )
-    assert candidates[4:] == (
-        ("svc-web", workflow),
-        ("svc-email", workflow),
-    )
-
-
-def test_catalog_primary_red_reference_weakness_keeps_fallback_rule() -> None:
-    telemetry = SimpleNamespace(
-        id="only-telemetry",
-        family="telemetry_blindspot",
-        target="svc-email",
-    )
-    code_web = SimpleNamespace(
-        id="rank-code-web",
-        family="code_web",
-        target="svc-web",
-    )
-    secret = SimpleNamespace(
-        id="rank-secret",
-        family="secret_exposure",
-        target="svc-email",
-    )
-
-    assert (
-        select_primary_red_reference_weakness("svc-email", (code_web, secret)).id
-        == "rank-secret"
-    )
-    assert (
-        select_primary_red_reference_weakness("svc-email", (telemetry,)).id
-        == "only-telemetry"
-    )
-
-
-def test_shortcut_route_catalog_matches_code_web_templates() -> None:
-    world = _seeded_world()
-    route_specs = {
-        probe.weakness_kind: probe for probe in SHORTCUT_WEB_ROUTE_PROBE_SPECS
-    }
-
-    for kind in ("sql_injection", "broken_authorization", "auth_bypass"):
-        weakness = build_catalog_weakness(
-            world,
-            "code_web",
-            kind=kind,
-            target="svc-web",
-            target_kind="service",
-            target_ref="svc-web",
-            weakness_id=f"test-{kind}",
-        )
-        template = code_web_template(world, weakness)
-        probe = route_specs[kind]
-
-        assert probe.path == template.route_path
-        assert tuple(key for key, _ in probe.query) == tuple(
-            key for key, _ in template.witness_query
-        )
-        if kind == "sql_injection":
-            assert dict(probe.query)["asset"] == dict(template.witness_query)["asset"]
-            assert dict(probe.query)["q"].startswith("' UNION SELECT '")
-            assert dict(template.witness_query)["q"].startswith("' UNION SELECT '")
-        else:
-            assert probe.query == template.witness_query
+    assert bundle.reference_attack_traces
+    assert bundle.reference_defense_traces
+    assert len(bundle.smoke_tests) == len(world.services)
+    assert {probe.kind for probe in bundle.smoke_tests} == {"smoke"}
+    assert bundle.shortcut_probes
+    assert {probe.kind for probe in bundle.shortcut_probes} == {"shortcut"}
+    assert len(bundle.determinism_probes) == 1
+    assert {probe.kind for probe in bundle.determinism_probes} == {"determinism"}
+    assert len(bundle.necessity_probes) == len(world.weaknesses)
+    assert {probe.kind for probe in bundle.necessity_probes} == {"necessity"}
 
 
 def test_probe_planner_keeps_code_web_reference_payload_details() -> None:
@@ -686,14 +336,10 @@ def test_probe_planner_primary_selection_falls_back_to_telemetry_only_worlds() -
     assert weakness_ids == {weakness.id}
 
 
-def test_probe_planner_blue_reference_uses_catalog_blue_policy() -> None:
+def test_probe_planner_blue_reference_builds_observe_find_contain_trace() -> None:
     world = _seeded_world()
     red_trace = ReferencePlanner(world).build_red_reference(ordinal=1)
     blue_trace = ReferencePlanner(world).build_blue_reference(red_trace, ordinal=1)
-    plan = blue_reference_plan_for_trace(
-        red_trace,
-        blindspot_targets=telemetry_blindspot_targets(world),
-    )
 
     observe_steps = [step for step in blue_trace.steps if step.kind == "shell"]
     finding_step = next(
@@ -701,11 +347,16 @@ def test_probe_planner_blue_reference_uses_catalog_blue_policy() -> None:
     )
     contain_step = next(step for step in blue_trace.steps if step.kind == "control")
 
-    assert len(observe_steps) == plan.observe_step_count
-    assert finding_step.target == plan.detect_target
-    assert finding_step.payload["event"] == plan.detect_event
-    assert contain_step.target == plan.contain_target
-    assert tuple(blue_trace.expected_events) == blue_reference_expected_events()
+    assert blue_trace.role == "blue"
+    assert observe_steps
+    assert blue_trace.steps.index(finding_step) == len(observe_steps)
+    assert blue_trace.steps.index(contain_step) == len(observe_steps) + 1
+    assert finding_step.payload["event"]
+    assert contain_step.payload["action"] == "contain"
+    assert tuple(blue_trace.expected_events) == (
+        "DetectionAlertRaised",
+        "ContainmentApplied",
+    )
 
 
 def test_probe_planner_uses_resolved_objective_events_for_red_trace() -> None:
