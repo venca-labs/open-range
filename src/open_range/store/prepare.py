@@ -6,6 +6,7 @@ from typing import Any
 
 from open_range.compiler import EnterpriseSaaSManifestCompiler
 from open_range.config import BuildConfig
+from open_range.contracts.render import SecurityRuntimeSpec
 from open_range.contracts.world import WorldIR
 from open_range.manifest import EnterpriseSaaSManifest, validate_manifest
 from open_range.render import (
@@ -14,7 +15,6 @@ from open_range.render import (
     SecurityIntegrator,
     SecurityIntegratorConfig,
 )
-from open_range.render.security.runtime import SecurityRuntimeSpec
 from open_range.weaknesses import CatalogWeaknessSeeder
 
 

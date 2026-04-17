@@ -1,15 +1,18 @@
 """Public render package surface."""
 
-from .cilium import CiliumPolicyConfig, CiliumPolicyGenerator
-from .extensions import (
+from open_range.contracts.render import (
     RenderExtensions,
     RuntimePayload,
     RuntimePort,
     RuntimeSidecar,
+    SecurityPayloadSpec,
+    SecurityRuntimeSpec,
+    SecurityServiceRuntimeSpec,
     ServiceRuntimeExtension,
-    apply_service_runtime_extensions,
-    merge_render_extensions,
 )
+
+from .cilium import CiliumPolicyConfig, CiliumPolicyGenerator
+from .extensions import apply_service_runtime_extensions, merge_render_extensions
 from .images import (
     DB_MTLS_HELPER_IMAGE,
     DEFAULT_SERVICE_IMAGE,
@@ -27,12 +30,7 @@ from .security.integrator import (
     SecurityIntegratorConfig,
     SecurityTierConfig,
 )
-from .security.runtime import (
-    SecurityPayloadSpec,
-    SecurityRuntimeSpec,
-    SecurityServiceRuntimeSpec,
-    materialize_security_runtime,
-)
+from .security.runtime import materialize_security_runtime
 
 __all__ = [
     "CiliumPolicyConfig",

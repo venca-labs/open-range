@@ -8,9 +8,9 @@ from typing import Any
 
 from pydantic import BaseModel, ConfigDict, Field
 
-from open_range.admission import ReferenceBundle, ValidatorReport
+from open_range.contracts.render import KindArtifacts
+from open_range.contracts.validation import ReferenceBundle, ValidatorReport
 from open_range.contracts.world import WorldIR
-from open_range.render.models import KindArtifacts
 
 
 class _StrictModel(BaseModel):

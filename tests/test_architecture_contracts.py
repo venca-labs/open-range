@@ -200,6 +200,16 @@ def test_stage_packages_do_not_import_stray_top_level_modules() -> None:
     )
 
 
+def test_contracts_package_does_not_import_render_or_admission() -> None:
+    imported_targets = _package_import_targets(SRC_ROOT / "contracts")
+    forbidden = sorted(imported_targets & {"admission", "render"})
+
+    assert not forbidden, (
+        "contracts still depends on stage packages that should depend on contracts "
+        "instead:\n" + "\n".join(forbidden)
+    )
+
+
 def _top_level_code_entries() -> set[str]:
     entries: set[str] = set()
 

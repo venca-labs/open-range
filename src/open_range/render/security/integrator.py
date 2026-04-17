@@ -32,9 +32,12 @@ from typing import TYPE_CHECKING, Any
 
 from pydantic import BaseModel, Field
 
-from ..extensions import (
+from open_range.contracts.render import (
     RuntimePort,
     RuntimeSidecar,
+    SecurityPayloadSpec,
+    SecurityRuntimeSpec,
+    SecurityServiceRuntimeSpec,
 )
 
 if TYPE_CHECKING:
@@ -44,11 +47,6 @@ from .credential_lifecycle import CredentialLifecycleConfig
 from .envelope_crypto import EncryptionConfig
 from .identity_provider import IdentityProviderConfig, ServiceIdentity, build_spiffe_id
 from .mtls import MTLSConfig, MTLSSimulator
-from .runtime import (
-    SecurityPayloadSpec,
-    SecurityRuntimeSpec,
-    SecurityServiceRuntimeSpec,
-)
 
 logger = logging.getLogger(__name__)
 

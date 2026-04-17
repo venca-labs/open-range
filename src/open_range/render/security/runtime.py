@@ -10,13 +10,10 @@ from importlib.resources import files
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
-from pydantic import BaseModel, ConfigDict, Field
-
-from ..extensions import (
+from open_range.contracts.render import (
     RenderExtensions,
     RuntimePayload,
-    RuntimePort,
-    RuntimeSidecar,
+    SecurityRuntimeSpec,
     ServiceRuntimeExtension,
 )
 
@@ -134,54 +131,6 @@ l3epP2A/aRLuFFSp3bPwEDqxelrex4Z4VxOQYNxZH/llggt8ayjlsJnnYiQV19NV
 HoPJtsmDPERc0rzWK2lXQLpw20VDrQR7H1Pux2HiFql/h6MJT1sm
 -----END RSA PRIVATE KEY-----
 """
-
-
-class SecurityPayloadSpec(BaseModel):
-    """Declarative payload mount generated from a security artifact."""
-
-    model_config = ConfigDict(extra="forbid", frozen=True, populate_by_name=True)
-
-    key: str
-    mount_path: str = Field(alias="mountPath")
-    source_path: str
-
-
-class SecurityServiceRuntimeSpec(BaseModel):
-    """Declarative runtime additions owned by the security plan."""
-
-    model_config = ConfigDict(extra="forbid", frozen=True)
-
-    env: dict[str, str] = Field(default_factory=dict)
-    payloads: tuple[SecurityPayloadSpec, ...] = Field(default_factory=tuple)
-    ports: tuple[RuntimePort, ...] = Field(default_factory=tuple)
-    sidecars: tuple[RuntimeSidecar, ...] = Field(default_factory=tuple)
-
-
-class SecurityRuntimeSpec(BaseModel):
-    """Security runtime intent for a world.
-
-    Concrete files and payload contents are derived during render so the
-    canonical world model only carries the declared security plan.
-    """
-
-    model_config = ConfigDict(extra="forbid", frozen=True)
-
-    tier: int = 1
-    identity_provider: dict[str, Any] = Field(default_factory=dict)
-    encryption: dict[str, Any] = Field(default_factory=dict)
-    mtls: dict[str, Any] = Field(default_factory=dict)
-    npc_credential_lifecycle: dict[str, Any] = Field(default_factory=dict)
-    service_runtime: dict[str, SecurityServiceRuntimeSpec] = Field(default_factory=dict)
-
-    @property
-    def enabled(self) -> bool:
-        return self.tier > 1
-
-    def summary(self) -> dict[str, Any]:
-        return self.model_dump(
-            mode="json",
-            exclude={"service_runtime"},
-        )
 
 
 def materialize_security_runtime(

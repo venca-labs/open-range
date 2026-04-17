@@ -2,114 +2,12 @@
 
 from __future__ import annotations
 
-from typing import Any, Literal
+from typing import Any
 
-from pydantic import BaseModel, ConfigDict, Field
-
-
-class RuntimePayload(BaseModel):
-    """Mountable content added to a rendered service."""
-
-    model_config = ConfigDict(extra="forbid", frozen=True, populate_by_name=True)
-
-    key: str
-    mount_path: str = Field(alias="mountPath")
-    content: str
-
-    def as_chart_value(self) -> dict[str, str]:
-        return {
-            "key": self.key,
-            "mountPath": self.mount_path,
-            "content": self.content,
-        }
-
-
-class RuntimePort(BaseModel):
-    """Port exposed by a rendered service or sidecar."""
-
-    model_config = ConfigDict(extra="forbid", frozen=True)
-
-    name: str
-    port: int
-    protocol: str = "TCP"
-
-    def as_chart_value(self) -> dict[str, Any]:
-        return {
-            "name": self.name,
-            "port": self.port,
-            "protocol": self.protocol,
-        }
-
-
-class RuntimeSidecar(BaseModel):
-    """Sidecar attached to a rendered service."""
-
-    model_config = ConfigDict(extra="forbid", frozen=True)
-
-    name: str
-    image: str | None = None
-    image_source: Literal["explicit", "service"] = "explicit"
-    command: tuple[str, ...] = Field(default_factory=tuple)
-    args: tuple[str, ...] = Field(default_factory=tuple)
-    ports: tuple[RuntimePort, ...] = Field(default_factory=tuple)
-    env: dict[str, str] = Field(default_factory=dict)
-    payloads: tuple[RuntimePayload, ...] = Field(default_factory=tuple)
-    include_service_payloads: bool = False
-
-    def as_chart_value(
-        self,
-        service: dict[str, Any],
-        *,
-        service_id: str,
-    ) -> dict[str, Any]:
-        if self.image_source == "service":
-            image = str(service.get("image", "")).strip()
-        else:
-            image = (self.image or "").strip()
-        if not image:
-            raise ValueError(
-                f"sidecar {self.name!r} for service {service_id!r} has no image"
-            )
-
-        payloads: list[dict[str, str]] = []
-        if self.include_service_payloads:
-            payloads.extend(list(service.get("payloads", [])))
-        payloads.extend(payload.as_chart_value() for payload in self.payloads)
-
-        resolved: dict[str, Any] = {"name": self.name, "image": image}
-        if self.command:
-            resolved["command"] = list(self.command)
-        if self.args:
-            resolved["args"] = list(self.args)
-        if self.ports:
-            resolved["ports"] = [port.as_chart_value() for port in self.ports]
-        if self.env:
-            resolved["env"] = dict(self.env)
-        if payloads:
-            resolved["payloads"] = payloads
-        return resolved
-
-
-class ServiceRuntimeExtension(BaseModel):
-    """Runtime additions attached to a rendered service."""
-
-    model_config = ConfigDict(extra="forbid")
-
-    env: dict[str, str] = Field(default_factory=dict)
-    payloads: list[RuntimePayload] = Field(default_factory=list)
-    ports: list[RuntimePort] = Field(default_factory=list)
-    sidecars: list[RuntimeSidecar] = Field(default_factory=list)
-
-
-class RenderExtensions(BaseModel):
-    """Additional render-time inputs layered onto the base world render."""
-
-    model_config = ConfigDict(extra="forbid", frozen=True)
-
-    services: dict[str, ServiceRuntimeExtension] = Field(default_factory=dict)
-    values: dict[str, Any] = Field(default_factory=dict)
-    summary_updates: dict[str, Any] = Field(default_factory=dict)
-    rendered_files: tuple[str, ...] = Field(default_factory=tuple)
+from open_range.contracts.render import (
+    RenderExtensions,
+    ServiceRuntimeExtension,
+)
 
 
 def merge_render_extensions(
