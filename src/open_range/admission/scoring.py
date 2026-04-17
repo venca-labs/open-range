@@ -71,6 +71,7 @@ def report_summary(
     necessity_checks = tuple(
         name for name in ("necessity", "live_necessity") if name in checks
     )
+    live_boot_checks = ("kind_boot", "kind_health")
     return {
         "graph_ok": all(
             checks.get(name, ValidatorCheckReport(name=name, passed=False)).passed
@@ -85,10 +86,8 @@ def report_summary(
             checks.get(name, ValidatorCheckReport(name=name, passed=False)).passed
             for name in ("render_outputs", "service_health")
         )
-        and all(
-            checks.get(name, ValidatorCheckReport(name=name, passed=True)).passed
-            for name in ("kind_boot", "kind_health")
-        ),
+        and all(name in checks for name in live_boot_checks)
+        and all(checks[name].passed for name in live_boot_checks),
         "workflow_ok": bool(workflow_checks)
         and all(checks[name].passed for name in workflow_checks),
         "telemetry_ok": bool(telemetry_checks)

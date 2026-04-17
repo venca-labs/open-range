@@ -266,8 +266,11 @@ class SecurityIntegrator:
             service_dependencies[svc.id] = tuple(svc.dependencies)
 
         domain = "range.local"
+        identity_provider_enabled = tier_cfg.identity_provider and any(
+            service.kind == "idp" for service in world.services
+        )
 
-        if tier_cfg.identity_provider:
+        if identity_provider_enabled:
             self._integrate_identity(ctx, world, services, domain)
 
         if tier_cfg.envelope_encryption:
@@ -289,7 +292,7 @@ class SecurityIntegrator:
         logger.info(
             "SecurityIntegrator: planned security runtime (tier=%d, idp=%s, enc=%s, mtls=%s, npc=%s)",
             tier,
-            tier_cfg.identity_provider,
+            identity_provider_enabled,
             tier_cfg.envelope_encryption,
             tier_cfg.mtls,
             tier_cfg.npc_credential_lifecycle,

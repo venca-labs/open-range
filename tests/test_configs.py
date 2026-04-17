@@ -219,6 +219,29 @@ def test_build_config_can_enable_security_integration(tmp_path: Path):
     assert "ssl-cert=/etc/mtls/cert.pem" in mysql_client_config
 
 
+def test_security_integration_skips_idp_runtime_when_world_has_no_idp_service(
+    tmp_path: Path,
+):
+    pipeline = BuildPipeline(store=FileSnapshotStore(tmp_path / "snapshots"))
+    candidate = pipeline.build(
+        _manifest_payload(),
+        tmp_path / "rendered-security-filtered",
+        BuildConfig(
+            validation_profile="graph_only",
+            services_enabled=("web_app",),
+            security_integration_enabled=True,
+            security_tier=3,
+        ),
+    )
+
+    assert "svc-idp" not in {service.id for service in candidate.world.services}
+    assert candidate.world.security_runtime.identity_provider == {}
+    assert "svc-idp" not in candidate.artifacts.chart_values["services"]
+    assert not any(
+        "security/idp/" in path for path in candidate.artifacts.rendered_files
+    )
+
+
 def test_security_integration_renders_idp_runtime_hooks_with_helm(tmp_path: Path):
     if shutil.which("helm") is None:
         pytest.skip("helm is required for chart rendering checks")
