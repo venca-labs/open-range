@@ -7,9 +7,37 @@ from dataclasses import dataclass
 from math import inf
 from typing import Callable
 
-from open_range.objectives import objective_event_for_predicate
 from open_range.objectives.expr import predicate_inner
-from open_range.runtime_types import Action, ExternalRole, RuntimeEvent
+from open_range.objectives.resolution import objective_event_for_predicate
+from open_range.runtime_types import (
+    Action,
+    ExternalRole,
+    RuntimeEvent,
+    action_target,
+    control_directive,
+    control_directive_from_payload,
+    finding_event_type,
+    finding_event_type_from_payload,
+)
+
+__all__ = [
+    "EmitEvent",
+    "EventEmission",
+    "RedEventBatch",
+    "RuntimeEventLog",
+    "action_target",
+    "blue_visibility_time",
+    "control_directive",
+    "control_directive_from_payload",
+    "emit_runtime_event",
+    "finding_event_type",
+    "finding_event_type_from_payload",
+    "green_events_for_action",
+    "red_events_for_step",
+    "service_observability_surfaces",
+    "telemetry_blindspots",
+    "visible_events_for_actor",
+]
 
 
 @dataclass(frozen=True, slots=True)
@@ -131,36 +159,6 @@ class RuntimeEventLog:
 
     def __len__(self) -> int:
         return len(self._events)
-
-
-def action_target(action: Action) -> str:
-    target = action.payload.get("target")
-    if isinstance(target, str) and target:
-        return target
-    service = action.payload.get("service")
-    if isinstance(service, str) and service:
-        return service
-    return ""
-
-
-def control_directive_from_payload(
-    payload: Mapping[str, object], *, default: str = ""
-) -> str:
-    return str(payload.get("action", default)).lower()
-
-
-def finding_event_type_from_payload(
-    payload: Mapping[str, object], *, default: str = ""
-) -> str:
-    return str(payload.get("event_type", payload.get("event", default)))
-
-
-def control_directive(action: Action, *, default: str = "") -> str:
-    return control_directive_from_payload(action.payload, default=default)
-
-
-def finding_event_type(action: Action, *, default: str = "") -> str:
-    return finding_event_type_from_payload(action.payload, default=default)
 
 
 def telemetry_blindspots(

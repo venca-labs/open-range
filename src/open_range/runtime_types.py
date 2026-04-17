@@ -39,6 +39,36 @@ class Action(_StrictModel):
     timeout_s: float = Field(default=30.0, ge=0.0)
 
 
+def action_target(action: Action) -> str:
+    target = action.payload.get("target")
+    if isinstance(target, str) and target:
+        return target
+    service = action.payload.get("service")
+    if isinstance(service, str) and service:
+        return service
+    return ""
+
+
+def control_directive_from_payload(
+    payload: dict[str, Any], *, default: str = ""
+) -> str:
+    return str(payload.get("action", default)).lower()
+
+
+def finding_event_type_from_payload(
+    payload: dict[str, Any], *, default: str = ""
+) -> str:
+    return str(payload.get("event_type", payload.get("event", default)))
+
+
+def control_directive(action: Action, *, default: str = "") -> str:
+    return control_directive_from_payload(action.payload, default=default)
+
+
+def finding_event_type(action: Action, *, default: str = "") -> str:
+    return finding_event_type_from_payload(action.payload, default=default)
+
+
 class RuntimeEvent(_StrictModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
 

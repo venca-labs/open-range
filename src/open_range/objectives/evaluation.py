@@ -5,13 +5,13 @@ from __future__ import annotations
 import shlex
 from collections.abc import Iterable, Mapping
 
+from open_range.async_utils import run_async
 from open_range.objectives.effects import (
     effect_marker_path,
     effect_marker_service,
     effect_marker_token,
 )
 from open_range.objectives.models import ObjectiveGraderSpec
-from open_range.runtime.async_utils import run_async
 
 
 def evaluate_objective_grader(

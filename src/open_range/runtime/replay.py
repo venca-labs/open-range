@@ -5,15 +5,16 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any
 
-from open_range.admission.references import runtime_action
-from open_range.runtime.events import (
+from open_range.admission.actions import runtime_action
+from open_range.runtime_types import (
+    Action,
+    RuntimeEvent,
     action_target,
     control_directive,
     control_directive_from_payload,
     finding_event_type,
     finding_event_type_from_payload,
 )
-from open_range.runtime_types import Action, RuntimeEvent
 from open_range.snapshot import RuntimeSnapshot
 from open_range.training.trace_exports import normalize_trace_action
 

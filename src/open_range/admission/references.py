@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 from dataclasses import dataclass
 
+from open_range.admission.actions import runtime_action
 from open_range.admission.models import (
     ProbeSpec,
     ReferenceAction,
@@ -24,7 +25,6 @@ from open_range.catalog.probes import (
     necessity_probe_template,
     ordered_red_reference_candidates,
     red_reference_starts,
-    runtime_payload_for_reference_action,
     select_primary_red_reference_weakness,
     smoke_probe_template,
     telemetry_blindspot_targets,
@@ -242,16 +242,6 @@ def build_reference_bundle(
     world: WorldIR, build_config: BuildConfig = DEFAULT_BUILD_CONFIG
 ) -> ReferenceBundle:
     return ReferencePlanner(world=world, build_config=build_config).build()
-
-
-def runtime_action(actor: str, step: ReferenceAction) -> Action:
-    payload = runtime_payload_for_reference_action(
-        actor,
-        step.kind,
-        target=step.target,
-        payload=step.payload,
-    )
-    return Action(actor_id=actor, role=actor, kind=step.kind, payload=payload)
 
 
 def run_red_reference(

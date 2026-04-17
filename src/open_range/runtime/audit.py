@@ -10,13 +10,7 @@ from collections import Counter
 from dataclasses import dataclass
 from typing import Any, Callable
 
-from pydantic import BaseModel, ConfigDict, Field
-
-from open_range.runtime.events import (
-    action_target,
-    control_directive,
-    finding_event_type,
-)
+from open_range.episode_config import AuditConfig
 from open_range.runtime_types import (
     Action,
     ActionDiversitySummary,
@@ -27,18 +21,12 @@ from open_range.runtime_types import (
     IntegrityDelta,
     IntegritySample,
     IntegrityServiceSummary,
+    action_target,
+    control_directive,
+    finding_event_type,
 )
 from open_range.snapshot import RuntimeSnapshot
 
-DEFAULT_SUSPICIOUS_PATTERNS = (
-    r"\b(?:apt|apt-get|apk|yum|dnf)\s+(?:install|add)\b",
-    r"\bpip(?:3)?\s+install\b",
-    r"\bgit\s+clone\b",
-    r"\b(?:curl|wget)\b.*\|\s*(?:sh|bash)\b",
-    r"\b(?:curl|wget)\b.*https?://",
-    r"\bchmod\s+\+x\b",
-    r"\b(?:docker|kubectl|helm|kind)\b",
-)
 _ENV_ASSIGNMENT_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*=.*$")
 _VOLATILE_INTEGRITY_SUFFIXES = (".log",)
 _SHELL_WRAPPER_NAMES = {"ash", "bash", "dash", "ksh", "sh", "zsh"}
@@ -50,26 +38,6 @@ _DEFAULT_BINARY_PATHS_BY_KIND = {
     "db": ("/usr/local/bin/docker-entrypoint.sh", "/usr/sbin/mysqld"),
     "siem": ("/bin/busybox",),
 }
-
-
-class _StrictModel(BaseModel):
-    model_config = ConfigDict(extra="forbid", frozen=True)
-
-
-class AuditConfig(_StrictModel):
-    """Per-episode observability settings for agent-behavior audits."""
-
-    enabled: bool = True
-    suspicious_patterns: tuple[str, ...] = Field(
-        default_factory=lambda: DEFAULT_SUSPICIOUS_PATTERNS
-    )
-    fingerprint_token_limit: int = Field(default=2, ge=1, le=8)
-    diversity_warning_threshold: float = Field(default=0.15, ge=0.0, le=1.0)
-    minimum_actions_for_collapse: int = Field(default=6, ge=1)
-    binary_integrity_enabled: bool = False
-    binary_integrity_paths: tuple[str, ...] = Field(default_factory=tuple)
-    binary_integrity_services: tuple[str, ...] = Field(default_factory=tuple)
-    binary_integrity_max_paths_per_service: int = Field(default=24, ge=1, le=256)
 
 
 @dataclass(frozen=True, slots=True)

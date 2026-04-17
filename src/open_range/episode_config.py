@@ -6,8 +6,6 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
-from open_range.runtime.audit import AuditConfig
-
 TrainingMode = Literal[
     "red_only", "blue_only_live", "blue_only_from_prefix", "joint_pool"
 ]
@@ -28,6 +26,33 @@ StartState = Literal[
     "prefix_lateral_movement",
 ]
 RewardProfile = Literal["terminal_only", "terminal_plus_shaping"]
+DEFAULT_SUSPICIOUS_PATTERNS = (
+    r"\b(?:apt|apt-get|apk|yum|dnf)\s+(?:install|add)\b",
+    r"\bpip(?:3)?\s+install\b",
+    r"\bgit\s+clone\b",
+    r"\b(?:curl|wget)\b.*\|\s*(?:sh|bash)\b",
+    r"\b(?:curl|wget)\b.*https?://",
+    r"\bchmod\s+\+x\b",
+    r"\b(?:docker|kubectl|helm|kind)\b",
+)
+
+
+class AuditConfig(BaseModel):
+    """Per-episode observability settings for agent-behavior audits."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    enabled: bool = True
+    suspicious_patterns: tuple[str, ...] = Field(
+        default_factory=lambda: DEFAULT_SUSPICIOUS_PATTERNS
+    )
+    fingerprint_token_limit: int = Field(default=2, ge=1, le=8)
+    diversity_warning_threshold: float = Field(default=0.15, ge=0.0, le=1.0)
+    minimum_actions_for_collapse: int = Field(default=6, ge=1)
+    binary_integrity_enabled: bool = False
+    binary_integrity_paths: tuple[str, ...] = Field(default_factory=tuple)
+    binary_integrity_services: tuple[str, ...] = Field(default_factory=tuple)
+    binary_integrity_max_paths_per_service: int = Field(default=24, ge=1, le=256)
 
 
 class EpisodeConfig(BaseModel):

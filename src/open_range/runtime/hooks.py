@@ -2,13 +2,13 @@
 
 from __future__ import annotations
 
+from open_range.episode_config import AuditConfig
 from open_range.runtime.audit import (
     ActionAuditObservation,
     ActionAuditor,
-    AuditConfig,
     command_text_for_action,
 )
-from open_range.runtime.events import EmitEvent, action_target
+from open_range.runtime.events import EmitEvent
 from open_range.runtime.execution import ActionBackend, ActionExecution
 from open_range.runtime.green import GreenScheduler
 from open_range.runtime_types import (
@@ -16,6 +16,7 @@ from open_range.runtime_types import (
     EpisodeAudit,
     IntegritySample,
     RuntimeEvent,
+    action_target,
 )
 from open_range.snapshot import RuntimeSnapshot
 

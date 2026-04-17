@@ -7,7 +7,7 @@ import pytest
 
 import open_range.runtime.cluster as cluster_mod
 import open_range.runtime.k3d as k3d_mod
-from open_range.runtime.async_utils import run_async
+from open_range.async_utils import run_async
 from open_range.runtime.cluster import KindBackend, PodSet
 from open_range.runtime.k3d import K3dBackend
 

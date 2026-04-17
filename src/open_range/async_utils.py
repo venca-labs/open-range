@@ -1,4 +1,4 @@
-"""Helpers for running async backend calls from sync code."""
+"""Helpers for running async calls from sync code."""
 
 from __future__ import annotations
 

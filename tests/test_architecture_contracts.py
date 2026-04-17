@@ -15,6 +15,7 @@ SRC_ROOT = REPO_ROOT / "src" / "open_range"
 
 ALLOWED_ROOT_FILES = {
     "__init__.py",
+    "async_utils.py",
     "build_config.py",
     "episode_config.py",
     "runtime_types.py",
@@ -26,6 +27,7 @@ ALLOWED_ROOT_FILES = {
 }
 
 SHARED_ROOT_MODULES = {
+    "async_utils",
     "build_config",
     "episode_config",
     "runtime_types",

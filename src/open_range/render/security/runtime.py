@@ -6,7 +6,6 @@ import base64
 import datetime
 import hashlib
 import json
-from importlib import import_module
 from importlib.resources import files
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
@@ -24,6 +23,9 @@ from ..extensions import (
 if TYPE_CHECKING:
     from open_range.world_ir import WorldIR
 
+from .envelope_crypto import EncryptedBundle, EncryptionConfig, _aes_gcm_encrypt
+from .identity_provider import IdentityProviderConfig, SimulatedIdentityProvider
+from .mtls import MTLSConfig
 
 _DETERMINISTIC_CERT_EPOCH = datetime.datetime(2024, 1, 1, tzinfo=datetime.timezone.utc)
 _MIN_RENDER_CERT_VALIDITY_DAYS = 3650
@@ -260,18 +262,6 @@ def _identity_provider_files(
 ) -> dict[str, str]:
     if not security_runtime.identity_provider:
         return {}
-    try:
-        identity_provider = import_module(
-            "open_range.render.security.identity_provider"
-        )
-        IdentityProviderConfig = getattr(identity_provider, "IdentityProviderConfig")
-        SimulatedIdentityProvider = getattr(
-            identity_provider,
-            "SimulatedIdentityProvider",
-        )
-    except (ImportError, AttributeError):  # pragma: no cover - optional dependency
-        return {}
-
     idp_config = IdentityProviderConfig.model_validate(
         security_runtime.identity_provider
     )
@@ -296,14 +286,6 @@ def _encryption_files(
 ) -> dict[str, str]:
     if not security_runtime.encryption:
         return {}
-    try:
-        envelope_crypto = import_module("open_range.render.security.envelope_crypto")
-        EncryptedBundle = getattr(envelope_crypto, "EncryptedBundle")
-        EncryptionConfig = getattr(envelope_crypto, "EncryptionConfig")
-        aes_gcm_encrypt = getattr(envelope_crypto, "_aes_gcm_encrypt")
-    except (ImportError, AttributeError):  # pragma: no cover - optional dependency
-        return {}
-
     config = EncryptionConfig.model_validate(security_runtime.encryption)
     if not config.enabled or not config.encrypted_paths:
         return {}
@@ -345,13 +327,13 @@ def _encryption_files(
             item=credential.id,
             length=12,
         )
-        ciphertext = aes_gcm_encrypt(
+        ciphertext = _aes_gcm_encrypt(
             dek,
             nonce,
             credential.secret_ref.encode("utf-8"),
             aad.encode("utf-8"),
         )
-        wrapped_ct = aes_gcm_encrypt(master_key, wrap_nonce, dek, b"dek-wrap")
+        wrapped_ct = _aes_gcm_encrypt(master_key, wrap_nonce, dek, b"dek-wrap")
         bundle = EncryptedBundle(
             ciphertext=base64.b64encode(ciphertext).decode(),
             nonce=base64.b64encode(nonce).decode(),
@@ -381,11 +363,7 @@ def _mtls_files(
         from cryptography.hazmat.primitives.asymmetric import rsa
         from cryptography.x509.oid import ExtendedKeyUsageOID, NameOID
 
-        MTLSConfig = getattr(
-            import_module("open_range.render.security.mtls"),
-            "MTLSConfig",
-        )
-    except (ImportError, AttributeError):  # pragma: no cover - optional dependency
+    except ImportError:  # pragma: no cover - optional dependency
         return {}
 
     config = MTLSConfig.model_validate(security_runtime.mtls)

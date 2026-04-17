@@ -11,9 +11,6 @@ from open_range.objectives.engine import PredicateEngine
 from open_range.runtime.briefing import observation_stdout, service_health_tuple
 from open_range.runtime.events import (
     RuntimeEventLog,
-    action_target,
-    control_directive,
-    finding_event_type,
     green_events_for_action,
     service_observability_surfaces,
     telemetry_blindspots,
@@ -57,6 +54,9 @@ from open_range.runtime_types import (
     ExternalRole,
     Observation,
     RuntimeEvent,
+    action_target,
+    control_directive,
+    finding_event_type,
 )
 from open_range.snapshot import RuntimeSnapshot
 
