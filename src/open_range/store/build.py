@@ -13,7 +13,8 @@ from open_range.contracts.snapshot import KindArtifacts, Snapshot
 from open_range.contracts.world import WorldIR
 from open_range.manifest import EnterpriseSaaSManifest
 from open_range.render import EnterpriseSaaSKindRenderer, SecurityIntegrator
-from open_range.synth import EnterpriseSaaSWorldSynthesizer, SynthArtifacts
+from open_range.synth import EnterpriseSaaSWorldSynthesizer
+from open_range.synth.models import SynthArtifacts
 from open_range.weaknesses import CatalogWeaknessSeeder
 
 from .core import FileSnapshotStore, PoolSplit

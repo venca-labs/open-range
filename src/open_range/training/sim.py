@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-from typing import Protocol
-
 from pydantic import BaseModel, ConfigDict, Field
 
 from open_range.config import EpisodeConfig
@@ -30,12 +28,6 @@ class SimTrace(_StrictModel):
     episode_seed: int
     winner: str = ""
     turns: tuple[SimTurn, ...] = Field(default_factory=tuple)
-
-
-class SimPlane(Protocol):
-    def generate_bootstrap_trace(
-        self, snapshot: RuntimeSnapshot, *, episode_seed: int
-    ) -> SimTrace: ...
 
 
 class ReferenceSimPlane:

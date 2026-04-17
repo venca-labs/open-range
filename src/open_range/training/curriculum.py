@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import hashlib
 import json
-from typing import Literal, Protocol
+from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -75,17 +75,6 @@ class MutationOp(_StrictModel):
     kind: MutationKind
     target: str = ""
     details: dict[str, str] = Field(default_factory=dict)
-
-
-class MutationPolicy(Protocol):
-    def choose_parent(self, population: list[PopulationStats]) -> str: ...
-    def mutate(
-        self,
-        parent: WorldIR,
-        *,
-        parent_stats: PopulationStats | None = None,
-        child_seed: int | None = None,
-    ) -> WorldIR: ...
 
 
 class FrontierMutationPolicy:

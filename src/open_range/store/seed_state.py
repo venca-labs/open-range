@@ -6,7 +6,7 @@ from dataclasses import dataclass
 
 from open_range.contracts.snapshot import KindArtifacts
 from open_range.contracts.world import WorldIR
-from open_range.synth import SynthArtifacts
+from open_range.synth.models import SynthArtifacts
 
 
 @dataclass(frozen=True, slots=True)

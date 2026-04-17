@@ -22,7 +22,7 @@ from .security.runtime import materialize_security_runtime
 
 if TYPE_CHECKING:
     from open_range.contracts.world import GreenPersona, ServiceSpec, WorldIR
-    from open_range.synth import SynthArtifacts
+    from open_range.synth.models import SynthArtifacts
 
 _CHART_DIR = Path(__file__).resolve().parents[1] / "chart"
 

@@ -1,6 +1,5 @@
 """Benchmark-aligned offensive objective helpers."""
 
-from open_range.catalog.contracts import StandardAttackObjective
 from open_range.objectives.resolution import (
     PUBLIC_OBJECTIVE_PREDICATE_NAMES,
     objective_tags_for_predicate,
@@ -8,6 +7,5 @@ from open_range.objectives.resolution import (
 
 __all__ = [
     "PUBLIC_OBJECTIVE_PREDICATE_NAMES",
-    "StandardAttackObjective",
     "objective_tags_for_predicate",
 ]

@@ -116,7 +116,7 @@ def check_blue_reference(
     for trace_index, trace in enumerate(
         snapshot.reference_bundle.reference_defense_traces
     ):
-        from open_range.runtime import OpenRangeRuntime
+        from open_range.runtime.core import OpenRangeRuntime
 
         runtime = OpenRangeRuntime(action_backend=backend)
         runtime.reset(

@@ -11,7 +11,7 @@ import yaml
 
 from open_range.config import BuildConfig
 from open_range.contracts.snapshot import KindArtifacts
-from open_range.render import CiliumPolicyGenerator
+from open_range.render.cilium import CiliumPolicyGenerator
 
 
 def integrate_network_policies(

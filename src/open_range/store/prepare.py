@@ -9,12 +9,9 @@ from open_range.config import BuildConfig
 from open_range.contracts.render import SecurityRuntimeSpec
 from open_range.contracts.world import WorldIR
 from open_range.manifest import EnterpriseSaaSManifest, validate_manifest
-from open_range.render import (
-    EnterpriseSaaSKindRenderer,
-    K3dRenderer,
-    SecurityIntegrator,
-    SecurityIntegratorConfig,
-)
+from open_range.render import EnterpriseSaaSKindRenderer, SecurityIntegrator
+from open_range.render.k3d import K3dRenderer
+from open_range.render.security.integrator import SecurityIntegratorConfig
 from open_range.weaknesses import CatalogWeaknessSeeder
 
 

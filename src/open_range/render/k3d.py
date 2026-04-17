@@ -21,7 +21,7 @@ from .kind import EnterpriseSaaSKindRenderer
 
 if TYPE_CHECKING:
     from open_range.contracts.world import ServiceSpec, WorldIR
-    from open_range.synth import SynthArtifacts
+    from open_range.synth.models import SynthArtifacts
 
 logger = logging.getLogger(__name__)
 

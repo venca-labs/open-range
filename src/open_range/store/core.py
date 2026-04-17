@@ -16,7 +16,7 @@ from open_range.contracts.snapshot import (
 )
 from open_range.contracts.validation import ReferenceBundle, ValidatorReport
 from open_range.contracts.world import WorldIR
-from open_range.synth import SynthArtifacts
+from open_range.synth.models import SynthArtifacts
 
 from .seed_state import build_seed_state
 

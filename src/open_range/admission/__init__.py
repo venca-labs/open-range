@@ -1,13 +1,5 @@
-"""Admission controller and public report models."""
+"""Admission controller package."""
 
 from open_range.admission.controller import LocalAdmissionController
-from open_range.admission.models import (
-    ReferenceBundle,
-    ValidatorReport,
-)
 
-__all__ = [
-    "LocalAdmissionController",
-    "ReferenceBundle",
-    "ValidatorReport",
-]
+__all__ = ["LocalAdmissionController"]

@@ -113,7 +113,7 @@ def run_red_reference(
     backend: PodActionBackend | None = None,
     trace_index: int = 0,
 ):
-    from open_range.runtime import OpenRangeRuntime
+    from open_range.runtime.core import OpenRangeRuntime
 
     trace = snapshot.reference_bundle.reference_attack_traces[trace_index]
     runtime = OpenRangeRuntime(action_backend=backend)

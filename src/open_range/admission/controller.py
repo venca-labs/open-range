@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import shutil
 import subprocess
-from typing import Protocol
 
 from open_range.admission.live import run_live_backend_checks
 from open_range.admission.models import (
@@ -22,15 +21,6 @@ from open_range.contracts.snapshot import KindArtifacts, world_hash
 from open_range.contracts.world import WorldIR
 from open_range.render.live import KindBackend, LiveBackend
 from open_range.render.live_k3d import K3dBackend
-
-
-class AdmissionController(Protocol):
-    def admit(
-        self,
-        world: WorldIR,
-        artifacts: KindArtifacts,
-        build_config: BuildConfig = DEFAULT_BUILD_CONFIG,
-    ) -> tuple[ReferenceBundle, ValidatorReport]: ...
 
 
 class LocalAdmissionController:

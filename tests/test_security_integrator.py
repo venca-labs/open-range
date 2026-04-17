@@ -7,10 +7,11 @@ from pathlib import Path
 
 import pytest
 
-from open_range.render import SecurityIntegrator, SecurityIntegratorConfig
+from open_range.render import SecurityIntegrator
 from open_range.render.images import DB_MTLS_HELPER_IMAGE
 from open_range.render.security.integrator import (
     DEFAULT_TIER_MAP,
+    SecurityIntegratorConfig,
     _default_scopes_for_service,
 )
 from open_range.render.security.runtime import materialize_security_runtime
