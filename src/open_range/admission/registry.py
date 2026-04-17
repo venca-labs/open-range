@@ -42,7 +42,8 @@ def _ensure_builtin_admission_checks() -> None:
     global _BUILTIN_CHECKS_REGISTERED
     if _BUILTIN_CHECKS_REGISTERED:
         return
-    from open_range.admission.checks import register_builtin_admission_checks
+    from open_range.admission.checks import builtin_admission_check_specs
 
-    register_builtin_admission_checks()
+    for spec in builtin_admission_check_specs():
+        register_admission_check(spec.name, spec.fn)
     _BUILTIN_CHECKS_REGISTERED = True

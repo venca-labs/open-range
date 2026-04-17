@@ -23,7 +23,7 @@ from open_range.admission.references import (
     build_reference_bundle,
     ephemeral_runtime_snapshot,
 )
-from open_range.admission.registry import CheckFunc, register_admission_check
+from open_range.admission.registry import CheckFunc
 from open_range.catalog.services import service_kind_names
 from open_range.config import BuildConfig
 from open_range.contracts.snapshot import KindArtifacts, world_hash
@@ -621,8 +621,3 @@ _BUILTIN_ADMISSION_CHECKS: tuple[BuiltinAdmissionCheckSpec, ...] = (
 
 def builtin_admission_check_specs() -> tuple[BuiltinAdmissionCheckSpec, ...]:
     return _BUILTIN_ADMISSION_CHECKS
-
-
-def register_builtin_admission_checks() -> None:
-    for spec in _BUILTIN_ADMISSION_CHECKS:
-        register_admission_check(spec.name, spec.fn)
