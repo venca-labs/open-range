@@ -382,6 +382,15 @@ def command_text_for_action(action: Action) -> str:
     if action.kind == "submit_finding":
         event_type = finding_event_type(action)
         return f"submit_finding {event_type} {target}".strip()
+    if action.kind == "chat":
+        sender = str(action.payload.get("from", action.actor_id))
+        message = str(action.payload.get("message", ""))[:64]
+        return f"chat {target or 'svc-web'} {sender} {message}".strip()
+    if action.kind == "document_share":
+        filename = str(action.payload.get("filename", ""))
+        return f"document_share {target or 'svc-fileshare'} {filename}".strip()
+    if action.kind == "voice":
+        return f"voice {target or 'unknown'}".strip()
     return action.kind
 
 

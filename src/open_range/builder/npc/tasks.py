@@ -1,0 +1,333 @@
+"""NPC daily task models and template generators.
+
+Each NPC starts their workday with a list of tasks. Tasks drive what
+the NPC does and who they interact with. Email tasks get their content
+generated from ``email_templates.generate_email_content()`` based on
+the sender's current task context and the recipient's role — so every
+email is grounded in what the NPC is actually working on.
+"""
+
+from __future__ import annotations
+
+import hashlib
+from dataclasses import dataclass
+from typing import Sequence
+
+from open_range.builder.npc.email_templates import generate_email_content
+from open_range.builder.npc.identity import display_name
+from open_range.contracts.world import GreenPersona
+
+
+@dataclass(frozen=True)
+class NPCTask:
+    """A single work task for an NPC's day."""
+
+    description: str  # human-readable: "Prepare Q1 marketing report"
+    action: str  # browse | send_email | lookup | access_share | login | query_db | idle
+    target: str = ""  # service target or colleague ID
+    detail: str = ""  # action-specific context
+    start_minutes: int = 0  # sim_time offset when task becomes due
+    duration_minutes: int = 15  # how long this task "takes"
+    collaborators: tuple[str, ...] = ()  # persona IDs this task involves
+    needs_llm: bool = False  # whether content generation needs LLM
+    modality: str = "email"  # communication medium: "email" | "chat"
+    email_subject: str = ""  # generated subject for message tasks
+    email_body: str = ""  # generated body for message tasks
+
+
+def generate_tasks(
+    persona: GreenPersona,
+    colleagues: Sequence[GreenPersona],
+) -> list[NPCTask]:
+    """Generate a daily task list from role-keyed templates.
+
+    Email tasks get content generated from the sender's task context
+    and the recipient's role.  Colleagues are assigned round-robin so
+    communication is spread across the team.
+    """
+    role = persona.role.lower()
+    if any(kw in role for kw in _SECURITY_KEYWORDS):
+        base = list(_SECURITY_TASKS)
+    elif any(kw in role for kw in _IT_KEYWORDS):
+        base = list(_IT_TASKS)
+    elif any(kw in role for kw in _EXEC_KEYWORDS):
+        base = list(_EXEC_TASKS)
+    elif any(kw in role for kw in _SALES_KEYWORDS):
+        base = list(_SALES_TASKS)
+    else:
+        base = list(_GENERIC_TASKS)
+
+    if not colleagues:
+        return base
+    seed = int(hashlib.md5(persona.id.encode()).hexdigest()[:8], 16)
+    others = [c for c in colleagues if c.id != persona.id]
+    if not others:
+        return base
+
+    # Determine preferred communication modality
+    preferred = "email"
+    if persona.profile and persona.profile.backstory.preferred_modality:
+        preferred = persona.profile.backstory.preferred_modality
+
+    sender_name = display_name(persona)
+    result: list[NPCTask] = []
+    collab_idx = seed % len(others)
+    email_seed = seed
+    for task in base:
+        if task.action == "send_email":
+            recipient = others[collab_idx % len(others)]
+            collab_idx += 1
+            email_seed += 1
+            recip_name = display_name(recipient)
+
+            # Generate content grounded in the sender's task
+            email = generate_email_content(
+                sender_role=persona.role,
+                sender_name=sender_name,
+                recipient_name=recip_name,
+                recipient_role=recipient.role,
+                recipient_dept=recipient.department,
+                context=task.description,
+                seed=email_seed,
+            )
+            task = NPCTask(
+                description=task.description,
+                action=task.action,
+                target=recipient.id,
+                detail=task.detail,
+                start_minutes=task.start_minutes,
+                duration_minutes=task.duration_minutes,
+                collaborators=(recipient.id,),
+                needs_llm=task.needs_llm,
+                modality=preferred,
+                email_subject=email["subject"],
+                email_body=email["body"],
+            )
+        result.append(task)
+    return result
+
+
+# ---------------------------------------------------------------------------
+# Role keywords (same as planner.py)
+# ---------------------------------------------------------------------------
+
+_SECURITY_KEYWORDS = (
+    "soc",
+    "security analyst",
+    "security engineer",
+    "infosec",
+    "threat",
+)
+_IT_KEYWORDS = (
+    "it",
+    "admin",
+    "sysadmin",
+    "engineer",
+    "devops",
+    "network",
+    "ciso",
+    "cto",
+)
+_EXEC_KEYWORDS = (
+    "manager",
+    "director",
+    "executive",
+    "vp",
+    "president",
+    "chief",
+    "head of",
+)
+_SALES_KEYWORDS = (
+    "sales",
+    "marketing",
+    "coordinator",
+    "account",
+    "business development",
+)
+
+# ---------------------------------------------------------------------------
+# Template task pools — email tasks have no hardcoded content; content is
+# generated by generate_email_content() based on the task description.
+# ---------------------------------------------------------------------------
+
+_SECURITY_TASKS = [
+    NPCTask(
+        "Morning alert triage", "query_db", "", "Reviewing overnight SIEM alerts", 0, 30
+    ),
+    NPCTask(
+        "Threat intel review",
+        "browse",
+        "/threat-intel",
+        "Checking threat feeds",
+        40,
+        20,
+    ),
+    NPCTask(
+        "Incident follow-up",
+        "send_email",
+        "",
+        "Updating open incident tickets",
+        70,
+        20,
+        needs_llm=True,
+    ),
+    NPCTask("SIEM rule tuning", "query_db", "", "Refining detection rules", 100, 30),
+    NPCTask("Lunch break", "idle", "", "Away from desk", 180, 60),
+    NPCTask("Log analysis", "query_db", "", "Hunting for anomalies in logs", 250, 30),
+    NPCTask(
+        "Coordinate with IT",
+        "send_email",
+        "",
+        "Sharing findings with IT team",
+        300,
+        20,
+        needs_llm=True,
+    ),
+    NPCTask(
+        "End-of-shift handoff",
+        "send_email",
+        "",
+        "Shift summary for next analyst",
+        360,
+        30,
+        needs_llm=True,
+    ),
+]
+
+_IT_TASKS = [
+    NPCTask(
+        "Morning system check", "login", "/admin", "Verifying system health", 0, 15
+    ),
+    NPCTask("Review application logs", "query_db", "", "Checking error rates", 20, 30),
+    NPCTask(
+        "Service health dashboard", "browse", "/status", "Monitoring uptime", 60, 20
+    ),
+    NPCTask(
+        "IT ticket follow-up",
+        "send_email",
+        "",
+        "Updating ticket status",
+        90,
+        20,
+        needs_llm=True,
+    ),
+    NPCTask("Lunch break", "idle", "", "Away from desk", 180, 60),
+    NPCTask(
+        "Update configuration files",
+        "access_share",
+        "configs",
+        "Deploying config changes",
+        250,
+        30,
+    ),
+    NPCTask(
+        "Afternoon health check", "query_db", "", "Reviewing afternoon metrics", 300, 30
+    ),
+    NPCTask(
+        "End-of-day status report",
+        "send_email",
+        "",
+        "Daily summary",
+        360,
+        30,
+        needs_llm=True,
+    ),
+]
+
+_EXEC_TASKS = [
+    NPCTask("Morning KPI review", "browse", "/reports", "Reviewing metrics", 0, 20),
+    NPCTask(
+        "Respond to overnight messages",
+        "send_email",
+        "",
+        "Catching up on comms",
+        30,
+        30,
+        needs_llm=True,
+    ),
+    NPCTask(
+        "Review team dashboards", "browse", "/dashboard", "Tracking progress", 75, 20
+    ),
+    NPCTask(
+        "Approve pending requests",
+        "send_email",
+        "",
+        "Approvals",
+        120,
+        20,
+        needs_llm=True,
+    ),
+    NPCTask("Executive lunch", "idle", "", "Lunch meeting", 180, 60),
+    NPCTask(
+        "Afternoon review", "browse", "/reports", "Checking afternoon numbers", 250, 20
+    ),
+    NPCTask(
+        "Stakeholder update",
+        "send_email",
+        "",
+        "External comms",
+        300,
+        30,
+        needs_llm=True,
+    ),
+    NPCTask("Planning for tomorrow", "idle", "", "End-of-day planning", 360, 30),
+]
+
+_SALES_TASKS = [
+    NPCTask("Morning portal check", "browse", "/", "Reviewing pipeline", 0, 15),
+    NPCTask(
+        "Client follow-ups",
+        "send_email",
+        "",
+        "Reaching out to prospects",
+        30,
+        30,
+        needs_llm=True,
+    ),
+    NPCTask("Research prospects", "lookup", "leads", "Identifying new leads", 75, 30),
+    NPCTask(
+        "Proposal emails",
+        "send_email",
+        "",
+        "Sending proposals",
+        120,
+        30,
+        needs_llm=True,
+    ),
+    NPCTask("Lunch", "idle", "", "Lunch break", 180, 60),
+    NPCTask(
+        "Campaign review", "browse", "/campaigns", "Reviewing performance", 250, 20
+    ),
+    NPCTask(
+        "Update sales collateral",
+        "access_share",
+        "marketing",
+        "Refreshing decks",
+        300,
+        30,
+    ),
+    NPCTask(
+        "EOD pipeline update",
+        "send_email",
+        "",
+        "Pipeline status",
+        360,
+        30,
+        needs_llm=True,
+    ),
+]
+
+_GENERIC_TASKS = [
+    NPCTask("Morning check-in", "browse", "/", "Starting the day", 0, 15),
+    NPCTask(
+        "Team communication", "send_email", "", "Team sync", 30, 20, needs_llm=True
+    ),
+    NPCTask("Data lookup", "lookup", "", "Researching data", 60, 30),
+    NPCTask("Lunch", "idle", "", "Lunch break", 180, 60),
+    NPCTask("Afternoon tasks", "browse", "/", "Working through backlog", 250, 20),
+    NPCTask("File access", "access_share", "shared", "Reviewing shared docs", 290, 20),
+    NPCTask(
+        "Status update", "send_email", "", "End-of-day update", 330, 20, needs_llm=True
+    ),
+    NPCTask("Wrap up", "idle", "", "End of day", 380, 30),
+]

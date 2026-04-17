@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from collections.abc import Callable
+
 from open_range.config import AuditConfig
 from open_range.contracts.runtime import (
     Action,
@@ -29,13 +31,18 @@ class RuntimeHooks:
         *,
         green_scheduler: GreenScheduler,
         action_backend: ActionBackend | None,
+        event_sink: Callable[[RuntimeEvent], None] | None = None,
     ) -> None:
         self.green_scheduler = green_scheduler
         self.action_backend = action_backend
+        self.event_sink = event_sink
         self._auditor: ActionAuditor | None = None
 
     def set_action_backend(self, action_backend: ActionBackend | None) -> None:
         self.action_backend = action_backend
+
+    def set_green_scheduler(self, green_scheduler: GreenScheduler) -> None:
+        self.green_scheduler = green_scheduler
 
     def reset(self, snapshot: RuntimeSnapshot, audit_config: AuditConfig) -> None:
         self._auditor = ActionAuditor(audit_config)
@@ -119,6 +126,8 @@ class RuntimeHooks:
             self.green_scheduler.record_event(event)
         if self.action_backend is not None:
             self.action_backend.record_event(event)
+        if self.event_sink is not None:
+            self.event_sink(event)
 
     def capture_integrity(
         self, service_paths: dict[str, tuple[str, ...]]

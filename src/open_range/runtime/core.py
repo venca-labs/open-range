@@ -2,10 +2,12 @@
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from math import inf
 from typing import Literal
 from uuid import uuid4
 
+from open_range.agents.npc_scheduler import NPCGreenScheduler
 from open_range.config import DEFAULT_EPISODE_CONFIG, EpisodeConfig
 from open_range.contracts.runtime import (
     Action,
@@ -68,6 +70,7 @@ class OpenRangeRuntime:
         *,
         green_scheduler: GreenScheduler | None = None,
         action_backend: ActionBackend | None = None,
+        event_sink: Callable[[RuntimeEvent], None] | None = None,
     ) -> None:
         self.green_scheduler = green_scheduler or ScriptedGreenScheduler()
         self.action_backend = action_backend
@@ -101,6 +104,7 @@ class OpenRangeRuntime:
         self._hooks = RuntimeHooks(
             green_scheduler=self.green_scheduler,
             action_backend=action_backend,
+            event_sink=event_sink,
         )
 
     def reset(
@@ -142,6 +146,16 @@ class OpenRangeRuntime:
             requested_attack_index=reference_attack_index,
             requested_defense_index=reference_defense_index,
         )
+        if episode_config.green_branch_backend == "npc":
+            if not isinstance(self.green_scheduler, NPCGreenScheduler):
+                self.green_scheduler = NPCGreenScheduler(
+                    model=episode_config.llm_model,
+                    base_url=episode_config.llm_endpoint,
+                )
+                self._hooks.set_green_scheduler(self.green_scheduler)
+        elif not isinstance(self.green_scheduler, ScriptedGreenScheduler):
+            self.green_scheduler = ScriptedGreenScheduler()
+            self._hooks.set_green_scheduler(self.green_scheduler)
         self._hooks.reset(snapshot, episode_config.audit)
 
         service_health = {service.id: 1.0 for service in snapshot.world.services}
@@ -672,6 +686,7 @@ class OpenRangeRuntime:
         target_entity: str,
         malicious: bool,
         observability_surfaces: tuple[str, ...],
+        detail: str | None = None,
         suspicious: bool = False,
         suspicious_reasons: tuple[str, ...] = (),
         green_reactive: bool = True,
@@ -687,6 +702,7 @@ class OpenRangeRuntime:
             target_entity=target_entity,
             malicious=malicious,
             observability_surfaces=observability_surfaces,
+            detail=detail,
             suspicious=suspicious,
             suspicious_reasons=suspicious_reasons,
             telemetry_delay=_telemetry_delay(self._episode_config),
