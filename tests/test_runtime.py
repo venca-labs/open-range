@@ -1152,6 +1152,46 @@ def test_green_branch_backends_are_not_aliases(tmp_path: Path):
     )
 
 
+def test_npc_offline_mode_uses_scripted_scheduler(tmp_path: Path):
+    snapshot = _snapshot(tmp_path)
+    runtime = OpenRangeRuntime()
+
+    runtime.reset(
+        snapshot,
+        EpisodeConfig(
+            mode="joint_pool",
+            green_enabled=True,
+            green_branch_backend="npc",
+            npc_mode="offline",
+        ),
+    )
+
+    assert isinstance(runtime.green_scheduler, ScriptedGreenScheduler)
+
+
+def test_npc_online_mode_requires_model_credentials(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+):
+    monkeypatch.delenv("NVIDIA_API_KEY", raising=False)
+    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+    snapshot = _snapshot(tmp_path)
+    runtime = OpenRangeRuntime()
+
+    with pytest.raises(
+        RuntimeError,
+        match="requires NVIDIA_API_KEY or OPENAI_API_KEY",
+    ):
+        runtime.reset(
+            snapshot,
+            EpisodeConfig(
+                mode="joint_pool",
+                green_enabled=True,
+                green_branch_backend="npc",
+                npc_mode="online",
+            ),
+        )
+
+
 def test_small_llm_green_branch_handles_profiled_susceptibility_maps(tmp_path: Path):
     payload = _manifest_payload()
     payload["npc_profiles"] = {

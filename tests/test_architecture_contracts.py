@@ -21,8 +21,11 @@ ALLOWED_ROOT_FILES = {
 }
 
 SHARED_SUPPORT_PACKAGES = {
+    "agents",
+    "builder",
     "config",
     "contracts",
+    "dashboard",
     "sdk",
     "support",
 }
@@ -103,6 +106,8 @@ ALLOWED_STAGE_IMPORTS = {
         "weaknesses",
     },
     "runtime": {
+        "agents",
+        "builder",
         "catalog",
         "config",
         "contracts",
@@ -125,8 +130,11 @@ ALLOWED_STAGE_IMPORTS = {
 }
 
 ALLOWED_SUPPORT_IMPORTS = {
+    "agents": {"config", "contracts", "runtime"},
+    "builder": {"contracts"},
     "config": {"manifest"},
     "contracts": {"catalog", "manifest"},
+    "dashboard": {"config", "contracts", "render", "runtime", "sdk", "store"},
     "support": {"contracts"},
     "sdk": {"config", "contracts", "render", "runtime", "store"},
 }

@@ -22,6 +22,11 @@ ROLE_DEFAULT_SPECS: tuple[PersonaDefaultsSpec, ...] = (
         routine=_DEFAULT_ROLE_DEFAULTS.routine,
     ),
     PersonaDefaultsSpec(
+        role="executive",
+        home_service="svc-web",
+        routine=_DEFAULT_ROLE_DEFAULTS.routine,
+    ),
+    PersonaDefaultsSpec(
         role="finance",
         home_service="svc-fileshare",
         routine=("check_mail", "open_payroll_dashboard", "access_fileshare"),
@@ -30,6 +35,11 @@ ROLE_DEFAULT_SPECS: tuple[PersonaDefaultsSpec, ...] = (
         role="it_admin",
         home_service="svc-idp",
         routine=("review_idp", "triage_alerts", "reset_password"),
+    ),
+    PersonaDefaultsSpec(
+        role="security",
+        home_service="svc-siem",
+        routine=("triage_alerts", "browse_app", "query_db"),
     ),
 )
 
