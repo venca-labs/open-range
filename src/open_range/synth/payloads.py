@@ -22,6 +22,13 @@ def web_index_html(world: WorldIR) -> str:
         )
         or "<li>No web-hosted assets</li>"
     )
+    route_links = (
+        "\n".join(
+            f'<li><a href="{route}">{route}</a></li>'
+            for route in web_public_routes(world)
+        )
+        or "<li>No public routes listed</li>"
+    )
     return textwrap.dedent(
         f"""\
         <html>
@@ -29,6 +36,11 @@ def web_index_html(world: WorldIR) -> str:
           <body>
             <h1>{world.business_archetype}</h1>
             <p>OpenRange seeded portal for {world.world_id}</p>
+            <h2>Application Routes</h2>
+            <ul>
+              {route_links}
+            </ul>
+            <h2>Hosted Assets</h2>
             <ul>
               {asset_links}
             </ul>
@@ -36,6 +48,19 @@ def web_index_html(world: WorldIR) -> str:
         </html>
         """
     )
+
+
+def web_public_routes(world: WorldIR) -> tuple[str, ...]:
+    routes = {
+        realization.path.removeprefix("/var/www/html")
+        for weakness in world.weaknesses
+        for realization in weakness.realization
+        if realization.service == "svc-web"
+        and realization.kind == "code"
+        and realization.path.startswith("/var/www/html/")
+        and realization.path != "/var/www/html/index.html"
+    }
+    return tuple(sorted(route for route in routes if route))
 
 
 def db_init_sql(world: WorldIR) -> str:

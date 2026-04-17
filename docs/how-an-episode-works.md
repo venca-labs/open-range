@@ -112,12 +112,11 @@ single-step CTF flag submission.
 
 Blue reference traces are built from the red traces.
 
-The planner identifies the first red step that should be visible to blue,
-constructs the observation path to it, then builds a minimal defense trace:
+The planner identifies the first red step that should be visible to blue and
+then builds a minimal defense trace once that activity should be observable:
 
-1. observe enough telemetry
-2. submit a finding
-3. contain the relevant target
+1. submit a finding
+2. contain the relevant target
 
 This means admission is not only proving that the world is exploitable. It is
 also proving that the world is defensible under its declared telemetry and
@@ -201,6 +200,13 @@ What `next_decision()` does:
 So `next_decision()` is not a simple alternating turn API. It is the public
 surface of an asynchronous event loop.
 
+The environment boundary stays narrow:
+
+- `Observation` is the current public state only
+- `ActionResult` is the immediate result of the action that was just executed
+- conversation history, scratchpads, and agent memory belong in the agent
+  framework, not in the environment contract
+
 ## What Red Does During The Episode
 
 Red tries to move forward on the offensive path and satisfy terminal objectives.
@@ -209,9 +215,10 @@ If red is internal, runtime usually follows the next reference attack step.
 If red is external, your policy turns observations into concrete `Action`
 objects and submits them through `act()`.
 
-Red progress is grounded by the hidden reference path and by objective/event
-checks. The red side is not rewarded for nice prose or for merely naming an
-attack category. It has to cause the right state changes and effects.
+Red progress is grounded by public effects, emitted runtime events, reachable
+targets, and objective checks. The red side is not rewarded for nice prose or
+for merely naming an attack category. It has to cause the right state changes
+and effects.
 
 ## What Blue Does During The Episode
 

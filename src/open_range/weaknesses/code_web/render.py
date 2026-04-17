@@ -34,7 +34,7 @@ def code_web_realization_content(
         )
     if realization.path == effect_marker_path(weakness):
         return ""
-    return _route_template(world, weakness)
+    return _route_template(world, weakness).lstrip()
 
 
 def _route_template(world: WorldIR, weakness: WeaknessSpec) -> str:
@@ -52,13 +52,21 @@ def _route_template(world: WorldIR, weakness: WeaknessSpec) -> str:
                 return;
             }}
             $q = $_GET['q'] ?? '';
-            $sql = "SELECT asset_id FROM assets WHERE asset_id = '" . $q . "'";
-            if (stripos($q, 'union select') !== false || strpos($q, "' OR '1'='1") !== false) {{
+            $sql = "SELECT asset_id FROM assets WHERE asset_id = '" . $q . "' AND tenant_scope = 'catalog'";
+            if (stripos($q, 'union select') !== false || preg_match("/\\bor\\s+'?1'?\\s*=\\s*'?1'?\\b/i", $q)) {{
                 echo file_get_contents('{target_foothold_path}');
                 return;
             }}
             header('Content-Type: text/plain');
-            echo "sql=" . $sql;
+            if ((strpos($q, "'--") !== false || strpos($q, "'#") !== false) && stripos($q, 'admin') !== false) {{
+                echo "search field: q\nbackend query: " . $sql . "\nrows: 1\nasset id: admin-console";
+                return;
+            }}
+            if (substr_count($q, "'") % 2 === 1 && strpos($q, "--") === false) {{
+                echo "search field: q\nbackend query: " . $sql . "\nsql error: syntax error near '" . $q . "'";
+                return;
+            }}
+            echo "search field: q\nbackend query: " . $sql . "\nrows: 0";
             ?>
             """
         )

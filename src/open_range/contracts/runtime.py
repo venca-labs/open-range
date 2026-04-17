@@ -92,6 +92,13 @@ class ServiceHealth(_StrictModel):
 
 
 class Observation(_StrictModel):
+    """Current public environment state for one external actor decision.
+
+    This surface is intentionally stateless from the agent-framework point of
+    view: it carries the current observation only, not prior action results,
+    scratchpad state, or chat history.
+    """
+
     model_config = ConfigDict(extra="forbid", frozen=True)
 
     actor_id: str
@@ -115,6 +122,12 @@ class Decision(_StrictModel):
 
 
 class ActionResult(_StrictModel):
+    """Immediate result of one executed action.
+
+    Action-local stdout/stderr, emitted events, and reward deltas live here
+    rather than being folded back into `Observation` as implicit history.
+    """
+
     model_config = ConfigDict(extra="forbid", frozen=True)
 
     action: Action
@@ -141,6 +154,7 @@ class EpisodeState(_StrictModel):
     done: bool = False
     winner: Literal["red", "blue", "timeout", "failure", ""] = ""
     terminal_reason: str = ""
+    execution_mode: Literal["offline", "live"] = "offline"
     continuity: float = Field(default=1.0, ge=0.0, le=1.0)
     service_health: dict[str, float] = Field(default_factory=dict)
     red_objectives_satisfied: tuple[str, ...] = Field(default_factory=tuple)

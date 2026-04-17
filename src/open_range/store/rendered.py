@@ -22,7 +22,7 @@ def integrate_network_policies(
         return artifacts
 
     chart_values = dict(artifacts.chart_values)
-    generator = CiliumPolicyGenerator(name_prefix=chart_values["global"]["namePrefix"])
+    generator = CiliumPolicyGenerator(name_prefix="{{ $.Values.global.namePrefix }}")
     policies = generator.generate_zone_policies(
         chart_values["zones"],
         chart_values["firewallRules"],

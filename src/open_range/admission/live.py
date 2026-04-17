@@ -119,8 +119,9 @@ def check_live_service_smoke(world: WorldIR, release) -> ValidatorCheckReport:
         cmd = _smoke_probe_command(service)
         last_error = "smoke failed"
         ok = False
-        attempts = 10 if service.kind == "db" else 3
-        retry_delay_s = 2.0 if service.kind == "db" else 1.0
+        slow_start_service = service.kind == "db" or service.id == "svc-email"
+        attempts = 10 if slow_start_service else 3
+        retry_delay_s = 2.0 if slow_start_service else 1.0
         for attempt in range(attempts):
             result = run_async(release.pods.exec(runner, cmd, timeout=10.0))
             if result.ok:

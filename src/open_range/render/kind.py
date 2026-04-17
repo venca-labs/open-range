@@ -122,7 +122,15 @@ class EnterpriseSaaSKindRenderer:
         services: dict[str, dict[str, Any]] = {}
         for service in world.services:
             host = host_by_id[service.host]
-            services[service.id] = {
+            payloads = [
+                {
+                    "key": synth_file.key,
+                    "mountPath": synth_file.mount_path,
+                    "content": synth_file.content,
+                }
+                for synth_file in synth.service_payloads.get(service.id, ())
+            ]
+            rendered_service = {
                 "enabled": True,
                 "host": service.host,
                 "zone": host.zone,
@@ -133,15 +141,12 @@ class EnterpriseSaaSKindRenderer:
                 "telemetry_surfaces": list(service.telemetry_surfaces),
                 "env": _service_env(service),
                 "command": _service_command(service),
-                "payloads": [
-                    {
-                        "key": synth_file.key,
-                        "mountPath": synth_file.mount_path,
-                        "content": synth_file.content,
-                    }
-                    for synth_file in synth.service_payloads.get(service.id, ())
-                ],
+                "payloads": payloads,
             }
+            helper = _service_asset_bridge(service, payloads)
+            if helper is not None:
+                rendered_service["sidecars"] = [helper]
+            services[service.id] = rendered_service
 
         sandboxes = {
             "sandbox-red": {
@@ -268,6 +273,7 @@ def _service_env(service: ServiceSpec) -> dict[str, str]:
     if service.kind == "email":
         return {
             "MAILNAME": "corp.local",
+            "ALLOWED_SENDER_DOMAINS": "corp.local",
         }
     if service.kind == "fileshare":
         return {
@@ -304,6 +310,50 @@ def _service_command(service: ServiceSpec) -> list[str]:
             ),
         ]
     return []
+
+
+def _service_asset_bridge(
+    service: ServiceSpec, payloads: list[dict[str, str]]
+) -> dict[str, Any] | None:
+    if service.id == "svc-idp":
+        bridge_payloads = [
+            payload
+            for payload in payloads
+            if payload["mountPath"].startswith("/var/lib/openrange/secrets/")
+        ]
+        if not bridge_payloads:
+            return None
+        return {
+            "name": "openrange-asset-bridge",
+            "image": service_image_for_kind("siem"),
+            "command": [
+                "/bin/sh",
+                "-lc",
+                "busybox httpd -f -p 8080 -h /var/lib/openrange/secrets",
+            ],
+            "ports": [{"name": "asset-http", "port": 8080}],
+            "payloads": bridge_payloads,
+        }
+    if service.id == "svc-fileshare":
+        bridge_payloads = [
+            payload
+            for payload in payloads
+            if payload["mountPath"].startswith("/srv/shared/")
+        ]
+        if not bridge_payloads:
+            return None
+        return {
+            "name": "openrange-asset-bridge",
+            "image": service_image_for_kind("siem"),
+            "command": [
+                "/bin/sh",
+                "-lc",
+                "busybox httpd -f -p 8080 -h /srv/shared",
+            ],
+            "ports": [{"name": "asset-http", "port": 8080}],
+            "payloads": bridge_payloads,
+        }
+    return None
 
 
 def _firewall_rules(

@@ -45,7 +45,12 @@ class OpenRange:
         split: PoolSplit = "train",
         strategy: str = "random",
         sample_seed: int | None = None,
+        require_live: bool = False,
     ) -> EpisodeState:
+        if require_live and self.live_backend is None:
+            raise RuntimeError(
+                "live runtime required, but no live_backend is configured"
+            )
         snapshot = (
             load_runtime_snapshot(self.store, snapshot_id)
             if snapshot_id is not None
@@ -100,3 +105,7 @@ class OpenRange:
     @property
     def live_release(self) -> BootedRelease | None:
         return self._live_release
+
+    @property
+    def execution_mode(self) -> str:
+        return "live" if self._live_release is not None else "offline"

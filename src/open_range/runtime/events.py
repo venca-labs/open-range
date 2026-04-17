@@ -233,6 +233,8 @@ def visible_events_for_actor(
     event_visibility: Mapping[str, Mapping[str, float]],
     sim_time: float,
 ) -> tuple[RuntimeEvent, ...]:
+    if actor == "red":
+        return ()
     visible: list[RuntimeEvent] = []
     for event in events:
         if event.id in observed_event_ids:

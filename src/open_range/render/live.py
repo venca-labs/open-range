@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import platform
 import shutil
 import subprocess
 import time
@@ -18,11 +19,34 @@ from open_range.support.async_utils import run_async
 logger = logging.getLogger(__name__)
 
 
+_COMMON_BINARY_DIRS: tuple[str, ...] = (
+    "~/.local/bin",
+    "/opt/homebrew/bin",
+    "/usr/local/bin",
+    "/snap/bin",
+    "/usr/bin",
+)
+
+
+def resolve_host_binary(name: str) -> str | None:
+    """Resolve a host binary even when PATH is incomplete."""
+    resolved = shutil.which(name)
+    if resolved:
+        return resolved
+    for raw_dir in _COMMON_BINARY_DIRS:
+        candidate = Path(raw_dir).expanduser() / name
+        if candidate.is_file():
+            return str(candidate)
+    return None
+
+
 def resolve_kubectl_cmd(kind_cluster: str = "openrange") -> tuple[str, ...]:
     """Return a usable kubectl command prefix."""
-    if shutil.which("kubectl"):
-        return ("kubectl",)
-    return ("docker", "exec", f"{kind_cluster}-control-plane", "kubectl")
+    kubectl = resolve_host_binary("kubectl")
+    if kubectl:
+        return (kubectl,)
+    docker = resolve_host_binary("docker") or "docker"
+    return (docker, "exec", f"{kind_cluster}-control-plane", "kubectl")
 
 
 @dataclass(frozen=True, slots=True)
@@ -264,6 +288,9 @@ class KindBackend:
         self.health_timeout_s = health_timeout_s
         self.health_poll_interval_s = health_poll_interval_s
         self.kind_cluster = kind_cluster
+        self.helm_bin = resolve_host_binary("helm") or "helm"
+        self.kind_bin = resolve_host_binary("kind") or "kind"
+        self.docker_bin = resolve_host_binary("docker") or "docker"
         self.kubectl_cmd = resolve_kubectl_cmd(kind_cluster)
 
     def boot(self, *, snapshot_id: str, artifacts_dir: Path) -> BootedRelease:
@@ -293,10 +320,23 @@ class KindBackend:
         return release
 
     def teardown(self, release: BootedRelease) -> None:
-        self._run(
-            ["helm", "uninstall", release.release_name, "--wait"],
-            timeout=self.uninstall_timeout_s,
-        )
+        try:
+            self._run(
+                [self.helm_bin, "uninstall", release.release_name],
+                timeout=min(self.uninstall_timeout_s, 30.0),
+            )
+        except Exception as exc:  # noqa: BLE001
+            logger.warning(
+                "failed to uninstall release %s: %s", release.release_name, exc
+            )
+        try:
+            self._delete_release_namespaces(release.release_name, release.chart_dir)
+        except Exception as exc:  # noqa: BLE001
+            logger.warning(
+                "failed to delete namespaces for release %s: %s",
+                release.release_name,
+                exc,
+            )
 
     def wait_until_healthy(self, release: BootedRelease, services: list[str]) -> None:
         deadline = time.monotonic() + self.health_timeout_s
@@ -342,21 +382,59 @@ class KindBackend:
         return f"or-{safe}"[:53]
 
     def _helm_install(self, release_name: str, chart_dir: Path) -> None:
+        args = [
+            self.helm_bin,
+            "upgrade",
+            "--install",
+            release_name,
+            str(chart_dir),
+            "--set-string",
+            f"global.namePrefix={release_name}",
+            "--wait",
+            "--timeout",
+            f"{int(self.install_timeout_s)}s",
+        ]
+        try:
+            self._run(args, timeout=self.install_timeout_s + 30.0)
+        except RuntimeError as exc:
+            if "has no deployed releases" not in str(exc):
+                raise
+            try:
+                self._run(
+                    [self.helm_bin, "uninstall", release_name],
+                    timeout=self.uninstall_timeout_s,
+                )
+            except RuntimeError:
+                pass
+            self._run(args, timeout=self.install_timeout_s + 30.0)
+
+    def _delete_release_namespaces(self, release_name: str, chart_dir: Path) -> None:
+        namespaces = self._release_namespaces(release_name, chart_dir)
+        if not namespaces:
+            return
         self._run(
             [
-                "helm",
-                "upgrade",
-                "--install",
-                release_name,
-                str(chart_dir),
-                "--set-string",
-                f"global.namePrefix={release_name}",
-                "--wait",
-                "--timeout",
-                f"{int(self.install_timeout_s)}s",
+                *self.kubectl_cmd,
+                "delete",
+                "namespace",
+                *namespaces,
+                "--ignore-not-found=true",
+                "--wait=true",
+                f"--timeout={int(self.uninstall_timeout_s)}s",
             ],
-            timeout=self.install_timeout_s + 30.0,
+            timeout=self.uninstall_timeout_s + 10.0,
         )
+
+    @staticmethod
+    def _release_namespaces(release_name: str, chart_dir: Path) -> tuple[str, ...]:
+        values_path = chart_dir / "values.yaml"
+        if not values_path.exists():
+            return ()
+        values = yaml.safe_load(values_path.read_text(encoding="utf-8")) or {}
+        zones = values.get("zones")
+        if not isinstance(zones, dict):
+            return ()
+        return tuple(f"{release_name}-{zone_name}" for zone_name in zones)
 
     def _discover_pods(self, release_name: str) -> dict[str, str]:
         result = self._run(
@@ -449,24 +527,61 @@ class KindBackend:
     def _ensure_image_loaded(self, image: str) -> None:
         if not image:
             return
-        if not self._docker_image_present(image):
+        if self._docker_image_architecture(image) != self._host_architecture():
             self._run(
-                ["docker", "pull", image], timeout=max(self.install_timeout_s, 300.0)
+                [
+                    self.docker_bin,
+                    "pull",
+                    "--platform",
+                    f"linux/{self._host_architecture()}",
+                    image,
+                ],
+                timeout=max(self.install_timeout_s, 300.0),
             )
         self._run(
-            ["kind", "load", "docker-image", image, "--name", self.kind_cluster],
+            [self.kind_bin, "load", "docker-image", image, "--name", self.kind_cluster],
             timeout=max(self.install_timeout_s, 300.0),
         )
 
     @staticmethod
     def _docker_image_present(image: str) -> bool:
+        docker_bin = resolve_host_binary("docker") or "docker"
         result = subprocess.run(
-            ["docker", "image", "inspect", image],
+            [docker_bin, "image", "inspect", image],
             capture_output=True,
             text=True,
             check=False,
         )
         return result.returncode == 0
+
+    @classmethod
+    def _docker_image_architecture(cls, image: str) -> str:
+        docker_bin = resolve_host_binary("docker") or "docker"
+        result = subprocess.run(
+            [
+                docker_bin,
+                "image",
+                "inspect",
+                image,
+                "--format",
+                "{{.Architecture}}",
+            ],
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        if result.returncode != 0:
+            return ""
+        return result.stdout.strip()
+
+    @staticmethod
+    def _host_architecture() -> str:
+        machine = platform.machine().lower()
+        if machine in {"x86_64", "amd64"}:
+            return "amd64"
+        if machine in {"aarch64", "arm64"}:
+            return "arm64"
+        return machine
 
     @staticmethod
     def _run(

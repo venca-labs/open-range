@@ -16,10 +16,120 @@ from open_range.training.data import (
 )
 from open_range.training.trace_exports import public_trace_action
 
+_MODEL_OPERATION_BY_KIND = {
+    "api": "http_request",
+    "shell": "run_command",
+    "mail": "send_mail",
+    "control": "apply_control",
+    "submit_finding": "report_finding",
+    "sleep": "wait",
+}
+_KIND_BY_MODEL_OPERATION = {
+    operation: kind for kind, operation in _MODEL_OPERATION_BY_KIND.items()
+}
+
+
+def _model_action_object(action: Action) -> dict[str, Any]:
+    public_action = public_trace_action(action)
+    payload = dict(public_action.payload)
+    operation = _MODEL_OPERATION_BY_KIND[public_action.kind]
+    result: dict[str, Any] = {
+        "operation": operation,
+        "timeout_s": public_action.timeout_s,
+    }
+    if operation == "http_request":
+        if "target" in payload:
+            result["target"] = payload["target"]
+        if "path" in payload:
+            result["path"] = payload["path"]
+        if "query" in payload:
+            result["query"] = payload["query"]
+        return result
+    if operation == "run_command":
+        if "target" in payload:
+            result["target"] = payload["target"]
+        if "command" in payload:
+            result["command"] = payload["command"]
+        if "path" in payload:
+            result["path"] = payload["path"]
+        return result
+    if operation == "send_mail":
+        if "target" in payload:
+            result["target"] = payload["target"]
+        if "to" in payload:
+            result["recipient"] = payload["to"]
+        if "subject" in payload:
+            result["subject"] = payload["subject"]
+        return result
+    if operation == "apply_control":
+        if "target" in payload:
+            result["target"] = payload["target"]
+        if "action" in payload:
+            result["directive"] = payload["action"]
+        return result
+    if operation == "report_finding":
+        if "target" in payload:
+            result["target"] = payload["target"]
+        event_type = payload.get("event_type", payload.get("event"))
+        if event_type is not None:
+            result["finding_type"] = event_type
+        return result
+    return result
+
+
+def runtime_action_input_from_model_payload(
+    payload: dict[str, Any], *, actor_id: str, role: Literal["red", "blue"]
+) -> dict[str, Any]:
+    candidate = dict(payload)
+    operation = candidate.get("operation")
+    if not isinstance(operation, str):
+        operation = candidate.get("type")
+    if not isinstance(operation, str):
+        action_field = candidate.get("action")
+        if isinstance(action_field, str) and action_field in _KIND_BY_MODEL_OPERATION:
+            operation = action_field
+    if isinstance(operation, str):
+        mapped_kind = _KIND_BY_MODEL_OPERATION.get(operation)
+        if mapped_kind is None:
+            raise ValueError(f"unknown operation: {operation}")
+        runtime_payload: dict[str, Any] = {}
+        if mapped_kind == "api":
+            for key in ("target", "path", "query"):
+                if key in candidate:
+                    runtime_payload[key] = candidate[key]
+        elif mapped_kind == "shell":
+            for key in ("target", "command", "path"):
+                if key in candidate:
+                    runtime_payload[key] = candidate[key]
+        elif mapped_kind == "mail":
+            if "target" in candidate:
+                runtime_payload["target"] = candidate["target"]
+            if "recipient" in candidate:
+                runtime_payload["to"] = candidate["recipient"]
+            if "subject" in candidate:
+                runtime_payload["subject"] = candidate["subject"]
+        elif mapped_kind == "control":
+            if "target" in candidate:
+                runtime_payload["target"] = candidate["target"]
+            if "directive" in candidate:
+                runtime_payload["action"] = candidate["directive"]
+        elif mapped_kind == "submit_finding":
+            if "target" in candidate:
+                runtime_payload["target"] = candidate["target"]
+            if "finding_type" in candidate:
+                runtime_payload["event_type"] = candidate["finding_type"]
+        return {
+            "actor_id": actor_id,
+            "role": role,
+            "kind": mapped_kind,
+            "payload": runtime_payload,
+            "timeout_s": candidate.get("timeout_s", 30.0),
+        }
+    return dict(payload)
+
 
 def render_action_completion(action: Action) -> str:
-    public_action = public_trace_action(action)
-    return json.dumps(public_action.model_dump(mode="json"), sort_keys=True)
+    return json.dumps(_model_action_object(action), sort_keys=True)
 
 
 def row_to_sft_record(row: TraceDecisionRow) -> dict[str, Any]:
@@ -100,7 +210,7 @@ def build_decision_prompt(
     visible = _visible_event_lines(observation.visible_events)
     lines = [
         f"sim_time={observation.sim_time:.2f}\n"
-        f"last_stdout={observation.stdout or 'none'}\n"
+        f"observation_stdout={observation.stdout or 'none'}\n"
         f"alerts_delta={len(observation.alerts_delta)}\n"
         f"service_health={_service_health_text(observation)}\n"
         f"visible_events:\n{visible}\n"
@@ -134,19 +244,24 @@ def build_decision_prompt(
 
 def system_prompt_for_role(role: Literal["red", "blue"]) -> str:
     contract = (
-        "Respond with exactly one OpenRange Action JSON object with keys "
-        "actor_id, role, kind, payload, and timeout_s. Do not add prose."
+        "Return exactly one concrete action. If a tool or function interface is "
+        "available, use it. Otherwise return a JSON object with keys operation "
+        "and timeout_s plus any needed fields like target, path, query, "
+        "command, recipient, subject, directive, or finding_type. Do not invent hosts, services, "
+        "credentials, secrets, tokens, prior access, or hidden state."
     )
     if role == "red":
         return (
-            "You are the red operator in OpenRange. "
-            "Choose the next concrete runtime action that best advances the current path. "
-            + contract
+            "You are a skilled cybersecurity professional conducting an authorized "
+            "penetration test in a scoped security exercise. "
+            "Choose the next concrete action that best advances the assessment "
+            "from the current observation. " + contract
         )
     return (
-        "You are the blue operator in OpenRange. "
-        "Choose the next concrete runtime action that best detects or mitigates the attack while preserving continuity. "
-        + contract
+        "You are a skilled cybersecurity professional responding to an active "
+        "security incident in a scoped security exercise. "
+        "Choose the next concrete action that best detects, contains, or "
+        "mitigates the attack while preserving continuity. " + contract
     )
 
 

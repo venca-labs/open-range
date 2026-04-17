@@ -60,8 +60,15 @@ class TandemEpisodeDriver:
             snapshot_id=snapshot.snapshot_id, episode_id=state.episode_id
         )
 
-        while not self.runtime.state().done:
-            decision = self.runtime.next_decision()
+        while True:
+            if self.runtime.state().done:
+                break
+            try:
+                decision = self.runtime.next_decision()
+            except RuntimeError:
+                if self.runtime.state().done:
+                    break
+                raise
             agent = red_agent if decision.actor == "red" else blue_agent
             action = agent.act(decision.obs)
             result = self.runtime.act(decision.actor, action)

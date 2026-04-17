@@ -3,6 +3,9 @@ apiVersion: v1
 kind: Namespace
 metadata:
   name: {{ $.Values.global.namePrefix }}-{{ $zoneName }}
+  annotations:
+    "helm.sh/hook": pre-install
+    "helm.sh/hook-weight": "-100"
   labels:
     {{- include "openrange.labels" $ | nindent 4 }}
     openrange/zone: {{ $zoneName }}

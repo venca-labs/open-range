@@ -370,12 +370,14 @@ def command_text_for_action(action: Action) -> str:
         subject = str(action.payload.get("subject", "routine update"))
         return f"mail {target or 'svc-email'} {sender} {recipient} {subject}"
     if action.kind == "api":
+        method = str(action.payload.get("method", "")).strip().upper()
         path = str(action.payload.get("path", "/") or "/")
         query = action.payload.get("query", {})
         query_text = ""
         if isinstance(query, dict) and query:
             query_text = " " + json.dumps(query, sort_keys=True, separators=(",", ":"))
-        return f"api {target} {path}{query_text}".strip()
+        method_text = f"{method} " if method else ""
+        return f"api {method_text}{target} {path}{query_text}".strip()
     if action.kind == "control":
         directive = control_directive(action, default="contain")
         return f"{directive} {target}".strip()

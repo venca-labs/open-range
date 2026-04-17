@@ -56,6 +56,8 @@ def test_service_reset_loads_snapshot_and_primes_first_decision(tmp_path: Path):
     assert state.next_actor == "red"
     assert state.controls_red is True
     assert state.controls_blue is True
+    assert state.execution_mode == "offline"
+    assert service.execution_mode == "offline"
 
 
 def test_service_can_sample_held_out_eval_pool(tmp_path: Path):
@@ -182,7 +184,26 @@ def test_service_boots_and_tears_down_live_release(tmp_path: Path):
         snapshot.snapshot_id, EpisodeConfig(mode="joint_pool", green_enabled=False)
     )
     assert service.live_release is not None
+    assert service.execution_mode == "live"
+    assert service.state().execution_mode == "live"
     service.close()
 
     assert calls[0].startswith("boot:")
     assert calls[-1].startswith("down:")
+
+
+def test_service_reset_can_require_live_runtime(tmp_path: Path):
+    service, train_snapshot, _eval_snapshot = _service_and_snapshots(tmp_path)
+
+    try:
+        service.reset(
+            train_snapshot.snapshot_id,
+            EpisodeConfig(mode="joint_pool", green_enabled=False),
+            require_live=True,
+        )
+    except RuntimeError as exc:
+        assert "live runtime required" in str(exc)
+    else:
+        raise AssertionError(
+            "expected reset(require_live=True) to fail without live backend"
+        )

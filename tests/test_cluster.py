@@ -128,6 +128,60 @@ def test_kind_backend_boot_validates_runtime_env_before_install(
     assert calls[1] == ("prepare", chart_dir)
 
 
+def test_kind_backend_teardown_deletes_release_namespaces(
+    tmp_path: Path, monkeypatch
+) -> None:
+    chart_dir = tmp_path / "openrange"
+    chart_dir.mkdir()
+    (chart_dir / "values.yaml").write_text(
+        "zones:\n  external: {}\n  internal: {}\n", encoding="utf-8"
+    )
+    backend = KindBackend(uninstall_timeout_s=45.0)
+    calls: list[tuple[tuple[str, ...], float]] = []
+
+    def fake_run(args, *, timeout):
+        calls.append((tuple(args), timeout))
+        return CompletedProcess(list(args), 0, stdout="", stderr="")
+
+    monkeypatch.setattr(KindBackend, "_run", staticmethod(fake_run))
+
+    release = cluster_mod.BootedRelease(
+        release_name="or-demo",
+        chart_dir=chart_dir,
+        artifacts_dir=tmp_path,
+        pods=PodSet(project_name="or-demo"),
+    )
+    backend.teardown(release)
+
+    assert calls[0][0][:2] == (backend.helm_bin, "uninstall")
+    kubectl_len = len(backend.kubectl_cmd)
+    assert calls[1][0][: kubectl_len + 2] == (
+        *backend.kubectl_cmd,
+        "delete",
+        "namespace",
+    )
+    assert calls[1][0][kubectl_len + 2 : kubectl_len + 4] == (
+        "or-demo-external",
+        "or-demo-internal",
+    )
+    assert "--ignore-not-found=true" in calls[1][0]
+    assert "--wait=true" in calls[1][0]
+    assert "--timeout=45s" in calls[1][0]
+
+
+def test_namespace_template_runs_as_pre_install_hook() -> None:
+    template_path = (
+        Path(cluster_mod.__file__).resolve().parent.parent
+        / "chart"
+        / "templates"
+        / "namespaces.yaml"
+    )
+    content = template_path.read_text(encoding="utf-8")
+
+    assert '"helm.sh/hook": pre-install' in content
+    assert '"helm.sh/hook-weight": "-100"' in content
+
+
 def test_k3d_backend_requires_ready_cilium_even_without_cilium_chart(
     tmp_path: Path, monkeypatch
 ) -> None:

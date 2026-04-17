@@ -37,16 +37,18 @@ def test_decision_prompt_and_completion_are_structured() -> None:
 
     assert "candidate_actions:" not in prompt
     assert "visible_events:" in prompt
+    assert "observation_stdout=" in prompt
+    assert "last_stdout=" not in prompt
     assert "prompt_mode=" not in prompt
     assert "snapshot_id=" not in prompt
     assert "benchmark_tags=" not in prompt
     assert "weaknesses:" not in prompt
-    assert '"kind": "api"' in completion
+    assert '"operation": "http_request"' in completion
     assert '"path": "/search"' in completion
-    assert (
-        "Respond with exactly one OpenRange Action JSON object"
-        in system_prompt_for_role("red")
-    )
+    system_prompt = system_prompt_for_role("red")
+    assert "OpenRange" not in system_prompt
+    assert "red operator" not in system_prompt
+    assert "authorized penetration test" in system_prompt
 
 
 def test_decision_prompt_can_optionally_include_hidden_context() -> None:
@@ -72,3 +74,16 @@ def test_decision_prompt_can_optionally_include_hidden_context() -> None:
     assert "action_source=reference_runtime" in prompt
     assert "benchmark_tags=cve_bench" in prompt
     assert "weaknesses:" in prompt
+
+
+def test_observation_and_action_result_stay_separate_contracts() -> None:
+    from open_range.contracts.runtime import ActionResult
+
+    observation_schema = Observation.model_json_schema()
+    result_schema = ActionResult.model_json_schema()
+
+    assert "action" not in observation_schema["properties"]
+    assert "emitted_events" not in observation_schema["properties"]
+    assert "stdout" in observation_schema["properties"]
+    assert "action" in result_schema["properties"]
+    assert "emitted_events" in result_schema["properties"]
