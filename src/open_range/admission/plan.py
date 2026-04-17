@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
+from open_range.admission.checks import builtin_admission_check_specs
 from open_range.config import BuildConfig
 
 
@@ -14,73 +15,57 @@ class AdmissionStagePlan:
     requires_references: bool = False
 
 
-def admission_stages(build_config: BuildConfig) -> tuple[AdmissionStagePlan, ...]:
-    static_stage = AdmissionStagePlan(
+_PROFILE_STAGE_NAMES: dict[str, tuple[str, ...]] = {
+    "graph_only": ("static", "security"),
+    "graph_plus_live": (
         "static",
-        (
-            "manifest_compliance",
-            "graph_consistency",
-            "path_solvability",
-            "objective_grounding",
-            "topology_workflow_consistency",
-        ),
-    )
-    security_stage = AdmissionStagePlan(
         "security",
-        (
-            "identity_enforcement",
-            "encryption_enforcement",
-            "mtls_enforcement",
-        ),
-    )
-    live_stage = AdmissionStagePlan(
         "live",
-        (
-            "render_outputs",
-            "service_health",
-            "siem_ingest",
-            "isolation",
-            "difficulty_envelope",
-        ),
-    )
-    reference_stages = (
-        AdmissionStagePlan(
-            "red_reference", ("red_reference",), requires_references=True
-        ),
-        AdmissionStagePlan(
-            "blue_reference", ("blue_reference",), requires_references=True
-        ),
-    )
-    advanced_stages = (
-        AdmissionStagePlan("necessity", ("necessity",), requires_references=True),
-        AdmissionStagePlan("shortcut", ("shortcut_probes",), requires_references=True),
-        AdmissionStagePlan("determinism", ("determinism",), requires_references=True),
-    )
-    security_stages = (security_stage,) if build_config.security_enabled else ()
+        "red_reference",
+        "blue_reference",
+    ),
+    "no_necessity": (
+        "static",
+        "security",
+        "live",
+        "red_reference",
+        "blue_reference",
+        "shortcut",
+        "determinism",
+    ),
+    "full": (
+        "static",
+        "security",
+        "live",
+        "red_reference",
+        "blue_reference",
+        "necessity",
+        "shortcut",
+        "determinism",
+    ),
+}
 
-    if build_config.validation_profile == "graph_only":
-        return (static_stage, *security_stages)
-    if build_config.validation_profile == "graph_plus_live":
-        return (static_stage, *security_stages, live_stage) + reference_stages
-    if build_config.validation_profile == "no_necessity":
-        return (
-            static_stage,
-            *security_stages,
-            live_stage,
-            *reference_stages,
-            AdmissionStagePlan(
-                "shortcut", ("shortcut_probes",), requires_references=True
-            ),
-            AdmissionStagePlan(
-                "determinism", ("determinism",), requires_references=True
-            ),
+
+def admission_stages(build_config: BuildConfig) -> tuple[AdmissionStagePlan, ...]:
+    stage_names = _PROFILE_STAGE_NAMES[build_config.validation_profile]
+    if not build_config.security_enabled:
+        stage_names = tuple(name for name in stage_names if name != "security")
+
+    stage_checks: dict[str, list[str]] = {}
+    stage_requires_references: dict[str, bool] = {}
+    for spec in builtin_admission_check_specs():
+        stage_checks.setdefault(spec.stage, []).append(spec.name)
+        stage_requires_references[spec.stage] = (
+            stage_requires_references.get(spec.stage, False) or spec.requires_references
         )
-    return (
-        static_stage,
-        *security_stages,
-        live_stage,
-        *reference_stages,
-        *advanced_stages,
+
+    return tuple(
+        AdmissionStagePlan(
+            name=stage_name,
+            check_names=tuple(stage_checks[stage_name]),
+            requires_references=stage_requires_references.get(stage_name, False),
+        )
+        for stage_name in stage_names
     )
 
 

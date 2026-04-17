@@ -1,11 +1,13 @@
 from __future__ import annotations
 
+from open_range.admission.checks import builtin_admission_check_specs
 from open_range.admission.plan import admission_stages
 from open_range.admission.registry import registered_admission_checks
 from open_range.config import BuildConfig
 
 
-def test_admission_stage_plan_only_references_registered_checks() -> None:
+def test_admission_stage_plan_matches_builtin_check_specs() -> None:
+    builtin = {spec.name for spec in builtin_admission_check_specs()}
     planned: set[str] = set()
     for build_config in (
         BuildConfig(validation_profile="full"),
@@ -21,4 +23,5 @@ def test_admission_stage_plan_only_references_registered_checks() -> None:
         for stage in admission_stages(build_config):
             planned.update(stage.check_names)
 
-    assert planned == set(registered_admission_checks())
+    assert planned == builtin
+    assert set(registered_admission_checks()) == builtin

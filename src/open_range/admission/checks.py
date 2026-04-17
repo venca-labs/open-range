@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+from dataclasses import dataclass
 from pathlib import Path
 
 from open_range.admission.encryption import check_encryption_enforcement
@@ -30,6 +31,14 @@ from open_range.contracts.world import WorldIR
 from open_range.objectives.engine import PredicateEngine
 from open_range.runtime.replay import run_red_reference
 from open_range.weaknesses import remediation_command_for_weakness
+
+
+@dataclass(frozen=True, slots=True)
+class BuiltinAdmissionCheckSpec:
+    name: str
+    fn: CheckFunc
+    stage: str
+    requires_references: bool = False
 
 
 def _check_manifest_compliance(
@@ -547,28 +556,73 @@ def _mailbox_leak_allowed(world: WorldIR, ref: str) -> bool:
     )
 
 
-_BUILTIN_ADMISSION_CHECKS: tuple[tuple[str, CheckFunc], ...] = (
-    ("manifest_compliance", _check_manifest_compliance),
-    ("graph_consistency", _check_graph_consistency),
-    ("path_solvability", _check_path_solvability),
-    ("objective_grounding", _check_objective_grounding),
-    ("topology_workflow_consistency", _check_workflow_consistency),
-    ("render_outputs", _check_render_outputs),
-    ("identity_enforcement", _check_identity_enforcement),
-    ("encryption_enforcement", _check_encryption_enforcement),
-    ("mtls_enforcement", _check_mtls_enforcement),
-    ("service_health", _check_service_health_contract),
-    ("siem_ingest", _check_siem_ingest),
-    ("isolation", _check_isolation),
-    ("difficulty_envelope", _check_difficulty_envelope),
-    ("red_reference", _check_red_reference),
-    ("blue_reference", _check_blue_reference),
-    ("necessity", _check_necessity),
-    ("shortcut_probes", _check_shortcut_probes),
-    ("determinism", _check_determinism),
+_BUILTIN_ADMISSION_CHECKS: tuple[BuiltinAdmissionCheckSpec, ...] = (
+    BuiltinAdmissionCheckSpec(
+        "manifest_compliance", _check_manifest_compliance, stage="static"
+    ),
+    BuiltinAdmissionCheckSpec("graph_consistency", _check_graph_consistency, "static"),
+    BuiltinAdmissionCheckSpec("path_solvability", _check_path_solvability, "static"),
+    BuiltinAdmissionCheckSpec(
+        "objective_grounding", _check_objective_grounding, "static"
+    ),
+    BuiltinAdmissionCheckSpec(
+        "topology_workflow_consistency", _check_workflow_consistency, "static"
+    ),
+    BuiltinAdmissionCheckSpec(
+        "identity_enforcement", _check_identity_enforcement, stage="security"
+    ),
+    BuiltinAdmissionCheckSpec(
+        "encryption_enforcement", _check_encryption_enforcement, stage="security"
+    ),
+    BuiltinAdmissionCheckSpec(
+        "mtls_enforcement", _check_mtls_enforcement, stage="security"
+    ),
+    BuiltinAdmissionCheckSpec("render_outputs", _check_render_outputs, stage="live"),
+    BuiltinAdmissionCheckSpec(
+        "service_health", _check_service_health_contract, stage="live"
+    ),
+    BuiltinAdmissionCheckSpec("siem_ingest", _check_siem_ingest, stage="live"),
+    BuiltinAdmissionCheckSpec("isolation", _check_isolation, stage="live"),
+    BuiltinAdmissionCheckSpec(
+        "difficulty_envelope", _check_difficulty_envelope, stage="live"
+    ),
+    BuiltinAdmissionCheckSpec(
+        "red_reference",
+        _check_red_reference,
+        stage="red_reference",
+        requires_references=True,
+    ),
+    BuiltinAdmissionCheckSpec(
+        "blue_reference",
+        _check_blue_reference,
+        stage="blue_reference",
+        requires_references=True,
+    ),
+    BuiltinAdmissionCheckSpec(
+        "necessity",
+        _check_necessity,
+        stage="necessity",
+        requires_references=True,
+    ),
+    BuiltinAdmissionCheckSpec(
+        "shortcut_probes",
+        _check_shortcut_probes,
+        stage="shortcut",
+        requires_references=True,
+    ),
+    BuiltinAdmissionCheckSpec(
+        "determinism",
+        _check_determinism,
+        stage="determinism",
+        requires_references=True,
+    ),
 )
 
 
+def builtin_admission_check_specs() -> tuple[BuiltinAdmissionCheckSpec, ...]:
+    return _BUILTIN_ADMISSION_CHECKS
+
+
 def register_builtin_admission_checks() -> None:
-    for name, check in _BUILTIN_ADMISSION_CHECKS:
-        register_admission_check(name, check)
+    for spec in _BUILTIN_ADMISSION_CHECKS:
+        register_admission_check(spec.name, spec.fn)
