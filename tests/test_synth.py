@@ -3,6 +3,7 @@ from __future__ import annotations
 from pathlib import Path
 
 from open_range.admit import LocalAdmissionController
+from open_range.code_web import code_web_simulated_output
 from open_range.compiler import EnterpriseSaaSManifestCompiler
 from open_range.render import EnterpriseSaaSKindRenderer
 from open_range.synth import EnterpriseSaaSWorldSynthesizer
@@ -117,7 +118,14 @@ def test_synthesizer_realizes_exact_code_web_templates_and_witness_routes(
         )
         if kind == "sql_injection":
             route_file = next(file for file in web_payloads if file.mount_path == route)
-            assert 'echo "param=q\nsql=" . $sql;' in route_file.content
+            assert (
+                'echo "search field: q\nbackend query: " . $sql . "\nrows: 0";'
+                in route_file.content
+            )
+            assert "tenant_scope = 'catalog'" in route_file.content
+            assert "rows: 1" in route_file.content
+            assert "asset id: admin-console" in route_file.content
+            assert "rows: 0" in route_file.content
         artifacts = EnterpriseSaaSKindRenderer().render(
             world, synth, tmp_path / f"{kind}-render"
         )
@@ -144,6 +152,50 @@ def test_synthesizer_realizes_exact_code_web_templates_and_witness_routes(
             if file.mount_path == "/var/www/html/index.html"
         )
         assert route.removeprefix("/var/www/html") in index_file.content
+
+
+def test_code_web_sql_injection_simulated_output_exposes_useful_gradient():
+    payload = _manifest_payload()
+    payload["security"]["code_flaw_kinds"] = ["sql_injection"]
+    payload["security"]["pinned_weaknesses"] = [
+        {
+            "family": "code_web",
+            "kind": "sql_injection",
+            "target": "service:web_app",
+        }
+    ]
+    world = CatalogWeaknessSeeder().apply(
+        EnterpriseSaaSManifestCompiler().compile(payload)
+    )
+    weakness = world.weaknesses[0]
+
+    baseline = code_web_simulated_output(
+        world,
+        weakness,
+        path="/search.php",
+        query={"q": "admin"},
+    )
+    assert baseline is not None
+    assert "rows: 0" in baseline
+
+    comment_probe = code_web_simulated_output(
+        world,
+        weakness,
+        path="/search.php",
+        query={"q": "admin'--"},
+    )
+    assert comment_probe is not None
+    assert "rows: 1" in comment_probe
+    assert "asset id: admin-console" in comment_probe
+
+    foothold = code_web_simulated_output(
+        world,
+        weakness,
+        path="/search.php",
+        query={"q": "' OR 1=1--"},
+    )
+    assert foothold is not None
+    assert foothold.startswith("OPENRANGE-FOOTHOLD:")
 
 
 def test_synthesizer_realizes_required_non_code_catalog(tmp_path: Path):

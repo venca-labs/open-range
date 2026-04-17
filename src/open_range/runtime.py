@@ -1247,6 +1247,8 @@ class OpenRangeRuntime:
         )
 
     def _visible_events(self, actor: ExternalRole) -> tuple[RuntimeEvent, ...]:
+        if actor == "red":
+            return ()
         visible: list[RuntimeEvent] = []
         for event in self._events:
             if event.id in self._observed_event_ids[actor]:
@@ -1259,13 +1261,6 @@ class OpenRangeRuntime:
                 if event.observability_surfaces:
                     visible.append(event)
                 continue
-            if event.actor in {"green", "red"} or event.event_type in {
-                "ContainmentApplied",
-                "PatchApplied",
-                "RecoveryCompleted",
-                "ServiceDegraded",
-            }:
-                visible.append(event)
         return tuple(visible)
 
     def _is_visible_to(self, actor: ExternalRole, event: RuntimeEvent) -> bool:
@@ -1362,7 +1357,6 @@ class OpenRangeRuntime:
 
     def _briefing_text(self, actor: ExternalRole) -> str:
         world = self._require_snapshot().world
-        objectives = world.red_objectives if actor == "red" else world.blue_objectives
         public_services = ",".join(
             service.id
             for service in world.services
@@ -1372,31 +1366,145 @@ class OpenRangeRuntime:
             f"briefing_mode={self._episode_config.prompt_mode}",
             f"business={world.business_archetype}",
             f"public_services={public_services or 'none'}",
-            f"objectives={'; '.join(objective.predicate for objective in objectives) or 'none'}",
+            f"public_entrypoints={self._briefing_public_entrypoints(world) or 'none'}",
         ]
-        if self._episode_config.prompt_mode == "one_day":
-            surfaces = ", ".join(
-                self._briefing_surface_summary(world, weak)
-                for weak in world.weaknesses
-                if weak.family != "telemetry_blindspot" or actor == "blue"
+        if actor == "red":
+            lines.append(
+                f"mission={'; '.join(self._red_briefing_goals(world)) or 'none'}"
             )
-            lines.append(f"known_risky_surfaces={surfaces or 'none'}")
+        else:
+            lines.append(
+                f"mission={'; '.join(self._blue_briefing_goals(world)) or 'none'}"
+            )
+        if self._episode_config.prompt_mode == "one_day" and actor == "red":
+            lines.append(
+                f"public_attack_surfaces={self._briefing_public_attack_surfaces(world) or 'none'}"
+            )
         return "\n".join(lines)
 
+    def _briefing_public_attack_surfaces(self, world) -> str:
+        public_services = [
+            service
+            for service in world.services
+            if self._predicates and self._predicates.is_public_service(service)
+        ]
+        if not public_services:
+            return ""
+        labels: list[str] = []
+        kind_labels = {
+            "web_app": "public web surface",
+            "email": "public email surface",
+            "idp": "public identity surface",
+            "fileshare": "public file-sharing surface",
+            "db": "public database surface",
+            "siem": "public telemetry surface",
+        }
+        for service in public_services:
+            labels.append(
+                kind_labels.get(service.kind, f"public {service.kind} surface")
+            )
+        seen: set[str] = set()
+        unique_labels = [
+            label for label in labels if not (label in seen or seen.add(label))
+        ]
+        return ", ".join(unique_labels)
+
+    def _briefing_public_entrypoints(self, world) -> str:
+        public_services = [
+            service
+            for service in world.services
+            if self._predicates and self._predicates.is_public_service(service)
+        ]
+        if not public_services:
+            return ""
+        entrypoints: list[str] = []
+        for service in public_services:
+            if service.kind == "web_app":
+                for port in service.ports:
+                    if port == 80:
+                        entrypoints.append(f"http://{service.id}:{port}/")
+                    elif port == 443:
+                        entrypoints.append(f"https://{service.id}:{port}/")
+                    else:
+                        entrypoints.append(f"http://{service.id}:{port}/")
+                continue
+            if service.kind == "email":
+                protocol_by_port = {
+                    25: "smtp",
+                    587: "submission",
+                    993: "imaps",
+                }
+                for port in service.ports:
+                    protocol = protocol_by_port.get(port, "tcp")
+                    entrypoints.append(f"{protocol}://{service.id}:{port}")
+                continue
+            for port in service.ports:
+                entrypoints.append(f"tcp://{service.id}:{port}")
+        return ", ".join(entrypoints)
+
     @staticmethod
-    def _briefing_surface_summary(world, weak) -> str:
-        service = next(
-            (service for service in world.services if service.id == weak.target), None
-        )
-        service_label = service.kind if service is not None else weak.target_kind
-        family_label = {
-            "code_web": "web surface",
-            "config_identity": "identity surface",
-            "secret_exposure": "secret surface",
-            "workflow_abuse": "workflow surface",
-            "telemetry_blindspot": "telemetry gap",
-        }.get(weak.family, weak.family)
-        return f"{service_label} {family_label}"
+    def _red_briefing_goals(world) -> tuple[str, ...]:
+        goals: list[str] = []
+        for objective in world.red_objectives:
+            goal = OpenRangeRuntime._briefing_goal_text(objective.predicate)
+            if goal:
+                goals.append(goal)
+        return tuple(goals)
+
+    @staticmethod
+    def _blue_briefing_goals(world) -> tuple[str, ...]:
+        goals: list[str] = []
+        for objective in world.blue_objectives:
+            goal = OpenRangeRuntime._briefing_goal_text(objective.predicate)
+            if goal:
+                goals.append(goal)
+        return tuple(goals)
+
+    @staticmethod
+    def _briefing_goal_text(predicate: str) -> str:
+        name, _, rest = predicate.partition("(")
+        raw_arg = rest[:-1] if rest.endswith(")") else rest
+        arg = OpenRangeRuntime._briefing_goal_arg_text(raw_arg)
+        mapping = {
+            "credential_obtained": lambda value: (
+                "obtain administrative credentials"
+                if raw_arg.endswith("_cred") or "admin" in raw_arg
+                else f"obtain {value}"
+            ),
+            "asset_read": lambda value: (
+                "read sensitive documents"
+                if "docs" in raw_arg or "document" in raw_arg
+                else f"read {value}"
+            ),
+            "intrusion_detected": lambda value: (
+                "detect initial access quickly"
+                if raw_arg == "initial_access"
+                else f"detect intrusion before {value}"
+            ),
+            "intrusion_contained": lambda value: (
+                "contain intrusion before sensitive data is read"
+                if raw_arg == "before_asset_read"
+                else f"contain intrusion before {value}"
+            ),
+            "service_health_above": lambda value: (
+                f"keep service health at or above {value}"
+            ),
+        }
+        formatter = mapping.get(name)
+        if formatter is None:
+            return predicate.replace("_", " ")
+        return formatter(arg)
+
+    @staticmethod
+    def _briefing_goal_arg_text(value: str) -> str:
+        text = value.replace("_", " ").strip()
+        if text.endswith(" cred"):
+            return text[:-5] + " credentials"
+        if text.endswith(" creds"):
+            return text[:-6] + " credentials"
+        if text.endswith(" docs"):
+            return text[:-5] + " documents"
+        return text
 
     def _execute_live_action(self, action: Action) -> ActionExecution:
         if self.action_backend is None:

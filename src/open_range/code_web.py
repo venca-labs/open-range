@@ -135,10 +135,22 @@ def code_web_simulated_output(
         return None
     params = {str(key): str(value) for key, value in (query or {}).items()}
     if weakness.kind == "sql_injection":
-        needle = params.get("q", "").lower()
+        raw_q = params.get("q", "")
+        needle = raw_q.lower()
+        sql = (
+            "SELECT asset_id FROM assets WHERE asset_id = "
+            f"'{params.get('q', '')}' AND tenant_scope = 'catalog'"
+        )
         if "union select" in needle or _looks_like_tautology_injection(needle):
             return f"{_foothold_token(world, weakness)}\n"
-        return f"param=q\nsql=SELECT asset_id FROM assets WHERE asset_id = '{params.get('q', '')}'"
+        if _looks_like_comment_probe(needle):
+            return (
+                f"search field: q\nbackend query: {sql}\nrows: 1\n"
+                "asset id: admin-console"
+            )
+        if raw_q.count("'") % 2 == 1 and "--" not in needle:
+            return f"search field: q\nbackend query: {sql}\nsql error: syntax error near {raw_q!r}"
+        return f"search field: q\nbackend query: {sql}\nrows: 0"
     if weakness.kind == "broken_authorization":
         if params.get("record") != "admin-console":
             return None
@@ -222,13 +234,21 @@ def _route_template(world: WorldIR, weakness: WeaknessSpec) -> str:
                 return;
             }}
             $q = $_GET['q'] ?? '';
-            $sql = "SELECT asset_id FROM assets WHERE asset_id = '" . $q . "'";
+            $sql = "SELECT asset_id FROM assets WHERE asset_id = '" . $q . "' AND tenant_scope = 'catalog'";
             header('Content-Type: text/plain');
             if (stripos($q, 'union select') !== false || preg_match("/\\bor\\s+'?1'?\\s*=\\s*'?1'?\\b/i", $q)) {{
                 echo file_get_contents('{foothold_path}');
                 return;
             }}
-            echo "param=q\nsql=" . $sql;
+            if ((strpos($q, "'--") !== false || strpos($q, "'#") !== false) && stripos($q, 'admin') !== false) {{
+                echo "search field: q\nbackend query: " . $sql . "\nrows: 1\nasset id: admin-console";
+                return;
+            }}
+            if (substr_count($q, "'") % 2 === 1 && strpos($q, "--") === false) {{
+                echo "search field: q\nbackend query: " . $sql . "\nsql error: syntax error near '" . $q . "'";
+                return;
+            }}
+            echo "search field: q\nbackend query: " . $sql . "\nrows: 0";
             ?>
             """
         )
@@ -360,6 +380,10 @@ def _preferred_asset(world: WorldIR) -> str:
 
 def _foothold_token(world: WorldIR, weakness: WeaknessSpec) -> str:
     return f"OPENRANGE-FOOTHOLD:{world.world_id}:{weakness.id}"
+
+
+def _looks_like_comment_probe(text: str) -> bool:
+    return ("'--" in text or "'#" in text) and "admin" in text
 
 
 def _looks_like_tautology_injection(text: str) -> bool:
