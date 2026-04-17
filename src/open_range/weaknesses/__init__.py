@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import random
-from typing import Protocol
+from typing import Any
 
 from open_range.catalog.weaknesses import (
     default_target_kind_for_family,
@@ -19,10 +19,7 @@ from open_range.contracts.world import (
     WeaknessSpec,
     WorldIR,
 )
-from open_range.manifest import (
-    PinnedWeaknessSpec,
-    WeaknessFamily,
-)
+from open_range.manifest import WeaknessFamily
 from open_range.objectives.engine import PredicateEngine
 
 from ..objectives.effects import effect_marker_cleanup_command, effect_marker_service
@@ -50,7 +47,6 @@ from .families.common import (
 
 __all__ = [
     "CatalogWeaknessSeeder",
-    "WeaknessSeeder",
     "build_catalog_weakness",
     "build_reference_plan_for_weakness",
     "cleanup_steps_for_weakness",
@@ -64,43 +60,6 @@ __all__ = [
 ]
 
 
-class WeaknessSeeder(Protocol):
-    def apply(self, world: WorldIR, seed: int | None = None) -> WorldIR: ...
-
-
-class WeaknessFamilyModule(Protocol):
-    def build(self, context: WeaknessBuildContext) -> WeaknessSpec: ...
-    def seed_defaults(self, world: WorldIR) -> tuple[str, str]: ...
-    def default_kind(self, world: WorldIR, target: str, target_ref: str) -> str: ...
-    def normalize_target(
-        self,
-        world: WorldIR,
-        kind: str,
-        target: str,
-        target_kind: str,
-        target_ref: str,
-    ) -> tuple[str, str, str]: ...
-    def mutation_target_service(self, world: WorldIR) -> str | None: ...
-    def mutation_spec(
-        self,
-        world: WorldIR,
-        target_service: str,
-    ) -> tuple[str, str, str]: ...
-    def build_red_reference_plan(
-        self,
-        world: WorldIR,
-        engine: PredicateEngine,
-        start: str,
-        weakness: WeaknessSpec,
-    ) -> RedReferencePlan: ...
-    def render_realization_content(
-        self,
-        world: WorldIR,
-        weakness: WeaknessSpec,
-        realization: WeaknessRealizationSpec,
-    ) -> str: ...
-
-
 class CatalogWeaknessSeeder:
     """Apply a bounded deterministic weakness catalog to a compiled world."""
 
@@ -108,8 +67,18 @@ class CatalogWeaknessSeeder:
         rng = random.Random(world.seed if seed is None else seed)
         if world.pinned_weaknesses:
             weaknesses = tuple(
-                _build_pinned_weakness(world, pinned)
+                build_catalog_weakness(
+                    world,
+                    pinned.family,
+                    kind=pinned.kind,
+                    target=target,
+                    target_kind=target_kind,
+                    target_ref=target_ref,
+                )
                 for pinned in world.pinned_weaknesses
+                for target, target_kind, target_ref in [
+                    resolve_pinned_target(world, pinned.target)
+                ]
             )
         else:
             selected = selected_seed_families_for_world(world, rng=rng)
@@ -127,7 +96,7 @@ class CatalogWeaknessSeeder:
         return world.model_copy(update={"weaknesses": weaknesses, "lineage": lineage})
 
 
-_FAMILY_MODULES: dict[str, WeaknessFamilyModule] = {
+_FAMILY_MODULES: dict[str, Any] = {
     "code_web": code_web_family,
     "workflow_abuse": workflow_abuse_family,
     "secret_exposure": secret_exposure_family,
@@ -136,10 +105,10 @@ _FAMILY_MODULES: dict[str, WeaknessFamilyModule] = {
 }
 
 
-def _family_module(family: str, *, label: str) -> WeaknessFamilyModule:
+def _family_module(family: str) -> Any:
     module = _FAMILY_MODULES.get(family)
     if module is None:
-        raise ValueError(f"unsupported weakness family {family!r} for {label}")
+        raise ValueError(f"unsupported weakness family {family!r}")
     return module
 
 
@@ -155,7 +124,7 @@ def build_catalog_weakness(
 ) -> WeaknessSpec:
     if not is_supported_weakness_kind(family, kind):
         raise ValueError(f"unsupported kind {kind!r} for family {family!r}")
-    module = _family_module(family, label="builder")
+    module = _family_module(family)
     target, target_kind, target_ref = module.normalize_target(
         world, kind, target, target_kind, target_ref
     )
@@ -187,7 +156,7 @@ def build_catalog_weakness(
 
 
 def seed_catalog_weakness(world: WorldIR, family: str) -> WeaknessSpec:
-    module = _family_module(family, label="seed defaults")
+    module = _family_module(family)
     target, target_ref = module.seed_defaults(world)
     return build_catalog_weakness(
         world,
@@ -200,10 +169,7 @@ def seed_catalog_weakness(world: WorldIR, family: str) -> WeaknessSpec:
 
 
 def mutation_target_service(world: WorldIR, family: str) -> str | None:
-    return _family_module(
-        family,
-        label="mutation target service",
-    ).mutation_target_service(world)
+    return _family_module(family).mutation_target_service(world)
 
 
 def mutation_spec(
@@ -211,9 +177,7 @@ def mutation_spec(
     family: str,
     target_service: str,
 ) -> tuple[str, str, str]:
-    return _family_module(family, label="mutation spec").mutation_spec(
-        world, target_service
-    )
+    return _family_module(family).mutation_spec(world, target_service)
 
 
 def build_reference_plan_for_weakness(
@@ -222,10 +186,9 @@ def build_reference_plan_for_weakness(
     start: str,
     weakness: WeaknessSpec,
 ) -> RedReferencePlan:
-    return _family_module(
-        weakness.family,
-        label="red reference builder",
-    ).build_red_reference_plan(world, engine, start, weakness)
+    return _family_module(weakness.family).build_red_reference_plan(
+        world, engine, start, weakness
+    )
 
 
 def render_realization_content(
@@ -233,10 +196,9 @@ def render_realization_content(
     weakness: WeaknessSpec,
     realization: WeaknessRealizationSpec,
 ) -> str:
-    return _family_module(
-        weakness.family,
-        label="realization renderer",
-    ).render_realization_content(world, weakness, realization)
+    return _family_module(weakness.family).render_realization_content(
+        world, weakness, realization
+    )
 
 
 def supported_weakness_kinds(family: WeaknessFamily) -> tuple[str, ...]:
@@ -266,15 +228,3 @@ def remediation_command_for_weakness(weakness: WeaknessSpec) -> str:
     if weakness.remediation.startswith("shell:"):
         return weakness.remediation.removeprefix("shell:").strip()
     return ""
-
-
-def _build_pinned_weakness(world: WorldIR, pinned: PinnedWeaknessSpec) -> WeaknessSpec:
-    target, target_kind, target_ref = resolve_pinned_target(world, pinned.target)
-    return build_catalog_weakness(
-        world,
-        pinned.family,
-        kind=pinned.kind,
-        target=target,
-        target_kind=target_kind,
-        target_ref=target_ref,
-    )
