@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from open_range.catalog.services import service_catalog_entry_for_kind
-from open_range.world_ir import EdgeSpec, HostSpec, ServiceSpec
+from open_range.contracts.world import EdgeSpec, HostSpec, ServiceSpec
 
 
 def compile_service_topology(

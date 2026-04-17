@@ -10,8 +10,8 @@ from typing import Any
 import yaml
 
 from open_range.config import BuildConfig
+from open_range.contracts.snapshot import KindArtifacts
 from open_range.render import CiliumPolicyGenerator
-from open_range.snapshot import KindArtifacts
 
 
 def integrate_network_policies(

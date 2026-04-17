@@ -6,6 +6,7 @@ from typing import Any
 
 from open_range.compiler import EnterpriseSaaSManifestCompiler
 from open_range.config import BuildConfig
+from open_range.contracts.world import WorldIR
 from open_range.manifest import EnterpriseSaaSManifest, validate_manifest
 from open_range.render import (
     EnterpriseSaaSKindRenderer,
@@ -15,7 +16,6 @@ from open_range.render import (
 )
 from open_range.render.security.runtime import SecurityRuntimeSpec
 from open_range.weaknesses import CatalogWeaknessSeeder
-from open_range.world_ir import WorldIR
 
 
 def prepare_world(

@@ -7,8 +7,8 @@ from typing import Literal
 from pydantic import BaseModel, ConfigDict, Field
 
 from open_range.config import BuildConfig, EpisodeConfig
+from open_range.contracts.runtime import Action, Observation, RuntimeEvent
 from open_range.objectives import StandardAttackObjective
-from open_range.runtime_types import Action, Observation, RuntimeEvent
 
 TraceSource = Literal["runtime", "sim"]
 TraceSplit = Literal["train", "val", "test"]

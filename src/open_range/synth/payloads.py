@@ -4,13 +4,13 @@ from __future__ import annotations
 
 import textwrap
 
-from open_range.weaknesses import render_realization_content
-from open_range.world_ir import (
+from open_range.contracts.world import (
     AssetSpec,
     WeaknessRealizationSpec,
     WeaknessSpec,
     WorldIR,
 )
+from open_range.weaknesses import render_realization_content
 
 
 def web_index_html(world: WorldIR) -> str:

@@ -8,12 +8,12 @@ from pathlib import Path
 from typing import Any
 
 from open_range.config import OFFLINE_BUILD_CONFIG, BuildConfig, EpisodeConfig
+from open_range.contracts.snapshot import RuntimeSnapshot
 from open_range.runtime import OpenRangeRuntime
 from open_range.runtime.replay import (
     action_for_reference_step,
     reference_trace_pairs,
 )
-from open_range.snapshot import RuntimeSnapshot
 from open_range.store import BuildPipeline, FileSnapshotStore, hydrate_runtime_snapshot
 from open_range.training.curriculum import FrontierMutationPolicy, PopulationStats
 from open_range.training.data import (

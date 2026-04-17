@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-from open_range.world_ir import WorldIR
+from open_range.contracts.world import WorldIR
 
 from .models import SynthArtifacts, SynthFile
 from .payloads import (

@@ -6,7 +6,7 @@ from collections import deque
 from collections.abc import Mapping
 from dataclasses import dataclass
 
-from open_range.world_ir import AssetSpec, ServiceSpec, WeaknessSpec, WorldIR
+from open_range.contracts.world import AssetSpec, ServiceSpec, WeaknessSpec, WorldIR
 
 from .evaluation import evaluate_red_objectives
 from .expr import predicate_inner

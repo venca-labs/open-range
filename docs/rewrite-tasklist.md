@@ -37,7 +37,7 @@ This is the target, not the current state:
   - `open_range.catalog`
 - support packages for shared contracts and config:
   - `open_range.config`
-  - later `open_range.contracts` if the remaining root contract files move
+  - `open_range.contracts`
 
 ## Top-Level Story
 
@@ -142,12 +142,12 @@ story.
 - [ ] remove stale compatibility helpers
 - [x] add a test guardrail so new top-level helper modules fail fast
 - [ ] shrink the top-level package surface
-  - current branch state: root `src/open_range/*.py` files are down to `7`
-  - recent cuts moved `runtime`, `weaknesses`, `manifest`, `compiler`, `synth`, `render`, `admission`, `store`, and `training` behind subsystem packages, and moved shared build and episode config under `open_range.config`
+  - current branch state: root `src/open_range/*.py` files are down to `4`
+  - recent cuts moved `runtime`, `weaknesses`, `manifest`, `compiler`, `synth`, `render`, `admission`, `store`, and `training` behind subsystem packages, moved shared build and episode config under `open_range.config`, and moved world, snapshot, and runtime contracts under `open_range.contracts`
 - [ ] move shared root config/contracts behind support packages so the root reads
   like stage entrypoints instead of contract clutter
-  - start with `build_config.py` and `episode_config.py`
-  - then move `runtime_types.py`, `snapshot.py`, and `world_ir.py`
+  - [x] move `build_config.py` and `episode_config.py` under `open_range.config`
+  - [x] move `runtime_types.py`, `snapshot.py`, and `world_ir.py` under `open_range.contracts`
   - keep the architecture contract test aligned with the new root story
 
 ## Immediate Next Slice
@@ -156,7 +156,7 @@ The next real win is:
 
 1. finish the remaining `code_web` offline simulation split now that the subsystem is packaged
 2. keep behavior stable with parity tests before deleting the old logic
-3. collapse any remaining root-module compatibility seams that no longer buy us anything
+3. move the remaining root support clutter such as `async_utils.py`, `resources.py`, and `service.py` behind clearer support or sdk-facing package names
 
 ## Next Large Targets
 

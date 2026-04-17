@@ -3,10 +3,10 @@
 from __future__ import annotations
 
 from open_range.admission import ReferenceBundle
-from open_range.snapshot import RuntimeSnapshot, Snapshot
+from open_range.contracts.snapshot import RuntimeSnapshot, Snapshot
+from open_range.contracts.world import WorldIR
 from open_range.store.core import FileSnapshotStore, PoolSplit
 from open_range.store.paths import reference_bundle_path, world_path
-from open_range.world_ir import WorldIR
 
 
 def load_world_ir(store: FileSnapshotStore, snapshot_id: str) -> WorldIR:

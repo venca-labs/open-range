@@ -2,12 +2,12 @@
 
 from __future__ import annotations
 
+from open_range.contracts.world import WeaknessRealizationSpec, WeaknessSpec, WorldIR
 from open_range.objectives.effects import (
     effect_marker_path,
     effect_marker_service,
     effect_marker_token,
 )
-from open_range.world_ir import WeaknessRealizationSpec, WeaknessSpec, WorldIR
 
 from .common import (
     CodeWebTemplate,

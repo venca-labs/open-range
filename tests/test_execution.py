@@ -5,14 +5,14 @@ from types import SimpleNamespace
 
 import pytest
 
+from open_range.contracts.runtime import Action, IntegritySample
+from open_range.contracts.world import ServiceSpec
 from open_range.render.live import ExecResult
 from open_range.runtime.execution import (
     PodActionBackend,
     select_live_red_origin,
     simulate_action_execution,
 )
-from open_range.runtime_types import Action, IntegritySample
-from open_range.world_ir import ServiceSpec
 
 
 def test_mail_command_quotes_smtp_payload_and_target() -> None:

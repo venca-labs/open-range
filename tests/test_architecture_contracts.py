@@ -16,9 +16,6 @@ SRC_ROOT = REPO_ROOT / "src" / "open_range"
 ALLOWED_ROOT_FILES = {
     "__init__.py",
     "async_utils.py",
-    "runtime_types.py",
-    "snapshot.py",
-    "world_ir.py",
     "resources.py",
     "service.py",
     "cli.py",
@@ -26,15 +23,13 @@ ALLOWED_ROOT_FILES = {
 
 SHARED_ROOT_MODULES = {
     "async_utils",
-    "runtime_types",
-    "snapshot",
-    "world_ir",
     "resources",
     "service",
 }
 
 SHARED_SUPPORT_PACKAGES = {
     "config",
+    "contracts",
 }
 
 REQUIRED_STAGE_PACKAGES = {

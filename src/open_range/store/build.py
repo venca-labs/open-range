@@ -8,12 +8,12 @@ from typing import Any
 from open_range.admission.controller import LocalAdmissionController
 from open_range.compiler import EnterpriseSaaSManifestCompiler
 from open_range.config import DEFAULT_BUILD_CONFIG, BuildConfig
+from open_range.contracts.snapshot import Snapshot
+from open_range.contracts.world import WorldIR
 from open_range.manifest import EnterpriseSaaSManifest
 from open_range.render import EnterpriseSaaSKindRenderer, SecurityIntegrator
-from open_range.snapshot import Snapshot
 from open_range.synth import EnterpriseSaaSWorldSynthesizer
 from open_range.weaknesses import CatalogWeaknessSeeder
-from open_range.world_ir import WorldIR
 
 from .core import FileSnapshotStore, PoolSplit
 from .models import CandidateWorld

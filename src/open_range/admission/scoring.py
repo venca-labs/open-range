@@ -7,8 +7,8 @@ from open_range.admission.models import (
     ValidatorCheckReport,
     ValidatorStageReport,
 )
+from open_range.contracts.world import WorldIR
 from open_range.objectives.engine import PredicateEngine
-from open_range.world_ir import WorldIR
 
 
 def report_summary(

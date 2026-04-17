@@ -6,9 +6,9 @@ import textwrap
 
 from open_range.admission.models import ReferenceAction
 from open_range.catalog.probes import reference_action_for_weakness_family
+from open_range.contracts.world import WeaknessRealizationSpec, WeaknessSpec, WorldIR
 from open_range.objectives.engine import PredicateEngine
 from open_range.objectives.expr import predicate_inner
-from open_range.world_ir import WeaknessRealizationSpec, WeaknessSpec, WorldIR
 
 from .common import (
     RedReferencePlan,

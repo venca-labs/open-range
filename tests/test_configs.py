@@ -8,6 +8,7 @@ import pytest
 
 from open_range.compiler import EnterpriseSaaSManifestCompiler
 from open_range.config import BuildConfig, EpisodeConfig
+from open_range.contracts.world import WorldIR
 from open_range.manifest import validate_manifest
 from open_range.render import (
     DB_MTLS_HELPER_IMAGE,
@@ -21,7 +22,6 @@ from open_range.render import (
 from open_range.store import BuildPipeline, FileSnapshotStore, hydrate_runtime_snapshot
 from open_range.synth import EnterpriseSaaSWorldSynthesizer
 from open_range.weaknesses import CatalogWeaknessSeeder
-from open_range.world_ir import WorldIR
 from tests.support import manifest_payload
 
 

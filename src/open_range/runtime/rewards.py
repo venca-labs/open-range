@@ -5,7 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Any
 
-from open_range.runtime_types import Action
+from open_range.contracts.runtime import Action
 
 _RED_MILESTONES = frozenset(
     {

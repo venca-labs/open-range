@@ -7,10 +7,10 @@ from typing import Protocol
 from pydantic import BaseModel, ConfigDict, Field
 
 from open_range.config import EpisodeConfig
+from open_range.contracts.runtime import Action
+from open_range.contracts.snapshot import RuntimeSnapshot
 from open_range.runtime import OpenRangeRuntime
 from open_range.runtime.replay import action_for_reference_step
-from open_range.runtime_types import Action
-from open_range.snapshot import RuntimeSnapshot
 
 
 class _StrictModel(BaseModel):

@@ -5,6 +5,8 @@ from __future__ import annotations
 from collections.abc import Mapping
 from dataclasses import dataclass
 
+from open_range.contracts.runtime import Action, ExternalRole, RuntimeEvent
+from open_range.contracts.snapshot import RuntimeSnapshot
 from open_range.objectives.engine import PredicateEngine
 from open_range.runtime.events import (
     EmitEvent,
@@ -13,8 +15,6 @@ from open_range.runtime.events import (
 )
 from open_range.runtime.execution import ActionExecution
 from open_range.runtime.replay import action_for_reference_step
-from open_range.runtime_types import Action, ExternalRole, RuntimeEvent
-from open_range.snapshot import RuntimeSnapshot
 
 SERVICE_HEALTH_BLUE_OBJECTIVE = "service_health_above(0.9)"
 BLUE_DETECTION_OBJECTIVE = "intrusion_detected(initial_access)"

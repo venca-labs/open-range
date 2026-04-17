@@ -4,11 +4,11 @@ from __future__ import annotations
 
 import textwrap
 
+from open_range.contracts.world import WeaknessRealizationSpec, WeaknessSpec, WorldIR
 from open_range.objectives.effects import (
     effect_marker_content,
     effect_marker_path,
 )
-from open_range.world_ir import WeaknessRealizationSpec, WeaknessSpec, WorldIR
 
 from .common import (
     foothold_path,

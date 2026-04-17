@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from open_range.runtime_types import Action, Observation
+from open_range.contracts.runtime import Action, Observation
 from open_range.training.data import TraceLineage
 from open_range.training.decision_sft import (
     build_decision_prompt,

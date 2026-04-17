@@ -10,16 +10,16 @@ from open_range.catalog.weaknesses import (
     selected_seed_families_for_world,
     supported_weakness_kinds_for_family,
 )
+from open_range.contracts.world import (
+    WeaknessRealizationSpec,
+    WeaknessSpec,
+    WorldIR,
+)
 from open_range.manifest import (
     PinnedWeaknessSpec,
     WeaknessFamily,
 )
 from open_range.objectives.engine import PredicateEngine
-from open_range.world_ir import (
-    WeaknessRealizationSpec,
-    WeaknessSpec,
-    WorldIR,
-)
 
 from ..objectives.effects import effect_marker_cleanup_command, effect_marker_service
 from .code_web import code_web_cleanup_commands

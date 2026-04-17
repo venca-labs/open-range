@@ -10,15 +10,7 @@ from pydantic import BaseModel, ConfigDict, Field
 
 from open_range.catalog.roles import home_service_for_role, routine_for_role
 from open_range.catalog.services import host_for_service, service_catalog_entry_for_kind
-from open_range.objectives.expr import predicate_inner
-from open_range.store import FileSnapshotStore, load_world_ir
-from open_range.weaknesses import (
-    build_catalog_weakness,
-    first_objective_service,
-    mutation_spec,
-    mutation_target_service,
-)
-from open_range.world_ir import (
+from open_range.contracts.world import (
     CredentialSpec,
     EdgeSpec,
     GreenPersona,
@@ -29,6 +21,14 @@ from open_range.world_ir import (
     WeaknessSpec,
     WorkflowStepSpec,
     WorldIR,
+)
+from open_range.objectives.expr import predicate_inner
+from open_range.store import FileSnapshotStore, load_world_ir
+from open_range.weaknesses import (
+    build_catalog_weakness,
+    first_objective_service,
+    mutation_spec,
+    mutation_target_service,
 )
 
 PoolSplit = Literal["train", "eval"]

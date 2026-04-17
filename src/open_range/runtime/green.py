@@ -8,9 +8,9 @@ from math import floor
 from typing import Any, Protocol
 
 from open_range.config import EpisodeConfig
-from open_range.runtime_types import Action, RuntimeEvent
-from open_range.snapshot import RuntimeSnapshot
-from open_range.world_ir import GreenPersona
+from open_range.contracts.runtime import Action, RuntimeEvent
+from open_range.contracts.snapshot import RuntimeSnapshot
+from open_range.contracts.world import GreenPersona
 
 
 class GreenScheduler(Protocol):

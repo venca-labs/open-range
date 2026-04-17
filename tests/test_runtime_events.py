@@ -3,6 +3,7 @@ from __future__ import annotations
 from math import isinf
 from types import SimpleNamespace
 
+from open_range.contracts.runtime import Action, RuntimeEvent
 from open_range.runtime.events import (
     control_directive,
     control_directive_from_payload,
@@ -12,7 +13,6 @@ from open_range.runtime.events import (
     telemetry_blindspots,
     visible_events_for_actor,
 )
-from open_range.runtime_types import Action, RuntimeEvent
 
 
 def test_control_directive_helpers_keep_current_defaults() -> None:

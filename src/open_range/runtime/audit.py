@@ -11,7 +11,7 @@ from dataclasses import dataclass
 from typing import Any, Callable
 
 from open_range.config import AuditConfig
-from open_range.runtime_types import (
+from open_range.contracts.runtime import (
     Action,
     ActionDiversitySummary,
     AuditActionRecord,
@@ -25,7 +25,7 @@ from open_range.runtime_types import (
     control_directive,
     finding_event_type,
 )
-from open_range.snapshot import RuntimeSnapshot
+from open_range.contracts.snapshot import RuntimeSnapshot
 
 _ENV_ASSIGNMENT_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*=.*$")
 _VOLATILE_INTEGRITY_SUFFIXES = (".log",)

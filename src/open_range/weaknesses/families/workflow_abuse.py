@@ -11,13 +11,13 @@ from open_range.catalog.probes import (
     workflow_effect_markers_for_kind,
     workflow_kind_uses_email_delivery,
 )
+from open_range.contracts.world import WeaknessRealizationSpec, WeaknessSpec, WorldIR
 from open_range.objectives.effects import (
     effect_marker_content,
     effect_marker_path,
     effect_marker_token,
 )
 from open_range.objectives.engine import PredicateEngine
-from open_range.world_ir import WeaknessRealizationSpec, WeaknessSpec, WorldIR
 
 from .common import (
     RedReferencePlan,

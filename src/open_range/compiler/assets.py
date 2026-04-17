@@ -6,8 +6,8 @@ from open_range.catalog.assets import (
     asset_confidentiality_for_class,
     asset_placement_rule_for_id,
 )
+from open_range.contracts.world import AssetSpec
 from open_range.manifest import ManifestAsset
-from open_range.world_ir import AssetSpec
 
 
 def place_assets(assets: tuple[ManifestAsset, ...]) -> tuple[AssetSpec, ...]:

@@ -7,6 +7,21 @@ from typing import Literal
 from uuid import uuid4
 
 from open_range.config import DEFAULT_EPISODE_CONFIG, EpisodeConfig
+from open_range.contracts.runtime import (
+    Action,
+    ActionResult,
+    ActorSessionState,
+    Decision,
+    EpisodeScore,
+    EpisodeState,
+    ExternalRole,
+    Observation,
+    RuntimeEvent,
+    action_target,
+    control_directive,
+    finding_event_type,
+)
+from open_range.contracts.snapshot import RuntimeSnapshot
 from open_range.objectives.engine import PredicateEngine
 from open_range.runtime.briefing import observation_stdout, service_health_tuple
 from open_range.runtime.events import (
@@ -44,21 +59,6 @@ from open_range.runtime.replay import (
     prefix_satisfied,
 )
 from open_range.runtime.rewards import RewardEngine
-from open_range.runtime_types import (
-    Action,
-    ActionResult,
-    ActorSessionState,
-    Decision,
-    EpisodeScore,
-    EpisodeState,
-    ExternalRole,
-    Observation,
-    RuntimeEvent,
-    action_target,
-    control_directive,
-    finding_event_type,
-)
-from open_range.snapshot import RuntimeSnapshot
 
 
 class OpenRangeRuntime:

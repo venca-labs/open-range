@@ -29,10 +29,10 @@ from open_range.catalog.probes import (
     telemetry_blindspot_targets,
 )
 from open_range.config import DEFAULT_BUILD_CONFIG, BuildConfig
+from open_range.contracts.snapshot import KindArtifacts, RuntimeSnapshot, world_hash
+from open_range.contracts.world import WorldIR
 from open_range.objectives.engine import PredicateEngine
-from open_range.snapshot import KindArtifacts, RuntimeSnapshot, world_hash
 from open_range.weaknesses import build_reference_plan_for_weakness
-from open_range.world_ir import WorldIR
 
 
 @dataclass(frozen=True, slots=True)

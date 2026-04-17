@@ -2,9 +2,9 @@
 
 from __future__ import annotations
 
+from open_range.contracts.world import AssetSpec, ObjectiveSpec
 from open_range.objectives import objective_tags_for_predicate
 from open_range.objectives.expr import predicate_inner
-from open_range.world_ir import AssetSpec, ObjectiveSpec
 
 
 def compile_objectives(

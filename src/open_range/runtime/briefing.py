@@ -4,9 +4,9 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 
+from open_range.contracts.runtime import ExternalRole, ServiceHealth
+from open_range.contracts.world import WeaknessSpec, WorldIR
 from open_range.objectives.engine import PredicateEngine
-from open_range.runtime_types import ExternalRole, ServiceHealth
-from open_range.world_ir import WeaknessSpec, WorldIR
 
 _BRIEFING_SURFACE_LABELS = {
     "code_web": "web surface",

@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from open_range.catalog.workflows import workflow_step_templates_for_name
-from open_range.world_ir import EdgeSpec, WorkflowSpec, WorkflowStepSpec
+from open_range.contracts.world import EdgeSpec, WorkflowSpec, WorkflowStepSpec
 
 
 def compile_workflows(

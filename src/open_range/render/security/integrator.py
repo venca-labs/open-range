@@ -39,7 +39,7 @@ from ..extensions import (
 )
 
 if TYPE_CHECKING:
-    from open_range.world_ir import WorldIR
+    from open_range.contracts.world import WorldIR
 from ..images import DB_MTLS_HELPER_IMAGE
 from .credential_lifecycle import CredentialLifecycleConfig
 from .envelope_crypto import EncryptionConfig

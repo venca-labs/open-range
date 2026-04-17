@@ -5,8 +5,8 @@ from __future__ import annotations
 from open_range.catalog.roles import home_service_for_role, routine_for_role
 from open_range.catalog.services import host_for_service
 from open_range.config import BuildConfig
+from open_range.contracts.world import CredentialSpec, GreenPersona, GroupSpec, UserSpec
 from open_range.manifest import EnterpriseSaaSManifest, NPCProfileSpec
-from open_range.world_ir import CredentialSpec, GreenPersona, GroupSpec, UserSpec
 
 
 def expand_users(

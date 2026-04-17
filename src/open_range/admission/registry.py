@@ -5,8 +5,8 @@ from __future__ import annotations
 from collections.abc import Callable
 
 from open_range.admission.models import ReferenceBundle, ValidatorCheckReport
-from open_range.snapshot import KindArtifacts
-from open_range.world_ir import WorldIR
+from open_range.contracts.snapshot import KindArtifacts
+from open_range.contracts.world import WorldIR
 
 CheckFunc = Callable[
     [WorldIR, KindArtifacts, ReferenceBundle | None], ValidatorCheckReport
@@ -16,17 +16,13 @@ _REGISTERED_CHECKS: dict[str, CheckFunc] = {}
 _BUILTIN_CHECKS_REGISTERED = False
 
 
-def admission_check(name: str) -> Callable[[CheckFunc], CheckFunc]:
+def register_admission_check(name: str, fn: CheckFunc) -> None:
     """Register one admission check by plan name."""
 
-    def wrap(fn: CheckFunc) -> CheckFunc:
-        existing = _REGISTERED_CHECKS.get(name)
-        if existing is not None and existing is not fn:
-            raise ValueError(f"admission check {name!r} already registered")
-        _REGISTERED_CHECKS[name] = fn
-        return fn
-
-    return wrap
+    existing = _REGISTERED_CHECKS.get(name)
+    if existing is not None and existing is not fn:
+        raise ValueError(f"admission check {name!r} already registered")
+    _REGISTERED_CHECKS[name] = fn
 
 
 def get_admission_check(name: str) -> CheckFunc:

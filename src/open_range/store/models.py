@@ -5,9 +5,9 @@ from __future__ import annotations
 from pydantic import BaseModel, ConfigDict
 
 from open_range.config import DEFAULT_BUILD_CONFIG, BuildConfig
-from open_range.snapshot import KindArtifacts
+from open_range.contracts.snapshot import KindArtifacts
+from open_range.contracts.world import WorldIR
 from open_range.synth import SynthArtifacts
-from open_range.world_ir import WorldIR
 
 
 class CandidateWorld(BaseModel):

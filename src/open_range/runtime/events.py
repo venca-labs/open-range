@@ -7,9 +7,7 @@ from dataclasses import dataclass
 from math import inf
 from typing import Callable
 
-from open_range.objectives.expr import predicate_inner
-from open_range.objectives.resolution import objective_event_for_predicate
-from open_range.runtime_types import (
+from open_range.contracts.runtime import (
     Action,
     ExternalRole,
     RuntimeEvent,
@@ -19,6 +17,8 @@ from open_range.runtime_types import (
     finding_event_type,
     finding_event_type_from_payload,
 )
+from open_range.objectives.expr import predicate_inner
+from open_range.objectives.resolution import objective_event_for_predicate
 
 __all__ = [
     "EmitEvent",

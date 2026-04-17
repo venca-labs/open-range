@@ -3,13 +3,13 @@
 from __future__ import annotations
 
 from open_range.config import DEFAULT_BUILD_CONFIG, BuildConfig
-from open_range.manifest import EnterpriseSaaSManifest, validate_manifest
-from open_range.world_ir import (
+from open_range.contracts.world import (
     GreenWorkloadSpec,
     LineageSpec,
     MutationBoundsSpec,
     WorldIR,
 )
+from open_range.manifest import EnterpriseSaaSManifest, validate_manifest
 
 from .assets import place_assets
 from .objectives import compile_objectives

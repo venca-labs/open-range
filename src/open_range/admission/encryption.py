@@ -6,8 +6,8 @@ import json
 from pathlib import Path
 
 from open_range.admission.models import ValidatorCheckReport
-from open_range.snapshot import KindArtifacts
-from open_range.world_ir import WorldIR
+from open_range.contracts.snapshot import KindArtifacts
+from open_range.contracts.world import WorldIR
 
 _BUNDLE_REQUIRED_KEYS = {"ciphertext", "nonce", "wrapped_dek", "aad"}
 

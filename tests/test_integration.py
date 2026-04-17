@@ -5,8 +5,8 @@ from types import SimpleNamespace
 
 from open_range.admission.controller import LocalAdmissionController
 from open_range.config import BuildConfig, EpisodeConfig
+from open_range.contracts.runtime import Action
 from open_range.render.live import ExecResult
-from open_range.runtime_types import Action
 from open_range.service import OpenRange
 from open_range.store import (
     BuildPipeline,

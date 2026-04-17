@@ -6,9 +6,9 @@ from dataclasses import dataclass, field
 from typing import Protocol
 
 from open_range.config import DEFAULT_EPISODE_CONFIG, EpisodeConfig
+from open_range.contracts.runtime import Action, Observation
+from open_range.contracts.snapshot import RuntimeSnapshot
 from open_range.runtime import OpenRangeRuntime
-from open_range.runtime_types import Action, Observation
-from open_range.snapshot import RuntimeSnapshot
 
 
 class SessionAgent(Protocol):

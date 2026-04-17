@@ -3,6 +3,7 @@ from __future__ import annotations
 from itertools import count
 
 from open_range.admission.models import ReferenceAction
+from open_range.contracts.runtime import Action, RuntimeEvent
 from open_range.runtime.execution import ActionExecution
 from open_range.runtime.reducers import (
     BLUE_CONTAINMENT_OBJECTIVE,
@@ -17,7 +18,6 @@ from open_range.runtime.reducers import (
     reduce_red_action,
     select_scripted_internal_blue_action,
 )
-from open_range.runtime_types import Action, RuntimeEvent
 
 
 def _emit_event(**kwargs) -> RuntimeEvent:

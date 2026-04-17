@@ -7,8 +7,8 @@ from pathlib import Path
 from typing import Any
 
 from open_range.admission.models import ValidatorCheckReport
-from open_range.snapshot import KindArtifacts
-from open_range.world_ir import WorldIR
+from open_range.contracts.snapshot import KindArtifacts
+from open_range.contracts.world import WorldIR
 
 _CRITICAL_SERVICE_KINDS = {"web_app", "db", "idp"}
 

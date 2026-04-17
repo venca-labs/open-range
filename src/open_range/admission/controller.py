@@ -18,10 +18,10 @@ from open_range.admission.references import build_reference_bundle
 from open_range.admission.registry import get_admission_check
 from open_range.admission.scoring import report_summary
 from open_range.config import DEFAULT_BUILD_CONFIG, BuildConfig
+from open_range.contracts.snapshot import KindArtifacts, world_hash
+from open_range.contracts.world import WorldIR
 from open_range.render.live import KindBackend, LiveBackend
 from open_range.render.live_k3d import K3dBackend
-from open_range.snapshot import KindArtifacts, world_hash
-from open_range.world_ir import WorldIR
 
 
 class AdmissionController(Protocol):

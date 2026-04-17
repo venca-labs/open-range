@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 from typing import Any, Literal
 
-from open_range.runtime_types import Action, Observation, RuntimeEvent
+from open_range.contracts.runtime import Action, Observation, RuntimeEvent
 from open_range.training.data import (
     ActionSource,
     TraceDecisionRow,

@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from open_range.runtime_types import Action, RuntimeEvent
+from open_range.contracts.runtime import Action, RuntimeEvent
 from open_range.training.trace_exports import (
     grounded_effects_for_result,
     mitigation_effects_for_result,

@@ -16,8 +16,8 @@ from open_range.admission.reference_checks import run_live_reference_checks
 from open_range.admission.references import ephemeral_runtime_snapshot
 from open_range.async_utils import run_async
 from open_range.catalog.probes import SHORTCUT_WEB_ROUTE_PROBE_SPECS
-from open_range.snapshot import KindArtifacts, RuntimeSnapshot
-from open_range.world_ir import ServiceSpec, WorldIR
+from open_range.contracts.snapshot import KindArtifacts, RuntimeSnapshot
+from open_range.contracts.world import ServiceSpec, WorldIR
 
 _DB_MTLS_CLIENT_CONTAINER = "db-client-mtls"
 _DB_MTLS_CLIENT_CONFIG = "/etc/mysql/conf.d/openrange-client-mtls.cnf"

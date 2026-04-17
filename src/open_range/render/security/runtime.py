@@ -21,7 +21,7 @@ from ..extensions import (
 )
 
 if TYPE_CHECKING:
-    from open_range.world_ir import WorldIR
+    from open_range.contracts.world import WorldIR
 
 from .envelope_crypto import EncryptedBundle, EncryptionConfig, _aes_gcm_encrypt
 from .identity_provider import IdentityProviderConfig, SimulatedIdentityProvider

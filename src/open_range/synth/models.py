@@ -7,7 +7,7 @@ from typing import Protocol
 
 from pydantic import BaseModel, ConfigDict, Field
 
-from open_range.world_ir import WorldIR
+from open_range.contracts.world import WorldIR
 
 
 class _StrictModel(BaseModel):

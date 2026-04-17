@@ -10,8 +10,8 @@ from open_range.catalog.weaknesses import (
     weakness_build_defaults,
     weakness_id_for,
 )
+from open_range.contracts.world import WeaknessRealizationSpec, WeaknessSpec, WorldIR
 from open_range.objectives.engine import PredicateEngine
-from open_range.world_ir import WeaknessRealizationSpec, WeaknessSpec, WorldIR
 
 from . import (
     code_web,

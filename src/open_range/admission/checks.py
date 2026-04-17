@@ -22,14 +22,14 @@ from open_range.admission.references import (
     build_reference_bundle,
     ephemeral_runtime_snapshot,
 )
-from open_range.admission.registry import CheckFunc, admission_check
+from open_range.admission.registry import CheckFunc, register_admission_check
 from open_range.catalog.services import service_kind_names
 from open_range.config import BuildConfig
+from open_range.contracts.snapshot import KindArtifacts, world_hash
+from open_range.contracts.world import WorldIR
 from open_range.objectives.engine import PredicateEngine
 from open_range.runtime.replay import run_red_reference
-from open_range.snapshot import KindArtifacts, world_hash
 from open_range.weaknesses import remediation_command_for_weakness
-from open_range.world_ir import WorldIR
 
 
 def _check_manifest_compliance(
@@ -571,4 +571,4 @@ _BUILTIN_ADMISSION_CHECKS: tuple[tuple[str, CheckFunc], ...] = (
 
 def register_builtin_admission_checks() -> None:
     for name, check in _BUILTIN_ADMISSION_CHECKS:
-        admission_check(name)(check)
+        register_admission_check(name, check)

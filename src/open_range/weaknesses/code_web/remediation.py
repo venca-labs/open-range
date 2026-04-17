@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import shlex
 
-from open_range.world_ir import WeaknessSpec
+from open_range.contracts.world import WeaknessSpec
 
 from .common import guard_path
 

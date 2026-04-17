@@ -5,9 +5,9 @@ from pathlib import Path
 from open_range.admission.controller import LocalAdmissionController
 from open_range.compiler import EnterpriseSaaSManifestCompiler
 from open_range.config import EpisodeConfig
+from open_range.contracts.runtime import Action
 from open_range.render import EnterpriseSaaSKindRenderer
 from open_range.runtime import OpenRangeRuntime
-from open_range.runtime_types import Action
 from open_range.store import FileSnapshotStore, hydrate_runtime_snapshot
 from open_range.synth import EnterpriseSaaSWorldSynthesizer
 from open_range.training.driver import ScriptedRuntimeAgent, TandemEpisodeDriver

@@ -10,22 +10,22 @@ from typing import Any, Protocol
 from urllib.parse import urlencode
 
 from open_range.async_utils import run_async
-from open_range.objectives.effects import effect_marker_cleanup_command
-from open_range.render.live import BootedRelease
-from open_range.runtime.audit import command_text_for_action
-from open_range.runtime_types import (
+from open_range.contracts.runtime import (
     Action,
     IntegritySample,
     action_target,
     control_directive,
 )
-from open_range.snapshot import RuntimeSnapshot
+from open_range.contracts.snapshot import RuntimeSnapshot
+from open_range.contracts.world import ServiceSpec, WeaknessSpec, WorldIR
+from open_range.objectives.effects import effect_marker_cleanup_command
+from open_range.render.live import BootedRelease
+from open_range.runtime.audit import command_text_for_action
 from open_range.weaknesses import cleanup_steps_for_weakness
 from open_range.weaknesses.code_web import (
     code_web_cleanup_commands,
     code_web_guard_path,
 )
-from open_range.world_ir import ServiceSpec, WeaknessSpec, WorldIR
 
 
 @dataclass(frozen=True, slots=True)

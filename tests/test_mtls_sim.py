@@ -524,7 +524,7 @@ class TestCertificateBundle:
 def test_mtls_enforcement_passes_when_disabled(tmp_path):
 
     from open_range.admission.mtls import check_mtls_enforcement
-    from open_range.snapshot import KindArtifacts
+    from open_range.contracts.snapshot import KindArtifacts
 
     # No security/mtls dir → passes immediately
     artifacts = KindArtifacts(
@@ -542,7 +542,7 @@ def test_mtls_enforcement_fails_missing_files(tmp_path):
     import json
 
     from open_range.admission.mtls import check_mtls_enforcement
-    from open_range.snapshot import KindArtifacts
+    from open_range.contracts.snapshot import KindArtifacts
 
     mtls_dir = tmp_path / "security" / "mtls"
     mtls_dir.mkdir(parents=True)
@@ -572,7 +572,7 @@ def test_mtls_enforcement_fails_no_weaknesses(tmp_path):
     import json
 
     from open_range.admission.mtls import check_mtls_enforcement
-    from open_range.snapshot import KindArtifacts
+    from open_range.contracts.snapshot import KindArtifacts
 
     sim = MTLSSimulator(MTLSConfig())
     bundle = sim.generate_service_cert("db", zone="internal")
@@ -609,7 +609,7 @@ def test_mtls_enforcement_passes_with_valid_config(tmp_path):
     import json
 
     from open_range.admission.mtls import check_mtls_enforcement
-    from open_range.snapshot import KindArtifacts
+    from open_range.contracts.snapshot import KindArtifacts
 
     sim = MTLSSimulator(MTLSConfig())
     bundle = sim.generate_service_cert("db", zone="internal", weakness="expired_cert")
