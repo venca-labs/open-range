@@ -10,17 +10,20 @@ from open_range.admission.identity import check_identity_enforcement
 from open_range.admission.models import (
     ReferenceBundle,
     ValidatorCheckReport,
-    ValidatorReport,
 )
 from open_range.admission.mtls import check_mtls_enforcement
-from open_range.admission.references import build_reference_bundle
+from open_range.admission.references import (
+    build_reference_bundle,
+    ephemeral_runtime_snapshot,
+    reference_weakness_id,
+)
 from open_range.admission.registry import admission_check
-from open_range.admission.remediation import remediation_command
 from open_range.build_config import BuildConfig
 from open_range.catalog.services import service_kind_names
 from open_range.objectives.engine import PredicateEngine
 from open_range.runtime.replay import run_blue_reference, run_red_reference
-from open_range.snapshot import KindArtifacts, RuntimeSnapshot, world_hash
+from open_range.snapshot import KindArtifacts, world_hash
+from open_range.weaknesses import remediation_command_for_weakness
 from open_range.world_ir import WorldIR
 
 
@@ -300,7 +303,7 @@ def _check_red_reference(
             details={"trace_id": "", "step_count": 0},
             error="no valid red reference",
         )
-    snapshot = _ephemeral_snapshot(world, artifacts, wb)
+    snapshot = ephemeral_runtime_snapshot(world, artifacts, wb)
     predicates = PredicateEngine(world)
     per_trace = []
     passed = True
@@ -360,7 +363,7 @@ def _check_blue_reference(
             details={"trace_id": "", "step_count": 0},
             error="no valid blue reference",
         )
-    snapshot = _ephemeral_snapshot(world, artifacts, wb)
+    snapshot = ephemeral_runtime_snapshot(world, artifacts, wb)
     per_trace = []
     passed = True
     for trace_index, trace in enumerate(wb.reference_defense_traces):
@@ -397,12 +400,12 @@ def _check_necessity(
     weaknesses = PredicateEngine(world).active_weaknesses()
     observability_sources = {edge.source for edge in world.telemetry_edges}
     executable_targets = {
-        weak.target for weak in weaknesses if remediation_command(weak)
+        weak.target for weak in weaknesses if remediation_command_for_weakness(weak)
     }
     trace_bindings = []
     if wb is not None:
         for trace_index, red_trace in enumerate(wb.reference_attack_traces):
-            weakness_id = _reference_weakness_id(red_trace)
+            weakness_id = reference_weakness_id(red_trace)
             weakness = next(
                 (weak for weak in weaknesses if weak.id == weakness_id), None
             )
@@ -435,7 +438,7 @@ def _check_necessity(
                 }
             )
             score, _events, _health, outputs = run_red_reference(
-                _ephemeral_snapshot(counterfactual_world, artifacts, wb),
+                ephemeral_runtime_snapshot(counterfactual_world, artifacts, wb),
                 None,
                 episode_seed=counterfactual_world.seed,
                 trace_index=trace_index,
@@ -507,7 +510,7 @@ def _check_determinism(
             blue_reference_count=len(wb.reference_defense_traces) if wb else 1,
         ),
     )
-    snapshot = _ephemeral_snapshot(world, artifacts, wb or regenerated)
+    snapshot = ephemeral_runtime_snapshot(world, artifacts, wb or regenerated)
     trace_results = []
     passed = wb is not None and regenerated.model_dump(mode="json") == wb.model_dump(
         mode="json"
@@ -550,71 +553,6 @@ def _check_determinism(
             "traces": trace_results,
         },
         error="" if passed else "reference execution is not deterministic",
-    )
-
-
-def _reference_weakness_id(trace) -> str:
-    if trace is None:
-        return ""
-    for step in trace.steps:
-        weakness_id = step.payload.get("weakness_id", step.payload.get("weakness", ""))
-        if isinstance(weakness_id, str) and weakness_id:
-            return weakness_id
-    return ""
-
-
-def _ephemeral_snapshot(
-    world: WorldIR, artifacts: KindArtifacts, reference_bundle: ReferenceBundle
-) -> RuntimeSnapshot:
-    predicates = PredicateEngine(world)
-    db_seed_state = {
-        "services": [service.id for service in world.services if service.kind == "db"]
-    }
-    mail_state = {
-        "mailboxes": [
-            persona.mailbox for persona in world.green_personas if persona.mailbox
-        ]
-    }
-    file_assets = {asset.id: asset.location for asset in world.assets}
-    identity_seed = {"users": [user.id for user in world.users]}
-    report = ValidatorReport(
-        admitted=True,
-        graph_ok=True,
-        boot_ok=True,
-        workflow_ok=True,
-        telemetry_ok=True,
-        reference_attack_ok=True,
-        reference_defense_ok=True,
-        necessity_ok=True,
-        shortcut_risk="low",
-        determinism_score=1.0,
-        flakiness=0.0,
-        red_path_depth=predicates.red_path_depth(),
-        red_alt_path_count=predicates.red_alt_path_count(),
-        blue_signal_points=len({edge.source for edge in world.telemetry_edges}),
-        business_continuity_score=1.0,
-        benchmark_tags_covered=predicates.benchmark_tags_covered(),
-        world_id=world.world_id,
-        world_hash=world_hash(world),
-        summary="admission-live-check",
-    )
-    return RuntimeSnapshot(
-        snapshot_id=f"{world.world_id}-admission",
-        world_id=world.world_id,
-        seed=world.seed,
-        artifacts_dir=artifacts.render_dir,
-        image_digests=artifacts.pinned_image_digests,
-        state_seed_dir=artifacts.render_dir,
-        validator_report_path=f"{artifacts.render_dir}/validator_report.json",
-        world=world,
-        artifacts=artifacts,
-        db_seed_state=db_seed_state,
-        mail_state=mail_state,
-        file_assets=file_assets,
-        identity_seed=identity_seed,
-        validator_report=report,
-        reference_bundle=reference_bundle,
-        world_hash=world_hash(world),
     )
 
 

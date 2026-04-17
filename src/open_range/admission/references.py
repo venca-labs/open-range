@@ -10,6 +10,7 @@ from open_range.admission.models import (
     ReferenceAction,
     ReferenceBundle,
     ReferenceTrace,
+    ValidatorReport,
 )
 from open_range.build_config import DEFAULT_BUILD_CONFIG, BuildConfig
 from open_range.catalog.contracts import ProbeTemplateSpec
@@ -29,6 +30,7 @@ from open_range.catalog.probes import (
     telemetry_blindspot_targets,
 )
 from open_range.objectives.engine import PredicateEngine
+from open_range.snapshot import KindArtifacts, RuntimeSnapshot, world_hash
 from open_range.weaknesses import build_reference_plan_for_weakness
 from open_range.world_ir import WorldIR
 
@@ -237,6 +239,70 @@ def build_reference_bundle(
     world: WorldIR, build_config: BuildConfig = DEFAULT_BUILD_CONFIG
 ) -> ReferenceBundle:
     return ReferencePlanner(world=world, build_config=build_config).build()
+
+
+def reference_weakness_id(trace) -> str:
+    for step in getattr(trace, "steps", ()):
+        weakness_id = step.payload.get("weakness_id") or step.payload.get("weakness")
+        if isinstance(weakness_id, str):
+            return weakness_id
+    return ""
+
+
+def ephemeral_runtime_snapshot(
+    world: WorldIR, artifacts: KindArtifacts, reference_bundle: ReferenceBundle
+) -> RuntimeSnapshot:
+    predicates = PredicateEngine(world)
+    world_digest = world_hash(world)
+    db_seed_state = {
+        "services": [service.id for service in world.services if service.kind == "db"]
+    }
+    mail_state = {
+        "mailboxes": [
+            persona.mailbox for persona in world.green_personas if persona.mailbox
+        ]
+    }
+    file_assets = {asset.id: asset.location for asset in world.assets}
+    identity_seed = {"users": [user.id for user in world.users]}
+    report = ValidatorReport(
+        admitted=True,
+        graph_ok=True,
+        boot_ok=True,
+        workflow_ok=True,
+        telemetry_ok=True,
+        reference_attack_ok=True,
+        reference_defense_ok=True,
+        necessity_ok=True,
+        shortcut_risk="low",
+        determinism_score=1.0,
+        flakiness=0.0,
+        red_path_depth=predicates.red_path_depth(),
+        red_alt_path_count=predicates.red_alt_path_count(),
+        blue_signal_points=len({edge.source for edge in world.telemetry_edges}),
+        business_continuity_score=1.0,
+        benchmark_tags_covered=predicates.benchmark_tags_covered(),
+        world_id=world.world_id,
+        world_hash=world_digest,
+        summary="admission-live-check",
+    )
+    return RuntimeSnapshot(
+        snapshot_id=f"{world.world_id}-admission",
+        world_id=world.world_id,
+        seed=world.seed,
+        artifacts_dir=artifacts.render_dir,
+        image_digests=artifacts.pinned_image_digests,
+        state_seed_dir=artifacts.render_dir,
+        validator_report_path=f"{artifacts.render_dir}/validator_report.json",
+        world=world,
+        artifacts=artifacts,
+        db_seed_state=db_seed_state,
+        mail_state=mail_state,
+        file_assets=file_assets,
+        identity_seed=identity_seed,
+        validator_report=report,
+        reference_bundle=reference_bundle,
+        world_hash=world_digest,
+    )
 
 
 def _reference_starts(world: WorldIR, engine: PredicateEngine) -> tuple[str, ...]:

@@ -7,20 +7,23 @@ import time
 from pathlib import Path
 from urllib.parse import urlencode
 
-from open_range.admission.checks import _ephemeral_snapshot, _reference_weakness_id
 from open_range.admission.models import (
     ReferenceBundle,
     ValidatorCheckReport,
     ValidatorStageReport,
 )
-from open_range.admission.remediation import clear_runtime_markers, remediation_command
+from open_range.admission.references import (
+    ephemeral_runtime_snapshot,
+    reference_weakness_id,
+)
 from open_range.async_utils import run_async
 from open_range.catalog.probes import SHORTCUT_WEB_ROUTE_PROBE_SPECS
 from open_range.objectives import evaluate_objective_grader_live
 from open_range.objectives.engine import PredicateEngine
-from open_range.runtime.execution import PodActionBackend
+from open_range.runtime.execution import clear_runtime_markers, live_action_backend
 from open_range.runtime.replay import run_blue_reference, run_red_reference
 from open_range.snapshot import KindArtifacts, RuntimeSnapshot
+from open_range.weaknesses import remediation_command_for_weakness
 from open_range.world_ir import ServiceSpec, WorldIR
 
 _DB_MTLS_CLIENT_CONTAINER = "db-client-mtls"
@@ -85,9 +88,8 @@ def run_live_backend_checks(
             )
         )
 
-        snapshot = _ephemeral_snapshot(world, artifacts, reference_bundle)
-        backend = PodActionBackend()
-        backend.bind(snapshot, release)
+        snapshot = ephemeral_runtime_snapshot(world, artifacts, reference_bundle)
+        backend = live_action_backend(snapshot, release)
 
         checks.append(check_live_service_smoke(world, release))
         checks.append(check_live_db_mtls(world, release))
@@ -232,7 +234,7 @@ def smoke_runner_for_service(world: WorldIR, service_id: str) -> str:
 
 
 def _live_red_reference_check(
-    snapshot: RuntimeSnapshot, release, backend: PodActionBackend
+    snapshot: RuntimeSnapshot, release, backend
 ) -> ValidatorCheckReport:
     predicates = PredicateEngine(snapshot.world)
     per_trace = []
@@ -288,7 +290,7 @@ def _live_red_reference_check(
 
 
 def _live_blue_reference_check(
-    snapshot: RuntimeSnapshot, backend: PodActionBackend
+    snapshot: RuntimeSnapshot, backend
 ) -> ValidatorCheckReport:
     per_trace = []
     passed = True
@@ -333,9 +335,7 @@ def _live_siem_ingest_check(release) -> ValidatorCheckReport:
     )
 
 
-def _live_determinism_check(
-    snapshot: RuntimeSnapshot, backend: PodActionBackend
-) -> ValidatorCheckReport:
+def _live_determinism_check(snapshot: RuntimeSnapshot, backend) -> ValidatorCheckReport:
     trace_results = []
     passed = True
     for trace_index, trace in enumerate(
@@ -378,14 +378,14 @@ def _live_determinism_check(
 
 
 def _live_necessity_check(
-    snapshot: RuntimeSnapshot, release, backend: PodActionBackend
+    snapshot: RuntimeSnapshot, release, backend
 ) -> ValidatorCheckReport:
     engine = PredicateEngine(snapshot.world)
     trace_bindings = []
     for trace_index, trace in enumerate(
         snapshot.reference_bundle.reference_attack_traces
     ):
-        weakness_id = _reference_weakness_id(trace)
+        weakness_id = reference_weakness_id(trace)
         if not weakness_id:
             continue
         weakness = next(
@@ -415,7 +415,7 @@ def _live_necessity_check(
             details={"reason": "no reference-relevant weakness"},
             error="no reference-relevant weakness available for live necessity check",
         )
-    command = remediation_command(target_weakness)
+    command = remediation_command_for_weakness(target_weakness)
     if not command:
         return ValidatorCheckReport(
             name="live_necessity",

@@ -20,11 +20,12 @@ from open_range.runtime_types import (
     control_directive,
 )
 from open_range.snapshot import RuntimeSnapshot
+from open_range.weaknesses import cleanup_steps_for_weakness
 from open_range.weaknesses.code_web import (
     code_web_cleanup_commands,
     code_web_guard_path,
 )
-from open_range.world_ir import ServiceSpec, WeaknessSpec
+from open_range.world_ir import ServiceSpec, WeaknessSpec, WorldIR
 
 
 @dataclass(frozen=True, slots=True)
@@ -60,6 +61,23 @@ class PathPredicateEngine(Protocol):
 
 class ActiveWeaknessSource(Protocol):
     def active_weaknesses(self) -> tuple[WeaknessSpec, ...]: ...
+
+
+def live_action_backend(
+    snapshot: RuntimeSnapshot, release: BootedRelease
+) -> PodActionBackend:
+    backend = PodActionBackend()
+    backend.bind(snapshot, release)
+    return backend
+
+
+def clear_runtime_markers(release: BootedRelease, world: WorldIR) -> None:
+    runtime_markers = "rm -f /tmp/openrange-contained /tmp/openrange-patched /srv/http/siem/egress-canary.log"
+    for service in world.services:
+        run_async(release.pods.exec(service.id, runtime_markers, timeout=5.0))
+    for weakness in world.weaknesses:
+        for target, command in cleanup_steps_for_weakness(weakness):
+            run_async(release.pods.exec(target, command, timeout=5.0))
 
 
 def prepare_red_execution(

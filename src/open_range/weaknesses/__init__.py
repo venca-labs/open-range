@@ -133,6 +133,16 @@ def cleanup_steps_for_weakness(weakness: WeaknessSpec) -> tuple[tuple[str, str],
     return tuple(steps)
 
 
+def remediation_command_for_weakness(weakness: WeaknessSpec) -> str:
+    if weakness.remediation_kind == "shell" and (
+        command := weakness.remediation_command.strip()
+    ):
+        return command
+    if weakness.remediation.startswith("shell:"):
+        return weakness.remediation.removeprefix("shell:").strip()
+    return ""
+
+
 def _build_pinned_weakness(world: WorldIR, pinned: PinnedWeaknessSpec) -> WeaknessSpec:
     target, target_kind, target_ref = resolve_pinned_target(world, pinned.target)
     return build_catalog_weakness(
