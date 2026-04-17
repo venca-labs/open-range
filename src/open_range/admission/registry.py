@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import importlib
 from collections.abc import Callable
 
 from open_range.admission.models import ReferenceBundle, ValidatorCheckReport
@@ -14,7 +13,7 @@ CheckFunc = Callable[
 ]
 
 _REGISTERED_CHECKS: dict[str, CheckFunc] = {}
-_BUILTIN_CHECKS_LOADED = False
+_BUILTIN_CHECKS_REGISTERED = False
 
 
 def admission_check(name: str) -> Callable[[CheckFunc], CheckFunc]:
@@ -31,7 +30,7 @@ def admission_check(name: str) -> Callable[[CheckFunc], CheckFunc]:
 
 
 def get_admission_check(name: str) -> CheckFunc:
-    _load_builtin_admission_checks()
+    _ensure_builtin_admission_checks()
     try:
         return _REGISTERED_CHECKS[name]
     except KeyError as exc:
@@ -39,17 +38,15 @@ def get_admission_check(name: str) -> CheckFunc:
 
 
 def registered_admission_checks() -> tuple[str, ...]:
-    _load_builtin_admission_checks()
+    _ensure_builtin_admission_checks()
     return tuple(sorted(_REGISTERED_CHECKS))
 
 
-def _load_builtin_admission_checks() -> None:
-    global _BUILTIN_CHECKS_LOADED
-    if _BUILTIN_CHECKS_LOADED:
+def _ensure_builtin_admission_checks() -> None:
+    global _BUILTIN_CHECKS_REGISTERED
+    if _BUILTIN_CHECKS_REGISTERED:
         return
-    _BUILTIN_CHECKS_LOADED = True
-    try:
-        importlib.import_module("open_range.admission.checks")
-    except Exception:
-        _BUILTIN_CHECKS_LOADED = False
-        raise
+    from open_range.admission.checks import register_builtin_admission_checks
+
+    register_builtin_admission_checks()
+    _BUILTIN_CHECKS_REGISTERED = True
