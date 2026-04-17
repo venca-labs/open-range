@@ -15,12 +15,8 @@ from open_range.contracts.runtime import (
 from open_range.render.live import BootedRelease, LiveBackend
 from open_range.runtime import OpenRangeRuntime
 from open_range.runtime.execution import ActionBackend, PodActionBackend
-from open_range.store import (
-    FileSnapshotStore,
-    PoolSplit,
-    load_runtime_snapshot,
-    sample_runtime_snapshot,
-)
+from open_range.store import FileSnapshotStore, load_runtime_snapshot
+from open_range.store.core import PoolSplit, sample_runtime_snapshot
 
 
 class OpenRange:
