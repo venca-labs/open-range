@@ -1,35 +1,26 @@
 from __future__ import annotations
 
-import importlib
-import re
 from pathlib import Path
 from types import SimpleNamespace
-from urllib.parse import urlparse
 
-from open_range._runtime_store import load_runtime_snapshot
-from open_range.admission import ValidatorCheckReport
-from open_range.admit import LocalAdmissionController
-from open_range.build_config import BuildConfig
-from open_range.cluster import ExecResult
-from open_range.code_web import code_web_payload
+import open_range.admission.live as live_checks_mod
+from open_range.admission.controller import LocalAdmissionController
 from open_range.compiler import EnterpriseSaaSManifestCompiler
-from open_range.curriculum import FrontierMutationPolicy, PopulationStats
-from open_range.image_policy import SANDBOX_IMAGE_BY_ROLE, service_image_for_kind
-from open_range.pipeline import BuildPipeline
-from open_range.predicates import PredicateEngine
-from open_range.probe_planner import build_reference_bundle
+from open_range.config import BuildConfig
+from open_range.objectives.engine import PredicateEngine
 from open_range.render import EnterpriseSaaSKindRenderer
-from open_range.store import FileSnapshotStore
+from open_range.render.images import SANDBOX_IMAGE_BY_ROLE, service_image_for_kind
+from open_range.render.live import ExecResult
+from open_range.store import BuildPipeline, FileSnapshotStore, load_runtime_snapshot
 from open_range.synth import EnterpriseSaaSWorldSynthesizer
+from open_range.training.curriculum import FrontierMutationPolicy, PopulationStats
 from open_range.weaknesses import CatalogWeaknessSeeder
+from open_range.weaknesses.code_web import code_web_payload
 from tests.support import (
     OFFLINE_BUILD_CONFIG,
     OFFLINE_REFERENCE_BUILD_CONFIG,
     manifest_payload,
 )
-
-admit_mod = importlib.import_module("open_range.admit")
-live_checks_mod = importlib.import_module("open_range.live_checks")
 
 
 def _manifest_payload() -> dict:
@@ -60,60 +51,11 @@ def _code_web_response(
         return None
     payload = code_web_payload(world, weakness)
     path = str(payload.get("path", ""))
-    for url in _command_urls(cmd):
-        parsed = urlparse(url)
-        host = (parsed.hostname or "").split(".", 1)[0]
-        if host == weakness.target and parsed.path == path:
-            return ExecResult(
-                stdout=str(payload.get("expect_contains", "")),
-                stderr="",
-                exit_code=0,
-            )
-    return None
-
-
-def _asset_bridge_response(world, cmd: str) -> ExecResult | None:
-    for url in _command_urls(cmd):
-        parsed = urlparse(url)
-        host = (parsed.hostname or "").split(".", 1)[0]
-        if parsed.port != 8080:
-            continue
-        for asset in world.assets:
-            if asset.owner_service != host:
-                continue
-            if parsed.path != f"/{asset.id}.txt":
-                continue
-            return ExecResult(
-                stdout=f"seeded-{asset.asset_class}-{asset.id}",
-                stderr="",
-                exit_code=0,
-            )
-    return None
-
-
-def _command_urls(cmd: str) -> list[str]:
-    return re.findall(r"https?://[^'\" ]+", cmd)
-
-
-def test_weakness_seeder_is_deterministic():
-    world_a = _build_seeded_world()
-    world_b = _build_seeded_world()
-
-    assert world_a.weaknesses == world_b.weaknesses
-    assert len(world_a.weaknesses) == 2
-    assert any(
-        weak.objective_tags for weak in world_a.weaknesses if weak.family == "code_web"
+    if "http://svc-web:80" not in cmd or path not in cmd:
+        return None
+    return ExecResult(
+        stdout=str(payload.get("expect_contains", "")), stderr="", exit_code=0
     )
-
-
-def test_weakness_seeder_respects_allowed_families():
-    payload = _manifest_payload()
-    payload["security"]["allowed_weakness_families"] = ["code_web"]
-    world = EnterpriseSaaSManifestCompiler().compile(payload)
-
-    seeded = CatalogWeaknessSeeder().apply(world)
-
-    assert {weak.family for weak in seeded.weaknesses} == {"code_web"}
 
 
 def test_kind_renderer_emits_expected_files(tmp_path: Path):
@@ -121,15 +63,14 @@ def test_kind_renderer_emits_expected_files(tmp_path: Path):
     synth = _synth(world, tmp_path)
     artifacts = EnterpriseSaaSKindRenderer().render(world, synth, tmp_path / "rendered")
     finance_docs = next(asset for asset in world.assets if asset.id == "finance_docs")
-    idp_admin_cred = next(
-        asset for asset in world.assets if asset.id == "idp_admin_cred"
-    )
 
     assert Path(artifacts.values_path).exists()
     assert Path(artifacts.kind_config_path).exists()
     assert Path(artifacts.manifest_summary_path).exists()
     assert Path(synth.summary_path).exists()
     assert "svc-web" in artifacts.chart_values["services"]
+    assert "mailboxes" not in artifacts.chart_values
+    assert "weaknesses" not in artifacts.chart_values
     assert artifacts.chart_values["services"]["svc-web"]["enabled"] is True
     assert (
         artifacts.chart_values["services"]["svc-web"]["payloads"][0]["mountPath"]
@@ -151,17 +92,7 @@ def test_kind_renderer_emits_expected_files(tmp_path: Path):
         artifacts.chart_values["services"]["svc-db"]["payloads"][0]["mountPath"]
         == "/docker-entrypoint-initdb.d/01-init.sql"
     )
-    idp_service = artifacts.chart_values["services"]["svc-idp"]
-    fileshare_service = artifacts.chart_values["services"]["svc-fileshare"]
-    assert artifacts.chart_values["services"]["svc-email"]["env"] == {
-        "MAILNAME": "corp.local",
-        "ALLOWED_SENDER_DOMAINS": "corp.local",
-    }
     assert finance_docs.location == "svc-fileshare:/srv/shared/finance_docs.txt"
-    assert (
-        idp_admin_cred.location
-        == "svc-idp:/var/lib/openrange/secrets/idp_admin_cred.txt"
-    )
     assert (
         PredicateEngine(world).objective_grader("asset_read(finance_docs)").path
         == "/srv/shared/finance_docs.txt"
@@ -169,20 +100,6 @@ def test_kind_renderer_emits_expected_files(tmp_path: Path):
     siem_command = artifacts.chart_values["services"]["svc-siem"]["command"][-1]
     assert "busybox nc -lp 9201" in siem_command
     assert "busybox httpd -f -p 9200 -h /srv/http/siem" in siem_command
-    assert any(port["port"] == 8080 for port in idp_service["ports"])
-    assert any(port["port"] == 8080 for port in fileshare_service["ports"])
-    assert idp_service["sidecars"][0]["name"] == "openrange-asset-bridge"
-    assert fileshare_service["sidecars"][0]["name"] == "openrange-asset-bridge"
-    assert idp_service["sidecars"][0]["command"] == [
-        "/bin/sh",
-        "-lc",
-        "busybox httpd -f -p 8080 -h /var/lib/openrange/secrets",
-    ]
-    assert fileshare_service["sidecars"][0]["command"] == [
-        "/bin/sh",
-        "-lc",
-        "busybox httpd -f -p 8080 -h /srv/shared",
-    ]
     assert all(
         payload["mountPath"] != "/srv/http/siem/all.log"
         for payload in artifacts.chart_values["services"]["svc-siem"]["payloads"]
@@ -282,7 +199,40 @@ def test_admission_controller_offline_witness_can_ground_pinned_non_code_weaknes
     assert report.admitted is True
 
 
-def test_mutated_world_blue_reference_skips_blindspot_only_detection_targets(
+def test_admission_rejects_unsupported_runtime_blue_objective(tmp_path: Path) -> None:
+    payload = _manifest_payload()
+    payload["objectives"]["blue"] = [
+        {"predicate": "intrusion_detected(credential_obtained)"},
+        {"predicate": "intrusion_contained(before_asset_read)"},
+        {"predicate": "service_health_above(0.9)"},
+    ]
+    world = CatalogWeaknessSeeder().apply(
+        EnterpriseSaaSManifestCompiler().compile(payload)
+    )
+    artifacts = EnterpriseSaaSKindRenderer().render(
+        world, _synth(world, tmp_path), tmp_path / "rendered-unsupported-blue"
+    )
+
+    _reference_bundle, report = LocalAdmissionController(mode="fail_fast").admit(
+        world, artifacts, OFFLINE_REFERENCE_BUILD_CONFIG
+    )
+
+    objective_grounding = next(
+        check
+        for stage in report.stages
+        if stage.name == "static"
+        for check in stage.checks
+        if check.name == "objective_grounding"
+    )
+    assert report.admitted is False
+    assert objective_grounding.passed is False
+    assert (
+        "unsupported runtime blue objective intrusion_detected(credential_obtained)"
+        in objective_grounding.error
+    )
+
+
+def test_mutated_world_blue_reference_does_not_claim_initial_access_from_later_event(
     tmp_path: Path,
 ) -> None:
     base_world = _build_seeded_world()
@@ -310,14 +260,14 @@ def test_mutated_world_blue_reference_skips_blindspot_only_detection_targets(
         mutation, artifacts, OFFLINE_REFERENCE_BUILD_CONFIG
     )
 
-    assert report.admitted is True
+    assert report.admitted is False
     defense_trace = reference_bundle.reference_defense_traces[0]
     finding_step = next(
         step for step in defense_trace.steps if step.kind == "submit_finding"
     )
     assert finding_step.target != "svc-email"
     assert report.reference_attack_ok is True
-    assert report.necessity_ok is True
+    assert report.reference_defense_ok is False
 
 
 def test_admission_controller_can_run_optional_live_backend(tmp_path: Path):
@@ -390,13 +340,10 @@ def test_admission_controller_can_run_optional_live_backend(tmp_path: Path):
                 "wget -qO- http://svc-siem:9200/all.log" in cmd
             ):
                 return ExecResult(stdout="\n".join(self.logs), stderr="", exit_code=0)
-            if service.startswith("sandbox-"):
+            if service == "sandbox-red":
                 seeded = _code_web_response(world, cmd, self.web_guards)
                 if seeded is not None:
                     return seeded
-                asset_bridge = _asset_bridge_response(world, cmd)
-                if asset_bridge is not None:
-                    return asset_bridge
             if service == "sandbox-red" and any(
                 target in cmd for target in ("svc-fileshare", "svc-db", "svc-idp")
             ):
@@ -434,142 +381,100 @@ def test_admission_controller_can_run_optional_live_backend(tmp_path: Path):
     assert calls[-1].startswith("down:")
 
 
-def test_no_necessity_profile_skips_auto_live_backend_probe(
-    tmp_path: Path, monkeypatch
-) -> None:
+def test_graph_plus_live_skips_full_only_live_checks(tmp_path: Path) -> None:
     world = _build_seeded_world()
     artifacts = EnterpriseSaaSKindRenderer().render(
-        world, _synth(world, tmp_path), tmp_path / "rendered"
+        world, _synth(world, tmp_path), tmp_path / "rendered-graph-plus-live"
     )
-    which_calls: list[str] = []
-    run_calls: list[tuple[object, ...]] = []
-    paths = {
-        "helm": "/usr/bin/helm",
-        "k3d": "/usr/bin/k3d",
-        "docker": "/usr/bin/docker",
-    }
+    pod_ids = {service.id: f"ns/{service.id}-pod" for service in world.services}
+    pod_ids["sandbox-red"] = "ns/sandbox-red-pod"
+    pod_ids["sandbox-blue"] = "ns/sandbox-blue-pod"
 
-    def fake_resolve(cmd: str) -> str:
-        which_calls.append(cmd)
-        return paths[cmd]
+    class FakePods:
+        def __init__(self, pods):
+            self.pod_ids = pods
+            self.logs: list[str] = []
 
-    def fake_run(*args, **kwargs):
-        del kwargs
-        run_calls.append(args)
-        return SimpleNamespace(returncode=0, stdout="openrange\n", stderr="")
+        async def is_healthy(self, service: str) -> bool:
+            return service in self.pod_ids
 
-    monkeypatch.setattr(admit_mod, "resolve_host_binary", fake_resolve)
-    monkeypatch.setattr(admit_mod.subprocess, "run", fake_run)
+        async def exec(
+            self,
+            service: str,
+            cmd: str,
+            timeout: float = 30.0,
+            *,
+            container: str | None = None,
+        ) -> ExecResult:
+            del timeout, container
+            if "grep -q 'InitialAccess' /srv/http/siem/all.log" in cmd:
+                return ExecResult(stdout="", stderr="", exit_code=0)
+            self.logs.append(f"{service}:{cmd}")
+            return ExecResult(stdout="ok", stderr="", exit_code=0)
 
-    _bundle, report = LocalAdmissionController(mode="fail_fast").admit(
-        world, artifacts, OFFLINE_REFERENCE_BUILD_CONFIG
-    )
+    class FakeBackend:
+        def boot(self, snapshot_id: str, artifacts_dir: Path):
+            del snapshot_id, artifacts_dir
+            return SimpleNamespace(
+                release_name="or-graph-plus-live",
+                pods=FakePods(pod_ids),
+            )
 
-    assert report.admitted is True
-    assert all(stage.name != "kind_live" for stage in report.stages)
-    assert which_calls == []
-    assert run_calls == []
+        def teardown(self, release) -> None:
+            del release
 
-
-def test_full_live_profile_requires_cilium_network_policy_backend(
-    tmp_path: Path,
-) -> None:
-    world = _build_seeded_world()
-    artifacts = EnterpriseSaaSKindRenderer().render(
-        world, _synth(world, tmp_path), tmp_path / "rendered-full-live"
-    )
-
-    _bundle, report = LocalAdmissionController(mode="fail_fast").admit(
+    _bundle, report = LocalAdmissionController(
+        mode="analysis",
+        live_backend=FakeBackend(),
+    ).admit(
         world,
         artifacts,
-        BuildConfig(validation_profile="full", network_policy_backend="kubernetes"),
+        BuildConfig(validation_profile="graph_plus_live"),
     )
 
-    live_stage = next(stage for stage in report.stages if stage.name == "kind_live")
+    kind_live = next(stage for stage in report.stages if stage.name == "kind_live")
+    check_names = {check.name for check in kind_live.checks}
 
-    assert report.admitted is False
-    assert live_stage.passed is False
-    assert live_stage.checks[0].name == "cilium_required"
-    assert "network_policy_backend='cilium'" in live_stage.checks[0].error
-
-
-def test_k3d_profile_uses_k3d_auto_live_backend(tmp_path: Path, monkeypatch) -> None:
-    _world = _build_seeded_world()
-    _ = EnterpriseSaaSKindRenderer().render(
-        _world, _synth(_world, tmp_path), tmp_path / "rendered-k3d"
-    )
-    which_calls: list[str] = []
-    run_calls: list[tuple[object, ...]] = []
-    paths = {
-        "helm": "/usr/bin/helm",
-        "k3d": "/usr/bin/k3d",
-        "docker": "/usr/bin/docker",
-    }
-
-    def fake_resolve(cmd: str) -> str:
-        which_calls.append(cmd)
-        return paths[cmd]
-
-    def fake_run(*args, **kwargs):
-        del kwargs
-        run_calls.append(args)
-        cmd = args[0]
-        if cmd[:4] == [paths["k3d"], "cluster", "list", "-o"]:
-            return SimpleNamespace(
-                returncode=0, stdout='[{"name":"openrange"}]', stderr=""
-            )
-        return SimpleNamespace(returncode=0, stdout="", stderr="")
-
-    monkeypatch.setattr(admit_mod, "resolve_host_binary", fake_resolve)
-    monkeypatch.setattr(admit_mod.subprocess, "run", fake_run)
-
-    controller = LocalAdmissionController(mode="analysis")
-    backend = controller._auto_live_backend(
-        BuildConfig(cluster_backend="k3d", validation_profile="graph_plus_live")
-    )
-
-    assert backend is not None
-    assert backend.__class__.__name__ == "K3dBackend"
-    assert which_calls[:3] == ["helm", "k3d", "docker"]
-    assert any(
-        call[0][:4] == [paths["k3d"], "cluster", "list", "-o"] for call in run_calls
-    )
+    assert "live_red_reference" in check_names
+    assert "live_blue_reference" in check_names
+    assert "live_determinism" not in check_names
+    assert "live_necessity" not in check_names
+    assert "live_shortcuts" not in check_names
 
 
-def test_kind_profile_uses_resolved_binary_paths_for_auto_live_backend(
-    monkeypatch,
+def test_fail_fast_does_not_report_missing_live_backend_when_backend_exists(
+    tmp_path: Path,
 ) -> None:
-    resolve_calls: list[str] = []
-    run_calls: list[tuple[object, ...]] = []
+    world = _build_seeded_world().replace_edges(telemetry=())
+    artifacts = EnterpriseSaaSKindRenderer().render(
+        world, _synth(world, tmp_path), tmp_path / "rendered-fail-fast"
+    )
 
-    paths = {
-        "helm": "/home/ghost/.local/bin/helm",
-        "kind": "/home/ghost/.local/bin/kind",
-        "docker": "/usr/bin/docker",
+    class FakeBackend:
+        def boot(self, snapshot_id: str, artifacts_dir: Path):
+            del snapshot_id, artifacts_dir
+            raise AssertionError("live backend should not run after offline fail-fast")
+
+        def teardown(self, release) -> None:
+            del release
+
+    _bundle, report = LocalAdmissionController(
+        mode="fail_fast",
+        live_backend=FakeBackend(),
+    ).admit(
+        world,
+        artifacts,
+        BuildConfig(validation_profile="graph_plus_live"),
+    )
+
+    failed = {
+        check.name
+        for stage in report.stages
+        for check in stage.checks
+        if not check.passed
     }
 
-    def fake_resolve(cmd: str) -> str | None:
-        resolve_calls.append(cmd)
-        return paths.get(cmd)
-
-    def fake_run(*args, **kwargs):
-        del kwargs
-        run_calls.append(args)
-        cmd = args[0]
-        if cmd[:3] == [paths["kind"], "get", "clusters"]:
-            return SimpleNamespace(returncode=0, stdout="openrange\n", stderr="")
-        return SimpleNamespace(returncode=0, stdout="", stderr="")
-
-    monkeypatch.setattr(admit_mod, "resolve_host_binary", fake_resolve)
-    monkeypatch.setattr(admit_mod.subprocess, "run", fake_run)
-
-    controller = LocalAdmissionController(mode="analysis")
-    backend = controller._auto_live_backend(BuildConfig(validation_profile="full"))
-
-    assert backend is not None
-    assert backend.__class__.__name__ == "KindBackend"
-    assert resolve_calls[:3] == ["helm", "kind", "docker"]
-    assert any(call[0][:3] == [paths["kind"], "get", "clusters"] for call in run_calls)
+    assert "live_backend_required" not in failed
 
 
 def test_live_service_smoke_check_uses_reachable_zone_runners() -> None:
@@ -585,130 +490,19 @@ def test_live_service_smoke_check_uses_reachable_zone_runners() -> None:
             return ExecResult(stdout="ok", stderr="", exit_code=0)
 
     report = live_checks_mod.check_live_service_smoke(
-        world, SimpleNamespace(pods=FakePods(), release_name="or-demo")
+        world, SimpleNamespace(pods=FakePods())
     )
     calls_by_target = {
-        service.id: (runner, cmd)
-        for service, (runner, cmd) in zip(world.services, calls)
+        service.id: runner for service, (runner, _cmd) in zip(world.services, calls)
     }
 
     assert report.passed is True
-    assert calls_by_target["svc-web"][0] == "sandbox-red"
-    assert calls_by_target["svc-email"][0] == "sandbox-red"
-    assert calls_by_target["svc-idp"][0] == "sandbox-blue"
-    assert calls_by_target["svc-siem"][0] == "sandbox-blue"
-    assert calls_by_target["svc-fileshare"][0].startswith("sandbox-green-")
-    assert calls_by_target["svc-db"][0].startswith("sandbox-green-")
-    assert "svc-web.or-demo-dmz" in calls_by_target["svc-web"][1]
-    email_cmd = calls_by_target["svc-email"][1]
-    assert "svc-email.or-demo-dmz" in email_cmd
-    assert "printf '%b' 'QUIT\\\\r\\\\n'" in email_cmd
-
-
-def test_live_checks_use_fresh_releases_for_stateful_groups(
-    tmp_path: Path, monkeypatch
-) -> None:
-    world = _build_seeded_world()
-    artifacts = EnterpriseSaaSKindRenderer().render(
-        world, _synth(world, tmp_path), tmp_path / "rendered-live-groups"
-    )
-    reference_bundle = build_reference_bundle(world)
-    boot_ids: list[str] = []
-    teardown_ids: list[str] = []
-
-    class FakePods:
-        def __init__(self, discovered_services: set[str]) -> None:
-            self.pod_ids = {
-                service_id: f"ns/{service_id}-pod" for service_id in discovered_services
-            }
-
-        async def is_healthy(self, service: str) -> bool:
-            del service
-            return True
-
-        async def exec(
-            self,
-            service: str,
-            cmd: str,
-            timeout: float = 30.0,
-            *,
-            container: str | None = None,
-        ) -> ExecResult:
-            del service, cmd, timeout, container
-            return ExecResult(stdout="", stderr="", exit_code=0)
-
-    class FakeBackend:
-        def boot(self, *, snapshot_id: str, artifacts_dir: Path):
-            del artifacts_dir
-            boot_ids.append(snapshot_id)
-            return SimpleNamespace(
-                release_name=f"or-{snapshot_id}",
-                pods=FakePods({service.id for service in world.services}),
-            )
-
-        def teardown(self, release) -> None:
-            teardown_ids.append(release.release_name)
-
-    def passing_check(name: str) -> ValidatorCheckReport:
-        return ValidatorCheckReport(name=name, passed=True, details={}, error="")
-
-    monkeypatch.setattr(
-        admit_mod,
-        "check_live_service_smoke",
-        lambda world, release: passing_check("live_service_smoke"),
-    )
-    monkeypatch.setattr(
-        admit_mod,
-        "check_live_db_mtls",
-        lambda world, release: passing_check("live_db_mtls"),
-    )
-    monkeypatch.setattr(
-        admit_mod,
-        "_live_red_reference_check",
-        lambda snapshot, release, backend: passing_check("live_red_reference"),
-    )
-    monkeypatch.setattr(
-        admit_mod,
-        "_live_siem_ingest_check",
-        lambda release: passing_check("live_siem_ingest"),
-    )
-    monkeypatch.setattr(
-        admit_mod,
-        "_live_blue_reference_check",
-        lambda snapshot, backend: passing_check("live_blue_reference"),
-    )
-    monkeypatch.setattr(
-        admit_mod,
-        "_live_determinism_check",
-        lambda snapshot, backend: passing_check("live_determinism"),
-    )
-    monkeypatch.setattr(
-        admit_mod,
-        "_live_necessity_check",
-        lambda snapshot, release, backend: passing_check("live_necessity"),
-    )
-    monkeypatch.setattr(
-        admit_mod,
-        "_live_shortcut_probe_check",
-        lambda snapshot, release: passing_check("live_shortcut_probes"),
-    )
-    monkeypatch.setattr(admit_mod, "uuid4", lambda: SimpleNamespace(hex="debugtag1234"))
-
-    controller = LocalAdmissionController(mode="analysis")
-    stage, live_info = controller._run_live_backend_checks(
-        world, artifacts, reference_bundle, FakeBackend()
-    )
-
-    assert stage.passed is True
-    assert boot_ids == [
-        f"{world.world_id}-debugtag-live",
-        f"{world.world_id}-debugtag-blue",
-        f"{world.world_id}-debugtag-determinism",
-        f"{world.world_id}-debugtag-necessity",
-        f"{world.world_id}-debugtag-shortcuts",
-    ]
-    assert teardown_ids == [f"or-{snapshot_id}" for snapshot_id in boot_ids]
-    assert live_info["live_release"] == f"or-{world.world_id}-debugtag-live"
+    assert calls_by_target["svc-web"] == "sandbox-red"
+    assert calls_by_target["svc-email"] == "sandbox-red"
+    assert calls_by_target["svc-idp"] == "sandbox-blue"
+    assert calls_by_target["svc-siem"] == "sandbox-blue"
+    assert calls_by_target["svc-fileshare"].startswith("sandbox-green-")
+    assert calls_by_target["svc-db"].startswith("sandbox-green-")
 
 
 def test_live_db_mtls_check_proves_client_cert_required(tmp_path: Path) -> None:
@@ -806,39 +600,6 @@ def test_admission_controller_rejects_public_secret_leak_in_artifacts(tmp_path: 
     assert "shortcut_probes" in failed
 
 
-def test_red_reference_uses_concrete_objective_steps(tmp_path: Path):
-    world = _build_seeded_world()
-    synth = _synth(world, tmp_path)
-    artifacts = EnterpriseSaaSKindRenderer().render(world, synth, tmp_path / "rendered")
-
-    reference_bundle, report = LocalAdmissionController(mode="fail_fast").admit(
-        world, artifacts, OFFLINE_REFERENCE_BUILD_CONFIG
-    )
-
-    assert report.admitted is True
-    steps = reference_bundle.reference_attack_traces[0].steps
-    actions = [str(step.payload.get("action", "")) for step in steps]
-
-    assert "traverse" not in actions
-    assert "satisfy_objective" not in actions
-    assert any(
-        step.target == "svc-idp"
-        and step.kind == "api"
-        and step.payload.get("path") == "/idp_admin_cred.txt"
-        and step.payload.get("port") == 8080
-        and step.payload.get("objective") == "credential_obtained(idp_admin_cred)"
-        for step in steps
-    )
-    assert any(
-        step.target == "svc-fileshare"
-        and step.kind == "api"
-        and step.payload.get("path") == "/finance_docs.txt"
-        and step.payload.get("port") == 8080
-        and step.payload.get("objective") == "asset_read(finance_docs)"
-        for step in steps
-    )
-
-
 def test_admission_controller_rejects_unlogged_critical_action_targets(tmp_path: Path):
     world = _build_seeded_world()
     weakened_services = []
@@ -880,11 +641,33 @@ def test_snapshot_store_persists_v1_snapshot(tmp_path: Path):
     snapshot = store.create(world, artifacts, reference_bundle, report, synth=synth)
     loaded = load_runtime_snapshot(store, snapshot.snapshot_id)
 
+    assert snapshot.snapshot_id == loaded.snapshot_id
+    assert snapshot.db_seed_state == {}
+    assert snapshot.file_assets == {}
+    assert not any(Path(snapshot.state_seed_dir).iterdir())
+    assert not (Path(snapshot.artifacts_dir) / "security").exists()
+    assert not (Path(snapshot.artifacts_dir) / "synth").exists()
+    assert all(
+        "content" not in payload
+        for service in snapshot.artifacts.chart_values["services"].values()
+        for payload in service.get("payloads", ())
+    )
     assert loaded.snapshot_id == snapshot.snapshot_id
     assert loaded.world_id == world.world_id
     assert loaded.seed == world.seed
     assert loaded.world.world_id == world.world_id
     assert loaded.validator_report.admitted is True
     assert loaded.reference_bundle.reference_attack_traces
+    assert loaded.artifacts_dir != snapshot.artifacts_dir
+    assert loaded.state_seed_dir != snapshot.state_seed_dir
+    assert any(
+        "content" in payload
+        for service in loaded.artifacts.chart_values["services"].values()
+        for payload in service.get("payloads", ())
+    )
     assert Path(loaded.validator_report_path).exists()
-    assert "mailboxes" in loaded.identity_seed
+    assert all(
+        not check.details
+        for stage in loaded.validator_report.stages
+        for check in stage.checks
+    )

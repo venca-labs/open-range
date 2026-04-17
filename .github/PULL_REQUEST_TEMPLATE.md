@@ -2,8 +2,11 @@
 Keep this PR body concise and review-friendly.
 -->
 
+> Use a conventional commit style PR title, for example `fix: ...`, `refactor: ...`, or `docs: ...`.
+
 ## Self-Review
 
+- [ ] PR title uses a conventional commit style summary
 - [ ] Scope is focused and matches the linked issue or change theme
 - [ ] I reviewed the diff for V1 architectural drift, reference leakage, and validation-profile regressions where relevant
 - [ ] Tests and docs were updated where behavior or workflows changed

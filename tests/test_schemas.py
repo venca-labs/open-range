@@ -3,7 +3,7 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-from open_range.admission import (
+from open_range.contracts.validation import (
     ProbeSpec,
     ReferenceAction,
     ReferenceBundle,
@@ -12,8 +12,7 @@ from open_range.admission import (
     ValidatorReport,
     ValidatorStageReport,
 )
-from open_range.manifest import EnterpriseSaaSManifest, validate_manifest
-from open_range.world_ir import (
+from open_range.contracts.world import (
     GreenWorkloadSpec,
     HostSpec,
     LineageSpec,
@@ -21,6 +20,7 @@ from open_range.world_ir import (
     ObjectiveSpec,
     WorldIR,
 )
+from open_range.manifest import EnterpriseSaaSManifest, validate_manifest
 from tests.support import manifest_payload
 
 

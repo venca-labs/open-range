@@ -8,8 +8,8 @@ import json
 from pathlib import Path
 from typing import Any
 
-from open_range.resources import load_bundled_manifest
-from open_range.tracegen import generate_trace_dataset
+from open_range.support.resources import load_bundled_manifest
+from open_range.training.tracegen import generate_trace_dataset
 
 
 def _default_manifest_name() -> str:

@@ -11,13 +11,36 @@ document for the package-level view.
 ```text
 strict manifest
   -> WorldIR compiler
-  -> deterministic synth + weakness seeding
+  -> exact weakness seeding
+  -> deterministic synth
   -> Kind renderer
-  -> predicate engine + probe planning
   -> deterministic admission + private references
   -> immutable snapshot store
   -> explicit green/red/blue runtime
 ```
+
+## Package story
+
+The package tree follows the product flow, not a flat helper layout.
+
+- `manifest/`: strict manifest models and validation
+- `compiler/`: compile manifest input into `WorldIR`
+- `weaknesses/`: exact weakness selection, family behavior, and code-web material
+- `objectives/`: predicate parsing, resolution, and live grading
+- `synth/`: deterministic bounded artifact synthesis
+- `render/`: Kind render plus security runtime materialization
+- `admission/`: deterministic validation, live checks, and private references
+- `store/`: immutable snapshot persistence and hydration
+- `runtime/`: decision-loop runtime, reducers, events, replay, and audit
+- `training/`: trace generation, curriculum, and dataset shaping
+- `catalog/`: fixed enterprise palette and static policy tables
+
+Shared support packages stay small and boring:
+
+- `config/`
+- `contracts/`
+- `sdk/`
+- `support/`
 
 ## Repo boundaries
 
@@ -37,7 +60,12 @@ strict manifest
 - diagnostics, logs, traces, and future observability should layer on top of the
   same `reset()`, `next_decision()`, and `act()` contract
 - admission uses private reference traces rather than a public golden path
-- admission is internally split into shared predicate logic, probe planning, probe execution, counterfactual remediation checks, and report scoring
+- admission is internally split into stage-owned checks, private references,
+  live validation, and report scoring
+- blue observations expose visible events and alerts, not ground-truth
+  attacker labels
+- public snapshots keep public artifacts only; private references hydrate
+  through the store when runtime or admission needs them
 
 ## Admission profiles
 

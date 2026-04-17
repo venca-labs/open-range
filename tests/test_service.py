@@ -1,15 +1,14 @@
 from __future__ import annotations
 
+import time
 from pathlib import Path
 from types import SimpleNamespace
 
-from open_range._runtime_store import hydrate_runtime_snapshot
-from open_range.cluster import ExecResult
-from open_range.episode_config import EpisodeConfig
-from open_range.pipeline import BuildPipeline
-from open_range.runtime_types import Action
-from open_range.service import OpenRange
-from open_range.store import FileSnapshotStore
+from open_range.config import EpisodeConfig
+from open_range.contracts.runtime import Action
+from open_range.render.live import ExecResult
+from open_range.sdk import OpenRange
+from open_range.store import BuildPipeline, FileSnapshotStore, hydrate_runtime_snapshot
 from tests.support import OFFLINE_BUILD_CONFIG, manifest_payload
 
 
@@ -74,6 +73,38 @@ def test_service_can_sample_held_out_eval_pool(tmp_path: Path):
 
     assert state.snapshot_id == eval_snapshot.snapshot_id
     assert service.active_snapshot_id == eval_snapshot.snapshot_id
+
+
+def test_service_latest_snapshot_uses_store_timestamp_not_name(tmp_path: Path):
+    store = FileSnapshotStore(tmp_path / "snapshots")
+    pipeline = BuildPipeline(store=store)
+
+    first_payload = _manifest_payload()
+    first_payload["seed"] = 4096
+    first_snapshot = pipeline.admit(
+        pipeline.build(first_payload, tmp_path / "eval-render-a", OFFLINE_BUILD_CONFIG),
+        split="eval",
+    )
+    time.sleep(0.01)
+    second_payload = _manifest_payload()
+    second_payload["seed"] = 1024
+    second_snapshot = pipeline.admit(
+        pipeline.build(
+            second_payload, tmp_path / "eval-render-b", OFFLINE_BUILD_CONFIG
+        ),
+        split="eval",
+    )
+
+    service = OpenRange(store=store)
+    state = service.reset(
+        None,
+        EpisodeConfig(mode="joint_pool", green_enabled=False),
+        split="eval",
+        strategy="latest",
+    )
+
+    assert first_snapshot.snapshot_id > second_snapshot.snapshot_id
+    assert state.snapshot_id == second_snapshot.snapshot_id
 
 
 def test_service_proxies_runtime_decisions_and_actions(tmp_path: Path):

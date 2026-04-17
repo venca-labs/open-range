@@ -9,7 +9,7 @@ import click
 import yaml
 from pydantic import ValidationError
 
-from open_range.curriculum import FrontierMutationPolicy, PopulationStats
+from open_range.training.curriculum import FrontierMutationPolicy, PopulationStats
 
 
 def _load_population(stream: TextIO) -> list[PopulationStats]:

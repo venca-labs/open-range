@@ -3,8 +3,8 @@ from __future__ import annotations
 from types import SimpleNamespace
 
 from open_range.compiler import EnterpriseSaaSManifestCompiler
-from open_range.objectives import evaluate_objective_grader_live
-from open_range.predicates import PredicateEngine
+from open_range.objectives.engine import PredicateEngine
+from open_range.objectives.live import evaluate_objective_grader_live
 from open_range.weaknesses import CatalogWeaknessSeeder
 from tests.support import manifest_payload
 
@@ -35,6 +35,28 @@ def test_predicate_engine_builds_service_native_graders_for_red_objectives() -> 
         graders["credential_obtained(idp_admin_cred)"].objective_tag
         == "privilege_escalation"
     )
+
+
+def test_predicate_engine_tracks_supported_blue_objectives() -> None:
+    world = EnterpriseSaaSManifestCompiler().compile(manifest_payload())
+    predicates = PredicateEngine(world)
+
+    assert predicates.supports_blue_objective("intrusion_detected(initial_access)")
+    assert predicates.supports_blue_objective("intrusion_contained(before_asset_read)")
+    assert predicates.supports_blue_objective("service_health_above(0.99)")
+    assert not predicates.supports_blue_objective(
+        "intrusion_detected(credential_obtained)"
+    )
+
+    assert predicates.evaluate_blue_objectives(
+        initial_access_detected=True,
+        contained_before_asset_read=True,
+        continuity=1.0,
+    ) == {
+        "intrusion_detected(initial_access)",
+        "intrusion_contained(before_asset_read)",
+        "service_health_above(0.9)",
+    }
 
 
 def test_live_event_backed_admin_grader_still_requires_the_event() -> None:

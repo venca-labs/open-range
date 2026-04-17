@@ -109,17 +109,29 @@ Do not leak hidden weakness inventory or reference data into prompt text.
 
 ## Package Shape
 
-Primary modules:
+Primary stage packages:
 
-- `src/open_range/manifest.py`
-- `src/open_range/compiler.py`
-- `src/open_range/weaknesses.py`
-- `src/open_range/synth.py`
-- `src/open_range/render.py`
-- `src/open_range/admit.py`
-- `src/open_range/store.py`
-- `src/open_range/runtime.py`
-- `src/open_range/tracegen.py`
+- `src/open_range/manifest/`
+- `src/open_range/compiler/`
+- `src/open_range/weaknesses/`
+- `src/open_range/objectives/`
+- `src/open_range/synth/`
+- `src/open_range/render/`
+- `src/open_range/admission/`
+- `src/open_range/store/`
+- `src/open_range/runtime/`
+- `src/open_range/training/`
+- `src/open_range/catalog/`
+
+Shared support packages:
+
+- `src/open_range/config/`
+- `src/open_range/contracts/`
+- `src/open_range/support/`
+- `src/open_range/sdk/`
+
+The root package should stay tiny. The story belongs in the stage packages, not
+in a pile of top-level helper files.
 
 Examples and scripts are secondary surfaces and must stay aligned with the core
 contract, especially around:

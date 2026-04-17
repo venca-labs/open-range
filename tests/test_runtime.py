@@ -8,21 +8,20 @@ from types import SimpleNamespace
 
 import pytest
 
-from open_range._runtime_store import hydrate_runtime_snapshot
-from open_range.admit import LocalAdmissionController
-from open_range.cluster import ExecResult
-from open_range.code_web import code_web_payload
+from open_range.admission.controller import LocalAdmissionController
 from open_range.compiler import EnterpriseSaaSManifestCompiler
-from open_range.episode_config import EpisodeConfig
-from open_range.execution import ActionExecution, PodActionBackend
-from open_range.green import ScriptedGreenScheduler
-from open_range.probe_planner import runtime_action
+from open_range.config import EpisodeConfig
+from open_range.contracts.runtime import Action, RuntimeEvent
 from open_range.render import EnterpriseSaaSKindRenderer
+from open_range.render.live import ExecResult
 from open_range.runtime import OpenRangeRuntime
-from open_range.runtime_types import Action, RuntimeEvent
-from open_range.store import FileSnapshotStore
+from open_range.runtime.execution import PodActionBackend
+from open_range.runtime.green import ScriptedGreenScheduler
+from open_range.runtime.replay import matches_reference_step, runtime_action
+from open_range.store import FileSnapshotStore, hydrate_runtime_snapshot
 from open_range.synth import EnterpriseSaaSWorldSynthesizer
 from open_range.weaknesses import CatalogWeaknessSeeder
+from open_range.weaknesses.code_web import code_web_payload
 from tests.support import OFFLINE_BUILD_CONFIG, manifest_payload
 
 
@@ -118,7 +117,7 @@ def test_joint_pool_next_decision_returns_actor_specific_observations(tmp_path: 
     assert "submission://svc-email:587" in red_decision.obs.stdout
     assert "imaps://svc-email:993" in red_decision.obs.stdout
     assert "mission=obtain administrative credentials" in red_decision.obs.stdout
-    assert "public_attack_surfaces" not in red_decision.obs.stdout
+    assert "known_risky_surfaces" not in red_decision.obs.stdout
 
     runtime.act(
         "red",
@@ -134,10 +133,51 @@ def test_joint_pool_next_decision_returns_actor_specific_observations(tmp_path: 
     assert blue_decision.actor == "blue"
     assert blue_decision.obs.actor_id == "blue"
     assert blue_decision.obs.sim_time >= 0.5
-    assert any(event.malicious for event in blue_decision.obs.visible_events)
+    assert any(
+        event.event_type == "InitialAccess"
+        for event in blue_decision.obs.visible_events
+    )
+    assert not any(event.malicious for event in blue_decision.obs.visible_events)
+    assert all(event.actor != "red" for event in blue_decision.obs.visible_events)
+    assert all(
+        event.source_entity != "red" for event in blue_decision.obs.visible_events
+    )
     assert any(
         event.event_type == "InitialAccess" for event in blue_decision.obs.alerts_delta
     )
+    assert not any(event.malicious for event in blue_decision.obs.alerts_delta)
+    assert all(event.actor != "red" for event in blue_decision.obs.alerts_delta)
+    assert all(event.source_entity != "red" for event in blue_decision.obs.alerts_delta)
+
+
+def test_red_observation_does_not_expose_environment_event_feed(tmp_path: Path):
+    snapshot = _snapshot(tmp_path)
+    runtime = OpenRangeRuntime()
+    runtime.reset(
+        snapshot,
+        EpisodeConfig(
+            mode="red_only",
+            opponent_blue="none",
+            green_enabled=True,
+        ),
+    )
+
+    first_red = snapshot.reference_bundle.reference_attack_traces[0].steps[0]
+    decision = runtime.next_decision()
+    assert decision.actor == "red"
+    assert decision.obs.visible_events == ()
+    runtime.act(
+        "red",
+        Action(
+            actor_id="red",
+            role="red",
+            kind=first_red.kind,
+            payload={"target": first_red.target, **first_red.payload},
+        ),
+    )
+    second = runtime.next_decision()
+    assert second.actor == "red"
+    assert second.obs.visible_events == ()
 
 
 def test_runtime_keeps_green_internal_and_never_exposes_green_decisions(tmp_path: Path):
@@ -165,202 +205,7 @@ def test_runtime_keeps_green_internal_and_never_exposes_green_decisions(tmp_path
     assert any(event.actor == "green" for event in runtime.export_events())
 
 
-def test_red_observation_does_not_expose_environment_event_feed(tmp_path: Path):
-    snapshot = _snapshot(tmp_path)
-    runtime = OpenRangeRuntime()
-    runtime.reset(
-        snapshot,
-        EpisodeConfig(
-            mode="red_only",
-            opponent_blue="none",
-            green_enabled=True,
-        ),
-    )
-
-    first_red = snapshot.reference_bundle.reference_attack_traces[0].steps[0]
-    decision = runtime.next_decision()
-    assert decision.actor == "red"
-    runtime.act(
-        "red",
-        Action(
-            actor_id="red",
-            role="red",
-            kind=first_red.kind,
-            payload={"target": first_red.target, **first_red.payload},
-        ),
-    )
-
-    next_red = runtime.next_decision()
-    assert next_red.actor == "red"
-    assert next_red.obs.visible_events == ()
-    assert next_red.obs.alerts_delta == ()
-
-
-def test_runtime_red_progresses_via_public_effects_without_reference_steps(
-    tmp_path: Path,
-):
-    snapshot = _snapshot(tmp_path)
-    runtime = OpenRangeRuntime()
-    runtime.reset(
-        snapshot,
-        EpisodeConfig(
-            mode="red_only",
-            opponent_blue="none",
-            green_enabled=False,
-        ),
-    )
-
-    assert runtime.next_decision().actor == "red"
-    foothold = runtime.act(
-        "red",
-        Action(
-            actor_id="red",
-            role="red",
-            kind="api",
-            payload={
-                "target": "svc-web",
-                "path": "/search.php",
-                "query": {
-                    "q": "' UNION SELECT 'OPENRANGE-FOOTHOLD:test' -- ",
-                    "asset": "finance_docs",
-                },
-            },
-        ),
-    )
-    assert any(event.event_type == "InitialAccess" for event in foothold.emitted_events)
-
-    assert runtime.next_decision().actor == "red"
-    idp_probe = runtime.act(
-        "red",
-        Action(
-            actor_id="red",
-            role="red",
-            kind="shell",
-            payload={
-                "target": "svc-idp",
-                "command": "printf 'svc-idp\\n'",
-                "expect_contains": "svc-idp",
-            },
-        ),
-    )
-    assert {event.event_type for event in idp_probe.emitted_events} >= {
-        "CrossZoneTraversal",
-    }
-    assert "CredentialObtained" not in {
-        event.event_type for event in idp_probe.emitted_events
-    }
-
-    assert runtime.next_decision().actor == "red"
-    credential = runtime.act(
-        "red",
-        Action(
-            actor_id="red",
-            role="red",
-            kind="shell",
-            payload={
-                "target": "svc-idp",
-                "path": "/var/lib/openrange/secrets/idp_admin_cred.txt",
-                "command": "cat /var/lib/openrange/secrets/idp_admin_cred.txt",
-                "asset": "idp_admin_cred",
-                "objective": "credential_obtained(idp_admin_cred)",
-                "expect_contains": "seeded-sensitive-idp_admin_cred",
-            },
-        ),
-    )
-    assert {event.event_type for event in credential.emitted_events} >= {
-        "CredentialObtained",
-    }
-
-    assert runtime.next_decision().actor == "red"
-    fileshare_probe = runtime.act(
-        "red",
-        Action(
-            actor_id="red",
-            role="red",
-            kind="shell",
-            payload={
-                "target": "svc-fileshare",
-                "command": "printf 'svc-fileshare\\n'",
-                "expect_contains": "svc-fileshare",
-            },
-        ),
-    )
-    assert any(
-        event.event_type == "CrossZoneTraversal"
-        for event in fileshare_probe.emitted_events
-    )
-    assert not any(
-        event.event_type == "SensitiveAssetRead"
-        for event in fileshare_probe.emitted_events
-    )
-
-    assert runtime.next_decision().actor == "red"
-    asset = runtime.act(
-        "red",
-        Action(
-            actor_id="red",
-            role="red",
-            kind="shell",
-            payload={
-                "target": "svc-fileshare",
-                "path": "/srv/shared/finance_docs.txt",
-                "command": "cat /srv/shared/finance_docs.txt",
-                "asset": "finance_docs",
-                "objective": "asset_read(finance_docs)",
-                "expect_contains": "seeded-crown_jewel-finance_docs",
-            },
-        ),
-    )
-    assert asset.done is True
-    assert any(
-        event.event_type == "SensitiveAssetRead" for event in asset.emitted_events
-    )
-
-    score = runtime.score()
-    assert score.winner == "red"
-    assert score.red_objectives_satisfied == (
-        "asset_read(finance_docs)",
-        "credential_obtained(idp_admin_cred)",
-    )
-
-
-def test_runtime_red_cannot_score_internal_objectives_before_public_foothold(
-    tmp_path: Path,
-):
-    snapshot = _snapshot(tmp_path)
-    runtime = OpenRangeRuntime()
-    runtime.reset(
-        snapshot,
-        EpisodeConfig(
-            mode="red_only",
-            opponent_blue="none",
-            green_enabled=False,
-        ),
-    )
-
-    assert runtime.next_decision().actor == "red"
-    premature = runtime.act(
-        "red",
-        Action(
-            actor_id="red",
-            role="red",
-            kind="shell",
-            payload={
-                "target": "svc-idp",
-                "path": "/var/lib/openrange/secrets/idp_admin_cred.txt",
-                "command": "cat /var/lib/openrange/secrets/idp_admin_cred.txt",
-                "asset": "idp_admin_cred",
-                "objective": "credential_obtained(idp_admin_cred)",
-                "expect_contains": "seeded-sensitive-idp_admin_cred",
-            },
-        ),
-    )
-
-    assert not premature.emitted_events
-    assert runtime.score().red_objectives_satisfied == ()
-
-
-def test_one_day_prompt_mode_exposes_high_level_risky_surfaces(tmp_path: Path):
+def test_one_day_prompt_mode_uses_plain_mission_text(tmp_path: Path):
     snapshot = _snapshot(tmp_path)
     runtime = OpenRangeRuntime()
     runtime.reset(
@@ -372,23 +217,22 @@ def test_one_day_prompt_mode_exposes_high_level_risky_surfaces(tmp_path: Path):
 
     assert decision.actor == "red"
     assert "briefing_mode=one_day" in decision.obs.stdout
+    assert "public_entrypoints=" in decision.obs.stdout
     assert "mission=obtain administrative credentials" in decision.obs.stdout
-    assert (
-        "public_attack_surfaces=public web surface, public email surface"
-        in decision.obs.stdout
-    )
+    assert "known_risky_surfaces" not in decision.obs.stdout
     assert "@svc-" not in decision.obs.stdout
     assert "sql_injection" not in decision.obs.stdout
 
 
-def test_blue_briefing_uses_plain_mission_text_without_risky_surfaces(tmp_path: Path):
+def test_blue_briefing_uses_plain_mission_text_without_risky_surfaces(
+    tmp_path: Path,
+):
     snapshot = _snapshot(tmp_path)
     runtime = OpenRangeRuntime()
     runtime.reset(
         snapshot,
         EpisodeConfig(
-            mode="blue_only_from_prefix",
-            start_state="prefix_foothold",
+            mode="blue_only_live",
             prompt_mode="one_day",
             green_enabled=False,
         ),
@@ -397,11 +241,35 @@ def test_blue_briefing_uses_plain_mission_text_without_risky_surfaces(tmp_path: 
     decision = runtime.next_decision()
 
     assert decision.actor == "blue"
-    assert (
-        "mission=detect initial access quickly; contain intrusion before sensitive data is read; keep service health at or above 0.9"
-        in decision.obs.stdout
+    assert "briefing_mode=one_day" in decision.obs.stdout
+    assert "mission=detect initial access quickly" in decision.obs.stdout
+    assert "known_risky_surfaces" not in decision.obs.stdout
+
+
+def test_runtime_briefing_text_only_appears_on_first_observation(tmp_path: Path):
+    snapshot = _snapshot(tmp_path)
+    runtime = OpenRangeRuntime()
+    runtime.reset(snapshot, EpisodeConfig(mode="red_only", green_enabled=False))
+
+    first_decision = runtime.next_decision()
+    assert "briefing_mode=" in first_decision.obs.stdout
+
+    first_red = snapshot.reference_bundle.reference_attack_traces[0].steps[0]
+    runtime.act(
+        "red",
+        Action(
+            actor_id="red",
+            role="red",
+            kind=first_red.kind,
+            payload={"target": first_red.target, **first_red.payload},
+        ),
     )
-    assert "public_attack_surfaces=" not in decision.obs.stdout
+
+    second_decision = runtime.next_decision()
+
+    assert second_decision.actor == "red"
+    assert "briefing_mode=" not in second_decision.obs.stdout
+    assert second_decision.obs.stdout.startswith("sim_time=")
 
 
 def test_blue_only_from_prefix_starts_blue_after_compromise_prefix(tmp_path: Path):
@@ -506,32 +374,37 @@ def test_blue_only_live_can_win_by_detect_and_contain(tmp_path: Path):
     assert runtime.score().winner == "blue"
 
 
-def test_bootstrap_initial_access_creates_public_foothold(tmp_path: Path):
+def test_duplicate_blue_finding_is_a_no_op(tmp_path: Path):
     snapshot = _snapshot(tmp_path)
     runtime = OpenRangeRuntime()
     runtime.reset(
         snapshot,
-        EpisodeConfig(mode="red_only", opponent_blue="none", green_enabled=False),
+        EpisodeConfig(mode="blue_only_live", green_enabled=False),
     )
 
-    decision = runtime.next_decision()
-    assert decision.actor == "red"
-    result = runtime.act(
-        "red",
-        Action(
-            actor_id="red",
-            role="red",
-            kind="api",
-            payload={
-                "target": "svc-web",
-                "action": "initial_access",
-                "bootstrap_foothold": True,
-            },
-        ),
+    assert runtime.next_decision().actor == "blue"
+    detect_step = next(
+        step
+        for step in snapshot.reference_bundle.reference_defense_traces[0].steps
+        if step.kind == "submit_finding"
+    )
+    action = Action(
+        actor_id="blue",
+        role="blue",
+        kind=detect_step.kind,
+        payload={
+            "event_type": str(detect_step.payload["event"]),
+            "target": detect_step.target,
+        },
     )
 
-    assert any(event.event_type == "InitialAccess" for event in result.emitted_events)
-    assert "svc-web" in runtime._red_footholds
+    first = runtime.act("blue", action)
+    assert runtime.next_decision().actor == "blue"
+    second = runtime.act("blue", action)
+
+    assert "validated finding" in first.stdout
+    assert second.stdout == "finding already recorded"
+    assert second.emitted_events == ()
 
 
 def test_runtime_flags_mock_git_clone_in_episode_audit(tmp_path: Path):
@@ -806,67 +679,7 @@ def test_runtime_matching_rejects_extra_api_path_when_reference_has_no_path() ->
         payload={"target": "svc-web", "path": "/"},
     )
 
-    assert OpenRangeRuntime._matches_step(action, expected, "ok") is False
-
-
-def test_runtime_prefers_shortest_live_foothold_for_next_red_origin(
-    tmp_path: Path,
-) -> None:
-    snapshot = _snapshot(tmp_path)
-    runtime = OpenRangeRuntime()
-    runtime.reset(snapshot, EpisodeConfig(mode="red_only", green_enabled=False))
-    runtime._red_footholds = {"svc-web", "svc-idp"}
-    runtime._last_red_target = "svc-idp"
-
-    assert runtime._live_red_origin("svc-fileshare") == "svc-web"
-
-
-def test_runtime_overrides_spoofed_red_origin_for_live_actions(tmp_path: Path) -> None:
-    snapshot = _snapshot(tmp_path)
-
-    class FakeBackend:
-        def __init__(self) -> None:
-            self.actions: list[Action] = []
-
-        def execute(self, action: Action):
-            self.actions.append(action)
-            return ActionExecution(stdout="", stderr="", ok=True, service_health={})
-
-        def service_health(self) -> dict[str, float]:
-            return {}
-
-    backend = FakeBackend()
-    runtime = OpenRangeRuntime(action_backend=backend)
-    runtime.reset(snapshot, EpisodeConfig(mode="red_only", green_enabled=False))
-
-    first_step = snapshot.reference_bundle.reference_attack_traces[0].steps[0]
-    runtime.act(
-        "red",
-        Action(
-            actor_id="red",
-            role="red",
-            kind=first_step.kind,
-            payload={
-                "target": first_step.target,
-                "origin": "svc-idp",
-                **first_step.payload,
-            },
-        ),
-    )
-
-    assert backend.actions
-    assert backend.actions[0].payload["origin"] == "sandbox-red"
-
-
-def test_runtime_internal_snapshot_helpers_raise_clear_errors_without_reset() -> None:
-    runtime = OpenRangeRuntime()
-
-    with pytest.raises(RuntimeError, match="runtime has no active snapshot"):
-        runtime._briefing_text("red")
-    with pytest.raises(RuntimeError, match="runtime has no active snapshot"):
-        runtime._reference_attack_trace()
-    with pytest.raises(RuntimeError, match="runtime has no active snapshot"):
-        runtime._reference_defense_trace()
+    assert matches_reference_step(action, expected, "ok") is False
 
 
 def test_runtime_live_containment_blocks_future_red_step(tmp_path: Path):
@@ -1060,7 +873,12 @@ def test_runtime_live_patch_blocks_future_red_step_and_emits_patch_event(
     assert "patch applied" in patched.stdout
     assert any(event.event_type == "PatchApplied" for event in patched.emitted_events)
 
-    assert runtime.next_decision().actor == "red"
+    red_after_patch = runtime.next_decision()
+    assert red_after_patch.actor == "red"
+    assert not any(
+        event.event_type == "PatchApplied"
+        for event in red_after_patch.obs.visible_events
+    )
     blocked = runtime.act(
         "red",
         Action(
@@ -1072,6 +890,41 @@ def test_runtime_live_patch_blocks_future_red_step_and_emits_patch_event(
     )
 
     assert "patched" in blocked.stderr
+
+
+def test_runtime_timeout_clamps_reported_sim_time_to_horizon(tmp_path: Path):
+    snapshot = _snapshot(tmp_path)
+    runtime = OpenRangeRuntime()
+    runtime.reset(
+        snapshot,
+        EpisodeConfig(
+            mode="joint_pool",
+            green_enabled=False,
+            episode_horizon_minutes=0.5,
+        ),
+    )
+
+    while True:
+        if runtime.state().done:
+            break
+        try:
+            decision = runtime.next_decision()
+        except RuntimeError:
+            break
+        runtime.act(
+            decision.actor,
+            Action(
+                actor_id=decision.actor,
+                role=decision.actor,
+                kind="sleep",
+                payload={},
+            ),
+        )
+
+    score = runtime.score()
+
+    assert score.winner == "timeout"
+    assert score.sim_time == 0.5
 
 
 def test_runtime_live_patch_can_disable_exact_web_handler(tmp_path: Path):
@@ -1183,43 +1036,6 @@ def test_runtime_live_patch_can_disable_exact_web_handler(tmp_path: Path):
     assert "patched" in blocked.stderr
 
 
-def test_runtime_accepts_mitigate_as_patch_alias(tmp_path: Path):
-    snapshot = _snapshot(tmp_path)
-    runtime = OpenRangeRuntime()
-    runtime.reset(
-        snapshot,
-        EpisodeConfig(mode="joint_pool", green_enabled=False),
-    )
-
-    first_step = snapshot.reference_bundle.reference_attack_traces[0].steps[0]
-    second_step = snapshot.reference_bundle.reference_attack_traces[0].steps[1]
-
-    assert runtime.next_decision().actor == "red"
-    runtime.act(
-        "red",
-        Action(
-            actor_id="red",
-            role="red",
-            kind=first_step.kind,
-            payload={"target": first_step.target, **first_step.payload},
-        ),
-    )
-
-    assert runtime.next_decision().actor == "blue"
-    mitigated = runtime.act(
-        "blue",
-        Action(
-            actor_id="blue",
-            role="blue",
-            kind="control",
-            payload={"target": second_step.target, "action": "mitigate"},
-        ),
-    )
-
-    assert "mitigation applied" in mitigated.stdout
-    assert any(event.event_type == "PatchApplied" for event in mitigated.emitted_events)
-
-
 def test_internal_blue_controller_modes_are_not_aliases(tmp_path: Path):
     snapshot = _snapshot(tmp_path)
     first_step = snapshot.reference_bundle.reference_attack_traces[0].steps[0]
@@ -1245,10 +1061,9 @@ def test_internal_blue_controller_modes_are_not_aliases(tmp_path: Path):
             payload={"target": first_step.target, **first_step.payload},
         ),
     )
-    reference_action = reference_runtime._internal_blue_action()
-    assert reference_action.kind == "submit_finding"
-    assert reference_action.payload["event_type"] == "InitialAccess"
-    assert reference_action.payload["target"] == first_step.target
+    reference_action = reference_runtime._internal_action("blue")
+    assert reference_action.kind == "shell"
+    assert reference_action.payload["action"] == "observe_events"
 
     scripted_runtime = OpenRangeRuntime()
     scripted_runtime.reset(
@@ -1271,7 +1086,7 @@ def test_internal_blue_controller_modes_are_not_aliases(tmp_path: Path):
             payload={"target": first_step.target, **first_step.payload},
         ),
     )
-    scripted_action = scripted_runtime._internal_blue_action()
+    scripted_action = scripted_runtime._internal_action("blue")
     assert scripted_action.kind == "submit_finding"
     assert scripted_action.payload["target"] == first_step.target
 
