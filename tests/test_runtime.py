@@ -113,6 +113,10 @@ def test_joint_pool_next_decision_returns_actor_specific_observations(tmp_path: 
     assert red_decision.obs.actor_id == "red"
     assert red_decision.obs.sim_time == 0.0
     assert "briefing_mode=zero_day" in red_decision.obs.stdout
+    assert "public_entrypoints=http://svc-web:80/" in red_decision.obs.stdout
+    assert "submission://svc-email:587" in red_decision.obs.stdout
+    assert "imaps://svc-email:993" in red_decision.obs.stdout
+    assert "mission=obtain administrative credentials" in red_decision.obs.stdout
     assert "known_risky_surfaces" not in red_decision.obs.stdout
 
     runtime.act(
@@ -146,6 +150,36 @@ def test_joint_pool_next_decision_returns_actor_specific_observations(tmp_path: 
     assert all(event.source_entity != "red" for event in blue_decision.obs.alerts_delta)
 
 
+def test_red_observation_does_not_expose_environment_event_feed(tmp_path: Path):
+    snapshot = _snapshot(tmp_path)
+    runtime = OpenRangeRuntime()
+    runtime.reset(
+        snapshot,
+        EpisodeConfig(
+            mode="red_only",
+            opponent_blue="none",
+            green_enabled=True,
+        ),
+    )
+
+    first_red = snapshot.reference_bundle.reference_attack_traces[0].steps[0]
+    decision = runtime.next_decision()
+    assert decision.actor == "red"
+    assert decision.obs.visible_events == ()
+    runtime.act(
+        "red",
+        Action(
+            actor_id="red",
+            role="red",
+            kind=first_red.kind,
+            payload={"target": first_red.target, **first_red.payload},
+        ),
+    )
+    second = runtime.next_decision()
+    assert second.actor == "red"
+    assert second.obs.visible_events == ()
+
+
 def test_runtime_keeps_green_internal_and_never_exposes_green_decisions(tmp_path: Path):
     snapshot = _snapshot(tmp_path)
     runtime = OpenRangeRuntime()
@@ -171,7 +205,7 @@ def test_runtime_keeps_green_internal_and_never_exposes_green_decisions(tmp_path
     assert any(event.actor == "green" for event in runtime.export_events())
 
 
-def test_one_day_prompt_mode_exposes_high_level_risky_surfaces(tmp_path: Path):
+def test_one_day_prompt_mode_uses_plain_mission_text(tmp_path: Path):
     snapshot = _snapshot(tmp_path)
     runtime = OpenRangeRuntime()
     runtime.reset(
@@ -183,9 +217,33 @@ def test_one_day_prompt_mode_exposes_high_level_risky_surfaces(tmp_path: Path):
 
     assert decision.actor == "red"
     assert "briefing_mode=one_day" in decision.obs.stdout
-    assert "known_risky_surfaces=" in decision.obs.stdout
+    assert "public_entrypoints=" in decision.obs.stdout
+    assert "mission=obtain administrative credentials" in decision.obs.stdout
+    assert "known_risky_surfaces" not in decision.obs.stdout
     assert "@svc-" not in decision.obs.stdout
     assert "sql_injection" not in decision.obs.stdout
+
+
+def test_blue_briefing_uses_plain_mission_text_without_risky_surfaces(
+    tmp_path: Path,
+):
+    snapshot = _snapshot(tmp_path)
+    runtime = OpenRangeRuntime()
+    runtime.reset(
+        snapshot,
+        EpisodeConfig(
+            mode="blue_only_live",
+            prompt_mode="one_day",
+            green_enabled=False,
+        ),
+    )
+
+    decision = runtime.next_decision()
+
+    assert decision.actor == "blue"
+    assert "briefing_mode=one_day" in decision.obs.stdout
+    assert "mission=detect initial access quickly" in decision.obs.stdout
+    assert "known_risky_surfaces" not in decision.obs.stdout
 
 
 def test_runtime_briefing_text_only_appears_on_first_observation(tmp_path: Path):

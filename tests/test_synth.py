@@ -111,10 +111,17 @@ def test_synthesizer_realizes_exact_code_web_templates_and_witness_routes(
         )
         synth = EnterpriseSaaSWorldSynthesizer().synthesize(world, tmp_path / kind)
         web_payloads = synth.service_payloads["svc-web"]
+        route_file = next(file for file in web_payloads if file.mount_path == route)
+        assert route_file.content.lstrip().startswith("<?php")
         assert any(
-            file.mount_path == route and file.content.startswith("<?php")
+            file.mount_path == route and file.content.lstrip().startswith("<?php")
             for file in web_payloads
         )
+        if kind == "sql_injection":
+            assert "tenant_scope = 'catalog'" in route_file.content
+            assert "rows: 1" in route_file.content
+            assert "asset id: admin-console" in route_file.content
+            assert "rows: 0" in route_file.content
         artifacts = EnterpriseSaaSKindRenderer().render(
             world, synth, tmp_path / f"{kind}-render"
         )
