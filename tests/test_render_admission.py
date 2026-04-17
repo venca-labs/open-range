@@ -9,11 +9,8 @@ from open_range.admission.controller import LocalAdmissionController
 from open_range.compiler import EnterpriseSaaSManifestCompiler
 from open_range.config import BuildConfig
 from open_range.objectives.engine import PredicateEngine
-from open_range.render import (
-    SANDBOX_IMAGE_BY_ROLE,
-    EnterpriseSaaSKindRenderer,
-    service_image_for_kind,
-)
+from open_range.render import EnterpriseSaaSKindRenderer
+from open_range.render.images import SANDBOX_IMAGE_BY_ROLE, service_image_for_kind
 from open_range.render.live import ExecResult
 from open_range.store import BuildPipeline, FileSnapshotStore, load_runtime_snapshot
 from open_range.synth import EnterpriseSaaSWorldSynthesizer
