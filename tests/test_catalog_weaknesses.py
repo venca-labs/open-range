@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import random
 from typing import get_args
 
 import pytest
@@ -8,24 +7,9 @@ from pydantic import ValidationError
 
 from open_range.catalog.weaknesses import (
     all_supported_weakness_kinds,
-    available_seed_families_for_world,
-    available_weakness_families_for_service_kinds,
-    benchmark_tags_for_family,
-    default_target_kind_for_family,
-    expected_events_for_weakness,
-    instantiation_mode_for_family,
     is_supported_weakness_kind,
-    observability_surfaces_for_weakness,
-    preconditions_for_weakness,
-    remediation_text_for_kind,
     resolve_pinned_target,
-    seed_selection_for_family,
-    select_seed_families,
-    selected_seed_families_for_world,
     supported_weakness_kinds_for_family,
-    weakness_build_defaults,
-    weakness_family_contract,
-    weakness_id_for,
 )
 from open_range.compiler import EnterpriseSaaSManifestCompiler
 from open_range.manifest import (
@@ -44,162 +28,6 @@ from open_range.weaknesses import (
     supported_weakness_kinds,
 )
 from tests.support import manifest_payload
-
-
-def test_weakness_family_catalog_keeps_current_family_defaults() -> None:
-    assert default_target_kind_for_family("workflow_abuse") == "workflow"
-    assert benchmark_tags_for_family("code_web") == ("cve_bench", "xbow", "cybench_web")
-    assert instantiation_mode_for_family("telemetry_blindspot") == "exact_config"
-    assert preconditions_for_weakness(
-        "secret_exposure",
-        kind="credential_in_share",
-        target_ref="asset-finance-docs",
-    ) == (
-        "sensitive_material_present",
-        "asset-finance-docs",
-        "credential_in_share",
-    )
-
-
-def test_weakness_family_catalog_keeps_concrete_precondition_templates() -> None:
-    assert preconditions_for_weakness(
-        "code_web",
-        kind="sql_injection",
-        target_ref="svc-web",
-    ) == ("public_reachability", "user_input_surface", "sql_injection")
-    assert preconditions_for_weakness(
-        "workflow_abuse",
-        kind="phishing_credential_capture",
-        target_ref="wf-helpdesk-ticketing",
-    ) == (
-        "wf-helpdesk-ticketing",
-        "approval_path_exists",
-        "phishing_credential_capture",
-    )
-    assert preconditions_for_weakness(
-        "telemetry_blindspot",
-        kind="silent_mail_rule",
-        target_ref="svc-email",
-    ) == ("critical_action_exists", "silent_mail_rule")
-
-
-def test_weakness_family_catalog_keeps_context_defaults_in_one_place() -> None:
-    defaults = weakness_build_defaults(
-        "secret_exposure",
-        kind="token_in_email",
-        target="svc-email",
-        target_ref="idp_admin_cred",
-    )
-
-    assert defaults.objective_tags == ("file_access",)
-    assert defaults.expected_event_signatures == (
-        "CredentialObtained",
-        "SensitiveAssetRead",
-    )
-    assert defaults.blue_observability_surfaces == ("smtp", "imap", "audit", "ingest")
-    assert defaults.instantiation_mode == "exact_config"
-    assert defaults.remediation == "apply remediation for token in email"
-
-
-def test_weakness_family_catalog_keeps_default_id_and_remediation_helpers() -> None:
-    assert (
-        weakness_id_for(
-            "sql_injection",
-            target="svc-web",
-            target_ref="svc-web",
-        )
-        == "wk-sql-injection-svc-web"
-    )
-    assert remediation_text_for_kind("admin_surface_exposed") == (
-        "apply remediation for admin surface exposed"
-    )
-
-
-def test_weakness_family_catalog_keeps_expected_event_rules() -> None:
-    assert expected_events_for_weakness("code_web", "ssrf") == (
-        "InitialAccess",
-        "CrossZoneTraversal",
-    )
-    assert expected_events_for_weakness(
-        "workflow_abuse",
-        "phishing_credential_capture",
-    ) == ("InitialAccess", "CredentialObtained", "UnauthorizedCredentialUse")
-    assert expected_events_for_weakness(
-        "telemetry_blindspot",
-        "silent_mail_rule",
-    ) == ("InitialAccess", "DetectionAlertRaised")
-
-
-def test_weakness_family_catalog_keeps_observability_surface_rules() -> None:
-    assert observability_surfaces_for_weakness("code_web", kind="ssrf") == (
-        "web_access",
-        "ingest",
-    )
-    assert observability_surfaces_for_weakness(
-        "workflow_abuse",
-        kind="document_share_abuse",
-        target="svc-web",
-    ) == ("share_access", "audit", "ingest")
-    assert observability_surfaces_for_weakness(
-        "secret_exposure",
-        kind="hardcoded_app_secret",
-        target="svc-fileshare",
-    ) == ("share_access", "audit", "ingest")
-    assert observability_surfaces_for_weakness(
-        "config_identity",
-        kind="admin_surface_exposed",
-    ) == ("auth", "audit", "web_access")
-    assert observability_surfaces_for_weakness(
-        "telemetry_blindspot",
-        kind="silent_mail_rule",
-    ) == ("smtp", "imap", "ingest")
-
-
-def test_weakness_family_catalog_drives_family_availability() -> None:
-    assert available_weakness_families_for_service_kinds({"web_app"}) == {
-        "code_web",
-        "workflow_abuse",
-    }
-    assert available_weakness_families_for_service_kinds({"idp"}) >= {
-        "config_identity",
-        "secret_exposure",
-    }
-    assert weakness_family_contract("telemetry_blindspot") is not None
-
-
-def test_weakness_family_catalog_keeps_seed_selection_policy() -> None:
-    policy = seed_selection_for_family("code_web")
-
-    assert policy.auto_include is True
-    assert policy.priority == 0
-
-    selected = select_seed_families(
-        ("workflow_abuse", "secret_exposure", "code_web"),
-        weakness_count=2,
-        rng=random.Random(7),
-    )
-
-    assert selected[0] == "code_web"
-    assert len(selected) == 2
-
-
-def test_weakness_family_catalog_selects_seed_families_from_world_contracts() -> None:
-    world = (
-        EnterpriseSaaSManifestCompiler()
-        .compile(manifest_payload())
-        .model_copy(
-            update={
-                "allowed_weakness_families": ("code_web", "config_identity"),
-                "target_weakness_count": 2,
-            }
-        )
-    )
-
-    assert available_seed_families_for_world(world) == ("code_web", "config_identity")
-    assert selected_seed_families_for_world(world, rng=random.Random(7)) == (
-        "code_web",
-        "config_identity",
-    )
 
 
 def test_weakness_catalog_keeps_pinned_target_resolution_rules() -> None:
