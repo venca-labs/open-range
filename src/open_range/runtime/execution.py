@@ -367,7 +367,6 @@ class PodActionBackend:
         )
 
     def _run_in_runner(self, action: Action, command: str) -> ActionExecution:
-        release = self._require_release()
         if not command:
             return ActionExecution(
                 stderr="no command provided",
@@ -376,32 +375,17 @@ class PodActionBackend:
             )
         target = action_target(action)
         if target and target in self._service_by_id:
-            if self._is_contained(target):
-                return ActionExecution(
-                    stderr=f"target {target} is contained",
-                    ok=False,
-                    service_health=self.service_health(),
-                )
-            if self._is_patched(target):
-                return ActionExecution(
-                    stderr=f"target {target} is patched",
-                    ok=False,
-                    service_health=self.service_health(),
-                )
+            if blocked := self._blocked_target(target):
+                return blocked
         runner = self._runner_for(action)
-        result = run_async(release.pods.exec(runner, command, timeout=action.timeout_s))
-        return ActionExecution(
-            stdout=result.stdout.strip(),
-            stderr=result.stderr.strip(),
-            ok=result.ok,
-            service_health=self.service_health(),
-            executed_command=command,
-            runner_service=runner,
-            target_service=target,
+        return self._run_pod_command(
+            runner=runner,
+            target=target,
+            command=command,
+            timeout_s=action.timeout_s,
         )
 
     def _run_on_target_service(self, action: Action, command: str) -> ActionExecution:
-        release = self._require_release()
         target = action_target(action)
         if not target or target not in self._service_by_id:
             return ActionExecution(
@@ -409,27 +393,13 @@ class PodActionBackend:
                 ok=False,
                 service_health=self.service_health(),
             )
-        if self._is_contained(target):
-            return ActionExecution(
-                stderr=f"target {target} is contained",
-                ok=False,
-                service_health=self.service_health(),
-            )
-        if self._is_patched(target):
-            return ActionExecution(
-                stderr=f"target {target} is patched",
-                ok=False,
-                service_health=self.service_health(),
-            )
-        result = run_async(release.pods.exec(target, command, timeout=action.timeout_s))
-        return ActionExecution(
-            stdout=result.stdout.strip(),
-            stderr=result.stderr.strip(),
-            ok=result.ok,
-            service_health=self.service_health(),
-            executed_command=command,
-            runner_service=target,
-            target_service=target,
+        if blocked := self._blocked_target(target):
+            return blocked
+        return self._run_pod_command(
+            runner=target,
+            target=target,
+            command=command,
+            timeout_s=action.timeout_s,
         )
 
     def _runner_for(self, action: Action) -> str:
@@ -524,6 +494,41 @@ class PodActionBackend:
             release.pods.exec(target, "test ! -f /tmp/openrange-contained", timeout=5.0)
         )
         return not result.ok
+
+    def _blocked_target(self, target: str) -> ActionExecution | None:
+        if self._is_contained(target):
+            return ActionExecution(
+                stderr=f"target {target} is contained",
+                ok=False,
+                service_health=self.service_health(),
+            )
+        if self._is_patched(target):
+            return ActionExecution(
+                stderr=f"target {target} is patched",
+                ok=False,
+                service_health=self.service_health(),
+            )
+        return None
+
+    def _run_pod_command(
+        self,
+        *,
+        runner: str,
+        target: str,
+        command: str,
+        timeout_s: float,
+    ) -> ActionExecution:
+        release = self._require_release()
+        result = run_async(release.pods.exec(runner, command, timeout=timeout_s))
+        return ActionExecution(
+            stdout=result.stdout.strip(),
+            stderr=result.stderr.strip(),
+            ok=result.ok,
+            service_health=self.service_health(),
+            executed_command=command,
+            runner_service=runner,
+            target_service=target,
+        )
 
     def _is_patched(self, target: str) -> bool:
         release = self._require_release()

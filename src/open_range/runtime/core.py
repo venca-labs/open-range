@@ -281,24 +281,20 @@ class OpenRangeRuntime:
         )
 
     def remaining_red_targets(self) -> set[str]:
-        if self._snapshot is None:
+        if self._snapshot is None or self._reference_playback is None:
             return set()
-        trace = self._reference_attack_trace()
+        trace = self._reference_playback.attack_trace()
         return {step.target for step in trace.steps[self._red_progress :]}
 
-    @staticmethod
-    def matches_reference_step(action: Action, expected, live_stdout: str) -> bool:
-        return matches_reference_step(action, expected, live_stdout)
-
     def _apply_prefix_start(self) -> None:
-        if self._snapshot is None:
+        if self._snapshot is None or self._reference_playback is None:
             return
         if (
             self._episode_config.mode != "blue_only_from_prefix"
             or self._episode_config.start_state == "clean"
         ):
             return
-        attack_trace = self._reference_attack_trace()
+        attack_trace = self._reference_playback.attack_trace()
         if self._episode_config.start_state == "prefix_delivery":
             if not any(
                 step.payload.get("action") in {"deliver_phish", "deliver_lure"}
@@ -318,7 +314,7 @@ class OpenRangeRuntime:
             due = max(self._state.sim_time, self._next_due_time["red"])
             self._advance_time(due)
             emitted = self._act_red(
-                action_for_reference_step(self._require_snapshot(), "red", step),
+                action_for_reference_step(self._snapshot, "red", step),
                 internal=True,
             ).emitted_events
             self._advance_due_time("red")
@@ -786,23 +782,6 @@ class OpenRangeRuntime:
             contained_targets=self._contained_targets,
             blue_detected=self._blue_detected,
         )
-
-    def _reference_attack_trace(self):
-        if self._reference_playback is None:
-            self._require_snapshot()
-            raise RuntimeError("runtime has no reference playback")
-        return self._reference_playback.attack_trace()
-
-    def _reference_defense_trace(self):
-        if self._reference_playback is None:
-            self._require_snapshot()
-            raise RuntimeError("runtime has no reference playback")
-        return self._reference_playback.defense_trace()
-
-    def _require_snapshot(self) -> RuntimeSnapshot:
-        if self._snapshot is None:
-            raise RuntimeError("runtime has no active snapshot")
-        return self._snapshot
 
 
 def _initial_due_times(config: EpisodeConfig) -> dict[str, float]:

@@ -16,7 +16,7 @@ from open_range.render.live import ExecResult
 from open_range.runtime import OpenRangeRuntime
 from open_range.runtime.execution import PodActionBackend
 from open_range.runtime.green import ScriptedGreenScheduler
-from open_range.runtime.replay import runtime_action
+from open_range.runtime.replay import matches_reference_step, runtime_action
 from open_range.runtime_types import Action, RuntimeEvent
 from open_range.store import FileSnapshotStore, hydrate_runtime_snapshot
 from open_range.synth import EnterpriseSaaSWorldSynthesizer
@@ -577,18 +577,7 @@ def test_runtime_matching_rejects_extra_api_path_when_reference_has_no_path() ->
         payload={"target": "svc-web", "path": "/"},
     )
 
-    assert OpenRangeRuntime.matches_reference_step(action, expected, "ok") is False
-
-
-def test_runtime_internal_snapshot_helpers_raise_clear_errors_without_reset() -> None:
-    runtime = OpenRangeRuntime()
-
-    with pytest.raises(RuntimeError, match="runtime has no active snapshot"):
-        runtime._require_snapshot()
-    with pytest.raises(RuntimeError, match="runtime has no active snapshot"):
-        runtime._reference_attack_trace()
-    with pytest.raises(RuntimeError, match="runtime has no active snapshot"):
-        runtime._reference_defense_trace()
+    assert matches_reference_step(action, expected, "ok") is False
 
 
 def test_runtime_live_containment_blocks_future_red_step(tmp_path: Path):
