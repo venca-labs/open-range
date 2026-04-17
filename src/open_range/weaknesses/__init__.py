@@ -19,7 +19,6 @@ from open_range.contracts.world import (
     WeaknessSpec,
     WorldIR,
 )
-from open_range.manifest import WeaknessFamily
 from open_range.objectives.engine import PredicateEngine
 
 from ..objectives.effects import effect_marker_cleanup_command, effect_marker_service
@@ -42,20 +41,11 @@ from .families import (
 from .families.common import (
     RedReferencePlan,
     WeaknessBuildContext,
-    first_objective_service,
 )
 
 __all__ = [
     "CatalogWeaknessSeeder",
     "build_catalog_weakness",
-    "build_reference_plan_for_weakness",
-    "cleanup_steps_for_weakness",
-    "first_objective_service",
-    "mutation_spec",
-    "mutation_target_service",
-    "remediation_command_for_weakness",
-    "render_realization_content",
-    "seed_catalog_weakness",
     "supported_weakness_kinds",
 ]
 
@@ -201,8 +191,7 @@ def render_realization_content(
     )
 
 
-def supported_weakness_kinds(family: WeaknessFamily) -> tuple[str, ...]:
-    return supported_weakness_kinds_for_family(family)
+supported_weakness_kinds = supported_weakness_kinds_for_family
 
 
 def cleanup_steps_for_weakness(weakness: WeaknessSpec) -> tuple[tuple[str, str], ...]:

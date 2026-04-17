@@ -26,10 +26,10 @@ from open_range.objectives.expr import predicate_inner
 from open_range.store import FileSnapshotStore, load_world_ir
 from open_range.weaknesses import (
     build_catalog_weakness,
-    first_objective_service,
     mutation_spec,
     mutation_target_service,
 )
+from open_range.weaknesses.families.common import first_objective_service
 
 PoolSplit = Literal["train", "eval"]
 MutationKind = Literal[

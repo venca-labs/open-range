@@ -78,11 +78,6 @@ package-data = { "open_range" = ["**/*.yaml", "**/*.yml", "**/*.json", "**/*.md"
 where = ["src"]
 include = ["open_range*"]
 
-[tool.pytest.ini_options]
-markers = [
-    "live_model: runs live LiteLLM model smoke tests",
-]
-
 [tool.ruff]
 line-length = 88
 target-version = "py311"
