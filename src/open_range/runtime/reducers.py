@@ -60,6 +60,8 @@ class BlueControlTransition:
     stdout: str
     contained_targets: set[str]
     patched_targets: set[str]
+    blue_contained: bool
+    satisfied_objectives: tuple[str, ...] = ()
     path_broken: bool = False
     event_spec: BlueActionEventSpec | None = None
 
@@ -151,6 +153,7 @@ def reduce_blue_control(
     remaining_red_targets: set[str] | frozenset[str],
     contained_targets: set[str] | frozenset[str],
     patched_targets: set[str] | frozenset[str],
+    blue_contained: bool,
 ) -> BlueControlTransition:
     next_contained = set(contained_targets)
     next_patched = set(patched_targets)
@@ -160,6 +163,7 @@ def reduce_blue_control(
         and (live.containment_applied or live.patch_applied)
     )
     linked_objectives = (BLUE_CONTAINMENT_OBJECTIVE,) if path_broken else ()
+    next_blue_contained = blue_contained or path_broken
     event_spec: BlueActionEventSpec | None = None
 
     if target and live.containment_applied:
@@ -218,6 +222,8 @@ def reduce_blue_control(
         stdout=stdout,
         contained_targets=next_contained,
         patched_targets=next_patched,
+        blue_contained=next_blue_contained,
+        satisfied_objectives=linked_objectives,
         path_broken=path_broken,
         event_spec=event_spec,
     )

@@ -39,7 +39,6 @@ from open_range.runtime.execution import (
 from open_range.runtime.green import GreenScheduler, ScriptedGreenScheduler
 from open_range.runtime.hooks import RuntimeHooks
 from open_range.runtime.reducers import (
-    BLUE_CONTAINMENT_OBJECTIVE,
     continuity_for_service_health,
     emit_blue_action_event,
     evaluate_terminal_state,
@@ -588,17 +587,17 @@ class OpenRangeRuntime:
                 remaining_red_targets=self.remaining_red_targets(),
                 contained_targets=self._contained_targets,
                 patched_targets=self._patched_targets,
+                blue_contained=self._blue_contained,
             )
             self._contained_targets = transition.contained_targets
             self._patched_targets = transition.patched_targets
+            self._blue_contained = transition.blue_contained
+            self._blue_objectives_satisfied.update(transition.satisfied_objectives)
             event = emit_blue_action_event(transition.event_spec, emit_event=emit_event)
             if event is not None:
                 emitted.append(event)
 
             stdout = transition.stdout
-            if transition.path_broken:
-                self._blue_contained = True
-                self._blue_objectives_satisfied.add(BLUE_CONTAINMENT_OBJECTIVE)
             (
                 self._state.continuity,
                 self._blue_objectives_satisfied,

@@ -5,13 +5,16 @@ from math import isinf
 from types import SimpleNamespace
 
 from open_range.admission.models import ReferenceAction
-from open_range.contracts.runtime import Action, RuntimeEvent
-from open_range.runtime.events import (
+from open_range.contracts.runtime import (
+    Action,
+    RuntimeEvent,
     control_directive,
     control_directive_from_payload,
-    emit_runtime_event,
     finding_event_type,
     finding_event_type_from_payload,
+)
+from open_range.runtime.events import (
+    emit_runtime_event,
     telemetry_blindspots,
     visible_events_for_actor,
 )
@@ -166,16 +169,20 @@ def test_reduce_blue_control_keeps_path_breaking_containment_policy() -> None:
         remaining_red_targets={"svc-web"},
         contained_targets=set(),
         patched_targets=set(),
+        blue_contained=False,
     )
 
     assert transition.stdout == "containment applied to svc-web"
     assert transition.path_broken is True
+    assert transition.blue_contained is True
     assert transition.contained_targets == {"svc-web"}
     assert transition.patched_targets == set()
+    assert transition.satisfied_objectives == (BLUE_CONTAINMENT_OBJECTIVE,)
     assert transition.event_spec is not None
     assert transition.event_spec.event_type == "ContainmentApplied"
-    assert transition.event_spec.linked_objective_predicates == (
-        BLUE_CONTAINMENT_OBJECTIVE,
+    assert (
+        transition.event_spec.linked_objective_predicates
+        == transition.satisfied_objectives
     )
 
 
@@ -187,12 +194,15 @@ def test_reduce_blue_control_keeps_nonbreaking_mitigation_wording() -> None:
         remaining_red_targets=set(),
         contained_targets={"svc-web"},
         patched_targets=set(),
+        blue_contained=True,
     )
 
     assert transition.stdout == "mitigation on svc-web did not break the remaining path"
     assert transition.path_broken is False
+    assert transition.blue_contained is True
     assert transition.contained_targets == set()
     assert transition.patched_targets == {"svc-web"}
+    assert transition.satisfied_objectives == ()
     assert transition.event_spec is not None
     assert transition.event_spec.event_type == "PatchApplied"
 
@@ -205,12 +215,15 @@ def test_reduce_blue_control_clears_state_on_recovery() -> None:
         remaining_red_targets={"svc-web"},
         contained_targets={"svc-web"},
         patched_targets={"svc-web"},
+        blue_contained=True,
     )
 
     assert transition.stdout == "recovery applied to svc-web"
     assert transition.path_broken is False
+    assert transition.blue_contained is True
     assert transition.contained_targets == set()
     assert transition.patched_targets == set()
+    assert transition.satisfied_objectives == ()
     assert transition.event_spec is not None
     assert transition.event_spec.event_type == "RecoveryCompleted"
 
