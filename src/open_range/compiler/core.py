@@ -4,15 +4,18 @@ from __future__ import annotations
 
 from open_range.config import DEFAULT_BUILD_CONFIG, BuildConfig
 from open_range.contracts.world import (
+    AssetSpec,
     GreenWorkloadSpec,
     LineageSpec,
     MutationBoundsSpec,
+    ObjectiveSpec,
     WorldIR,
 )
 from open_range.manifest import EnterpriseSaaSManifest, validate_manifest
+from open_range.objectives.expr import predicate_inner
+from open_range.objectives.resolution import objective_tags_for_predicate
 
 from .assets import place_assets
-from .objectives import compile_objectives
 from .selection import (
     selected_code_flaw_kinds,
     selected_services,
@@ -23,6 +26,46 @@ from .selection import (
 from .services import compile_service_topology
 from .users import expand_users, validate_npc_profiles
 from .workflows import compile_workflows
+
+
+def _compile_objectives(
+    *,
+    owner: str,
+    predicates: tuple[str, ...],
+    assets: tuple[AssetSpec, ...],
+) -> tuple[ObjectiveSpec, ...]:
+    return tuple(
+        _compile_objective(
+            owner=owner,
+            index=index,
+            predicate=predicate,
+            assets=assets,
+        )
+        for index, predicate in enumerate(predicates, start=1)
+    )
+
+
+def _compile_objective(
+    *,
+    owner: str,
+    index: int,
+    predicate: str,
+    assets: tuple[AssetSpec, ...],
+) -> ObjectiveSpec:
+    target = predicate_inner(predicate)
+    asset = next((item for item in assets if item.id == target), None)
+    objective_tags = objective_tags_for_predicate(
+        predicate,
+        asset_location=asset.location if asset is not None else "",
+        owner_service=asset.owner_service if asset is not None else "",
+        target_id=target,
+    )
+    return ObjectiveSpec(
+        id=f"{owner}-{index}",
+        owner=owner,
+        predicate=predicate,
+        objective_tags=objective_tags,
+    )
 
 
 class EnterpriseSaaSManifestCompiler:
@@ -62,12 +105,12 @@ class EnterpriseSaaSManifestCompiler:
             available_service_ids=service_ids,
         )
         assets = place_assets(parsed.assets, available_service_ids=service_ids)
-        red_objectives = compile_objectives(
+        red_objectives = _compile_objectives(
             owner="red",
             predicates=tuple(obj.predicate for obj in parsed.objectives.red),
             assets=assets,
         )
-        blue_objectives = compile_objectives(
+        blue_objectives = _compile_objectives(
             owner="blue",
             predicates=tuple(obj.predicate for obj in parsed.objectives.blue),
             assets=assets,
