@@ -6,13 +6,9 @@ import hashlib
 import json
 import shutil
 from pathlib import Path
-from typing import Any, Protocol
+from typing import TYPE_CHECKING, Any, Protocol
 
 import yaml
-
-from open_range.snapshot import KindArtifacts
-from open_range.synth import SynthArtifacts
-from open_range.world_ir import GreenPersona, ServiceSpec, WorldIR
 
 from .extensions import (
     RenderExtensions,
@@ -20,7 +16,12 @@ from .extensions import (
     merge_render_extensions,
 )
 from .images import SANDBOX_IMAGE_BY_ROLE, service_image_for_kind
+from .models import KindArtifacts
 from .security import materialize_security_runtime
+
+if TYPE_CHECKING:
+    from open_range.synth import SynthArtifacts
+    from open_range.world_ir import GreenPersona, ServiceSpec, WorldIR
 
 _CHART_DIR = Path(__file__).resolve().parents[1] / "chart"
 

@@ -10,16 +10,17 @@ from __future__ import annotations
 
 import logging
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import yaml
 
-from open_range.snapshot import KindArtifacts
-from open_range.synth import SynthArtifacts
-from open_range.world_ir import ServiceSpec, WorldIR
-
 from .extensions import RenderExtensions
 from .kind import EnterpriseSaaSKindRenderer
+from .models import KindArtifacts
+
+if TYPE_CHECKING:
+    from open_range.synth import SynthArtifacts
+    from open_range.world_ir import ServiceSpec, WorldIR
 
 logger = logging.getLogger(__name__)
 
