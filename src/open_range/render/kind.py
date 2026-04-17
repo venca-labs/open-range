@@ -6,7 +6,7 @@ import hashlib
 import json
 import shutil
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Protocol
+from typing import TYPE_CHECKING, Any
 
 import yaml
 
@@ -24,17 +24,6 @@ if TYPE_CHECKING:
     from open_range.synth import SynthArtifacts
 
 _CHART_DIR = Path(__file__).resolve().parents[1] / "chart"
-
-
-class KindRenderer(Protocol):
-    def render(
-        self,
-        world: WorldIR,
-        synth: SynthArtifacts,
-        outdir: Path,
-        *,
-        extensions: RenderExtensions | None = None,
-    ) -> KindArtifacts: ...
 
 
 class EnterpriseSaaSKindRenderer:

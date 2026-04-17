@@ -1,7 +1,5 @@
 """Public render package surface."""
 
-from open_range.contracts.render import SecurityRuntimeSpec
-
 from .cilium import CiliumPolicyGenerator
 from .images import (
     SANDBOX_IMAGE_BY_ROLE,
@@ -18,6 +16,5 @@ __all__ = [
     "SANDBOX_IMAGE_BY_ROLE",
     "SecurityIntegrator",
     "SecurityIntegratorConfig",
-    "SecurityRuntimeSpec",
     "service_image_for_kind",
 ]

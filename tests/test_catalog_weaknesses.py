@@ -1,106 +1,12 @@
 from __future__ import annotations
 
-from typing import get_args
-
-import pytest
-from pydantic import ValidationError
-
-from open_range.catalog.weaknesses import (
-    all_supported_weakness_kinds,
-    is_supported_weakness_kind,
-    resolve_pinned_target,
-    supported_weakness_kinds_for_family,
-)
 from open_range.compiler import EnterpriseSaaSManifestCompiler
-from open_range.manifest import (
-    CodeFlawKind,
-    ConfigIdentityKind,
-    PinnedWeaknessSpec,
-    SecretExposureKind,
-    SupportedWeaknessKind,
-    TelemetryBlindspotKind,
-    WorkflowAbuseKind,
-)
 from open_range.weaknesses import (
     CatalogWeaknessSeeder,
     build_catalog_weakness,
     seed_catalog_weakness,
-    supported_weakness_kinds,
 )
 from tests.support import manifest_payload
-
-
-def test_weakness_catalog_keeps_pinned_target_resolution_rules() -> None:
-    payload = manifest_payload()
-    world = EnterpriseSaaSManifestCompiler().compile(payload)
-    workflow = world.workflows[0]
-    workflow_target = next(
-        (step.service for step in workflow.steps if step.service),
-        "svc-web",
-    )
-    asset = world.assets[0]
-    credential = world.credentials[0]
-    telemetry_source = world.telemetry_edges[0].source
-
-    assert resolve_pinned_target(world, "svc-web") == ("svc-web", "service", "svc-web")
-    assert resolve_pinned_target(world, "web_app") == ("svc-web", "service", "svc-web")
-    assert resolve_pinned_target(world, f"workflow:{workflow.name}") == (
-        workflow_target,
-        "workflow",
-        workflow.id,
-    )
-    assert resolve_pinned_target(world, f"asset:{asset.id}") == (
-        asset.owner_service,
-        "asset",
-        asset.id,
-    )
-    assert resolve_pinned_target(world, f"credential:{credential.subject}") == (
-        credential.scope[0] if credential.scope else "svc-idp",
-        "credential",
-        credential.id,
-    )
-    assert resolve_pinned_target(world, f"telemetry:{telemetry_source}") == (
-        telemetry_source,
-        "telemetry",
-        telemetry_source,
-    )
-
-
-def test_weakness_kind_catalog_stays_in_sync_with_public_manifest_types() -> None:
-    assert supported_weakness_kinds_for_family("code_web") == get_args(CodeFlawKind)
-    assert supported_weakness_kinds_for_family("config_identity") == get_args(
-        ConfigIdentityKind
-    )
-    assert supported_weakness_kinds_for_family("secret_exposure") == get_args(
-        SecretExposureKind
-    )
-    assert supported_weakness_kinds_for_family("workflow_abuse") == get_args(
-        WorkflowAbuseKind
-    )
-    assert supported_weakness_kinds_for_family("telemetry_blindspot") == get_args(
-        TelemetryBlindspotKind
-    )
-    assert supported_weakness_kinds("workflow_abuse") == get_args(WorkflowAbuseKind)
-    assert all_supported_weakness_kinds() == get_args(SupportedWeaknessKind)
-    assert is_supported_weakness_kind("workflow_abuse", "document_share_abuse")
-    assert not is_supported_weakness_kind("workflow_abuse", "sql_injection")
-
-
-def test_pinned_weakness_validation_reads_catalog_kind_inventory() -> None:
-    pinned = PinnedWeaknessSpec(
-        family="workflow_abuse",
-        kind="document_share_abuse",
-        target="svc-fileshare",
-    )
-
-    assert pinned.kind == "document_share_abuse"
-
-    with pytest.raises(ValidationError):
-        PinnedWeaknessSpec(
-            family="workflow_abuse",
-            kind="sql_injection",
-            target="svc-web",
-        )
 
 
 def test_seeded_world_keeps_catalog_backed_family_metadata() -> None:

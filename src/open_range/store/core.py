@@ -6,15 +6,15 @@ import json
 import time
 from pathlib import Path
 from random import Random
-from typing import Literal, Protocol
+from typing import Literal
 
-from open_range.admission import ReferenceBundle, ValidatorReport
 from open_range.contracts.snapshot import (
     KindArtifacts,
     RuntimeSnapshot,
     Snapshot,
     world_hash,
 )
+from open_range.contracts.validation import ReferenceBundle, ValidatorReport
 from open_range.contracts.world import WorldIR
 from open_range.synth import SynthArtifacts
 
@@ -45,28 +45,6 @@ def _reference_bundle_path(store_dir: str | Path, snapshot_id: str) -> Path:
 
 def _validator_report_path(store_dir: str | Path, snapshot_id: str) -> Path:
     return _snapshot_dir(store_dir, snapshot_id) / "validator_report.json"
-
-
-class SnapshotStore(Protocol):
-    def create(
-        self,
-        world: WorldIR,
-        artifacts: KindArtifacts,
-        wb: ReferenceBundle,
-        vr: ValidatorReport,
-        synth: SynthArtifacts | None = None,
-        *,
-        split: PoolSplit = "train",
-    ) -> Snapshot: ...
-    def load(self, snapshot_id: str) -> Snapshot: ...
-    def list(self, *, split: PoolSplit | None = None) -> tuple[Snapshot, ...]: ...
-    def sample(
-        self,
-        *,
-        split: PoolSplit = "train",
-        seed: int | None = None,
-        strategy: Literal["random", "latest"] = "random",
-    ) -> Snapshot: ...
 
 
 class FileSnapshotStore:

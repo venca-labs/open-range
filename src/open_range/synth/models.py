@@ -2,12 +2,7 @@
 
 from __future__ import annotations
 
-from pathlib import Path
-from typing import Protocol
-
 from pydantic import BaseModel, ConfigDict, Field
-
-from open_range.contracts.world import WorldIR
 
 
 class _StrictModel(BaseModel):
@@ -26,7 +21,3 @@ class SynthArtifacts(_StrictModel):
     service_payloads: dict[str, tuple[SynthFile, ...]] = Field(default_factory=dict)
     mailboxes: dict[str, tuple[str, ...]] = Field(default_factory=dict)
     generated_files: tuple[str, ...] = Field(default_factory=tuple)
-
-
-class WorldSynthesizer(Protocol):
-    def synthesize(self, world: WorldIR, outdir: Path) -> SynthArtifacts: ...

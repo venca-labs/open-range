@@ -7,6 +7,7 @@ from typing import Iterable, Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
+from open_range.catalog.contracts import StandardAttackObjective
 from open_range.contracts.render import SecurityRuntimeSpec
 from open_range.manifest import (
     CodeFlawKind,
@@ -15,7 +16,6 @@ from open_range.manifest import (
     WeaknessFamily,
     WeaknessTargetKind,
 )
-from open_range.objectives import StandardAttackObjective
 
 
 class _StrictModel(BaseModel):

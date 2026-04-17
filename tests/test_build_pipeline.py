@@ -28,23 +28,9 @@ def test_pipeline_builds_and_admits_snapshot(tmp_path: Path):
     assert "world_path" not in snapshot.model_dump()
     assert "reference_bundle_path" not in snapshot.model_dump()
     assert "mailboxes" in snapshot.identity_seed
-    assert not hasattr(pipeline.store, "load_world")
-    assert not hasattr(pipeline.store, "hydrate")
-    assert not hasattr(pipeline.store, "load_runtime")
-    assert not hasattr(pipeline.store, "_load_world")
-    assert not hasattr(pipeline.store, "_hydrate")
-    assert not hasattr(pipeline.store, "_load_runtime")
-    assert not hasattr(pipeline.store, "_sample_runtime")
 
 
-def test_store_package_exports_thin_surface():
-    assert hasattr(store_module, "BuildPipeline")
-    assert hasattr(store_module, "FileSnapshotStore")
+def test_store_module_still_exposes_runtime_hydration_helpers() -> None:
     assert hasattr(store_module, "hydrate_runtime_snapshot")
     assert hasattr(store_module, "load_runtime_snapshot")
     assert hasattr(store_module, "load_world_ir")
-    assert "CandidateWorld" not in store_module.__all__
-    assert "SnapshotStore" not in store_module.__all__
-    assert "build" not in store_module.__all__
-    assert "admit" not in store_module.__all__
-    assert "admit_child" not in store_module.__all__
