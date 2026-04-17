@@ -33,7 +33,3 @@ DB_MTLS_HELPER_IMAGE: Final[str] = SANDBOX_MULTITOOL_IMAGE
 
 def service_image_for_kind(kind: str) -> str:
     return SERVICE_IMAGE_BY_KIND.get(kind, DEFAULT_SERVICE_IMAGE)
-
-
-def sandbox_image_for_role(role: str) -> str:
-    return SANDBOX_IMAGE_BY_ROLE.get(role, DEFAULT_SERVICE_IMAGE)

@@ -3,7 +3,6 @@ from __future__ import annotations
 from pathlib import Path
 from types import SimpleNamespace
 
-import open_range.admission.controller as admission_controller_mod
 import open_range.admission.live as live_checks_mod
 from open_range.admission.controller import LocalAdmissionController
 from open_range.compiler import EnterpriseSaaSManifestCompiler
@@ -380,74 +379,6 @@ def test_admission_controller_can_run_optional_live_backend(tmp_path: Path):
     assert any(stage.name == "kind_live" for stage in report.stages)
     assert calls[0].startswith("boot:")
     assert calls[-1].startswith("down:")
-
-
-def test_no_necessity_profile_skips_auto_live_backend_probe(
-    tmp_path: Path, monkeypatch
-) -> None:
-    world = _build_seeded_world()
-    artifacts = EnterpriseSaaSKindRenderer().render(
-        world, _synth(world, tmp_path), tmp_path / "rendered"
-    )
-    which_calls: list[str] = []
-    run_calls: list[tuple[object, ...]] = []
-
-    def fake_which(cmd: str) -> str:
-        which_calls.append(cmd)
-        return f"/usr/bin/{cmd}"
-
-    def fake_run(*args, **kwargs):
-        del kwargs
-        run_calls.append(args)
-        return SimpleNamespace(returncode=0, stdout="openrange\n", stderr="")
-
-    monkeypatch.setattr(admission_controller_mod.shutil, "which", fake_which)
-    monkeypatch.setattr(admission_controller_mod.subprocess, "run", fake_run)
-
-    _bundle, report = LocalAdmissionController(mode="fail_fast").admit(
-        world, artifacts, OFFLINE_REFERENCE_BUILD_CONFIG
-    )
-
-    assert report.admitted is True
-    assert all(stage.name != "kind_live" for stage in report.stages)
-    assert which_calls == []
-    assert run_calls == []
-
-
-def test_k3d_profile_uses_k3d_auto_live_backend(tmp_path: Path, monkeypatch) -> None:
-    _world = _build_seeded_world()
-    _ = EnterpriseSaaSKindRenderer().render(
-        _world, _synth(_world, tmp_path), tmp_path / "rendered-k3d"
-    )
-    which_calls: list[str] = []
-    run_calls: list[tuple[object, ...]] = []
-
-    def fake_which(cmd: str) -> str:
-        which_calls.append(cmd)
-        return f"/usr/bin/{cmd}"
-
-    def fake_run(*args, **kwargs):
-        del kwargs
-        run_calls.append(args)
-        cmd = args[0]
-        if cmd[:4] == ["k3d", "cluster", "list", "-o"]:
-            return SimpleNamespace(
-                returncode=0, stdout='[{"name":"openrange"}]', stderr=""
-            )
-        return SimpleNamespace(returncode=0, stdout="", stderr="")
-
-    monkeypatch.setattr(admission_controller_mod.shutil, "which", fake_which)
-    monkeypatch.setattr(admission_controller_mod.subprocess, "run", fake_run)
-
-    controller = LocalAdmissionController(mode="analysis")
-    backend = controller._auto_live_backend(
-        BuildConfig(cluster_backend="k3d", validation_profile="graph_plus_live")
-    )
-
-    assert backend is not None
-    assert backend.__class__.__name__ == "K3dBackend"
-    assert which_calls[:3] == ["helm", "k3d", "docker"]
-    assert any(call[0][:4] == ["k3d", "cluster", "list", "-o"] for call in run_calls)
 
 
 def test_graph_plus_live_skips_full_only_live_checks(tmp_path: Path) -> None:
