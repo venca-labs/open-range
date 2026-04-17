@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import pytest
 
+import open_range.compiler as compiler_module
 from open_range.compiler import EnterpriseSaaSManifestCompiler
 from tests.support import manifest_payload
 
@@ -21,6 +22,11 @@ def _manifest_payload() -> dict:
     payload["difficulty"]["target_red_path_depth"] = 8
     payload["mutation_bounds"]["allow_patch_old_weaknesses"] = True
     return payload
+
+
+def test_compiler_package_exports_only_concrete_compiler() -> None:
+    assert hasattr(compiler_module, "EnterpriseSaaSManifestCompiler")
+    assert not hasattr(compiler_module, "ManifestCompiler")
 
 
 def test_compiler_builds_hand_checkable_world_ir():

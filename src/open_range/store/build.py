@@ -2,23 +2,31 @@
 
 from __future__ import annotations
 
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
 from open_range.admission.controller import LocalAdmissionController
 from open_range.compiler import EnterpriseSaaSManifestCompiler
 from open_range.config import DEFAULT_BUILD_CONFIG, BuildConfig
-from open_range.contracts.snapshot import Snapshot
+from open_range.contracts.snapshot import KindArtifacts, Snapshot
 from open_range.contracts.world import WorldIR
 from open_range.manifest import EnterpriseSaaSManifest
 from open_range.render import EnterpriseSaaSKindRenderer, SecurityIntegrator
-from open_range.synth import EnterpriseSaaSWorldSynthesizer
+from open_range.synth import EnterpriseSaaSWorldSynthesizer, SynthArtifacts
 from open_range.weaknesses import CatalogWeaknessSeeder
 
 from .core import FileSnapshotStore, PoolSplit
-from .models import CandidateWorld
 from .prepare import prepare_world, renderer_for
 from .rendered import integrate_network_policies
+
+
+@dataclass(frozen=True, slots=True)
+class CandidateWorld:
+    world: WorldIR
+    synth: SynthArtifacts
+    artifacts: KindArtifacts
+    build_config: BuildConfig = DEFAULT_BUILD_CONFIG
 
 
 class BuildPipeline:
@@ -97,30 +105,3 @@ class BuildPipeline:
         build_config: BuildConfig = DEFAULT_BUILD_CONFIG,
     ) -> Snapshot:
         return self.admit(self.build(world, outdir, build_config), split=split)
-
-
-def build(
-    source: dict[str, Any] | EnterpriseSaaSManifest | WorldIR,
-    outdir: str | Path,
-    build_config: BuildConfig = DEFAULT_BUILD_CONFIG,
-) -> CandidateWorld:
-    """Build a candidate world from a public manifest or mutated WorldIR."""
-    return BuildPipeline().build(source, outdir, build_config)
-
-
-def admit(candidate: CandidateWorld, *, split: PoolSplit = "train") -> Snapshot:
-    """Admit a built candidate and persist it as an immutable snapshot."""
-    return BuildPipeline().admit(candidate, split=split)
-
-
-def admit_child(
-    world: WorldIR,
-    outdir: str | Path,
-    *,
-    split: PoolSplit = "train",
-    build_config: BuildConfig = DEFAULT_BUILD_CONFIG,
-) -> Snapshot:
-    """Render, admit, and persist a mutated child world."""
-    return BuildPipeline().admit_child(
-        world, outdir, split=split, build_config=build_config
-    )

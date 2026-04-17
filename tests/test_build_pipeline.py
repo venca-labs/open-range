@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
+import open_range.store as store_module
 from open_range.store import BuildPipeline
 from tests.support import OFFLINE_BUILD_CONFIG, manifest_payload
 
@@ -34,3 +35,16 @@ def test_pipeline_builds_and_admits_snapshot(tmp_path: Path):
     assert not hasattr(pipeline.store, "_hydrate")
     assert not hasattr(pipeline.store, "_load_runtime")
     assert not hasattr(pipeline.store, "_sample_runtime")
+
+
+def test_store_package_exports_thin_surface():
+    assert hasattr(store_module, "BuildPipeline")
+    assert hasattr(store_module, "FileSnapshotStore")
+    assert hasattr(store_module, "hydrate_runtime_snapshot")
+    assert hasattr(store_module, "load_runtime_snapshot")
+    assert hasattr(store_module, "load_world_ir")
+    assert "CandidateWorld" not in store_module.__all__
+    assert "SnapshotStore" not in store_module.__all__
+    assert "build" not in store_module.__all__
+    assert "admit" not in store_module.__all__
+    assert "admit_child" not in store_module.__all__
