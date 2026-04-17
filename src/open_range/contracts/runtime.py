@@ -8,7 +8,17 @@ from pydantic import BaseModel, ConfigDict, Field
 
 ActorRole = Literal["red", "blue", "green", "unknown"]
 ExternalRole = Literal["red", "blue"]
-ActionKind = Literal["shell", "api", "mail", "control", "submit_finding", "sleep"]
+ActionKind = Literal[
+    "shell",
+    "api",
+    "mail",
+    "chat",
+    "document_share",
+    "voice",
+    "control",
+    "submit_finding",
+    "sleep",
+]
 EventType = Literal[
     "InitialAccess",
     "CredentialObtained",
@@ -24,6 +34,9 @@ EventType = Literal[
     "ServiceDegraded",
     "BenignUserAction",
     "SuspiciousActionObserved",
+    "ChatReceived",
+    "DocumentShared",
+    "PhishingVoiceCall",
 ]
 
 
@@ -82,6 +95,7 @@ class RuntimeEvent(_StrictModel):
     observability_surfaces: tuple[str, ...] = Field(default_factory=tuple)
     suspicious: bool = False
     suspicious_reasons: tuple[str, ...] = Field(default_factory=tuple)
+    detail: str | None = None
 
 
 class ServiceHealth(_StrictModel):

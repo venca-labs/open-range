@@ -2,10 +2,13 @@
 
 from __future__ import annotations
 
+import os
+from collections.abc import Callable
 from math import inf
 from typing import Literal
 from uuid import uuid4
 
+from open_range.agents.npc_scheduler import NPCGreenScheduler
 from open_range.config import DEFAULT_EPISODE_CONFIG, EpisodeConfig
 from open_range.contracts.runtime import (
     Action,
@@ -60,6 +63,10 @@ from open_range.runtime.replay import (
 from open_range.runtime.rewards import RewardEngine
 
 
+def _npc_credentials_present() -> bool:
+    return bool(os.environ.get("NVIDIA_API_KEY") or os.environ.get("OPENAI_API_KEY"))
+
+
 class OpenRangeRuntime:
     """Decision-loop runtime for admitted snapshots with actor-specific decisions."""
 
@@ -68,6 +75,7 @@ class OpenRangeRuntime:
         *,
         green_scheduler: GreenScheduler | None = None,
         action_backend: ActionBackend | None = None,
+        event_sink: Callable[[RuntimeEvent], None] | None = None,
     ) -> None:
         self.green_scheduler = green_scheduler or ScriptedGreenScheduler()
         self.action_backend = action_backend
@@ -101,6 +109,7 @@ class OpenRangeRuntime:
         self._hooks = RuntimeHooks(
             green_scheduler=self.green_scheduler,
             action_backend=action_backend,
+            event_sink=event_sink,
         )
 
     def reset(
@@ -142,6 +151,25 @@ class OpenRangeRuntime:
             requested_attack_index=reference_attack_index,
             requested_defense_index=reference_defense_index,
         )
+        if episode_config.green_branch_backend == "npc":
+            if episode_config.npc_mode == "online":
+                if not _npc_credentials_present():
+                    raise RuntimeError(
+                        "green_branch_backend='npc' with npc_mode='online' "
+                        "requires NVIDIA_API_KEY or OPENAI_API_KEY"
+                    )
+                if not isinstance(self.green_scheduler, NPCGreenScheduler):
+                    self.green_scheduler = NPCGreenScheduler(
+                        model=episode_config.llm_model,
+                        base_url=episode_config.llm_endpoint,
+                    )
+                    self._hooks.set_green_scheduler(self.green_scheduler)
+            elif not isinstance(self.green_scheduler, ScriptedGreenScheduler):
+                self.green_scheduler = ScriptedGreenScheduler()
+                self._hooks.set_green_scheduler(self.green_scheduler)
+        elif not isinstance(self.green_scheduler, ScriptedGreenScheduler):
+            self.green_scheduler = ScriptedGreenScheduler()
+            self._hooks.set_green_scheduler(self.green_scheduler)
         self._hooks.reset(snapshot, episode_config.audit)
 
         service_health = {service.id: 1.0 for service in snapshot.world.services}
@@ -676,6 +704,7 @@ class OpenRangeRuntime:
         target_entity: str,
         malicious: bool,
         observability_surfaces: tuple[str, ...],
+        detail: str | None = None,
         suspicious: bool = False,
         suspicious_reasons: tuple[str, ...] = (),
         green_reactive: bool = True,
@@ -691,6 +720,7 @@ class OpenRangeRuntime:
             target_entity=target_entity,
             malicious=malicious,
             observability_surfaces=observability_surfaces,
+            detail=detail,
             suspicious=suspicious,
             suspicious_reasons=suspicious_reasons,
             telemetry_delay=_telemetry_delay(self._episode_config),

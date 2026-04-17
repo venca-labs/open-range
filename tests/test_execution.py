@@ -45,7 +45,7 @@ def test_mail_command_quotes_smtp_payload_and_target() -> None:
         "RCPT TO:<victim@corp.local>\n"
         "DATA\n"
         "Subject: hi'; touch /tmp/pwned #\n\n"
-        "OpenRange test mail.\n"
+        "OpenRange routine mail.\n"
         ".\n"
         "QUIT\n"
     )

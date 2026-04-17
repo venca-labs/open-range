@@ -177,6 +177,73 @@ def test_reset_command_closes_service(monkeypatch, tmp_path: Path) -> None:
     assert closed["value"] is True
 
 
+def test_dashboard_command_passes_runtime_mode_and_backend_overrides(monkeypatch):
+    captured: dict[str, object] = {}
+
+    def fake_create_app(**kwargs):
+        captured["app_kwargs"] = kwargs
+        return object()
+
+    def fake_run(app, host, port, log_level):
+        captured["run"] = {
+            "app": app,
+            "host": host,
+            "port": port,
+            "log_level": log_level,
+        }
+
+    monkeypatch.setitem(
+        sys.modules,
+        "open_range.dashboard.app",
+        SimpleNamespace(create_app=fake_create_app),
+    )
+    monkeypatch.setitem(sys.modules, "uvicorn", SimpleNamespace(run=fake_run))
+
+    result = CliRunner().invoke(
+        cli,
+        [
+            "--model",
+            "moonshotai/kimi-k2-instruct",
+            "--base-url",
+            "https://integrate.api.nvidia.com/v1",
+            "dashboard",
+            "--store-dir",
+            "/tmp/snaps",
+            "--snapshot-id",
+            "snap-123",
+            "--green-backend",
+            "npc",
+            "--green-profile",
+            "medium",
+            "--npc-mode",
+            "online",
+            "--host",
+            "127.0.0.1",
+            "--port",
+            "9000",
+            "--no-browser",
+        ],
+    )
+
+    assert result.exit_code == 0, result.output
+    assert captured["app_kwargs"] == {
+        "store_dir": "/tmp/snaps",
+        "snapshot_id": "snap-123",
+        "live": False,
+        "green_branch_backend": "npc",
+        "green_profile": "medium",
+        "npc_mode": "online",
+        "llm_model": "moonshotai/kimi-k2-instruct",
+        "llm_endpoint": "https://integrate.api.nvidia.com/v1",
+    }
+    assert captured["run"] == {
+        "app": captured["run"]["app"],
+        "host": "127.0.0.1",
+        "port": 9000,
+        "log_level": "info",
+    }
+
+
 def test_traces_command_writes_branch_native_datasets(tmp_path: Path):
     manifest_path = _write_manifest(tmp_path)
     output_dir = tmp_path / "traces"

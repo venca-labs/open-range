@@ -8,6 +8,7 @@ from typing import Iterable, Literal
 from pydantic import BaseModel, ConfigDict, Field
 
 from open_range.catalog.contracts import StandardAttackObjective
+from open_range.contracts.npc import NPCProfile
 from open_range.contracts.render import SecurityRuntimeSpec
 from open_range.manifest import (
     CodeFlawKind,
@@ -148,6 +149,8 @@ class GreenPersona(_StrictModel):
     awareness: float = Field(default=0.5, ge=0.0, le=1.0)
     susceptibility: dict[str, float] = Field(default_factory=dict)
     routine: tuple[str, ...] = Field(default_factory=tuple)
+    # Rich NPC identity (optional — None in offline/legacy mode)
+    profile: NPCProfile | None = None
 
 
 class GreenWorkloadSpec(_StrictModel):
