@@ -38,6 +38,7 @@ def test_top_level_package_keeps_internal_runtime_and_sft_helpers_private() -> N
         "RuntimeEvent",
         "TraceDatasetGenerator",
         "ValidatorReport",
+        "bundled_docs_dir",
         "build_decision_prompt",
         "generate_trace_dataset",
         "load_bundled_doc",

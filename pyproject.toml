@@ -6,16 +6,24 @@ build-backend = "setuptools.build_meta"
 name = "open-range"
 version = "0.1.0"
 description = "Manifest-first red/blue/green cyber range package"
-readme = "README.md"
+readme = { file = "README.md", content-type = "text/markdown" }
 authors = [
     { name = "OpenRange Authors" }
 ]
 requires-python = ">=3.11"
 license = "MIT"
+keywords = [
+    "cyber-range",
+    "cybersecurity",
+    "red-team",
+    "blue-team",
+    "agent-training",
+]
 classifiers = [
     "Development Status :: 3 - Alpha",
     "Intended Audience :: Developers",
     "Intended Audience :: Information Technology",
+    "Operating System :: OS Independent",
     "Programming Language :: Python :: 3",
     "Programming Language :: Python :: 3.11",
     "Programming Language :: Python :: 3.12",
@@ -32,8 +40,10 @@ dependencies = [
 ]
 
 [project.urls]
-Homepage = "https://github.com/venca-labs/open-range"
-"Bug Tracker" = "https://github.com/venca-labs/open-range/issues"
+Homepage = "https://github.com/vecna-labs/open-range"
+Documentation = "https://github.com/vecna-labs/open-range#documentation"
+Issues = "https://github.com/vecna-labs/open-range/issues"
+Repository = "https://github.com/vecna-labs/open-range"
 
 [project.optional-dependencies]
 npc = []
