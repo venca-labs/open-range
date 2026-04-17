@@ -62,9 +62,6 @@ dev = [
     { include-group = "lint" },
     { include-group = "test" },
 ]
-temp-eval = [
-    "strands-agents[openai]>=1.4",
-]
 hooks = ["pre-commit>=4.5"]
 lint = ["ruff>=0.15.6"]
 test = ["pytest>=8.0"]

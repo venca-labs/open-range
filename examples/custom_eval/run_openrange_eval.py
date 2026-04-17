@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Run a Strands-backed agent loop against admitted OpenRange snapshots.
+"""Run a custom model loop against admitted OpenRange snapshots.
 
 Example only. This is not part of the core package surface.
 """
@@ -38,17 +38,17 @@ except ImportError as exc:
     raise RuntimeError(
         "OpenRange is not importable. Run this example from the repo root, for "
         "example:\n"
-        "uv run --group temp-eval python "
-        "examples/strands/run_openrange_strands.py --help"
+        "uv run --with 'strands-agents[openai]>=1.4' python "
+        "examples/custom_eval/run_openrange_eval.py --help"
     ) from exc
 
 DEFAULT_ENDPOINT = os.environ.get(
     "OPENAI_CHAT_COMPLETIONS_URL", "http://localhost:8001/v1/chat/completions"
 )
 DEFAULT_MODEL = os.environ.get("OPENAI_MODEL", "gemma-4-31b-sft")
-DEFAULT_OUTPUT = "/tmp/openrange-strands-rollouts.json"
+DEFAULT_OUTPUT = "/tmp/openrange-eval-rollouts.json"
 DEFAULT_CACHE_ROOT = os.environ.get(
-    "OPENRANGE_STRANDS_CACHE_ROOT", "/tmp/openrange-strands-cache"
+    "OPENRANGE_EVAL_CACHE_ROOT", "/tmp/openrange-eval-cache"
 )
 DEFAULT_MAX_OUTPUT_TOKENS = 384
 VALIDATION_PROFILES = ("full", "no_necessity", "graph_plus_live", "graph_only")
@@ -195,7 +195,7 @@ WAIT_TOOL_SPEC = {
 
 
 @dataclass(frozen=True)
-class StrandsChoice:
+class ModelChoice:
     action: Action
     valid: bool
     latency_ms: float
@@ -1157,21 +1157,21 @@ def _tool_use_to_action(
     raise ValueError(f"unsupported tool name: {name}")
 
 
-def _load_strands():
+def _load_model_runtime():
     try:
         from strands.event_loop.streaming import stream_messages
         from strands.models.openai import OpenAIModel
         from strands.types._events import ModelStopReason
     except ImportError as exc:
         raise RuntimeError(
-            "Strands is not installed. Run this script with:\n"
-            "uv run --with-editable ../open-range --with "
-            "'strands-agents[openai]>=1.4' python scripts/run_openrange_strands.py ..."
+            "The optional model-runtime dependency is not installed. Run this script with:\n"
+            "uv run --with 'strands-agents[openai]>=1.4' "
+            "python examples/custom_eval/run_openrange_eval.py ..."
         ) from exc
     return OpenAIModel, stream_messages, ModelStopReason
 
 
-def _create_strands_model(
+def _create_model_client(
     *,
     endpoint: str,
     model: str,
@@ -1180,7 +1180,7 @@ def _create_strands_model(
     temperature: float,
     timeout_s: float,
 ):
-    OpenAIModel, _, _ = _load_strands()
+    OpenAIModel, _, _ = _load_model_runtime()
     return OpenAIModel(
         client_args={
             "base_url": _openai_base_url(endpoint),
@@ -1196,14 +1196,14 @@ def _create_strands_model(
     )
 
 
-async def _stream_strands_tool_use(
+async def _stream_model_tool_use(
     model_client,
     *,
     messages: list[dict[str, Any]],
     system_prompt: str,
     tool_specs: list[dict[str, Any]],
 ) -> tuple[dict[str, Any], str, dict[str, Any]]:
-    _, stream_messages, ModelStopReason = _load_strands()
+    _, stream_messages, ModelStopReason = _load_model_runtime()
     request_payload = model_client.format_request(
         messages,
         tool_specs,
@@ -1306,7 +1306,7 @@ def _extract_fallback_tool_calls(
     return []
 
 
-def _invoke_strands_choice(
+def _invoke_model_choice(
     model_client,
     *,
     messages: list[dict[str, Any]],
@@ -1314,11 +1314,11 @@ def _invoke_strands_choice(
     tool_specs: list[dict[str, Any]],
     compromised_services: set[str],
     operator_files: dict[str, str],
-) -> StrandsChoice:
+) -> ModelChoice:
     started = time.perf_counter()
     try:
         request_payload, stop_reason, response_message = asyncio.run(
-            _stream_strands_tool_use(
+            _stream_model_tool_use(
                 model_client,
                 messages=messages,
                 system_prompt=system_prompt,
@@ -1327,7 +1327,7 @@ def _invoke_strands_choice(
         )
     except Exception as exc:
         latency_ms = (time.perf_counter() - started) * 1000.0
-        return StrandsChoice(
+        return ModelChoice(
             action=_fallback_action(),
             valid=False,
             latency_ms=latency_ms,
@@ -1356,7 +1356,7 @@ def _invoke_strands_choice(
         if tool_calls:
             fallback_tool_parser = "python_style_text"
     if not tool_calls:
-        return StrandsChoice(
+        return ModelChoice(
             action=_fallback_action(),
             valid=False,
             latency_ms=latency_ms,
@@ -1368,7 +1368,7 @@ def _invoke_strands_choice(
             error="no tool was called",
         )
     if len(tool_calls) > 1:
-        return StrandsChoice(
+        return ModelChoice(
             action=_fallback_action(),
             valid=False,
             latency_ms=latency_ms,
@@ -1388,7 +1388,7 @@ def _invoke_strands_choice(
     except Exception as exc:
         if fallback_tool_parser is not None:
             response_message["fallback_tool_parser"] = fallback_tool_parser
-        return StrandsChoice(
+        return ModelChoice(
             action=_fallback_action(),
             valid=False,
             latency_ms=latency_ms,
@@ -1401,7 +1401,7 @@ def _invoke_strands_choice(
         )
     if fallback_tool_parser is not None:
         response_message["fallback_tool_parser"] = fallback_tool_parser
-    return StrandsChoice(
+    return ModelChoice(
         action=action,
         valid=True,
         latency_ms=latency_ms,
@@ -1550,7 +1550,7 @@ def _load_or_build_runtime_snapshots(
     raise last_exc
 
 
-def evaluate_strands_rollouts(
+def evaluate_model_rollouts(
     *,
     endpoint: str = DEFAULT_ENDPOINT,
     model: str = DEFAULT_MODEL,
@@ -1599,7 +1599,7 @@ def evaluate_strands_rollouts(
 
     for snapshot in snapshots:
         service = OpenRange(store=store, live_backend=live_backend)
-        model_client = _create_strands_model(
+        model_client = _create_model_client(
             endpoint=endpoint,
             model=model,
             api_key=api_key,
@@ -1644,7 +1644,7 @@ def evaluate_strands_rollouts(
                 transcript.append(observation_message)
                 presented_compromised_services = set(compromised_services)
                 prompt_text = observation_message["content"][0]["text"]
-                choice = _invoke_strands_choice(
+                choice = _invoke_model_choice(
                     model_client,
                     messages=transcript,
                     system_prompt=SYSTEM_PROMPT,
@@ -1815,7 +1815,7 @@ def evaluate_strands_rollouts(
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
-        description="Run Strands-backed rollouts against admitted OpenRange snapshots."
+        description="Run custom model rollouts against admitted OpenRange snapshots."
     )
     parser.add_argument(
         "--endpoint",
@@ -1870,7 +1870,7 @@ def parse_args() -> argparse.Namespace:
         "--max-output-tokens",
         default=DEFAULT_MAX_OUTPUT_TOKENS,
         type=int,
-        help="Maximum completion tokens for each Strands model call.",
+        help="Maximum completion tokens for each model call.",
     )
     parser.add_argument(
         "--temperature",
@@ -1901,7 +1901,7 @@ def parse_args() -> argparse.Namespace:
 
 def main() -> None:
     args = parse_args()
-    result = evaluate_strands_rollouts(
+    result = evaluate_model_rollouts(
         endpoint=args.endpoint,
         model=args.model,
         model_link=args.model_link,
