@@ -8,6 +8,8 @@ from open_range.contracts.world import EdgeSpec, WorkflowSpec, WorkflowStepSpec
 
 def compile_workflows(
     workflow_names: tuple[str, ...],
+    *,
+    available_service_ids: frozenset[str] = frozenset(),
 ) -> tuple[tuple[WorkflowSpec, ...], tuple[EdgeSpec, ...]]:
     workflows: list[WorkflowSpec] = []
     workflow_edges: list[EdgeSpec] = []
@@ -22,7 +24,12 @@ def compile_workflows(
                 asset=step.asset,
             )
             for step in workflow_step_templates_for_name(workflow_name)
+            if not available_service_ids
+            or not step.service
+            or step.service in available_service_ids
         )
+        if not steps:
+            continue
         workflows.append(
             WorkflowSpec(
                 id=f"wf-{workflow_name}",

@@ -7,7 +7,11 @@ from copy import deepcopy
 from pathlib import Path
 from typing import Any
 
-from open_range.config import OFFLINE_BUILD_CONFIG, BuildConfig, EpisodeConfig
+from open_range.config import (
+    OFFLINE_REFERENCE_BUILD_CONFIG,
+    BuildConfig,
+    EpisodeConfig,
+)
 from open_range.contracts.snapshot import RuntimeSnapshot
 from open_range.runtime import OpenRangeRuntime
 from open_range.runtime.replay import (
@@ -36,7 +40,7 @@ from open_range.training.trace_exports import (
 
 DEFAULT_RUNTIME_MODES = ("red_only", "blue_only_live", "blue_only_from_prefix")
 MAX_MUTATION_ATTEMPTS = 4
-DEFAULT_TRACE_BUILD_CONFIG = OFFLINE_BUILD_CONFIG
+DEFAULT_TRACE_BUILD_CONFIG = OFFLINE_REFERENCE_BUILD_CONFIG
 
 
 class TraceDatasetGenerator:

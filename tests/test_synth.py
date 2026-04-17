@@ -303,7 +303,6 @@ def test_synthesizer_keeps_core_config_identity_json_payloads(tmp_path: Path):
             "weak_password",
             "credential:it_admin-01",
             {
-                "kind": "weak_password",
                 "target": "svc-idp",
                 "target_ref": "cred-it_admin-01",
                 "min_password_length": 6,
@@ -314,7 +313,6 @@ def test_synthesizer_keeps_core_config_identity_json_payloads(tmp_path: Path):
             "default_credential",
             "service:idp",
             {
-                "kind": "default_credential",
                 "target": "svc-idp",
                 "target_ref": "svc-idp",
                 "default_username": "admin",
@@ -325,7 +323,6 @@ def test_synthesizer_keeps_core_config_identity_json_payloads(tmp_path: Path):
             "trust_edge_misconfig",
             "service:idp",
             {
-                "kind": "trust_edge_misconfig",
                 "target": "svc-idp",
                 "target_ref": "svc-idp",
                 "peer_validation": False,
@@ -352,7 +349,8 @@ def test_synthesizer_keeps_core_config_identity_json_payloads(tmp_path: Path):
         data = json.loads(file.content)
 
         assert data["world_id"] == world.world_id
-        assert data["weakness_id"] == world.weaknesses[0].id
+        assert "weakness_id" not in data
+        assert "kind" not in data
         for key, value in expected_fields.items():
             assert data[key] == value
 
@@ -366,7 +364,6 @@ def test_synthesizer_keeps_core_telemetry_json_payloads(tmp_path: Path):
             {
                 "access_logs_enabled": False,
                 "error_logs_enabled": False,
-                "kind": "missing_web_logs",
                 "ship_to_siem": False,
                 "target": "svc-web",
             },
@@ -378,7 +375,6 @@ def test_synthesizer_keeps_core_telemetry_json_payloads(tmp_path: Path):
             {
                 "audit_logs_enabled": False,
                 "auth_logs_enabled": False,
-                "kind": "missing_idp_logs",
                 "ship_to_siem": False,
                 "target": "svc-idp",
             },
@@ -389,7 +385,6 @@ def test_synthesizer_keeps_core_telemetry_json_payloads(tmp_path: Path):
             "svc-email",
             {
                 "delay_seconds": 180,
-                "kind": "delayed_siem_ingest",
                 "ship_to_siem": False,
                 "target": "svc-email",
             },
@@ -399,7 +394,6 @@ def test_synthesizer_keeps_core_telemetry_json_payloads(tmp_path: Path):
             "service:email",
             "svc-email",
             {
-                "kind": "silent_mail_rule",
                 "mail_rule_logging": False,
                 "mailbox_auto_forward_alerting": False,
                 "ship_to_siem": False,
@@ -426,7 +420,8 @@ def test_synthesizer_keeps_core_telemetry_json_payloads(tmp_path: Path):
         data = json.loads(file.content)
 
         assert data["world_id"] == world.world_id
-        assert data["weakness_id"] == world.weaknesses[0].id
+        assert "weakness_id" not in data
+        assert "kind" not in data
         for key, value in expected_fields.items():
             assert data[key] == value
 
@@ -440,7 +435,6 @@ def test_synthesizer_keeps_core_workflow_json_payloads(tmp_path: Path):
             {
                 "approval_guard": "disabled",
                 "identity_verification": "none",
-                "kind": "helpdesk_reset_bypass",
                 "reset_without_ticket_owner": True,
                 "target_ref": "wf-helpdesk_ticketing",
             },
@@ -452,7 +446,6 @@ def test_synthesizer_keeps_core_workflow_json_payloads(tmp_path: Path):
             {
                 "approval_guard": "disabled",
                 "expiration_required": False,
-                "kind": "document_share_abuse",
                 "share_visibility": "public_link",
                 "target_ref": "wf-document_sharing",
             },
@@ -464,7 +457,6 @@ def test_synthesizer_keeps_core_workflow_json_payloads(tmp_path: Path):
             {
                 "approval_guard": "disabled",
                 "credential_capture_landing": "/login",
-                "kind": "phishing_credential_capture",
                 "mail_filtering": "allow",
                 "target_ref": "wf-internal_email",
             },
@@ -489,7 +481,8 @@ def test_synthesizer_keeps_core_workflow_json_payloads(tmp_path: Path):
         data = json.loads(file.content)
 
         assert data["world_id"] == world.world_id
-        assert data["weakness_id"] == world.weaknesses[0].id
+        assert "weakness_id" not in data
+        assert "kind" not in data
         for key, value in expected_fields.items():
             assert data[key] == value
 
@@ -529,7 +522,11 @@ def test_synthesizer_seeds_mailbox_realizations_for_email_borne_kinds(tmp_path: 
         )
         email_payloads = synth.service_payloads["svc-email"]
         assert any(file.mount_path.endswith(suffix) for file in email_payloads)
-        assert any(kind in "\n".join(messages) for messages in synth.mailboxes.values())
+        assert all(
+            "weakness_id=" not in "\n".join(messages)
+            and "kind=" not in "\n".join(messages)
+            for messages in synth.mailboxes.values()
+        )
 
 
 def test_synthesizer_keeps_workflow_mailbox_templates(tmp_path: Path):
@@ -644,6 +641,8 @@ def test_synthesizer_keeps_secret_material_content_templates(tmp_path: Path):
             if item.mount_path.endswith(suffix)
         )
         assert all(snippet in file.content for snippet in snippets)
+        assert "weakness_id=" not in file.content
+        assert "kind=" not in file.content
         if service_id == "svc-email":
             assert any(
                 all(snippet in "\n".join(messages) for snippet in snippets)

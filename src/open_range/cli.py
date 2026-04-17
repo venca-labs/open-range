@@ -392,20 +392,23 @@ def reset_cmd(
         store=FileSnapshotStore(store_dir),
         live_backend=_live_backend_for_option(live_cluster_backend),
     )
-    state = service.reset(
-        snapshot_id,
-        EpisodeConfig(mode=mode, episode_horizon_minutes=horizon),
-        split=split,
-        strategy=strategy,
-        sample_seed=sample_seed,
-    )
+    try:
+        state = service.reset(
+            snapshot_id,
+            EpisodeConfig(mode=mode, episode_horizon_minutes=horizon),
+            split=split,
+            strategy=strategy,
+            sample_seed=sample_seed,
+        )
 
-    click.echo(f"Episode ready on {state.snapshot_id}")
-    click.echo(f"  Episode ID: {state.episode_id}")
-    click.echo(f"  Sim Time: {state.sim_time:.2f}")
-    click.echo(f"  Controls Red: {state.controls_red}")
-    click.echo(f"  Controls Blue: {state.controls_blue}")
-    click.echo(f"  Next Actor: {state.next_actor or 'n/a'}")
+        click.echo(f"Episode ready on {state.snapshot_id}")
+        click.echo(f"  Episode ID: {state.episode_id}")
+        click.echo(f"  Sim Time: {state.sim_time:.2f}")
+        click.echo(f"  Controls Red: {state.controls_red}")
+        click.echo(f"  Controls Blue: {state.controls_blue}")
+        click.echo(f"  Next Actor: {state.next_actor or 'n/a'}")
+    finally:
+        service.close()
 
 
 @cli.command("traces")
@@ -467,7 +470,7 @@ def traces_cmd(
         output_dir,
         manifest_source=manifest,
         build_config=_build_config_from_options(
-            validation_profile="graph_only",
+            validation_profile="no_necessity",
             security_tier=security_tier,
         ),
         roots=roots,

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import shutil
 import time
 from pathlib import Path
 from random import Random
@@ -65,29 +66,42 @@ class FileSnapshotStore:
         split: PoolSplit = "train",
     ) -> Snapshot:
         seed_state = build_seed_state(world, artifacts, synth)
-        snapshot_id = f"{world.world_id}-{world_hash(world)[:8]}"
+        snapshot_id = f"{world.world_id}-{split}-{world_hash(world)[:8]}"
         snap_dir = _snapshot_dir(self.store_dir, snapshot_id)
         snap_dir.mkdir(parents=True, exist_ok=True)
+        stored_artifacts = _persist_artifacts_bundle(snap_dir, artifacts)
+        stored_state_seed_dir = _persist_state_seed_dir(
+            snap_dir,
+            seed_state.state_seed_dir,
+            source_render_dir=Path(artifacts.render_dir),
+            stored_render_dir=Path(stored_artifacts.render_dir),
+        )
+        public_report = _public_validator_report(
+            vr,
+            artifacts=stored_artifacts,
+        )
         world_json_path = _world_path(self.store_dir, snapshot_id)
         reference_json_path = _reference_bundle_path(self.store_dir, snapshot_id)
         report_json_path = _validator_report_path(self.store_dir, snapshot_id)
         world_json_path.write_text(world.model_dump_json(indent=2), encoding="utf-8")
         reference_json_path.write_text(wb.model_dump_json(indent=2), encoding="utf-8")
-        report_json_path.write_text(vr.model_dump_json(indent=2), encoding="utf-8")
+        report_json_path.write_text(
+            public_report.model_dump_json(indent=2), encoding="utf-8"
+        )
         snapshot = Snapshot(
             snapshot_id=snapshot_id,
             world_id=world.world_id,
             seed=world.seed,
-            artifacts_dir=artifacts.render_dir,
-            image_digests=artifacts.pinned_image_digests,
-            state_seed_dir=seed_state.state_seed_dir,
+            artifacts_dir=stored_artifacts.render_dir,
+            image_digests=stored_artifacts.pinned_image_digests,
+            state_seed_dir=stored_state_seed_dir,
             validator_report_path=str(report_json_path),
-            artifacts=artifacts,
+            artifacts=stored_artifacts,
             db_seed_state=seed_state.db_seed_state,
             mail_state=seed_state.mail_state,
             file_assets=seed_state.file_assets,
             identity_seed=seed_state.identity_seed,
-            validator_report=vr,
+            validator_report=public_report,
             world_hash=world_hash(world),
             parent_snapshot_id=None,
             parent_world_id=world.lineage.parent_world_id,
@@ -157,6 +171,94 @@ class FileSnapshotStore:
             raise ValueError("strategy must be 'random' or 'latest'")
         rng = Random(seed)
         return snapshots[rng.randrange(len(snapshots))]
+
+
+def _persist_artifacts_bundle(
+    snapshot_dir: Path,
+    artifacts: KindArtifacts,
+) -> KindArtifacts:
+    source_render_dir = Path(artifacts.render_dir)
+    stored_render_dir = snapshot_dir / "rendered"
+    if stored_render_dir.exists():
+        shutil.rmtree(stored_render_dir)
+    shutil.copytree(source_render_dir, stored_render_dir)
+    return KindArtifacts(
+        render_dir=str(stored_render_dir),
+        chart_dir=_rebase_path(
+            artifacts.chart_dir, source_render_dir, stored_render_dir
+        ),
+        values_path=_rebase_path(
+            artifacts.values_path, source_render_dir, stored_render_dir
+        ),
+        kind_config_path=_rebase_path(
+            artifacts.kind_config_path, source_render_dir, stored_render_dir
+        ),
+        manifest_summary_path=_rebase_path(
+            artifacts.manifest_summary_path, source_render_dir, stored_render_dir
+        ),
+        rendered_files=tuple(
+            _rebase_path(path, source_render_dir, stored_render_dir)
+            for path in artifacts.rendered_files
+            if Path(_rebase_path(path, source_render_dir, stored_render_dir)).exists()
+        ),
+        chart_values=artifacts.chart_values,
+        pinned_image_digests=artifacts.pinned_image_digests,
+    )
+
+
+def _persist_state_seed_dir(
+    snapshot_dir: Path,
+    source_state_seed_dir: str,
+    *,
+    source_render_dir: Path,
+    stored_render_dir: Path,
+) -> str:
+    rebased = _rebase_path(source_state_seed_dir, source_render_dir, stored_render_dir)
+    rebased_path = Path(rebased)
+    if rebased_path.exists():
+        return str(rebased_path)
+    source_path = Path(source_state_seed_dir)
+    stored_state_dir = snapshot_dir / "state-seed"
+    if stored_state_dir.exists():
+        shutil.rmtree(stored_state_dir)
+    shutil.copytree(source_path, stored_state_dir)
+    return str(stored_state_dir)
+
+
+def _rebase_path(path: str, source_root: Path, stored_root: Path) -> str:
+    source_path = Path(path)
+    try:
+        relative = source_path.relative_to(source_root)
+    except ValueError:
+        return str(source_path)
+    return str(stored_root / relative)
+
+
+def _public_validator_report(
+    report: ValidatorReport,
+    *,
+    artifacts: KindArtifacts,
+) -> ValidatorReport:
+    public_health_info = dict(report.health_info)
+    if "render_dir" in public_health_info:
+        public_health_info["render_dir"] = artifacts.render_dir
+    return report.model_copy(
+        update={
+            "build_logs": artifacts.rendered_files,
+            "health_info": public_health_info,
+            "stages": tuple(
+                stage.model_copy(
+                    update={
+                        "checks": tuple(
+                            check.model_copy(update={"details": {}})
+                            for check in stage.checks
+                        )
+                    }
+                )
+                for stage in report.stages
+            ),
+        }
+    )
 
 
 def load_world_ir(store: FileSnapshotStore, snapshot_id: str) -> WorldIR:

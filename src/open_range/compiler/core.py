@@ -56,8 +56,12 @@ class EnterpriseSaaSManifestCompiler:
             allowed_surfaces=allowed_surfaces,
         )
         users, groups, credentials, personas = expand_users(parsed, build_config)
-        workflows, workflow_edges = compile_workflows(workflow_names)
-        assets = place_assets(parsed.assets)
+        service_ids = frozenset(service.id for service in services)
+        workflows, workflow_edges = compile_workflows(
+            workflow_names,
+            available_service_ids=service_ids,
+        )
+        assets = place_assets(parsed.assets, available_service_ids=service_ids)
         red_objectives = compile_objectives(
             owner="red",
             predicates=tuple(obj.predicate for obj in parsed.objectives.red),

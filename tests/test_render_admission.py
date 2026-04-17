@@ -486,6 +486,102 @@ def test_k3d_profile_uses_k3d_auto_live_backend(tmp_path: Path, monkeypatch) -> 
     assert any(call[0][:4] == ["k3d", "cluster", "list", "-o"] for call in run_calls)
 
 
+def test_graph_plus_live_skips_full_only_live_checks(tmp_path: Path) -> None:
+    world = _build_seeded_world()
+    artifacts = EnterpriseSaaSKindRenderer().render(
+        world, _synth(world, tmp_path), tmp_path / "rendered-graph-plus-live"
+    )
+    pod_ids = {service.id: f"ns/{service.id}-pod" for service in world.services}
+    pod_ids["sandbox-red"] = "ns/sandbox-red-pod"
+    pod_ids["sandbox-blue"] = "ns/sandbox-blue-pod"
+
+    class FakePods:
+        def __init__(self, pods):
+            self.pod_ids = pods
+            self.logs: list[str] = []
+
+        async def is_healthy(self, service: str) -> bool:
+            return service in self.pod_ids
+
+        async def exec(
+            self,
+            service: str,
+            cmd: str,
+            timeout: float = 30.0,
+            *,
+            container: str | None = None,
+        ) -> ExecResult:
+            del timeout, container
+            if "grep -q 'InitialAccess' /srv/http/siem/all.log" in cmd:
+                return ExecResult(stdout="", stderr="", exit_code=0)
+            self.logs.append(f"{service}:{cmd}")
+            return ExecResult(stdout="ok", stderr="", exit_code=0)
+
+    class FakeBackend:
+        def boot(self, snapshot_id: str, artifacts_dir: Path):
+            del snapshot_id, artifacts_dir
+            return SimpleNamespace(
+                release_name="or-graph-plus-live",
+                pods=FakePods(pod_ids),
+            )
+
+        def teardown(self, release) -> None:
+            del release
+
+    _bundle, report = LocalAdmissionController(
+        mode="analysis",
+        live_backend=FakeBackend(),
+    ).admit(
+        world,
+        artifacts,
+        BuildConfig(validation_profile="graph_plus_live"),
+    )
+
+    kind_live = next(stage for stage in report.stages if stage.name == "kind_live")
+    check_names = {check.name for check in kind_live.checks}
+
+    assert "live_red_reference" in check_names
+    assert "live_blue_reference" in check_names
+    assert "live_determinism" not in check_names
+    assert "live_necessity" not in check_names
+    assert "live_shortcuts" not in check_names
+
+
+def test_fail_fast_does_not_report_missing_live_backend_when_backend_exists(
+    tmp_path: Path,
+) -> None:
+    world = _build_seeded_world().replace_edges(telemetry=())
+    artifacts = EnterpriseSaaSKindRenderer().render(
+        world, _synth(world, tmp_path), tmp_path / "rendered-fail-fast"
+    )
+
+    class FakeBackend:
+        def boot(self, snapshot_id: str, artifacts_dir: Path):
+            del snapshot_id, artifacts_dir
+            raise AssertionError("live backend should not run after offline fail-fast")
+
+        def teardown(self, release) -> None:
+            del release
+
+    _bundle, report = LocalAdmissionController(
+        mode="fail_fast",
+        live_backend=FakeBackend(),
+    ).admit(
+        world,
+        artifacts,
+        BuildConfig(validation_profile="graph_plus_live"),
+    )
+
+    failed = {
+        check.name
+        for stage in report.stages
+        for check in stage.checks
+        if not check.passed
+    }
+
+    assert "live_backend_required" not in failed
+
+
 def test_live_service_smoke_check_uses_reachable_zone_runners() -> None:
     world = _build_seeded_world()
     calls: list[tuple[str, str]] = []
@@ -658,3 +754,8 @@ def test_snapshot_store_persists_v1_snapshot(tmp_path: Path):
     assert loaded.reference_bundle.reference_attack_traces
     assert Path(loaded.validator_report_path).exists()
     assert "mailboxes" in loaded.identity_seed
+    assert all(
+        not check.details
+        for stage in loaded.validator_report.stages
+        for check in stage.checks
+    )

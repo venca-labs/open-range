@@ -151,8 +151,6 @@ def render_realization_content(
     del realization
     payload = {
         "world_id": world.world_id,
-        "weakness_id": weakness.id,
-        "kind": weakness.kind,
         "target": weakness.target,
         "ship_to_siem": False,
     }

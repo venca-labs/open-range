@@ -5,15 +5,16 @@ from __future__ import annotations
 from collections.abc import Mapping
 
 from open_range.contracts.runtime import ExternalRole, ServiceHealth
-from open_range.contracts.world import WeaknessSpec, WorldIR
+from open_range.contracts.world import WorldIR
 from open_range.objectives.engine import PredicateEngine
 
 _BRIEFING_SURFACE_LABELS = {
-    "code_web": "web surface",
-    "config_identity": "identity surface",
-    "secret_exposure": "secret surface",
-    "workflow_abuse": "workflow surface",
-    "telemetry_blindspot": "telemetry gap",
+    "web_app": "web surface",
+    "idp": "identity surface",
+    "email": "workflow surface",
+    "fileshare": "shared document surface",
+    "db": "data surface",
+    "siem": "telemetry surface",
 }
 
 
@@ -64,20 +65,19 @@ def briefing_text(
         f"objectives={'; '.join(objective.predicate for objective in objectives) or 'none'}",
     ]
     if prompt_mode == "one_day":
-        surfaces = ", ".join(
-            briefing_surface_summary(world, weakness)
-            for weakness in world.weaknesses
-            if weakness.family != "telemetry_blindspot" or actor == "blue"
-        )
+        surfaces = ", ".join(briefing_surface_summary(world, actor))
         lines.append(f"known_risky_surfaces={surfaces or 'none'}")
     return "\n".join(lines)
 
 
-def briefing_surface_summary(world: WorldIR, weakness: WeaknessSpec) -> str:
-    service = next(
-        (service for service in world.services if service.id == weakness.target),
-        None,
-    )
-    service_label = service.kind if service is not None else weakness.target_kind
-    family_label = _BRIEFING_SURFACE_LABELS.get(weakness.family, weakness.family)
-    return f"{service_label} {family_label}"
+def briefing_surface_summary(world: WorldIR, actor: ExternalRole) -> tuple[str, ...]:
+    labels: list[str] = []
+    seen: set[str] = set()
+    for service in world.services:
+        if actor != "blue" and service.kind == "siem":
+            continue
+        label = _BRIEFING_SURFACE_LABELS.get(service.kind)
+        if label and label not in seen:
+            labels.append(label)
+            seen.add(label)
+    return tuple(labels)

@@ -25,6 +25,8 @@ def run_live_backend_checks(
     artifacts: KindArtifacts,
     reference_bundle: ReferenceBundle,
     live_backend,
+    *,
+    build_config,
 ) -> tuple[ValidatorStageReport, dict[str, object]]:
     checks: list[ValidatorCheckReport] = []
     expected_services = {service.id for service in world.services}
@@ -72,8 +74,15 @@ def run_live_backend_checks(
         snapshot = ephemeral_runtime_snapshot(world, artifacts, reference_bundle)
         checks.append(check_live_service_smoke(world, release))
         checks.append(check_live_db_mtls(world, release))
-        checks.extend(run_live_reference_checks(snapshot, release))
-        checks.append(_live_shortcut_probe_check(snapshot, release))
+        checks.extend(
+            run_live_reference_checks(
+                snapshot,
+                release,
+                validation_profile=build_config.validation_profile,
+            )
+        )
+        if build_config.validation_profile in {"full", "no_necessity"}:
+            checks.append(_live_shortcut_probe_check(snapshot, release))
 
         live_info = {
             "live_release": release.release_name,

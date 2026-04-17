@@ -102,7 +102,11 @@ class K3dRenderer(EnterpriseSaaSKindRenderer):
             values_path=artifacts.values_path,
             kind_config_path=str(k3d_config_path),
             manifest_summary_path=artifacts.manifest_summary_path,
-            rendered_files=(*artifacts.rendered_files, str(k3d_config_path)),
+            rendered_files=tuple(
+                path
+                for path in (*artifacts.rendered_files, str(k3d_config_path))
+                if Path(path).exists()
+            ),
             chart_values=artifacts.chart_values,
             pinned_image_digests=artifacts.pinned_image_digests,
         )

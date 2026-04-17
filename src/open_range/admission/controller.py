@@ -95,10 +95,11 @@ class LocalAdmissionController:
                 artifacts,
                 reference_bundle,
                 live_backend,
+                build_config=build_config,
             )
             stages.append(live_stage)
             health_info.update(live_info)
-        elif profile_requires_live(build_config):
+        elif live_backend is None and profile_requires_live(build_config):
             stages.append(
                 ValidatorStageReport(
                     name="kind_live",

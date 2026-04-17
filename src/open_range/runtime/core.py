@@ -84,6 +84,7 @@ class OpenRangeRuntime:
         self._red_progress = 0
         self._blue_progress = 0
         self._blue_detected = False
+        self._blue_detected_initial_access = False
         self._blue_contained = False
         self._contained_targets: set[str] = set()
         self._patched_targets: set[str] = set()
@@ -123,6 +124,7 @@ class OpenRangeRuntime:
         self._red_progress = 0
         self._blue_progress = 0
         self._blue_detected = False
+        self._blue_detected_initial_access = False
         self._blue_contained = False
         self._contained_targets = set()
         self._patched_targets = set()
@@ -372,8 +374,9 @@ class OpenRangeRuntime:
     def _advance_time(self, target_time: float) -> None:
         if self._state.done:
             return
-        self._state.sim_time = round(target_time, 4)
-        if self._state.sim_time >= self._episode_config.episode_horizon:
+        bounded_time = min(target_time, self._episode_config.episode_horizon)
+        self._state.sim_time = round(bounded_time, 4)
+        if target_time >= self._episode_config.episode_horizon:
             self._state.done = True
             self._state.winner = "timeout"
             self._state.terminal_reason = "timeout"
@@ -563,8 +566,19 @@ class OpenRangeRuntime:
                 matched_event=matched,
                 detected_event_ids=self._detected_event_ids,
                 blue_detected=self._blue_detected,
+                initial_access_seen=any(
+                    event.event_type == "InitialAccess" and event.malicious
+                    for event in self._event_log.visible_events(
+                        "blue",
+                        observed_event_ids=frozenset(),
+                        sim_time=self._state.sim_time,
+                    )
+                ),
             )
             self._blue_detected = transition.blue_detected
+            self._blue_detected_initial_access = (
+                self._blue_detected_initial_access or transition.initial_access_detected
+            )
             self._detected_event_ids = transition.detected_event_ids
             self._blue_objectives_satisfied.update(transition.satisfied_objectives)
             event = emit_blue_action_event(transition.event_spec, emit_event=emit_event)
@@ -654,7 +668,7 @@ class OpenRangeRuntime:
             events=self._event_log.export(),
             service_health=self._state.service_health,
             red_objectives_satisfied=self._red_objectives_satisfied,
-            blue_detected=self._blue_detected,
+            blue_detected=self._blue_detected_initial_access,
             blue_contained=self._blue_contained,
             continuity=self._state.continuity,
             continuity_threshold=self._episode_config.continuity_threshold,

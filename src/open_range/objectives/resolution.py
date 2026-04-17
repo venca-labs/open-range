@@ -289,6 +289,8 @@ def resolve_objective(
     rule = objective_rule_for_predicate_name(expr.name)
     if rule is None:
         return ResolvedObjectiveSpec(predicate=predicate)
+    if "(" in expr.raw and not (target_id or expr.inner):
+        return ResolvedObjectiveSpec(predicate=predicate)
     resolver = _OBJECTIVE_RESOLVERS.get(rule.resolution_kind)
     if resolver is None:
         return ResolvedObjectiveSpec(predicate=predicate)

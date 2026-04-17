@@ -241,6 +241,7 @@ def test_reduce_blue_finding_records_detection_and_objective() -> None:
     )
 
     assert transition.blue_detected is True
+    assert transition.initial_access_detected is True
     assert transition.detected_event_ids == {"evt-7"}
     assert transition.satisfied_objectives == (BLUE_DETECTION_OBJECTIVE,)
     assert transition.event_spec is not None
@@ -255,9 +256,36 @@ def test_reduce_blue_finding_keeps_false_positive_state() -> None:
     )
 
     assert transition.blue_detected is True
+    assert transition.initial_access_detected is False
     assert transition.detected_event_ids == {"evt-1"}
     assert transition.satisfied_objectives == ()
     assert transition.event_spec is None
+
+
+def test_reduce_blue_finding_does_not_award_initial_access_objective_for_later_event() -> (
+    None
+):
+    matched_event = RuntimeEvent(
+        id="evt-9",
+        event_type="CredentialObtained",
+        actor="red",
+        time=2.0,
+        source_entity="svc-idp",
+        target_entity="idp_admin_cred",
+        malicious=True,
+        observability_surfaces=("idp_auth",),
+    )
+
+    transition = reduce_blue_finding(
+        matched_event=matched_event,
+        detected_event_ids=set(),
+        blue_detected=False,
+        initial_access_seen=True,
+    )
+
+    assert transition.blue_detected is True
+    assert transition.initial_access_detected is False
+    assert transition.satisfied_objectives == ()
 
 
 def test_select_scripted_internal_blue_action_detects_before_containment() -> None:
@@ -484,4 +512,4 @@ def test_visible_events_for_actor_filters_by_role_visibility() -> None:
     )
 
     assert {event.id for event in blue_visible} == {"evt-2", "evt-3"}
-    assert {event.id for event in red_visible} == {"evt-3"}
+    assert {event.id for event in red_visible} == set()

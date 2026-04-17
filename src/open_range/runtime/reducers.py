@@ -51,6 +51,7 @@ class BlueFindingTransition:
     stdout: str
     detected_event_ids: set[str]
     blue_detected: bool
+    initial_access_detected: bool
     satisfied_objectives: tuple[str, ...] = ()
     event_spec: BlueActionEventSpec | None = None
 
@@ -234,6 +235,7 @@ def reduce_blue_finding(
     matched_event: RuntimeEvent | None,
     detected_event_ids: set[str] | frozenset[str],
     blue_detected: bool,
+    initial_access_seen: bool = False,
 ) -> BlueFindingTransition:
     next_detected_event_ids = set(detected_event_ids)
     if matched_event is None:
@@ -241,17 +243,26 @@ def reduce_blue_finding(
             stdout="finding rejected as false positive",
             detected_event_ids=next_detected_event_ids,
             blue_detected=blue_detected,
+            initial_access_detected=False,
         )
     next_detected_event_ids.add(matched_event.id)
+    initial_access_detected = matched_event.event_type == "InitialAccess" or (
+        matched_event.malicious and not initial_access_seen
+    )
     return BlueFindingTransition(
         stdout=f"validated finding for {matched_event.event_type}",
         detected_event_ids=next_detected_event_ids,
         blue_detected=True,
-        satisfied_objectives=(BLUE_DETECTION_OBJECTIVE,),
+        initial_access_detected=initial_access_detected,
+        satisfied_objectives=(
+            (BLUE_DETECTION_OBJECTIVE,) if initial_access_detected else ()
+        ),
         event_spec=BlueActionEventSpec(
             event_type="DetectionAlertRaised",
             target_entity=matched_event.target_entity,
-            linked_objective_predicates=(BLUE_DETECTION_OBJECTIVE,),
+            linked_objective_predicates=(
+                (BLUE_DETECTION_OBJECTIVE,) if initial_access_detected else ()
+            ),
         ),
     )
 

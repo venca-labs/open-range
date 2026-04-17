@@ -15,6 +15,12 @@ def compile_service_topology(
     hosts: list[HostSpec] = []
     services: list[ServiceSpec] = []
     edges: list[EdgeSpec] = []
+    service_ids = {
+        entry.service_id
+        for service_name in service_names
+        for entry in (service_catalog_entry_for_kind(service_name),)
+        if entry is not None
+    }
 
     for service_name in service_names:
         layout = service_catalog_entry_for_kind(service_name)
@@ -26,6 +32,7 @@ def compile_service_topology(
             telemetry = tuple(
                 surface for surface in telemetry if surface in allowed_surfaces
             )
+        dependencies = tuple(dep for dep in layout.dependencies if dep in service_ids)
 
         hosts.append(
             HostSpec(
@@ -41,12 +48,12 @@ def compile_service_topology(
                 kind=service_name,
                 host=layout.host_id,
                 ports=layout.ports,
-                dependencies=layout.dependencies,
+                dependencies=dependencies,
                 telemetry_surfaces=telemetry,
             )
         )
 
-        for dep in layout.dependencies:
+        for dep in dependencies:
             edges.append(
                 EdgeSpec(
                     id=f"net-{layout.service_id}-to-{dep}",

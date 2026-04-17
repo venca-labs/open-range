@@ -47,14 +47,6 @@ class EventEmission:
 
 EmitEvent = Callable[..., RuntimeEvent]
 ServiceSurfaceResolver = Callable[[str], tuple[str, ...]]
-_RED_VISIBLE_EVENT_TYPES = frozenset(
-    {
-        "ContainmentApplied",
-        "PatchApplied",
-        "RecoveryCompleted",
-        "ServiceDegraded",
-    }
-)
 
 
 class RuntimeEventLog:
@@ -213,7 +205,7 @@ def emit_runtime_event(
     return EventEmission(
         event=event,
         visibility={
-            "red": sim_time,
+            "red": sim_time if actor == "red" else inf,
             "blue": blue_visibility_time(
                 event,
                 observability_surfaces,
@@ -246,10 +238,7 @@ def visible_events_for_actor(
             if event.observability_surfaces:
                 visible.append(event)
             continue
-        if (
-            event.actor in {"green", "red"}
-            or event.event_type in _RED_VISIBLE_EVENT_TYPES
-        ):
+        if event.actor == "red":
             visible.append(event)
     return tuple(visible)
 

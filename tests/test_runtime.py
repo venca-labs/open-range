@@ -771,7 +771,12 @@ def test_runtime_live_patch_blocks_future_red_step_and_emits_patch_event(
     assert "patch applied" in patched.stdout
     assert any(event.event_type == "PatchApplied" for event in patched.emitted_events)
 
-    assert runtime.next_decision().actor == "red"
+    red_after_patch = runtime.next_decision()
+    assert red_after_patch.actor == "red"
+    assert not any(
+        event.event_type == "PatchApplied"
+        for event in red_after_patch.obs.visible_events
+    )
     blocked = runtime.act(
         "red",
         Action(
@@ -783,6 +788,41 @@ def test_runtime_live_patch_blocks_future_red_step_and_emits_patch_event(
     )
 
     assert "patched" in blocked.stderr
+
+
+def test_runtime_timeout_clamps_reported_sim_time_to_horizon(tmp_path: Path):
+    snapshot = _snapshot(tmp_path)
+    runtime = OpenRangeRuntime()
+    runtime.reset(
+        snapshot,
+        EpisodeConfig(
+            mode="joint_pool",
+            green_enabled=False,
+            episode_horizon_minutes=0.5,
+        ),
+    )
+
+    while True:
+        if runtime.state().done:
+            break
+        try:
+            decision = runtime.next_decision()
+        except RuntimeError:
+            break
+        runtime.act(
+            decision.actor,
+            Action(
+                actor_id=decision.actor,
+                role=decision.actor,
+                kind="sleep",
+                payload={},
+            ),
+        )
+
+    score = runtime.score()
+
+    assert score.winner == "timeout"
+    assert score.sim_time == 0.5
 
 
 def test_runtime_live_patch_can_disable_exact_web_handler(tmp_path: Path):

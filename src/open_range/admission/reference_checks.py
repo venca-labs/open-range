@@ -222,6 +222,8 @@ def check_determinism(
 def run_live_reference_checks(
     snapshot: RuntimeSnapshot,
     release: BootedRelease,
+    *,
+    validation_profile: str,
 ) -> tuple[ValidatorCheckReport, ...]:
     backend = PodActionBackend()
     backend.bind(snapshot, release)
@@ -236,21 +238,28 @@ def run_live_reference_checks(
         ),
         _live_siem_ingest_check(release),
     ]
-    for check in (
-        lambda current_snapshot, _release, current_backend: check_blue_reference(
-            current_snapshot,
-            backend=current_backend,
+    clear_runtime_markers(release, snapshot.world)
+    checks.append(
+        check_blue_reference(
+            snapshot,
+            backend=backend,
             name="live_blue_reference",
             error_message="live blue reference did not validate detect-and-contain path",
-        ),
-        lambda current_snapshot, _release, current_backend: check_determinism(
-            current_snapshot,
-            backend=current_backend,
-            name="live_determinism",
-            error_message="live reference replay is not deterministic",
-        ),
-        _live_necessity_check,
-    ):
+        )
+    )
+    extra_checks = []
+    if validation_profile in {"full", "no_necessity"}:
+        extra_checks.append(
+            lambda current_snapshot, _release, current_backend: check_determinism(
+                current_snapshot,
+                backend=current_backend,
+                name="live_determinism",
+                error_message="live reference replay is not deterministic",
+            )
+        )
+    if validation_profile == "full":
+        extra_checks.append(_live_necessity_check)
+    for check in extra_checks:
         clear_runtime_markers(release, snapshot.world)
         checks.append(check(snapshot, release, backend))
     return tuple(checks)

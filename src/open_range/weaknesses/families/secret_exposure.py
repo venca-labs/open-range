@@ -236,8 +236,6 @@ def render_realization_content(
             Subject: Security review follow-up
 
             OpenRange mailbox message for {world.world_id}
-            weakness_id={weakness.id}
-            kind={weakness.kind}
             mailbox_path={realization.path}
             secret_material={secret_value}
             """
@@ -277,11 +275,8 @@ def render_realization_content(
         f"""\
         OpenRange exposed material
         world_id={world.world_id}
-        weakness_id={weakness.id}
-        kind={weakness.kind}
         exposed_ref={exposed}
         secret_material={secret_value}
-        remediation={weakness.remediation}
         """
     )
 

@@ -87,6 +87,26 @@ def test_build_config_can_filter_services_without_touching_manifest_schema(
 
     assert candidate.world.allowed_service_kinds == ("web_app", "idp", "siem")
     assert candidate.world.security_runtime.tier == 1
+    service_ids = {service.id for service in candidate.world.services}
+    valid_targets = (
+        service_ids
+        | {host.id for host in candidate.world.hosts}
+        | {asset.id for asset in candidate.world.assets}
+        | {workflow.id for workflow in candidate.world.workflows}
+        | {group.id for group in candidate.world.groups}
+        | {user.id for user in candidate.world.users}
+        | {user.role for user in candidate.world.users}
+    )
+    assert all(asset.owner_service in service_ids for asset in candidate.world.assets)
+    assert all(
+        not step.service or step.service in service_ids
+        for workflow in candidate.world.workflows
+        for step in workflow.steps
+    )
+    assert all(
+        edge.source in valid_targets and edge.target in valid_targets
+        for edge in candidate.world.edges
+    )
 
 
 def test_build_config_can_enable_security_integration(tmp_path: Path):
@@ -385,10 +405,32 @@ def test_build_config_can_select_k3d_and_cilium_outputs(tmp_path: Path):
     )
 
     assert Path(candidate.artifacts.kind_config_path).name == "k3d-config.yaml"
+    assert all(Path(path).exists() for path in candidate.artifacts.rendered_files)
+    assert not any(
+        Path(path).name == "kind-config.yaml"
+        for path in candidate.artifacts.rendered_files
+    )
     assert candidate.artifacts.chart_values["cilium"]["enabled"] is True
     assert (
         Path(candidate.artifacts.chart_dir) / "templates" / "cilium-policies.yaml"
     ).exists()
+
+
+def test_k3d_renderer_preserves_custom_chart_dir(tmp_path: Path):
+    custom_chart = tmp_path / "chart-copy"
+    shutil.copytree(Path(EnterpriseSaaSKindRenderer().chart_dir), custom_chart)
+    renderer = EnterpriseSaaSKindRenderer(chart_dir=custom_chart)
+    candidate = BuildPipeline(
+        store=FileSnapshotStore(tmp_path / "snapshots"),
+        renderer=renderer,
+    ).build(
+        _manifest_payload(),
+        tmp_path / "rendered-k3d-custom",
+        BuildConfig(validation_profile="graph_only", cluster_backend="k3d"),
+    )
+
+    assert Path(candidate.artifacts.chart_dir).exists()
+    assert (Path(candidate.artifacts.chart_dir) / "Chart.yaml").exists()
 
 
 def test_build_pipeline_threads_manifest_npc_profiles_into_personas(tmp_path: Path):
@@ -442,3 +484,13 @@ def test_manifest_accepts_standard_attack_objectives_and_rejects_unknown_predica
     with pytest.raises(Exception) as exc:
         validate_manifest(payload)
     assert "unsupported objective predicate" in str(exc.value)
+
+
+def test_manifest_rejects_empty_objective_predicate_arguments() -> None:
+    payload = _manifest_payload()
+    payload["objectives"]["red"] = [{"predicate": "credential_obtained()"}]
+
+    with pytest.raises(Exception) as exc:
+        validate_manifest(payload)
+
+    assert "argument must not be empty" in str(exc.value)

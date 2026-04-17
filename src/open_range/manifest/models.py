@@ -142,6 +142,8 @@ class ObjectivePredicate(_StrictModel):
             raise ValueError(
                 "objective predicate must end with ')' when using arguments"
             )
+        if "(" in self.predicate and not expr.inner:
+            raise ValueError("objective predicate argument must not be empty")
         return self
 
 

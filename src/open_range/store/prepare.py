@@ -52,6 +52,7 @@ def renderer_for(
         return renderer
     if build_config.cluster_backend == "k3d":
         return K3dRenderer(
+            chart_dir=renderer.chart_dir,
             agents=build_config.k3d_agents,
             subnet=build_config.k3d_subnet,
         )

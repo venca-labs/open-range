@@ -279,8 +279,6 @@ def render_realization_content(
             Subject: {subject}
 
             OpenRange workflow message for {world.world_id}
-            weakness_id={weakness.id}
-            kind={weakness.kind}
             mailbox_path={realization.path}
             action={body}
             """
@@ -288,8 +286,6 @@ def render_realization_content(
 
     payload = {
         "world_id": world.world_id,
-        "weakness_id": weakness.id,
-        "kind": weakness.kind,
         "target_ref": weakness.target_ref,
         "approval_guard": "disabled",
     }
