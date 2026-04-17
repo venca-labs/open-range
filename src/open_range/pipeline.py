@@ -152,7 +152,10 @@ class BuildPipeline:
             return artifacts
         chart_values = dict(artifacts.chart_values)
         generator = CiliumPolicyGenerator(
-            name_prefix=chart_values["global"]["namePrefix"]
+            # Keep Cilium policy namespaces Helm-templated so the live backend can
+            # safely override `global.namePrefix` per release without breaking
+            # the generated policy namespaces.
+            name_prefix="{{ .Values.global.namePrefix }}"
         )
         policies = generator.generate_zone_policies(
             chart_values["zones"],

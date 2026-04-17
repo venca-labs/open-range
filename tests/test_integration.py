@@ -72,13 +72,13 @@ def test_end_to_end_pipeline_store_reset_and_tandem_episode(tmp_path: Path):
                 actor_id="blue",
                 role="blue",
                 kind=blue_steps[1].kind,
-                payload={"event_type": "InitialAccess", "target": red_steps[0].target},
+                payload={"target": blue_steps[1].target, "action": "contain"},
             ),
             Action(
                 actor_id="blue",
                 role="blue",
                 kind=blue_steps[2].kind,
-                payload={"target": blue_steps[2].target, "action": "contain"},
+                payload={"event_type": "InitialAccess", "target": red_steps[0].target},
             ),
         ]
     )

@@ -67,7 +67,7 @@ class EnterpriseSaaSManifestCompiler:
             "service_id": "svc-idp",
             "zone": "management",
             "exposure": "management",
-            "ports": (389,),
+            "ports": (389, 8080),
             "dependencies": (),
             "telemetry": ("auth", "audit"),
         },
@@ -76,7 +76,7 @@ class EnterpriseSaaSManifestCompiler:
             "service_id": "svc-fileshare",
             "zone": "corp",
             "exposure": "corp",
-            "ports": (445,),
+            "ports": (445, 8080),
             "dependencies": ("svc-idp",),
             "telemetry": ("share_access",),
         },
@@ -525,7 +525,7 @@ class EnterpriseSaaSManifestCompiler:
             location = f"svc-fileshare:/srv/shared/{asset.id}.txt"
         elif any(token in asset_id for token in ("cred", "password", "token", "key")):
             service = "svc-idp"
-            location = f"svc-idp://secrets/{asset.id}"
+            location = f"svc-idp:/var/lib/openrange/secrets/{asset.id}.txt"
         else:
             service = "svc-web"
             location = f"svc-web:/var/www/html/content/{asset.id}.txt"

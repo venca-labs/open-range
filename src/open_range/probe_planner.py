@@ -19,6 +19,7 @@ from open_range.effect_markers import (
     effect_marker_path,
     effect_marker_token,
 )
+from open_range.predicate_expr import predicate_name
 from open_range.predicates import PredicateEngine
 from open_range.runtime_types import Action
 from open_range.world_ir import WorldIR
@@ -98,7 +99,7 @@ class ProbePlanner:
             for service in self.world.services
             if engine.is_public_service(service)
         ) or (self.world.services[0].id,)
-        weaknesses = engine.active_weaknesses()
+        weaknesses = _red_reference_weaknesses(engine.active_weaknesses())
         ranked = sorted(
             weaknesses,
             key=lambda weak: (
@@ -171,7 +172,7 @@ class ProbePlanner:
         current = start
         if exploit is not None:
             exploit_steps, current, satisfied_predicates = _weakness_red_steps(
-                self.world, engine, start, exploit
+                self.world, engine, start, exploit, bootstrap_initial=True
             )
             steps.extend(exploit_steps)
         if not steps:
@@ -186,31 +187,14 @@ class ProbePlanner:
         for objective in self.world.red_objectives:
             if objective.predicate in satisfied_predicates:
                 continue
-            target = engine.objective_target_service(objective.predicate) or current
-            path = engine.shortest_path(current, target)
-            for service_id in path[1:]:
-                steps.append(
-                    ReferenceAction(
-                        actor="red",
-                        kind="api",
-                        target=service_id,
-                        payload={"action": "traverse"},
-                    )
-                )
-            asset = engine.objective_target_asset(objective.predicate)
-            steps.append(
-                ReferenceAction(
-                    actor="red",
-                    kind="api",
-                    target=target,
-                    payload={
-                        "action": "satisfy_objective",
-                        "asset": asset.id if asset else "",
-                        "objective": objective.predicate,
-                    },
-                )
+            objective_steps, current, satisfied = _objective_red_steps(
+                self.world,
+                engine,
+                current=current,
+                objective=objective.predicate,
             )
-            current = target
+            steps.extend(objective_steps)
+            satisfied_predicates.update(satisfied)
 
         events: list[str] = []
         for weak in (exploit,) if exploit is not None else weaknesses:
@@ -245,15 +229,8 @@ class ProbePlanner:
         )
         detect_step = red_trace.steps[detect_index] if red_trace.steps else None
         detect_event, detect_target = _detection_for_red_step(detect_step)
-        contain_target = red_trace.steps[-1].target if red_trace.steps else "svc-siem"
-        observe_steps = tuple(
-            ReferenceAction(
-                actor="blue",
-                kind="shell",
-                target="svc-siem",
-                payload={"action": "observe_events"},
-            )
-            for _ in range(max(1, detect_index + 1))
+        contain_target = _containment_target_for_red_trace(
+            red_trace, detect_index=detect_index, detected_target=detect_target
         )
         return ReferenceTrace(
             id=f"blue-{self.world.world_id}-{ordinal}",
@@ -262,8 +239,7 @@ class ProbePlanner:
                 objective.id for objective in self.world.blue_objectives
             ),
             expected_events=("DetectionAlertRaised", "ContainmentApplied"),
-            steps=observe_steps
-            + (
+            steps=(
                 ReferenceAction(
                     actor="blue",
                     kind="submit_finding",
@@ -312,6 +288,11 @@ def _primary_red_weakness(start: str, weaknesses):
     return ranked[0]
 
 
+def _red_reference_weaknesses(weaknesses):
+    ranked = [weak for weak in weaknesses if weak.family != "telemetry_blindspot"]
+    return ranked or list(weaknesses)
+
+
 def _detection_for_red_step(step: ReferenceAction | None) -> tuple[str, str]:
     if step is None:
         return ("InitialAccess", "svc-web")
@@ -343,6 +324,26 @@ def _detection_for_red_step(step: ReferenceAction | None) -> tuple[str, str]:
     if action == "satisfy_objective":
         return ("SensitiveAssetRead", asset or step.target)
     return ("InitialAccess", step.target or "svc-web")
+
+
+def _containment_target_for_red_trace(
+    trace: ReferenceTrace,
+    *,
+    detect_index: int,
+    detected_target: str,
+) -> str:
+    if detected_target:
+        return detected_target
+    future_targets = [
+        step.target
+        for step in trace.steps[detect_index + 1 :]
+        if step.target and step.target != detected_target
+    ]
+    if future_targets:
+        return future_targets[0]
+    if trace.steps:
+        return trace.steps[-1].target
+    return "svc-siem"
 
 
 def _step_is_blue_detectable(
@@ -378,6 +379,8 @@ def _weakness_red_steps(
     engine: PredicateEngine,
     start: str,
     weakness,
+    *,
+    bootstrap_initial: bool = False,
 ) -> tuple[list[ReferenceAction], str, set[str]]:
     steps: list[ReferenceAction] = []
     satisfied: set[str] = set()
@@ -436,26 +439,15 @@ def _weakness_red_steps(
             )
         current = "svc-email"
     else:
-        if current != weakness.target:
+        if bootstrap_initial and current != weakness.target:
             steps.append(
                 ReferenceAction(
                     actor="red",
                     kind="api",
                     target=current,
-                    payload={"action": "initial_access"},
+                    payload={"action": "initial_access", "bootstrap_foothold": True},
                 )
             )
-            path = engine.shortest_path(current, weakness.target)
-            for service_id in path[1:]:
-                steps.append(
-                    ReferenceAction(
-                        actor="red",
-                        kind="api",
-                        target=service_id,
-                        payload={"action": "traverse"},
-                    )
-                )
-            current = weakness.target
 
     if weakness.family == "secret_exposure":
         realization_path = _first_realization_path(weakness)
@@ -537,6 +529,206 @@ def _weakness_red_steps(
         )
     )
     return steps, current, satisfied
+
+
+def _objective_red_steps(
+    world: WorldIR,
+    engine: PredicateEngine,
+    *,
+    current: str,
+    objective: str,
+) -> tuple[list[ReferenceAction], str, set[str]]:
+    asset = engine.objective_target_asset(objective)
+    target = engine.objective_target_service(objective) or current
+    path = engine.shortest_path(current, target)
+    steps: list[ReferenceAction] = []
+    for service_id in path[1:]:
+        if service_id != target:
+            steps.append(_service_probe_step(world, service_id))
+            continue
+        if asset is not None:
+            steps.extend(
+                _asset_objective_red_steps(world, asset, objective=objective)[0]
+            )
+        else:
+            steps.append(_service_probe_step(world, service_id))
+            steps.append(_generic_objective_step(world, target, objective=objective))
+    if not steps:
+        if asset is not None:
+            steps.extend(
+                _asset_objective_red_steps(world, asset, objective=objective)[0]
+            )
+        else:
+            steps.append(_generic_objective_step(world, target, objective=objective))
+    return steps, target, {objective}
+
+
+def _asset_objective_red_steps(
+    world: WorldIR,
+    asset,
+    *,
+    objective: str,
+) -> tuple[list[ReferenceAction], str, set[str]]:
+    target = asset.owner_service
+    objective_kind = predicate_name(objective)
+    target_kind = _service_kind(world, target)
+    if target_kind in {"idp", "fileshare"}:
+        action_name = (
+            "abuse_identity"
+            if objective_kind == "credential_obtained"
+            else "collect_secret"
+        )
+        payload = {
+            "action": action_name,
+            "asset": asset.id,
+            "objective": objective,
+            "path": f"/{asset.id}.txt",
+            "port": 8080,
+            "expect_contains": _asset_expectation(asset),
+        }
+        return (
+            [ReferenceAction(actor="red", kind="api", target=target, payload=payload)],
+            target,
+            {objective},
+        )
+    if target_kind == "db":
+        query = f"SELECT contents FROM assets WHERE asset_id = '{asset.id}' LIMIT 1;"
+        command = _mysql_query_command(world, query)
+        payload = {
+            "action": "collect_secret",
+            "asset": asset.id,
+            "objective": objective,
+            "command": command,
+            "service_command": command,
+            "expect_contains": _asset_expectation(asset),
+        }
+        return (
+            [
+                ReferenceAction(
+                    actor="red", kind="shell", target=target, payload=payload
+                )
+            ],
+            target,
+            {objective},
+        )
+    path = _asset_live_path(asset)
+    action_name = "collect_secret"
+    if objective_kind == "credential_obtained":
+        action_name = "abuse_identity"
+    command = f"cat {shlex.quote(path)}"
+    payload = {
+        "action": action_name,
+        "asset": asset.id,
+        "objective": objective,
+        "path": path,
+        "command": command,
+        "service_command": command,
+        "expect_contains": _asset_expectation(asset),
+    }
+    return (
+        [ReferenceAction(actor="red", kind="shell", target=target, payload=payload)],
+        target,
+        {objective},
+    )
+
+
+def _service_probe_step(world: WorldIR, service_id: str) -> ReferenceAction:
+    command, path = _service_probe_command(world, service_id)
+    payload: dict[str, object] = {
+        "action": "probe_service",
+        "command": command,
+        "service_command": command,
+        "expect_contains": service_id,
+    }
+    if path:
+        payload["path"] = path
+    return ReferenceAction(
+        actor="red", kind="shell", target=service_id, payload=payload
+    )
+
+
+def _service_probe_command(world: WorldIR, service_id: str) -> tuple[str, str]:
+    service_kind = _service_kind(world, service_id)
+    if service_kind == "fileshare":
+        return (
+            "test -d /srv/shared && printf '%s\\n' " + shlex.quote(service_id),
+            "/srv/shared",
+        )
+    if service_kind == "idp":
+        return (
+            "test -d /var/lib/openrange/secrets && printf '%s\\n' "
+            + shlex.quote(service_id),
+            "/var/lib/openrange/secrets",
+        )
+    if service_kind == "db":
+        return (_mysql_query_command(world, "SELECT 1;"), "")
+    if service_kind == "web_app":
+        return ("wget -qO- http://127.0.0.1/ | head -c 128", "/")
+    return ("printf '%s\\n' " + shlex.quote(service_id), "")
+
+
+def _generic_objective_step(
+    world: WorldIR, target: str, *, objective: str
+) -> ReferenceAction:
+    command, path = _service_probe_command(world, target)
+    payload: dict[str, object] = {
+        "action": "collect_secret",
+        "objective": objective,
+        "command": command,
+        "service_command": command,
+        "expect_contains": target,
+    }
+    if path:
+        payload["path"] = path
+    return ReferenceAction(actor="red", kind="shell", target=target, payload=payload)
+
+
+def _asset_live_path(asset) -> str:
+    location = str(getattr(asset, "location", ""))
+    prefix, sep, suffix = location.partition(":")
+    if prefix and sep and suffix.startswith("/"):
+        return suffix
+    service_kind = prefix or ""
+    if service_kind == "idp":
+        return f"/var/lib/openrange/secrets/{asset.id}.txt"
+    if service_kind == "fileshare":
+        return f"/srv/shared/{asset.id}.txt"
+    if service_kind == "web_app":
+        return f"/var/www/html/content/{asset.id}.txt"
+    return f"/tmp/{asset.id}.txt"
+
+
+def _service_kind(world: WorldIR, service_id: str) -> str:
+    service = next((item for item in world.services if item.id == service_id), None)
+    return service.kind if service is not None else ""
+
+
+def _asset_expectation(asset) -> str:
+    return f"seeded-{asset.asset_class}-{asset.id}"
+
+
+def _mysql_query_command(world: WorldIR, query: str) -> str:
+    mtls = getattr(getattr(world, "security_runtime", None), "mtls", None)
+    mtls_enabled = isinstance(mtls, dict) and bool(mtls.get("enabled"))
+    if not mtls_enabled:
+        return "mysql -uapp -papp-pass app -Nse " + shlex.quote(query)
+    return shlex.join(
+        [
+            "mysql",
+            "--protocol=TCP",
+            "-h",
+            "127.0.0.1",
+            "--ssl-mode=VERIFY_CA",
+            "--ssl-ca=/etc/mtls/ca.pem",
+            "--ssl-cert=/etc/mtls/cert.pem",
+            "--ssl-key=/etc/mtls/key.pem",
+            "-uapp",
+            "-papp-pass",
+            "app",
+            "-Nse",
+            query,
+        ]
+    )
 
 
 def _shell_payload(

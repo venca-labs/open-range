@@ -12,6 +12,8 @@ from open_range.effect_markers import effect_marker_token
 from open_range.episode_config import DEFAULT_EPISODE_CONFIG, EpisodeConfig
 from open_range.execution import ActionBackend, ActionExecution
 from open_range.green import GreenScheduler, ScriptedGreenScheduler
+from open_range.objectives import objective_grader_for_predicate
+from open_range.predicate_expr import predicate_inner
 from open_range.predicates import PredicateEngine
 from open_range.probe_planner import runtime_action as reference_runtime_action
 from open_range.rewards import RewardEngine
@@ -143,6 +145,7 @@ class OpenRangeRuntime:
             done=False,
             winner="",
             terminal_reason="",
+            execution_mode="live" if self.action_backend is not None else "offline",
             continuity=continuity,
             service_health=service_health,
             controls_red=episode_config.controls_red,
@@ -462,13 +465,11 @@ class OpenRangeRuntime:
 
         emitted: list[RuntimeEvent] = []
         target = action_target(action)
-        exec_action = action
-        if self.action_backend is not None:
-            payload = dict(action.payload)
-            payload.setdefault("origin", self._live_red_origin(target))
-            if target:
-                payload.setdefault("target", target)
-            exec_action = action.model_copy(update={"payload": payload})
+        payload = dict(action.payload)
+        payload["origin"] = self._live_red_origin(target)
+        if target:
+            payload.setdefault("target", target)
+        exec_action = action.model_copy(update={"payload": payload})
         live = self._execute_live_action(exec_action)
         audit = self._observe_action(
             exec_action,
@@ -479,9 +480,12 @@ class OpenRangeRuntime:
         stdout = live.stdout or "red action had no strategic effect"
         stderr = live.stderr
 
-        blocked_reason = self._path_block_reason(target)
+        blocked_reason = self._path_block_reason(exec_action)
         if blocked_reason:
-            blocked_msg = f"target {target} is {blocked_reason}"
+            blocked_entity = str(
+                exec_action.payload.get("origin") or target or "target"
+            )
+            blocked_msg = f"{blocked_entity} is {blocked_reason}"
             if blocked_msg not in {
                 line.strip() for line in stderr.splitlines() if line.strip()
             }:
@@ -541,6 +545,24 @@ class OpenRangeRuntime:
 
         batches: list[RedEventBatch] = []
         satisfied = set(self._red_objectives_satisfied)
+        if bool(action.payload.get("bootstrap_foothold")):
+            batches.append(
+                RedEventBatch(
+                    events=(
+                        emit_event(
+                            event_type="InitialAccess",
+                            actor="red",
+                            source_entity=action.actor_id,
+                            target_entity=target,
+                            malicious=True,
+                            observability_surfaces=self._service_surfaces(target),
+                        ),
+                    ),
+                    satisfied_objectives=(),
+                    last_red_target=target,
+                    footholds=(target,),
+                )
+            )
         for weakness in self._matched_red_weaknesses(action, live.stdout):
             objective = self._objective_for_target(
                 weakness.target,
@@ -584,12 +606,14 @@ class OpenRangeRuntime:
                     )
                 )
             objective = self._objective_for_target(target, exclude=satisfied)
-            if objective:
+            if objective and self._action_satisfies_objective(
+                action, live.stdout, objective
+            ):
                 batches.append(
                     objective_events(
                         target=target,
                         objective=objective,
-                        asset_id="",
+                        asset_id=str(action.payload.get("asset", "")),
                         emit_event=emit_event,
                         service_surfaces=self._service_surfaces,
                     )
@@ -691,6 +715,38 @@ class OpenRangeRuntime:
             ),
             "",
         )
+
+    def _action_satisfies_objective(
+        self,
+        action: Action,
+        live_stdout: str,
+        objective: str,
+    ) -> bool:
+        if not objective:
+            return False
+        payload_objective = str(action.payload.get("objective", "")).strip()
+        if payload_objective and payload_objective != objective:
+            return False
+        text = live_stdout.lower()
+        expect_contains = str(action.payload.get("expect_contains", "")).strip().lower()
+        asset_id = str(action.payload.get("asset", "")).strip()
+        if expect_contains and (payload_objective == objective or asset_id):
+            return expect_contains in text
+        if asset_id and asset_id.lower() in text:
+            return True
+        grader = objective_grader_for_predicate(
+            objective,
+            target_id=predicate_inner(objective),
+            default_service=action_target(action),
+        )
+        if grader is None:
+            return False
+        tokens = {
+            token.strip().lower()
+            for token in (grader.expected_ref, grader.target_id)
+            if token
+        }
+        return bool(tokens) and any(token in text for token in tokens)
 
     def _reachable_red_origin(self, target: str) -> str:
         if self._snapshot is None or self._predicates is None or not target:
@@ -822,7 +878,9 @@ class OpenRangeRuntime:
             continuity_before = self._state.continuity
             path_broken = bool(
                 target
-                and target in remaining_targets
+                and self._blue_control_breaks_remaining_path(
+                    target, remaining_targets=remaining_targets
+                )
                 and (live.containment_applied or live.patch_applied)
             )
             if target and live.containment_applied:
@@ -1099,7 +1157,27 @@ class OpenRangeRuntime:
             )
         return targets
 
-    def _path_block_reason(self, target: str) -> str:
+    def _blue_control_breaks_remaining_path(
+        self, target: str, *, remaining_targets: set[str]
+    ) -> bool:
+        if not target:
+            return False
+        if target in remaining_targets:
+            return True
+        if target not in self._red_footholds:
+            return False
+        return any(
+            remaining != target and self._foothold_can_reach_target(target, remaining)
+            for remaining in remaining_targets
+        )
+
+    def _path_block_reason(self, action: Action) -> str:
+        target = action_target(action)
+        origin = str(action.payload.get("origin", "")).strip()
+        if origin in self._patched_targets:
+            return "patched"
+        if origin in self._contained_targets:
+            return "contained"
         if not target:
             return ""
         if target in self._patched_targets:

@@ -125,6 +125,7 @@ class EpisodeState(_StrictModel):
     done: bool = False
     winner: Literal["red", "blue", "timeout", "failure", ""] = ""
     terminal_reason: str = ""
+    execution_mode: Literal["offline", "live"] = "offline"
     continuity: float = Field(default=1.0, ge=0.0, le=1.0)
     service_health: dict[str, float] = Field(default_factory=dict)
     red_objectives_satisfied: tuple[str, ...] = Field(default_factory=tuple)

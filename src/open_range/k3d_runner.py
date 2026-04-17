@@ -8,12 +8,11 @@ support (1 server + N agents) with proper subnet isolation.
 from __future__ import annotations
 
 import logging
-import shutil
 import subprocess
 from dataclasses import dataclass
 from pathlib import Path
 
-from open_range.cluster import KindBackend
+from open_range.cluster import KindBackend, resolve_host_binary
 
 logger = logging.getLogger(__name__)
 
@@ -28,10 +27,12 @@ def resolve_kubectl_cmd(k3d_cluster: str = _DEFAULT_CLUSTER) -> tuple[str, ...]:
     We prefer a host kubectl when present; otherwise fall back to
     running kubectl inside the k3d server container.
     """
-    if shutil.which("kubectl"):
-        return ("kubectl", "--context", f"k3d-{k3d_cluster}")
+    kubectl = resolve_host_binary("kubectl")
+    if kubectl:
+        return (kubectl, "--context", f"k3d-{k3d_cluster}")
+    docker = resolve_host_binary("docker") or "docker"
     return (
-        "docker",
+        docker,
         "exec",
         f"k3d-{k3d_cluster}-server-0",
         "kubectl",
@@ -73,6 +74,8 @@ class K3dBackend(KindBackend):
         self.k3d_cluster = kind_cluster
         self.k3d_agents = k3d_agents
         self.k3d_subnet = k3d_subnet
+        self.k3d_bin = resolve_host_binary("k3d") or "k3d"
+        self.host_kubectl_bin = resolve_host_binary("kubectl") or "kubectl"
         self.kubectl_cmd = resolve_kubectl_cmd(self.k3d_cluster)
 
     # ------------------------------------------------------------------
@@ -112,10 +115,10 @@ class K3dBackend(KindBackend):
 
         cmd: list[str]
         if config_path and config_path.exists():
-            cmd = ["k3d", "cluster", "create", "--config", str(config_path)]
+            cmd = [self.k3d_bin, "cluster", "create", "--config", str(config_path)]
         else:
             cmd = [
-                "k3d",
+                self.k3d_bin,
                 "cluster",
                 "create",
                 self.k3d_cluster,
@@ -146,7 +149,7 @@ class K3dBackend(KindBackend):
         logger.info("Created k3d cluster '%s'", self.k3d_cluster)
 
         self._run(
-            ["kubectl", "config", "use-context", f"k3d-{self.k3d_cluster}"],
+            [self.host_kubectl_bin, "config", "use-context", f"k3d-{self.k3d_cluster}"],
             timeout=10.0,
         )
 
@@ -164,7 +167,7 @@ class K3dBackend(KindBackend):
             )
             return
         self._run(
-            ["k3d", "cluster", "delete", self.k3d_cluster],
+            [self.k3d_bin, "cluster", "delete", self.k3d_cluster],
             timeout=120.0,
         )
         logger.info("Deleted k3d cluster '%s'", self.k3d_cluster)
@@ -172,7 +175,7 @@ class K3dBackend(KindBackend):
     def cluster_exists(self) -> bool:
         """Check whether the k3d cluster is currently running."""
         result = subprocess.run(
-            ["k3d", "cluster", "list", "-o", "json"],
+            [self.k3d_bin, "cluster", "list", "-o", "json"],
             check=False,
             capture_output=True,
             text=True,
@@ -194,9 +197,18 @@ class K3dBackend(KindBackend):
         """Pull (if needed) and import an image into the k3d cluster."""
         if not image:
             return
-        if not self._docker_image_present(image):
+        if self._docker_image_architecture(image) != self._host_architecture():
             try:
-                self._run(["docker", "pull", image], timeout=300.0)
+                self._run(
+                    [
+                        "docker",
+                        "pull",
+                        "--platform",
+                        f"linux/{self._host_architecture()}",
+                        image,
+                    ],
+                    timeout=300.0,
+                )
             except Exception as exc:  # noqa: BLE001
                 logger.warning("Failed to pre-pull image %s: %s", image, exc)
                 return
@@ -206,7 +218,7 @@ class K3dBackend(KindBackend):
         """Import a single image into the k3d cluster (best-effort)."""
         try:
             self._run(
-                ["k3d", "image", "import", "-c", self.k3d_cluster, image],
+                [self.k3d_bin, "image", "import", "-c", self.k3d_cluster, image],
                 timeout=120.0,
             )
             logger.debug(

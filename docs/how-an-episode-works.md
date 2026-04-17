@@ -112,12 +112,11 @@ single-step CTF flag submission.
 
 Blue reference traces are built from the red traces.
 
-The planner identifies the first red step that should be visible to blue,
-constructs the observation path to it, then builds a minimal defense trace:
+The planner identifies the first red step that should be visible to blue and
+then builds a minimal defense trace once that activity should be observable:
 
-1. observe enough telemetry
-2. submit a finding
-3. contain the relevant target
+1. submit a finding
+2. contain the relevant target
 
 This means admission is not only proving that the world is exploitable. It is
 also proving that the world is defensible under its declared telemetry and

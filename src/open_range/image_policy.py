@@ -11,7 +11,7 @@ DEFAULT_SERVICE_IMAGE: Final[str] = "ubuntu:22.04"
 
 SERVICE_IMAGE_BY_KIND: Final[dict[str, str]] = {
     "web_app": "php:8.1-apache",
-    "email": "namshi/smtp:latest",
+    "email": "boky/postfix:latest",
     "idp": "osixia/openldap:1.5.0",
     "fileshare": "dperson/samba:latest",
     "db": "mysql:8.0",
@@ -25,7 +25,7 @@ SANDBOX_MULTITOOL_IMAGE: Final[str] = "wbitt/network-multitool:alpine-extra"
 SANDBOX_IMAGE_BY_ROLE: Final[dict[str, str]] = {
     "red": SANDBOX_MULTITOOL_IMAGE,
     "blue": SANDBOX_MULTITOOL_IMAGE,
-    "green": "busybox:1.36",
+    "green": SANDBOX_MULTITOOL_IMAGE,
 }
 
 DB_MTLS_HELPER_IMAGE: Final[str] = SANDBOX_MULTITOOL_IMAGE

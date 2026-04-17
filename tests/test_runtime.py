@@ -14,7 +14,7 @@ from open_range.cluster import ExecResult
 from open_range.code_web import code_web_payload
 from open_range.compiler import EnterpriseSaaSManifestCompiler
 from open_range.episode_config import EpisodeConfig
-from open_range.execution import PodActionBackend
+from open_range.execution import ActionExecution, PodActionBackend
 from open_range.green import ScriptedGreenScheduler
 from open_range.probe_planner import runtime_action
 from open_range.render import EnterpriseSaaSKindRenderer
@@ -195,19 +195,69 @@ def test_runtime_red_progresses_via_public_effects_without_reference_steps(
     assert any(event.event_type == "InitialAccess" for event in foothold.emitted_events)
 
     assert runtime.next_decision().actor == "red"
+    idp_probe = runtime.act(
+        "red",
+        Action(
+            actor_id="red",
+            role="red",
+            kind="shell",
+            payload={
+                "target": "svc-idp",
+                "command": "printf 'svc-idp\\n'",
+                "expect_contains": "svc-idp",
+            },
+        ),
+    )
+    assert {event.event_type for event in idp_probe.emitted_events} >= {
+        "CrossZoneTraversal",
+    }
+    assert "CredentialObtained" not in {
+        event.event_type for event in idp_probe.emitted_events
+    }
+
+    assert runtime.next_decision().actor == "red"
     credential = runtime.act(
         "red",
         Action(
             actor_id="red",
             role="red",
-            kind="api",
-            payload={"target": "svc-idp", "path": "/"},
+            kind="shell",
+            payload={
+                "target": "svc-idp",
+                "path": "/var/lib/openrange/secrets/idp_admin_cred.txt",
+                "command": "cat /var/lib/openrange/secrets/idp_admin_cred.txt",
+                "asset": "idp_admin_cred",
+                "objective": "credential_obtained(idp_admin_cred)",
+                "expect_contains": "seeded-sensitive-idp_admin_cred",
+            },
         ),
     )
     assert {event.event_type for event in credential.emitted_events} >= {
-        "CrossZoneTraversal",
         "CredentialObtained",
     }
+
+    assert runtime.next_decision().actor == "red"
+    fileshare_probe = runtime.act(
+        "red",
+        Action(
+            actor_id="red",
+            role="red",
+            kind="shell",
+            payload={
+                "target": "svc-fileshare",
+                "command": "printf 'svc-fileshare\\n'",
+                "expect_contains": "svc-fileshare",
+            },
+        ),
+    )
+    assert any(
+        event.event_type == "CrossZoneTraversal"
+        for event in fileshare_probe.emitted_events
+    )
+    assert not any(
+        event.event_type == "SensitiveAssetRead"
+        for event in fileshare_probe.emitted_events
+    )
 
     assert runtime.next_decision().actor == "red"
     asset = runtime.act(
@@ -215,8 +265,15 @@ def test_runtime_red_progresses_via_public_effects_without_reference_steps(
         Action(
             actor_id="red",
             role="red",
-            kind="api",
-            payload={"target": "svc-fileshare", "path": "/"},
+            kind="shell",
+            payload={
+                "target": "svc-fileshare",
+                "path": "/srv/shared/finance_docs.txt",
+                "command": "cat /srv/shared/finance_docs.txt",
+                "asset": "finance_docs",
+                "objective": "asset_read(finance_docs)",
+                "expect_contains": "seeded-crown_jewel-finance_docs",
+            },
         ),
     )
     assert asset.done is True
@@ -252,8 +309,15 @@ def test_runtime_red_cannot_score_internal_objectives_before_public_foothold(
         Action(
             actor_id="red",
             role="red",
-            kind="api",
-            payload={"target": "svc-idp", "path": "/"},
+            kind="shell",
+            payload={
+                "target": "svc-idp",
+                "path": "/var/lib/openrange/secrets/idp_admin_cred.txt",
+                "command": "cat /var/lib/openrange/secrets/idp_admin_cred.txt",
+                "asset": "idp_admin_cred",
+                "objective": "credential_obtained(idp_admin_cred)",
+                "expect_contains": "seeded-sensitive-idp_admin_cred",
+            },
         ),
     )
 
@@ -378,6 +442,34 @@ def test_blue_only_live_can_win_by_detect_and_contain(tmp_path: Path):
 
     assert contain.done is True
     assert runtime.score().winner == "blue"
+
+
+def test_bootstrap_initial_access_creates_public_foothold(tmp_path: Path):
+    snapshot = _snapshot(tmp_path)
+    runtime = OpenRangeRuntime()
+    runtime.reset(
+        snapshot,
+        EpisodeConfig(mode="red_only", opponent_blue="none", green_enabled=False),
+    )
+
+    decision = runtime.next_decision()
+    assert decision.actor == "red"
+    result = runtime.act(
+        "red",
+        Action(
+            actor_id="red",
+            role="red",
+            kind="api",
+            payload={
+                "target": "svc-web",
+                "action": "initial_access",
+                "bootstrap_foothold": True,
+            },
+        ),
+    )
+
+    assert any(event.event_type == "InitialAccess" for event in result.emitted_events)
+    assert "svc-web" in runtime._red_footholds
 
 
 def test_runtime_flags_mock_git_clone_in_episode_audit(tmp_path: Path):
@@ -665,6 +757,43 @@ def test_runtime_prefers_shortest_live_foothold_for_next_red_origin(
     runtime._last_red_target = "svc-idp"
 
     assert runtime._live_red_origin("svc-fileshare") == "svc-web"
+
+
+def test_runtime_overrides_spoofed_red_origin_for_live_actions(tmp_path: Path) -> None:
+    snapshot = _snapshot(tmp_path)
+
+    class FakeBackend:
+        def __init__(self) -> None:
+            self.actions: list[Action] = []
+
+        def execute(self, action: Action):
+            self.actions.append(action)
+            return ActionExecution(stdout="", stderr="", ok=True, service_health={})
+
+        def service_health(self) -> dict[str, float]:
+            return {}
+
+    backend = FakeBackend()
+    runtime = OpenRangeRuntime(action_backend=backend)
+    runtime.reset(snapshot, EpisodeConfig(mode="red_only", green_enabled=False))
+
+    first_step = snapshot.reference_bundle.reference_attack_traces[0].steps[0]
+    runtime.act(
+        "red",
+        Action(
+            actor_id="red",
+            role="red",
+            kind=first_step.kind,
+            payload={
+                "target": first_step.target,
+                "origin": "svc-idp",
+                **first_step.payload,
+            },
+        ),
+    )
+
+    assert backend.actions
+    assert backend.actions[0].payload["origin"] == "sandbox-red"
 
 
 def test_runtime_internal_snapshot_helpers_raise_clear_errors_without_reset() -> None:
@@ -1055,8 +1184,9 @@ def test_internal_blue_controller_modes_are_not_aliases(tmp_path: Path):
         ),
     )
     reference_action = reference_runtime._internal_blue_action()
-    assert reference_action.kind == "shell"
-    assert reference_action.payload["action"] == "observe_events"
+    assert reference_action.kind == "submit_finding"
+    assert reference_action.payload["event_type"] == "InitialAccess"
+    assert reference_action.payload["target"] == first_step.target
 
     scripted_runtime = OpenRangeRuntime()
     scripted_runtime.reset(

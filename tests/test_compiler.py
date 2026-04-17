@@ -58,6 +58,9 @@ def test_compiler_builds_hand_checkable_world_ir():
         "db",
         "siem",
     }
+    ports_by_service = {service.id: service.ports for service in world.services}
+    assert ports_by_service["svc-idp"] == (389, 8080)
+    assert ports_by_service["svc-fileshare"] == (445, 8080)
     assert len(world.users) == 5
     assert len(world.green_personas) == 5
     assert {asset.owner_service for asset in world.assets} == {

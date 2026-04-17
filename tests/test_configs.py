@@ -125,7 +125,11 @@ def test_build_config_can_enable_security_integration(tmp_path: Path):
     web_payloads = web_service["payloads"]
     db_service = candidate.artifacts.chart_values["services"]["svc-db"]
     db_payloads = db_service["payloads"]
-    idp_sidecar = idp_service["sidecars"][0]
+    idp_sidecar = next(
+        sidecar
+        for sidecar in idp_service["sidecars"]
+        if sidecar["name"] == "idp-helper"
+    )
     web_sidecar = next(
         sidecar
         for sidecar in web_service["sidecars"]
@@ -359,7 +363,9 @@ def test_renderer_applies_runtime_extensions_during_render(tmp_path: Path):
     )
 
     idp_service = artifacts.chart_values["services"]["svc-idp"]
-    sidecar = idp_service["sidecars"][0]
+    sidecar = next(
+        item for item in idp_service["sidecars"] if item["name"] == "runtime-helper"
+    )
 
     assert artifacts.chart_values["security"]["tier"] == 3
     assert any(
@@ -387,11 +393,17 @@ def test_build_config_can_select_k3d_and_cilium_outputs(tmp_path: Path):
         ),
     )
 
+    cilium_template = (
+        Path(candidate.artifacts.chart_dir) / "templates" / "cilium-policies.yaml"
+    )
+
     assert Path(candidate.artifacts.kind_config_path).name == "k3d-config.yaml"
     assert candidate.artifacts.chart_values["cilium"]["enabled"] is True
-    assert (
-        Path(candidate.artifacts.chart_dir) / "templates" / "cilium-policies.yaml"
-    ).exists()
+    assert cilium_template.exists()
+    cilium_template_text = cilium_template.read_text(encoding="utf-8")
+    assert "{{ .Values.global.namePrefix }}" in cilium_template_text
+    assert "name: default-deny-ingress" in cilium_template_text
+    assert "ingress: []" in cilium_template_text
 
 
 def test_build_pipeline_threads_manifest_npc_profiles_into_personas(tmp_path: Path):

@@ -115,6 +115,9 @@ def test_synthesizer_realizes_exact_code_web_templates_and_witness_routes(
             file.mount_path == route and file.content.startswith("<?php")
             for file in web_payloads
         )
+        if kind == "sql_injection":
+            route_file = next(file for file in web_payloads if file.mount_path == route)
+            assert 'echo "param=q\nsql=" . $sql;' in route_file.content
         artifacts = EnterpriseSaaSKindRenderer().render(
             world, synth, tmp_path / f"{kind}-render"
         )
@@ -135,6 +138,12 @@ def test_synthesizer_realizes_exact_code_web_templates_and_witness_routes(
             file.mount_path.startswith("/var/www/html/openrange-foothold-")
             for file in web_payloads
         )
+        index_file = next(
+            file
+            for file in web_payloads
+            if file.mount_path == "/var/www/html/index.html"
+        )
+        assert route.removeprefix("/var/www/html") in index_file.content
 
 
 def test_synthesizer_realizes_required_non_code_catalog(tmp_path: Path):

@@ -136,9 +136,9 @@ def code_web_simulated_output(
     params = {str(key): str(value) for key, value in (query or {}).items()}
     if weakness.kind == "sql_injection":
         needle = params.get("q", "").lower()
-        if "union select" in needle or "' or '1'='1" in needle:
+        if "union select" in needle or _looks_like_tautology_injection(needle):
             return f"{_foothold_token(world, weakness)}\n"
-        return None
+        return f"param=q\nsql=SELECT asset_id FROM assets WHERE asset_id = '{params.get('q', '')}'"
     if weakness.kind == "broken_authorization":
         if params.get("record") != "admin-console":
             return None
@@ -203,13 +203,17 @@ def code_web_guard_path(weakness: WeaknessSpec) -> str:
     return _guard_path(weakness)
 
 
+def _php_template(source: str) -> str:
+    return textwrap.dedent(source).lstrip()
+
+
 def _route_template(world: WorldIR, weakness: WeaknessSpec) -> str:
     foothold_path = _foothold_path(weakness)
     guard_path = _guard_path(weakness)
     effect_path = effect_marker_path(weakness)
     effect_content = _php_string_literal(effect_marker_content(weakness))
     if weakness.kind == "sql_injection":
-        return textwrap.dedent(
+        return _php_template(
             f"""\
             <?php
             if (file_exists('{guard_path}')) {{
@@ -219,17 +223,17 @@ def _route_template(world: WorldIR, weakness: WeaknessSpec) -> str:
             }}
             $q = $_GET['q'] ?? '';
             $sql = "SELECT asset_id FROM assets WHERE asset_id = '" . $q . "'";
-            if (stripos($q, 'union select') !== false || strpos($q, "' OR '1'='1") !== false) {{
+            header('Content-Type: text/plain');
+            if (stripos($q, 'union select') !== false || preg_match("/\\bor\\s+'?1'?\\s*=\\s*'?1'?\\b/i", $q)) {{
                 echo file_get_contents('{foothold_path}');
                 return;
             }}
-            header('Content-Type: text/plain');
-            echo "sql=" . $sql;
+            echo "param=q\nsql=" . $sql;
             ?>
             """
         )
     if weakness.kind == "broken_authorization":
-        return textwrap.dedent(
+        return _php_template(
             f"""\
             <?php
             if (file_exists('{guard_path}')) {{
@@ -248,7 +252,7 @@ def _route_template(world: WorldIR, weakness: WeaknessSpec) -> str:
             """
         )
     if weakness.kind == "auth_bypass":
-        return textwrap.dedent(
+        return _php_template(
             f"""\
             <?php
             if (file_exists('{guard_path}')) {{
@@ -271,7 +275,7 @@ def _route_template(world: WorldIR, weakness: WeaknessSpec) -> str:
             """
         )
     if weakness.kind == "path_traversal":
-        return textwrap.dedent(
+        return _php_template(
             f"""\
             <?php
             if (file_exists('{guard_path}')) {{
@@ -296,7 +300,7 @@ def _route_template(world: WorldIR, weakness: WeaknessSpec) -> str:
             """
         )
     if weakness.kind == "ssrf":
-        return textwrap.dedent(
+        return _php_template(
             f"""\
             <?php
             if (file_exists('{guard_path}')) {{
@@ -322,7 +326,7 @@ def _route_template(world: WorldIR, weakness: WeaknessSpec) -> str:
             ?>
             """
         )
-    return textwrap.dedent(
+    return _php_template(
         f"""\
         <?php
         if (file_exists('{guard_path}')) {{
@@ -356,6 +360,11 @@ def _preferred_asset(world: WorldIR) -> str:
 
 def _foothold_token(world: WorldIR, weakness: WeaknessSpec) -> str:
     return f"OPENRANGE-FOOTHOLD:{world.world_id}:{weakness.id}"
+
+
+def _looks_like_tautology_injection(text: str) -> bool:
+    compact = text.replace(" ", "")
+    return "or1=1" in compact or "'or'1'='1" in compact or "'or1=1" in compact
 
 
 def _foothold_path(weakness: WeaknessSpec) -> str:

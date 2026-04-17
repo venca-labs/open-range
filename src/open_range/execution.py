@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import shlex
+import textwrap
 from dataclasses import dataclass, field
 from typing import Any, Protocol
 from urllib.parse import urlencode
@@ -131,6 +132,9 @@ class PodActionBackend:
         if action.kind == "shell":
             service_command = str(action.payload.get("service_command", "")).strip()
             if service_command:
+                blocked = self._blocked_target_local_exec(action, service_command)
+                if blocked is not None:
+                    return blocked
                 return self._run_on_target_service(action, service_command)
             return self._run_in_runner(action, self._shell_command(action))
         if action.kind == "mail":
@@ -195,6 +199,26 @@ class PodActionBackend:
                 service_health=self.service_health(),
             )
         target = action_target(action)
+        origin = str(action.payload.get("origin", action.actor_id)).strip()
+        if action.role == "red" and origin in self._service_by_id:
+            if self._is_contained(origin):
+                return ActionExecution(
+                    stderr=f"origin {origin} is contained",
+                    ok=False,
+                    service_health=self.service_health(),
+                    executed_command=command,
+                    runner_service=origin,
+                    target_service=target,
+                )
+            if self._is_patched(origin):
+                return ActionExecution(
+                    stderr=f"origin {origin} is patched",
+                    ok=False,
+                    service_health=self.service_health(),
+                    executed_command=command,
+                    runner_service=origin,
+                    target_service=target,
+                )
         if target and target in self._service_by_id:
             if self._is_contained(target):
                 return ActionExecution(
@@ -252,6 +276,34 @@ class PodActionBackend:
             target_service=target,
         )
 
+    def _blocked_target_local_exec(
+        self, action: Action, command: str
+    ) -> ActionExecution | None:
+        target = action_target(action)
+        origin = str(action.payload.get("origin", action.actor_id)).strip()
+        if not target or target not in self._service_by_id:
+            return ActionExecution(
+                stderr="missing or unknown target service",
+                ok=False,
+                service_health=self.service_health(),
+                executed_command=command,
+                runner_service=origin,
+                target_service=target,
+            )
+        if action.role != "red" or origin == target:
+            return None
+        return ActionExecution(
+            stderr=(
+                "target-local shell execution requires a foothold on the target "
+                f"service; origin={origin or 'unknown'} target={target}"
+            ),
+            ok=False,
+            service_health=self.service_health(),
+            executed_command=command,
+            runner_service=origin,
+            target_service=target,
+        )
+
     def _runner_for(self, action: Action) -> str:
         if action.role == "red":
             origin = action.payload.get("origin")
@@ -281,9 +333,16 @@ class PodActionBackend:
         service = self._service_by_id.get(target)
         if service is None:
             return f"echo unknown target {target}; exit 1"
-        port = service.ports[0] if service.ports else 80
-        if service.kind == "web_app":
-            path = str(action.payload.get("path", "/") or "/")
+        requested_port = action.payload.get("port")
+        port = (
+            int(requested_port)
+            if requested_port is not None
+            else (service.ports[0] if service.ports else 80)
+        )
+        host = self._service_host(target)
+        path = str(action.payload.get("path", "") or "")
+        if service.kind == "web_app" or path:
+            path = path or "/"
             if not path.startswith("/"):
                 path = f"/{path}"
             query = action.payload.get("query", {})
@@ -293,10 +352,28 @@ class PodActionBackend:
                     [(str(key), str(value)) for key, value in query.items()],
                     doseq=True,
                 )
-            return f"wget -qO- http://{target}:{port}{path}{suffix} | head -c 2048"
+            headers_raw = action.payload.get("headers", {})
+            headers = (
+                {str(key): str(value) for key, value in headers_raw.items()}
+                if isinstance(headers_raw, dict)
+                else {}
+            )
+            user_agent = str(action.payload.get("user_agent", "")).strip()
+            if user_agent:
+                headers.setdefault("User-Agent", user_agent)
+            method = str(action.payload.get("method", "")).strip().upper() or None
+            body_raw = action.payload.get("body")
+            body = None if body_raw is None else str(body_raw)
+            return _http_request_command(
+                f"http://{host}:{port}{path}{suffix}",
+                max_bytes=2048,
+                method=method,
+                headers=headers,
+                body=body,
+            )
         if service.kind == "db":
-            return f"nc -z -w 3 {target} {port}"
-        return f"nc -z -w 3 {target} {port}"
+            return f"nc -z -w 3 {host} {port}"
+        return f"nc -z -w 3 {host} {port}"
 
     def _shell_command(self, action: Action) -> str:
         command = str(action.payload.get("command", "")).strip()
@@ -304,15 +381,25 @@ class PodActionBackend:
             return command
         target = action_target(action)
         if action.role == "blue" and target == "svc-siem":
-            return "wget -qO- http://svc-siem:9200/all.log | tail -n 20"
+            return (
+                _http_fetch_command(
+                    f"http://{self._service_host('svc-siem')}:9200/all.log",
+                    max_bytes=4096,
+                )
+                + " | tail -n 20"
+            )
         if target in self._service_by_id:
             service = self._service_by_id[target]
             port = service.ports[0] if service.ports else 80
+            host = self._service_host(target)
             if service.kind == "web_app":
-                return f"wget -qO- http://{target}:{port}/ | head -c 512"
+                return _http_fetch_command(f"http://{host}:{port}/", max_bytes=512)
             if service.kind == "siem":
-                return "wget -qO- http://svc-siem:9200/all.log | tail -n 20"
-            return f"nc -z -w 3 {target} {port}"
+                return (
+                    _http_fetch_command(f"http://{host}:9200/all.log", max_bytes=4096)
+                    + " | tail -n 20"
+                )
+            return f"nc -z -w 3 {host} {port}"
         return "true"
 
     def _mail_command(self, action: Action) -> str:
@@ -321,6 +408,7 @@ class PodActionBackend:
         if service is None:
             return f"echo unknown mail target {target}; exit 1"
         port = service.ports[0] if service.ports else 25
+        host = self._service_host(target)
         sender = str(action.payload.get("from", action.actor_id))
         recipient = str(action.payload.get("to", "noreply@corp.local"))
         subject = str(action.payload.get("subject", "routine update"))
@@ -334,9 +422,14 @@ class PodActionBackend:
             ".\n"
             "QUIT\n"
         )
-        return (
-            f"printf %s {shlex.quote(payload)} | nc -w 3 {shlex.quote(target)} {port}"
-        )
+        return f"printf %s {shlex.quote(payload)} | nc -w 3 {shlex.quote(host)} {port}"
+
+    def _service_host(self, service_id: str) -> str:
+        release = self._release
+        zone = self._service_zone_by_id.get(service_id, "")
+        if release is None or not zone:
+            return service_id
+        return f"{service_id}.{release.release_name}-{zone}.svc.cluster.local"
 
     def _is_contained(self, target: str) -> bool:
         release = self._require_release()
@@ -406,6 +499,63 @@ class PodActionBackend:
 def _green_sandbox_name(persona_id: str) -> str:
     safe = "".join(ch.lower() if ch.isalnum() else "-" for ch in persona_id).strip("-")
     return f"sandbox-green-{safe}"
+
+
+def _http_fetch_command(url: str, *, max_bytes: int) -> str:
+    quoted_url = shlex.quote(url)
+    python_fetch = textwrap.dedent(
+        f"""\
+        python3 -c "import sys, urllib.request; sys.stdout.buffer.write(urllib.request.urlopen(sys.argv[1], timeout=5).read({max_bytes}))" {quoted_url}
+        """
+    ).strip()
+    php_fetch = (
+        "php -r "
+        + shlex.quote(
+            f"$u=$argv[1]; $ctx=stream_context_create(['http'=>['timeout'=>5]]); $r=@file_get_contents($u, false, $ctx); if($r===false){{exit(1);}} echo substr($r,0,{max_bytes});"
+        )
+        + f" {quoted_url}"
+    )
+    return " || ".join(
+        [
+            f"curl --max-time 5 -fsSL {quoted_url} | head -c {max_bytes}",
+            f"wget -T 5 -qO- {quoted_url} | head -c {max_bytes}",
+            f"busybox wget -T 5 -qO- {quoted_url} | head -c {max_bytes}",
+            python_fetch,
+            php_fetch,
+        ]
+    )
+
+
+def _http_request_command(
+    url: str,
+    *,
+    max_bytes: int,
+    method: str | None = None,
+    headers: dict[str, str] | None = None,
+    body: str | None = None,
+) -> str:
+    method_upper = (method or "").strip().upper()
+    if not headers and body is None and method_upper in {"", "GET"}:
+        return _http_fetch_command(url, max_bytes=max_bytes)
+
+    command: list[str] = [
+        "curl",
+        "--max-time",
+        "5",
+        "--connect-timeout",
+        "5",
+        "-fsSL",
+    ]
+    if method_upper == "HEAD":
+        command.append("-I")
+    elif method_upper and method_upper != "GET":
+        command.extend(["-X", method_upper])
+    for name, value in sorted((headers or {}).items()):
+        command.extend(["-H", f"{name}: {value}"])
+    if body is not None:
+        command.extend(["--data-raw", body])
+    command.append(url)
+    return " ".join(shlex.quote(part) for part in command) + f" | head -c {max_bytes}"
 
 
 def _integrity_probe_command(path: str) -> str:

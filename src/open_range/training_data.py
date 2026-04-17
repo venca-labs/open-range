@@ -123,7 +123,22 @@ def render_action_text(action: Action) -> str:
             query_text = "?" + urlencode(
                 [(str(key), str(value)) for key, value in query.items()], doseq=True
             )
-        return f"curl -s http://{target}{path}{query_text}"
+        method = str(action.payload.get("method", "")).strip().upper()
+        headers = action.payload.get("headers", {})
+        header_flags = ""
+        if isinstance(headers, dict) and headers:
+            header_flags = "".join(
+                f" -H {json.dumps(f'{str(key)}: {str(value)}')}"
+                for key, value in sorted(headers.items())
+            )
+        user_agent = str(action.payload.get("user_agent", "")).strip()
+        ua_flag = f" -A {json.dumps(user_agent)}" if user_agent else ""
+        body_raw = action.payload.get("body")
+        body_flag = (
+            f" --data-raw {json.dumps(str(body_raw))}" if body_raw is not None else ""
+        )
+        method_flag = "" if method in {"", "GET"} else f" -X {method}"
+        return f"curl -s{method_flag}{ua_flag}{header_flags}{body_flag} http://{target}{path}{query_text}"
     if action.kind == "shell":
         command = str(action.payload.get("command", "")).strip()
         if command:

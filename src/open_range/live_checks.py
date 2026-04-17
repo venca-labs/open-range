@@ -26,11 +26,11 @@ def check_live_service_smoke(world: WorldIR, release) -> ValidatorCheckReport:
     failures: list[str] = []
     for service in world.services:
         runner = smoke_runner_for_service(world, service.id)
-        cmd = _smoke_probe_command(service)
+        cmd = _smoke_probe_command(world, service, release.release_name)
         last_error = "smoke failed"
         ok = False
-        attempts = 10 if service.kind == "db" else 3
-        retry_delay_s = 2.0 if service.kind == "db" else 1.0
+        attempts = 10 if service.kind in {"db", "email"} else 3
+        retry_delay_s = 2.0 if service.kind in {"db", "email"} else 1.0
         for attempt in range(attempts):
             result = run_async(release.pods.exec(runner, cmd, timeout=10.0))
             if result.ok:
@@ -183,10 +183,22 @@ def _first_green_sandbox_in_zones(world: WorldIR, zones: tuple[str, ...]) -> str
     return ""
 
 
-def _smoke_probe_command(service: ServiceSpec) -> str:
+def _service_live_host(world: WorldIR, service: ServiceSpec, release_name: str) -> str:
+    host_zone_by_id = {host.id: host.zone for host in world.hosts}
+    zone = host_zone_by_id.get(service.host, "")
+    namespace = f"{release_name}-{zone}" if zone else release_name
+    return f"{service.id}.{namespace}"
+
+
+def _smoke_probe_command(
+    world: WorldIR, service: ServiceSpec, release_name: str
+) -> str:
+    host = _service_live_host(world, service, release_name)
     port = service.ports[0] if service.ports else 80
     if service.id == "svc-web":
-        return f"wget -qO- http://{service.id}:{port}/ | grep -q OpenRange"
+        return f"wget -qO- http://{host}:{port}/ | grep -q OpenRange"
     if service.id == "svc-siem":
-        return "wget -qO- http://svc-siem:9200/all.log >/dev/null"
-    return f"nc -z -w 3 {service.id} {port}"
+        return f"wget -qO- http://{host}:9200/all.log >/dev/null"
+    if service.kind == "email":
+        return f"printf '%b' 'QUIT\\\\r\\\\n' | nc -w 3 {host} {port} >/dev/null"
+    return f"nc -z -w 3 {host} {port}"

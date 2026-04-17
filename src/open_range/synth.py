@@ -131,6 +131,18 @@ class EnterpriseSaaSWorldSynthesizer:
             ]
             payloads.extend(self._weakness_payloads(world, service_id))
             return payloads
+        if service_id == "svc-idp":
+            payloads = [
+                SynthFile(
+                    key=f"{asset.id}.txt",
+                    mount_path=_idp_asset_path(asset),
+                    content=_asset_content(asset),
+                )
+                for asset in world.assets
+                if asset.owner_service == service_id
+            ]
+            payloads.extend(self._weakness_payloads(world, service_id))
+            return payloads
         if service_id == "svc-siem":
             payloads = [
                 SynthFile(
@@ -184,6 +196,13 @@ def _web_index_html(world: WorldIR) -> str:
         )
         or "<li>No web-hosted assets</li>"
     )
+    route_links = (
+        "\n".join(
+            f'<li><a href="{route}">{route}</a></li>'
+            for route in _web_public_routes(world)
+        )
+        or "<li>No public routes listed</li>"
+    )
     return textwrap.dedent(
         f"""\
         <html>
@@ -191,6 +210,11 @@ def _web_index_html(world: WorldIR) -> str:
           <body>
             <h1>{world.business_archetype}</h1>
             <p>OpenRange seeded portal for {world.world_id}</p>
+            <h2>Application Routes</h2>
+            <ul>
+              {route_links}
+            </ul>
+            <h2>Hosted Assets</h2>
             <ul>
               {asset_links}
             </ul>
@@ -198,6 +222,19 @@ def _web_index_html(world: WorldIR) -> str:
         </html>
         """
     )
+
+
+def _web_public_routes(world: WorldIR) -> tuple[str, ...]:
+    routes = {
+        realization.path.removeprefix("/var/www/html")
+        for weakness in world.weaknesses
+        for realization in weakness.realization
+        if realization.service == "svc-web"
+        and realization.kind == "code"
+        and realization.path.startswith("/var/www/html/")
+        and realization.path != "/var/www/html/index.html"
+    }
+    return tuple(sorted(route for route in routes if route))
 
 
 def _db_init_sql(world: WorldIR) -> str:
@@ -236,6 +273,14 @@ def _db_init_sql(world: WorldIR) -> str:
 
 def _asset_content(asset: AssetSpec) -> str:
     return f"seeded-{asset.asset_class}-{asset.id}"
+
+
+def _idp_asset_path(asset: AssetSpec) -> str:
+    location = asset.location
+    prefix, sep, suffix = location.partition(":")
+    if prefix == "svc-idp" and sep and suffix.startswith("/"):
+        return suffix
+    return f"/var/lib/openrange/secrets/{asset.id}.txt"
 
 
 def _default_password(user_id: str) -> str:

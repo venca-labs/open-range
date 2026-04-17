@@ -3,11 +3,12 @@
 from __future__ import annotations
 
 import json
-import shutil
 import subprocess
+from contextlib import contextmanager
 from pathlib import Path
 from typing import Callable, Protocol
 from urllib.parse import urlencode
+from uuid import uuid4
 
 from open_range.admission import (
     ReferenceBundle,
@@ -19,7 +20,7 @@ from open_range.admission_plan import admission_stages, profile_requires_live
 from open_range.admission_scoring import report_summary
 from open_range.async_utils import run_async
 from open_range.build_config import DEFAULT_BUILD_CONFIG, BuildConfig
-from open_range.cluster import KindBackend, LiveBackend
+from open_range.cluster import KindBackend, LiveBackend, resolve_host_binary
 from open_range.counterfactuals import clear_runtime_markers, remediation_command
 from open_range.encryption_enforcement import check_encryption_enforcement
 from open_range.execution import PodActionBackend
@@ -75,7 +76,32 @@ class LocalAdmissionController:
         stages: list[ValidatorStageReport] = []
         continue_running = True
         health_info: dict[str, object] = {"render_dir": artifacts.render_dir}
-        live_backend = self.live_backend or self._auto_live_backend(build_config)
+        if _requires_cilium_for_live_validation(build_config):
+            stages.append(
+                ValidatorStageReport(
+                    name="kind_live",
+                    passed=False,
+                    checks=(
+                        ValidatorCheckReport(
+                            name="cilium_required",
+                            passed=False,
+                            details={
+                                "validation_profile": build_config.validation_profile,
+                                "cluster_backend": build_config.cluster_backend,
+                                "network_policy_backend": build_config.network_policy_backend,
+                            },
+                            error=(
+                                "live validation on kind/k3d requires "
+                                "network_policy_backend='cilium'"
+                            ),
+                        ),
+                    ),
+                )
+            )
+            continue_running = False
+        live_backend = None
+        if continue_running:
+            live_backend = self.live_backend or self._auto_live_backend(build_config)
         health_info["live_backend_mode"] = (
             "explicit"
             if self.live_backend is not None
@@ -192,80 +218,114 @@ class LocalAdmissionController:
         checks: list[ValidatorCheckReport] = []
         expected_services = {service.id for service in world.services}
         live_info: dict[str, object] = {}
-        try:
+        current_check = "kind_boot"
+        run_tag = uuid4().hex[:8]
+
+        @contextmanager
+        def booted_release(label: str):
             release = live_backend.boot(
-                snapshot_id=world.world_id,
+                snapshot_id=f"{world.world_id}-{run_tag}-{label}",
                 artifacts_dir=Path(artifacts.render_dir),
             )
-            discovered = set(release.pods.pod_ids)
-            checks.append(
-                ValidatorCheckReport(
-                    name="kind_boot",
-                    passed=expected_services <= discovered,
-                    details={
-                        "release_name": release.release_name,
-                        "expected_services": sorted(expected_services),
-                        "discovered_services": sorted(discovered),
-                    },
-                    error=""
-                    if expected_services <= discovered
-                    else "live release missing expected services",
-                )
-            )
+            try:
+                yield release
+            finally:
+                try:
+                    live_backend.teardown(release)
+                except Exception:
+                    pass
 
-            unhealthy = [
-                service_id
-                for service_id in sorted(expected_services & discovered)
-                if not run_async(release.pods.is_healthy(service_id))
-            ]
-            checks.append(
-                ValidatorCheckReport(
-                    name="kind_health",
-                    passed=not unhealthy,
-                    details={
-                        "release_name": release.release_name,
-                        "unhealthy_services": unhealthy,
-                    },
-                    error=""
-                    if not unhealthy
-                    else "one or more live services failed readiness",
+        try:
+            with booted_release("live") as release:
+                discovered = set(release.pods.pod_ids)
+                checks.append(
+                    ValidatorCheckReport(
+                        name="kind_boot",
+                        passed=expected_services <= discovered,
+                        details={
+                            "release_name": release.release_name,
+                            "expected_services": sorted(expected_services),
+                            "discovered_services": sorted(discovered),
+                        },
+                        error=""
+                        if expected_services <= discovered
+                        else "live release missing expected services",
+                    )
                 )
-            )
-            snapshot = _ephemeral_snapshot(world, artifacts, reference_bundle)
-            backend = PodActionBackend()
-            backend.bind(snapshot, release)
-            checks.append(check_live_service_smoke(world, release))
-            checks.append(check_live_db_mtls(world, release))
-            clear_runtime_markers(release, world)
-            checks.append(_live_red_reference_check(snapshot, release, backend))
-            checks.append(_live_siem_ingest_check(release))
-            clear_runtime_markers(release, world)
-            checks.append(_live_blue_reference_check(snapshot, backend))
-            clear_runtime_markers(release, world)
-            checks.append(_live_determinism_check(snapshot, backend))
-            clear_runtime_markers(release, world)
-            checks.append(_live_necessity_check(snapshot, release, backend))
-            clear_runtime_markers(release, world)
-            checks.append(_live_shortcut_probe_check(snapshot, release))
-            live_info = {
-                "live_release": release.release_name,
-                "live_service_count": len(discovered),
-            }
+                current_check = "kind_health"
+                unhealthy = [
+                    service_id
+                    for service_id in sorted(expected_services & discovered)
+                    if not run_async(release.pods.is_healthy(service_id))
+                ]
+                checks.append(
+                    ValidatorCheckReport(
+                        name="kind_health",
+                        passed=not unhealthy,
+                        details={
+                            "release_name": release.release_name,
+                            "unhealthy_services": unhealthy,
+                        },
+                        error=""
+                        if not unhealthy
+                        else "one or more live services failed readiness",
+                    )
+                )
+                snapshot = _ephemeral_snapshot(world, artifacts, reference_bundle)
+                backend = PodActionBackend()
+                backend.bind(snapshot, release)
+                current_check = "live_service_smoke"
+                checks.append(check_live_service_smoke(world, release))
+                current_check = "live_db_mtls"
+                checks.append(check_live_db_mtls(world, release))
+                clear_runtime_markers(release, world)
+                current_check = "live_red_reference"
+                checks.append(_live_red_reference_check(snapshot, release, backend))
+                current_check = "live_siem_ingest"
+                checks.append(_live_siem_ingest_check(release))
+                live_info = {
+                    "live_release": release.release_name,
+                    "live_service_count": len(discovered),
+                }
+
+            with booted_release("blue") as release:
+                snapshot = _ephemeral_snapshot(world, artifacts, reference_bundle)
+                backend = PodActionBackend()
+                backend.bind(snapshot, release)
+                clear_runtime_markers(release, world)
+                current_check = "live_blue_reference"
+                checks.append(_live_blue_reference_check(snapshot, backend))
+
+            with booted_release("determinism") as release:
+                snapshot = _ephemeral_snapshot(world, artifacts, reference_bundle)
+                backend = PodActionBackend()
+                backend.bind(snapshot, release)
+                clear_runtime_markers(release, world)
+                current_check = "live_determinism"
+                checks.append(_live_determinism_check(snapshot, backend))
+
+            with booted_release("necessity") as release:
+                snapshot = _ephemeral_snapshot(world, artifacts, reference_bundle)
+                backend = PodActionBackend()
+                backend.bind(snapshot, release)
+                clear_runtime_markers(release, world)
+                current_check = "live_necessity"
+                checks.append(_live_necessity_check(snapshot, release, backend))
+
+            with booted_release("shortcuts") as release:
+                snapshot = _ephemeral_snapshot(world, artifacts, reference_bundle)
+                clear_runtime_markers(release, world)
+                current_check = "live_shortcut_probes"
+                checks.append(_live_shortcut_probe_check(snapshot, release))
         except Exception as exc:  # noqa: BLE001
             checks.append(
                 ValidatorCheckReport(
-                    name="kind_boot",
+                    name=current_check,
                     passed=False,
                     details={"artifacts_dir": artifacts.render_dir},
                     error=str(exc),
                 )
             )
-        finally:
-            if "release" in locals():
-                try:
-                    live_backend.teardown(release)
-                except Exception:
-                    pass
 
         stage = ValidatorStageReport(
             name="kind_live",
@@ -279,13 +339,16 @@ class LocalAdmissionController:
             return None
         if not profile_requires_live(build_config):
             return None
-        if not shutil.which("helm"):
+        helm_bin = resolve_host_binary("helm")
+        if helm_bin is None:
             return None
         if build_config.cluster_backend == "k3d":
-            if not (shutil.which("k3d") and shutil.which("docker")):
+            k3d_bin = resolve_host_binary("k3d")
+            docker_bin = resolve_host_binary("docker")
+            if not (k3d_bin and docker_bin):
                 return None
             clusters = subprocess.run(
-                ["k3d", "cluster", "list", "-o", "json"],
+                [k3d_bin, "cluster", "list", "-o", "json"],
                 capture_output=True,
                 text=True,
                 check=False,
@@ -297,10 +360,12 @@ class LocalAdmissionController:
                 k3d_agents=build_config.k3d_agents,
                 k3d_subnet=build_config.k3d_subnet,
             )
-        if not (shutil.which("kind") and shutil.which("docker")):
+        kind_bin = resolve_host_binary("kind")
+        docker_bin = resolve_host_binary("docker")
+        if not (kind_bin and docker_bin):
             return None
         clusters = subprocess.run(
-            ["kind", "get", "clusters"],
+            [kind_bin, "get", "clusters"],
             capture_output=True,
             text=True,
             check=False,
@@ -312,6 +377,14 @@ class LocalAdmissionController:
         }:
             return None
         return KindBackend()
+
+
+def _requires_cilium_for_live_validation(build_config: BuildConfig) -> bool:
+    return (
+        profile_requires_live(build_config)
+        and build_config.cluster_backend in {"kind", "k3d"}
+        and build_config.network_policy_backend != "cilium"
+    )
 
 
 def _check_manifest_compliance(
