@@ -80,7 +80,6 @@ class RuntimeEvent(_StrictModel):
     target_entity: str
     malicious: bool
     observability_surfaces: tuple[str, ...] = Field(default_factory=tuple)
-    linked_objective_predicates: tuple[str, ...] = Field(default_factory=tuple)
     suspicious: bool = False
     suspicious_reasons: tuple[str, ...] = Field(default_factory=tuple)
 

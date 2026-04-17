@@ -15,7 +15,7 @@ from open_range.admission.models import (
 from open_range.admission.reference_checks import run_live_reference_checks
 from open_range.admission.references import ephemeral_runtime_snapshot
 from open_range.catalog.probes import SHORTCUT_WEB_ROUTE_PROBE_SPECS
-from open_range.contracts.snapshot import KindArtifacts, RuntimeSnapshot
+from open_range.contracts.snapshot import KindArtifacts, RuntimeSnapshot, world_hash
 from open_range.contracts.world import ServiceSpec, WorldIR
 from open_range.support.async_utils import run_async
 
@@ -33,7 +33,7 @@ def run_live_backend_checks(
     live_info: dict[str, object] = {}
     try:
         release = live_backend.boot(
-            snapshot_id=world.world_id,
+            snapshot_id=f"{world.world_id}-{world_hash(world)[:8]}",
             artifacts_dir=Path(artifacts.render_dir),
         )
         discovered = set(release.pods.pod_ids)

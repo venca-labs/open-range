@@ -5,6 +5,8 @@ from __future__ import annotations
 import shlex
 from collections.abc import Mapping
 
+from open_range.objectives.resolution import objective_event_for_predicate
+
 
 def db_query_command(snapshot: object, query: str) -> str:
     if snapshot_mtls_enabled(snapshot):
@@ -70,3 +72,24 @@ def event_linked_predicates(event: object) -> tuple[str, ...]:
     if isinstance(value, list):
         return tuple(str(item) for item in value)
     return ()
+
+
+def event_matches_objective(
+    event: object,
+    predicate: str,
+    *,
+    service_id: str = "",
+    target_id: str = "",
+) -> bool:
+    if predicate in event_linked_predicates(event):
+        return True
+    expected_type, expected_target = objective_event_for_predicate(
+        predicate,
+        target_id=target_id or service_id,
+        default_service=service_id,
+    )
+    if expected_type and event_type(event) != expected_type:
+        return False
+    if expected_target and event_target(event) != expected_target:
+        return False
+    return bool(expected_type)

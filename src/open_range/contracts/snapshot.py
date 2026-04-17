@@ -27,9 +27,7 @@ class Snapshot(_StrictModel):
     validator_report_path: str
     artifacts: KindArtifacts
     db_seed_state: dict[str, Any] = Field(default_factory=dict)
-    mail_state: dict[str, Any] = Field(default_factory=dict)
     file_assets: dict[str, str] = Field(default_factory=dict)
-    identity_seed: dict[str, Any] = Field(default_factory=dict)
     validator_report: ValidatorReport
     world_hash: str
     parent_snapshot_id: str | None = None

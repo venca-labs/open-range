@@ -6,6 +6,8 @@ from dataclasses import dataclass, field
 from typing import Any
 
 from open_range.contracts.runtime import Action
+from open_range.objectives.expr import predicate_inner
+from open_range.objectives.resolution import objective_event_for_predicate
 
 _RED_MILESTONES = frozenset(
     {
@@ -43,8 +45,15 @@ class RewardEngine:
         reward = self.red_tick_cost if shaping_enabled else 0.0
         claim = str(action.payload.get("claim_objective", ""))
         if claim and hallucination_penalty_enabled:
+            event_type, target = objective_event_for_predicate(
+                claim,
+                target_id=predicate_inner(claim),
+                default_service=str(action.payload.get("target", "")),
+            )
             objective_hit = any(
-                claim in event.linked_objective_predicates for event in emitted
+                getattr(event, "event_type", "") == event_type
+                and (not target or getattr(event, "target_entity", "") == target)
+                for event in emitted
             )
             if not objective_hit:
                 reward -= 0.3

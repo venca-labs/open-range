@@ -103,7 +103,6 @@ def render_realization_content(
     payload = {
         "world_id": world.world_id,
         "target": weakness.target,
-        "target_ref": weakness.target_ref,
         "mfa_required": False,
         "privileged_scope_validation": False,
     }

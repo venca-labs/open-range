@@ -64,7 +64,12 @@ class ReferenceSimPlane:
         blue_steps = defense_trace.steps
 
         while not runtime.state().done:
-            decision = runtime.next_decision()
+            try:
+                decision = runtime.next_decision()
+            except RuntimeError:
+                if runtime.state().done:
+                    break
+                raise
             if decision.actor == "red":
                 step = red_steps[min(red_idx, len(red_steps) - 1)]
                 red_idx += 1

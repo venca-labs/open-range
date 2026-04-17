@@ -73,7 +73,11 @@ def compile_service_topology(
                 )
             )
 
-        if layout.kind != "siem" and (not allowed_surfaces or telemetry):
+        if (
+            layout.kind != "siem"
+            and "svc-siem" in service_ids
+            and (not allowed_surfaces or telemetry)
+        ):
             edges.append(
                 EdgeSpec(
                     id=f"telemetry-{layout.service_id}-to-siem",

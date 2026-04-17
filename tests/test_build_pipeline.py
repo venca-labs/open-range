@@ -12,7 +12,7 @@ def _manifest_payload() -> dict:
 
 
 def test_pipeline_builds_and_admits_snapshot(tmp_path: Path):
-    pipeline = BuildPipeline()
+    pipeline = BuildPipeline(store=FileSnapshotStore(tmp_path / "snapshots"))
     candidate = pipeline.build(
         _manifest_payload(), tmp_path / "rendered", OFFLINE_BUILD_CONFIG
     )
@@ -35,7 +35,6 @@ def test_pipeline_builds_and_admits_snapshot(tmp_path: Path):
     assert "world" not in snapshot.model_dump()
     assert "world_path" not in snapshot.model_dump()
     assert "reference_bundle_path" not in snapshot.model_dump()
-    assert "mailboxes" in snapshot.identity_seed
 
 
 def test_pipeline_snapshot_remains_loadable_after_build_dir_is_deleted(tmp_path: Path):
@@ -63,3 +62,15 @@ def test_pipeline_uses_distinct_snapshot_ids_per_split(tmp_path: Path):
     assert train_snapshot.snapshot_id != eval_snapshot.snapshot_id
     assert "train" in train_snapshot.snapshot_id
     assert "eval" in eval_snapshot.snapshot_id
+
+
+def test_pipeline_reuses_existing_snapshot_for_same_world_and_split(tmp_path: Path):
+    pipeline = BuildPipeline(store=FileSnapshotStore(tmp_path / "snapshots"))
+    candidate = pipeline.build(
+        _manifest_payload(), tmp_path / "rendered", OFFLINE_BUILD_CONFIG
+    )
+
+    first = pipeline.admit(candidate, split="train")
+    second = pipeline.admit(candidate, split="train")
+
+    assert second.snapshot_id == first.snapshot_id

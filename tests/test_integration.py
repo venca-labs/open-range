@@ -6,6 +6,7 @@ from types import SimpleNamespace
 from open_range.admission.controller import LocalAdmissionController
 from open_range.config import BuildConfig, EpisodeConfig
 from open_range.contracts.runtime import Action
+from open_range.contracts.snapshot import world_hash
 from open_range.render.live import ExecResult
 from open_range.sdk import OpenRange
 from open_range.store import (
@@ -192,7 +193,11 @@ def test_live_backend_integration_carries_logs_from_runtime_events(tmp_path: Pat
     class FakeBackend:
         def boot(self, *, snapshot_id: str, artifacts_dir: Path):
             boots.append(snapshot_id)
-            if built_world is not None and built_world.world_id == snapshot_id:
+            if (
+                built_world is not None
+                and f"{built_world.world_id}-{world_hash(built_world)[:8]}"
+                == snapshot_id
+            ):
                 world = built_world
             else:
                 world = load_world_ir(store, snapshot_id)

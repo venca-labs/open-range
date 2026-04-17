@@ -19,6 +19,7 @@ from open_range.admission.reference_checks import (
     check_determinism,
     check_red_reference,
     reference_trace_bindings,
+    run_red_reference,
 )
 from open_range.admission.references import (
     build_reference_bundle,
@@ -29,7 +30,6 @@ from open_range.config import BuildConfig
 from open_range.contracts.snapshot import KindArtifacts, world_hash
 from open_range.contracts.world import WorldIR
 from open_range.objectives.engine import PredicateEngine
-from open_range.runtime.replay import run_red_reference
 from open_range.weaknesses import remediation_command_for_weakness
 
 CheckFunc = Callable[

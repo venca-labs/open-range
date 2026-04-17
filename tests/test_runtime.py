@@ -305,6 +305,39 @@ def test_blue_only_live_can_win_by_detect_and_contain(tmp_path: Path):
     assert runtime.score().winner == "blue"
 
 
+def test_duplicate_blue_finding_is_a_no_op(tmp_path: Path):
+    snapshot = _snapshot(tmp_path)
+    runtime = OpenRangeRuntime()
+    runtime.reset(
+        snapshot,
+        EpisodeConfig(mode="blue_only_live", green_enabled=False),
+    )
+
+    assert runtime.next_decision().actor == "blue"
+    detect_step = next(
+        step
+        for step in snapshot.reference_bundle.reference_defense_traces[0].steps
+        if step.kind == "submit_finding"
+    )
+    action = Action(
+        actor_id="blue",
+        role="blue",
+        kind=detect_step.kind,
+        payload={
+            "event_type": str(detect_step.payload["event"]),
+            "target": detect_step.target,
+        },
+    )
+
+    first = runtime.act("blue", action)
+    assert runtime.next_decision().actor == "blue"
+    second = runtime.act("blue", action)
+
+    assert "validated finding" in first.stdout
+    assert second.stdout == "finding already recorded"
+    assert second.emitted_events == ()
+
+
 def test_runtime_flags_mock_git_clone_in_episode_audit(tmp_path: Path):
     snapshot = _snapshot(tmp_path)
     runtime = OpenRangeRuntime()

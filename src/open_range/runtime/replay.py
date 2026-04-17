@@ -6,7 +6,6 @@ from dataclasses import dataclass
 from typing import Any
 
 from open_range.catalog.probes import runtime_payload_for_reference_action
-from open_range.config import EpisodeConfig
 from open_range.contracts.runtime import (
     Action,
     RuntimeEvent,
@@ -17,7 +16,6 @@ from open_range.contracts.runtime import (
     finding_event_type_from_payload,
 )
 from open_range.contracts.snapshot import RuntimeSnapshot
-from open_range.runtime.execution import PodActionBackend
 from open_range.support.trace_actions import normalize_trace_action
 
 
@@ -106,42 +104,6 @@ def runtime_action(actor: str, step: Any) -> Action:
         kind=getattr(step, "kind", ""),
         payload=payload,
     )
-
-
-def run_red_reference(
-    snapshot: RuntimeSnapshot,
-    backend: PodActionBackend | None = None,
-    trace_index: int = 0,
-):
-    from open_range.runtime.core import OpenRangeRuntime
-
-    trace = snapshot.reference_bundle.reference_attack_traces[trace_index]
-    runtime = OpenRangeRuntime(action_backend=backend)
-    runtime.reset(
-        snapshot,
-        EpisodeConfig(
-            mode="red_only",
-            opponent_blue="none",
-            episode_horizon_minutes=max(5, len(trace.steps) + 2),
-        ),
-        reference_attack_index=trace_index,
-    )
-    outputs: list[str] = []
-    for step in trace.steps:
-        try:
-            decision = runtime.next_decision()
-        except RuntimeError:
-            if runtime.state().done:
-                break
-            raise
-        if decision.actor != "red":
-            break
-        result = runtime.act("red", runtime_action("red", step))
-        outputs.append(result.stdout or result.stderr)
-    score = runtime.score()
-    events = tuple(event.model_dump(mode="json") for event in runtime.export_events())
-    health = tuple(sorted(runtime.state().service_health.items()))
-    return score, events, health, outputs
 
 
 def matches_reference_step(action: Action, expected: Any, live_stdout: str) -> bool:

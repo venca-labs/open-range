@@ -269,7 +269,7 @@ def test_admission_controller_offline_witness_can_ground_pinned_non_code_weaknes
     assert report.admitted is True
 
 
-def test_mutated_world_blue_reference_skips_blindspot_only_detection_targets(
+def test_mutated_world_blue_reference_does_not_claim_initial_access_from_later_event(
     tmp_path: Path,
 ) -> None:
     base_world = _build_seeded_world()
@@ -297,14 +297,14 @@ def test_mutated_world_blue_reference_skips_blindspot_only_detection_targets(
         mutation, artifacts, OFFLINE_REFERENCE_BUILD_CONFIG
     )
 
-    assert report.admitted is True
+    assert report.admitted is False
     defense_trace = reference_bundle.reference_defense_traces[0]
     finding_step = next(
         step for step in defense_trace.steps if step.kind == "submit_finding"
     )
     assert finding_step.target != "svc-email"
     assert report.reference_attack_ok is True
-    assert report.necessity_ok is True
+    assert report.reference_defense_ok is False
 
 
 def test_admission_controller_can_run_optional_live_backend(tmp_path: Path):
@@ -753,7 +753,6 @@ def test_snapshot_store_persists_v1_snapshot(tmp_path: Path):
     assert loaded.validator_report.admitted is True
     assert loaded.reference_bundle.reference_attack_traces
     assert Path(loaded.validator_report_path).exists()
-    assert "mailboxes" in loaded.identity_seed
     assert all(
         not check.details
         for stage in loaded.validator_report.stages

@@ -16,12 +16,11 @@ from open_range.contracts.runtime import (
     control_directive,
 )
 from open_range.contracts.snapshot import RuntimeSnapshot
-from open_range.contracts.world import ServiceSpec, WeaknessSpec, WorldIR
+from open_range.contracts.world import ServiceSpec, WeaknessSpec
 from open_range.objectives.effects import effect_marker_cleanup_command
 from open_range.render.live import BootedRelease
 from open_range.runtime.audit import command_text_for_action
 from open_range.support.async_utils import run_async
-from open_range.weaknesses import cleanup_steps_for_weakness
 from open_range.weaknesses.code_web import (
     code_web_cleanup_commands,
     code_web_guard_path,
@@ -61,15 +60,6 @@ class PathPredicateEngine(Protocol):
 
 class ActiveWeaknessSource(Protocol):
     def active_weaknesses(self) -> tuple[WeaknessSpec, ...]: ...
-
-
-def clear_runtime_markers(release: BootedRelease, world: WorldIR) -> None:
-    runtime_markers = "rm -f /tmp/openrange-contained /tmp/openrange-patched /srv/http/siem/egress-canary.log"
-    for service in world.services:
-        run_async(release.pods.exec(service.id, runtime_markers, timeout=5.0))
-    for weakness in world.weaknesses:
-        for target, command in cleanup_steps_for_weakness(weakness):
-            run_async(release.pods.exec(target, command, timeout=5.0))
 
 
 def prepare_red_execution(
@@ -273,9 +263,6 @@ class PodActionBackend:
                 "malicious": getattr(event, "malicious", False),
                 "observability_surfaces": list(
                     getattr(event, "observability_surfaces", ())
-                ),
-                "linked_objective_predicates": list(
-                    getattr(event, "linked_objective_predicates", ())
                 ),
                 "suspicious": getattr(event, "suspicious", False),
                 "suspicious_reasons": list(getattr(event, "suspicious_reasons", ())),

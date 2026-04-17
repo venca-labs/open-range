@@ -566,14 +566,6 @@ class OpenRangeRuntime:
                 matched_event=matched,
                 detected_event_ids=self._detected_event_ids,
                 blue_detected=self._blue_detected,
-                initial_access_seen=any(
-                    event.event_type == "InitialAccess" and event.malicious
-                    for event in self._event_log.visible_events(
-                        "blue",
-                        observed_event_ids=frozenset(),
-                        sim_time=self._state.sim_time,
-                    )
-                ),
             )
             self._blue_detected = transition.blue_detected
             self._blue_detected_initial_access = (
@@ -691,7 +683,6 @@ class OpenRangeRuntime:
         target_entity: str,
         malicious: bool,
         observability_surfaces: tuple[str, ...],
-        linked_objective_predicates: tuple[str, ...] = (),
         suspicious: bool = False,
         suspicious_reasons: tuple[str, ...] = (),
         green_reactive: bool = True,
@@ -707,7 +698,6 @@ class OpenRangeRuntime:
             target_entity=target_entity,
             malicious=malicious,
             observability_surfaces=observability_surfaces,
-            linked_objective_predicates=linked_objective_predicates,
             suspicious=suspicious,
             suspicious_reasons=suspicious_reasons,
             telemetry_delay=_telemetry_delay(self._episode_config),

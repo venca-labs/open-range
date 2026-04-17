@@ -43,7 +43,6 @@ class RedActionReduction:
 class BlueActionEventSpec:
     event_type: str
     target_entity: str
-    linked_objective_predicates: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True, slots=True)
@@ -173,7 +172,6 @@ def reduce_blue_control(
         event_spec = BlueActionEventSpec(
             event_type="ContainmentApplied",
             target_entity=target,
-            linked_objective_predicates=linked_objectives,
         )
     elif target and live.patch_applied:
         next_patched.add(target)
@@ -181,7 +179,6 @@ def reduce_blue_control(
         event_spec = BlueActionEventSpec(
             event_type="PatchApplied",
             target_entity=target,
-            linked_objective_predicates=linked_objectives,
         )
     elif target and live.recovery_applied:
         next_contained.discard(target)
@@ -235,7 +232,6 @@ def reduce_blue_finding(
     matched_event: RuntimeEvent | None,
     detected_event_ids: set[str] | frozenset[str],
     blue_detected: bool,
-    initial_access_seen: bool = False,
 ) -> BlueFindingTransition:
     next_detected_event_ids = set(detected_event_ids)
     if matched_event is None:
@@ -245,10 +241,15 @@ def reduce_blue_finding(
             blue_detected=blue_detected,
             initial_access_detected=False,
         )
+    if matched_event.id in next_detected_event_ids:
+        return BlueFindingTransition(
+            stdout="finding already recorded",
+            detected_event_ids=next_detected_event_ids,
+            blue_detected=blue_detected,
+            initial_access_detected=False,
+        )
     next_detected_event_ids.add(matched_event.id)
-    initial_access_detected = matched_event.event_type == "InitialAccess" or (
-        matched_event.malicious and not initial_access_seen
-    )
+    initial_access_detected = matched_event.event_type == "InitialAccess"
     return BlueFindingTransition(
         stdout=f"validated finding for {matched_event.event_type}",
         detected_event_ids=next_detected_event_ids,
@@ -260,9 +261,6 @@ def reduce_blue_finding(
         event_spec=BlueActionEventSpec(
             event_type="DetectionAlertRaised",
             target_entity=matched_event.target_entity,
-            linked_objective_predicates=(
-                (BLUE_DETECTION_OBJECTIVE,) if initial_access_detected else ()
-            ),
         ),
     )
 
@@ -281,7 +279,6 @@ def emit_blue_action_event(
         target_entity=event_spec.target_entity,
         malicious=False,
         observability_surfaces=("svc-siem",),
-        linked_objective_predicates=event_spec.linked_objective_predicates,
     )
 
 

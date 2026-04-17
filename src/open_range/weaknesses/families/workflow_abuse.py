@@ -286,7 +286,6 @@ def render_realization_content(
 
     payload = {
         "world_id": world.world_id,
-        "target_ref": weakness.target_ref,
         "approval_guard": "disabled",
     }
     if weakness.kind == "helpdesk_reset_bypass":

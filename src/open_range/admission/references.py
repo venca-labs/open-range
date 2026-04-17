@@ -254,13 +254,7 @@ def ephemeral_runtime_snapshot(
     db_seed_state = {
         "services": [service.id for service in world.services if service.kind == "db"]
     }
-    mail_state = {
-        "mailboxes": [
-            persona.mailbox for persona in world.green_personas if persona.mailbox
-        ]
-    }
     file_assets = {asset.id: asset.location for asset in world.assets}
-    identity_seed = {"users": [user.id for user in world.users]}
     report = ValidatorReport(
         admitted=True,
         graph_ok=True,
@@ -293,9 +287,7 @@ def ephemeral_runtime_snapshot(
         world=world,
         artifacts=artifacts,
         db_seed_state=db_seed_state,
-        mail_state=mail_state,
         file_assets=file_assets,
-        identity_seed=identity_seed,
         validator_report=report,
         reference_bundle=reference_bundle,
         world_hash=world_digest,

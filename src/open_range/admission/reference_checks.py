@@ -8,13 +8,93 @@ from open_range.admission.models import ValidatorCheckReport
 from open_range.config import EpisodeConfig
 from open_range.contracts.snapshot import RuntimeSnapshot
 from open_range.objectives.engine import PredicateEngine
-from open_range.runtime.execution import PodActionBackend, clear_runtime_markers
-from open_range.runtime.replay import action_for_reference_step, run_red_reference
+from open_range.objectives.live import evaluate_objective_grader_live
+from open_range.runtime.core import OpenRangeRuntime
+from open_range.runtime.execution import PodActionBackend
+from open_range.runtime.replay import action_for_reference_step
 from open_range.support.async_utils import run_async
-from open_range.weaknesses import remediation_command_for_weakness
+from open_range.weaknesses import (
+    cleanup_steps_for_weakness,
+    remediation_command_for_weakness,
+)
 
 if TYPE_CHECKING:
     from open_range.render.live import BootedRelease
+
+
+def run_red_reference(
+    snapshot: RuntimeSnapshot,
+    backend: PodActionBackend | None = None,
+    trace_index: int = 0,
+):
+    trace = snapshot.reference_bundle.reference_attack_traces[trace_index]
+    runtime = OpenRangeRuntime(action_backend=backend)
+    runtime.reset(
+        snapshot,
+        EpisodeConfig(
+            mode="red_only",
+            opponent_blue="none",
+            episode_horizon_minutes=max(5, len(trace.steps) + 2),
+        ),
+        reference_attack_index=trace_index,
+    )
+    outputs: list[str] = []
+    for step in trace.steps:
+        try:
+            decision = runtime.next_decision()
+        except RuntimeError:
+            if runtime.state().done:
+                break
+            raise
+        if decision.actor != "red":
+            break
+        result = runtime.act("red", action_for_reference_step(snapshot, "red", step))
+        outputs.append(result.stdout or result.stderr)
+    score = runtime.score()
+    events = tuple(event.model_dump(mode="json") for event in runtime.export_events())
+    health = tuple(sorted(runtime.state().service_health.items()))
+    return score, events, health, outputs
+
+
+def _clear_live_reference_markers(
+    release: BootedRelease, snapshot: RuntimeSnapshot
+) -> None:
+    runtime_markers = (
+        "rm -f /tmp/openrange-contained /tmp/openrange-patched "
+        "/srv/http/siem/egress-canary.log"
+    )
+    for service in snapshot.world.services:
+        run_async(release.pods.exec(service.id, runtime_markers, timeout=5.0))
+    for weakness in snapshot.world.weaknesses:
+        for target, command in cleanup_steps_for_weakness(weakness):
+            run_async(release.pods.exec(target, command, timeout=5.0))
+
+
+def _evaluate_live_red_objectives(
+    snapshot: RuntimeSnapshot,
+    *,
+    pods: object,
+    events: tuple[object, ...],
+    service_health: dict[str, float],
+    outputs: tuple[str, ...],
+) -> set[str]:
+    predicates = PredicateEngine(snapshot.world)
+    satisfied: set[str] = set()
+    for objective in snapshot.world.red_objectives:
+        grader = predicates.objective_grader(objective.predicate)
+        if grader is None:
+            continue
+        if evaluate_objective_grader_live(
+            objective.predicate,
+            grader,
+            snapshot=snapshot,
+            pods=pods,
+            events=events,
+            service_health=service_health,
+            outputs=outputs,
+        ):
+            satisfied.add(objective.predicate)
+    return satisfied
 
 
 def reference_trace_bindings(
@@ -66,7 +146,7 @@ def check_red_reference(
                 snapshot=snapshot, events=events, service_health=dict(health)
             )
             if release is None
-            else predicates.evaluate_red_objectives_live(
+            else _evaluate_live_red_objectives(
                 snapshot=snapshot,
                 pods=release.pods,
                 events=events,
@@ -116,8 +196,6 @@ def check_blue_reference(
     for trace_index, trace in enumerate(
         snapshot.reference_bundle.reference_defense_traces
     ):
-        from open_range.runtime.core import OpenRangeRuntime
-
         runtime = OpenRangeRuntime(action_backend=backend)
         runtime.reset(
             snapshot,
@@ -227,7 +305,7 @@ def run_live_reference_checks(
 ) -> tuple[ValidatorCheckReport, ...]:
     backend = PodActionBackend()
     backend.bind(snapshot, release)
-    clear_runtime_markers(release, snapshot.world)
+    _clear_live_reference_markers(release, snapshot)
     checks = [
         check_red_reference(
             snapshot,
@@ -238,7 +316,7 @@ def run_live_reference_checks(
         ),
         _live_siem_ingest_check(release),
     ]
-    clear_runtime_markers(release, snapshot.world)
+    _clear_live_reference_markers(release, snapshot)
     checks.append(
         check_blue_reference(
             snapshot,
@@ -260,7 +338,7 @@ def run_live_reference_checks(
     if validation_profile == "full":
         extra_checks.append(_live_necessity_check)
     for check in extra_checks:
-        clear_runtime_markers(release, snapshot.world)
+        _clear_live_reference_markers(release, snapshot)
         checks.append(check(snapshot, release, backend))
     return tuple(checks)
 

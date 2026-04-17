@@ -5,6 +5,7 @@ from __future__ import annotations
 import shutil
 import subprocess
 
+from open_range.admission.checks import BUILTIN_ADMISSION_CHECKS
 from open_range.admission.live import run_live_backend_checks
 from open_range.admission.models import (
     ReferenceBundle,
@@ -14,13 +15,14 @@ from open_range.admission.models import (
 )
 from open_range.admission.plan import admission_stages, profile_requires_live
 from open_range.admission.references import build_reference_bundle
-from open_range.admission.registry import get_admission_check
 from open_range.admission.scoring import report_summary
 from open_range.config import DEFAULT_BUILD_CONFIG, BuildConfig
 from open_range.contracts.snapshot import KindArtifacts, world_hash
 from open_range.contracts.world import WorldIR
 from open_range.render.live import KindBackend, LiveBackend
 from open_range.render.live_k3d import K3dBackend
+
+_CHECKS_BY_NAME = {spec.name: spec.fn for spec in BUILTIN_ADMISSION_CHECKS}
 
 
 class LocalAdmissionController:
@@ -63,7 +65,7 @@ class LocalAdmissionController:
                     break
                 if reference_bundle is None and stage.requires_references:
                     reference_bundle = build_reference_bundle(world, build_config)
-                result = get_admission_check(check_name)(
+                result = _CHECKS_BY_NAME[check_name](
                     world,
                     artifacts,
                     reference_bundle,

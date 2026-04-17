@@ -10,7 +10,6 @@ from open_range.contracts.world import AssetSpec, ServiceSpec, WeaknessSpec, Wor
 
 from .evaluation import evaluate_red_objectives
 from .expr import predicate_inner
-from .live import evaluate_objective_grader_live
 from .models import ObjectiveGraderSpec
 from .resolution import resolve_objective
 
@@ -182,32 +181,6 @@ class PredicateEngine:
             events=events,
             service_health=service_health,
         )
-
-    def evaluate_red_objectives_live(
-        self,
-        *,
-        snapshot: object,
-        pods: object,
-        events: tuple[object, ...],
-        service_health: Mapping[str, float],
-        outputs: tuple[str, ...],
-    ) -> set[str]:
-        satisfied: set[str] = set()
-        for objective in self.world.red_objectives:
-            grader = self.objective_grader(objective.predicate)
-            if grader is None:
-                continue
-            if evaluate_objective_grader_live(
-                objective.predicate,
-                grader,
-                snapshot=snapshot,
-                pods=pods,
-                events=events,
-                service_health=service_health,
-                outputs=outputs,
-            ):
-                satisfied.add(objective.predicate)
-        return satisfied
 
     def red_terminal_satisfied(self, satisfied_predicates: set[str]) -> bool:
         required = {

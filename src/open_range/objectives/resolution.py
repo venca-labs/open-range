@@ -133,13 +133,23 @@ def _resolved_target_service(
     resolved_target: str,
     ctx: _ObjectiveContext,
 ) -> str:
+    def existing_or_fallback(*candidates: str) -> str:
+        for candidate in candidates:
+            if candidate and (not ctx.service_ids or candidate in ctx.service_ids):
+                return candidate
+        return sorted(ctx.service_ids)[0] if ctx.service_ids else ""
+
     if rule.target_kind == "asset":
-        return ctx.owner_service or ctx.default_service or rule.default_service
+        return existing_or_fallback(
+            ctx.owner_service, ctx.default_service, rule.default_service or ""
+        )
     if rule.target_kind == "service":
         if resolved_target and resolved_target in ctx.service_ids:
             return resolved_target
-        return ctx.default_service or rule.default_service or resolved_target
-    return ctx.default_service or rule.default_service
+        return existing_or_fallback(
+            ctx.default_service, rule.default_service or "", resolved_target
+        )
+    return existing_or_fallback(ctx.default_service, rule.default_service or "")
 
 
 def _build_resolution_for_tag(

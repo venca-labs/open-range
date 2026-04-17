@@ -176,10 +176,6 @@ def test_reduce_blue_control_marks_path_breaking_containment() -> None:
     assert transition.satisfied_objectives == (BLUE_CONTAINMENT_OBJECTIVE,)
     assert transition.event_spec is not None
     assert transition.event_spec.event_type == "ContainmentApplied"
-    assert (
-        transition.event_spec.linked_objective_predicates
-        == transition.satisfied_objectives
-    )
 
 
 def test_reduce_blue_control_tracks_nonbreaking_mitigation() -> None:
@@ -280,12 +276,36 @@ def test_reduce_blue_finding_does_not_award_initial_access_objective_for_later_e
         matched_event=matched_event,
         detected_event_ids=set(),
         blue_detected=False,
-        initial_access_seen=True,
     )
 
     assert transition.blue_detected is True
     assert transition.initial_access_detected is False
     assert transition.satisfied_objectives == ()
+
+
+def test_reduce_blue_finding_ignores_duplicate_detection() -> None:
+    matched_event = RuntimeEvent(
+        id="evt-7",
+        event_type="InitialAccess",
+        actor="red",
+        time=1.0,
+        source_entity="red",
+        target_entity="svc-web",
+        malicious=True,
+        observability_surfaces=("web_access",),
+    )
+
+    transition = reduce_blue_finding(
+        matched_event=matched_event,
+        detected_event_ids={"evt-7"},
+        blue_detected=True,
+    )
+
+    assert transition.blue_detected is True
+    assert transition.initial_access_detected is False
+    assert transition.detected_event_ids == {"evt-7"}
+    assert transition.event_spec is None
+    assert transition.stdout == "finding already recorded"
 
 
 def test_select_scripted_internal_blue_action_detects_before_containment() -> None:

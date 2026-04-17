@@ -23,7 +23,10 @@ def mutation_target_service(world: WorldIR) -> str | None:
         (service.id for service in world.services if service.kind == "email"),
         next(
             (service.id for service in world.services if service.kind == "web_app"),
-            None,
+            next(
+                (service.id for service in world.services if service.kind == "idp"),
+                next((service.id for service in world.services), None),
+            ),
         ),
     )
 
@@ -104,11 +107,7 @@ def _telemetry_remediation_payload(kind: str) -> str:
 
 
 def seed_defaults(world: WorldIR) -> tuple[str, str]:
-    target = (
-        "svc-email"
-        if any(service.id == "svc-email" for service in world.services)
-        else "svc-web"
-    )
+    target = mutation_target_service(world) or "svc-siem"
     return (target, target)
 
 

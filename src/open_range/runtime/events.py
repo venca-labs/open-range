@@ -70,7 +70,6 @@ class RuntimeEventLog:
         target_entity: str,
         malicious: bool,
         observability_surfaces: tuple[str, ...],
-        linked_objective_predicates: tuple[str, ...] = (),
         suspicious: bool = False,
         suspicious_reasons: tuple[str, ...] = (),
         telemetry_delay: float,
@@ -88,7 +87,6 @@ class RuntimeEventLog:
             target_entity=target_entity,
             malicious=malicious,
             observability_surfaces=observability_surfaces,
-            linked_objective_predicates=linked_objective_predicates,
             suspicious=suspicious,
             suspicious_reasons=suspicious_reasons,
             telemetry_delay=telemetry_delay,
@@ -183,7 +181,6 @@ def emit_runtime_event(
     target_entity: str,
     malicious: bool,
     observability_surfaces: tuple[str, ...],
-    linked_objective_predicates: tuple[str, ...] = (),
     suspicious: bool = False,
     suspicious_reasons: tuple[str, ...] = (),
     telemetry_delay: float,
@@ -198,7 +195,6 @@ def emit_runtime_event(
         target_entity=target_entity,
         malicious=malicious,
         observability_surfaces=observability_surfaces,
-        linked_objective_predicates=linked_objective_predicates,
         suspicious=suspicious,
         suspicious_reasons=suspicious_reasons,
     )
@@ -412,7 +408,6 @@ def objective_events(
         target_entity=target_ref or asset_id or target,
         malicious=True,
         observability_surfaces=surfaces,
-        linked_objective_predicates=(resolved_objective,),
     )
     return RedEventBatch(
         events=(event,),
@@ -458,7 +453,6 @@ def _secret_collection_events(
             target_entity=asset_id,
             malicious=True,
             observability_surfaces=service_surfaces(target),
-            linked_objective_predicates=(objective,),
         )
         return RedEventBatch(
             events=(event,), satisfied_objectives=(objective,), last_red_target=target
@@ -471,7 +465,6 @@ def _secret_collection_events(
         target_entity=asset_id,
         malicious=True,
         observability_surfaces=service_surfaces(target),
-        linked_objective_predicates=(objective,),
     )
     return RedEventBatch(
         events=(event,), satisfied_objectives=(objective,), last_red_target=target

@@ -17,6 +17,7 @@ from open_range.contracts.render import (
 )
 from open_range.contracts.world import WorldIR
 from open_range.manifest import validate_manifest
+from open_range.objectives.engine import PredicateEngine
 from open_range.render import EnterpriseSaaSKindRenderer
 from open_range.render.images import DB_MTLS_HELPER_IMAGE
 from open_range.store import BuildPipeline, FileSnapshotStore, hydrate_runtime_snapshot
@@ -80,14 +81,13 @@ def test_build_config_can_filter_services_without_touching_manifest_schema(
     candidate = pipeline.build(
         _manifest_payload(),
         tmp_path / "rendered-filtered",
-        BuildConfig(
-            services_enabled=("web_app", "idp", "siem"), validation_profile="graph_only"
-        ),
+        BuildConfig(services_enabled=("idp",), validation_profile="graph_only"),
     )
 
-    assert candidate.world.allowed_service_kinds == ("web_app", "idp", "siem")
+    assert candidate.world.allowed_service_kinds == ("idp",)
     assert candidate.world.security_runtime.tier == 1
     service_ids = {service.id for service in candidate.world.services}
+    predicates = PredicateEngine(candidate.world)
     valid_targets = (
         service_ids
         | {host.id for host in candidate.world.hosts}
@@ -106,6 +106,10 @@ def test_build_config_can_filter_services_without_touching_manifest_schema(
     assert all(
         edge.source in valid_targets and edge.target in valid_targets
         for edge in candidate.world.edges
+    )
+    assert all(
+        predicates.objective_target_service(objective.predicate) in service_ids
+        for objective in candidate.world.blue_objectives
     )
 
 

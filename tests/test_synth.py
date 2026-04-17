@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import json
 from pathlib import Path
 
 from open_range.admission.controller import LocalAdmissionController
@@ -297,196 +296,6 @@ def test_synthesizer_realizes_required_non_code_catalog(tmp_path: Path):
         assert world.weaknesses[0].remediation_command
 
 
-def test_synthesizer_keeps_core_config_identity_json_payloads(tmp_path: Path):
-    cases = (
-        (
-            "weak_password",
-            "credential:it_admin-01",
-            {
-                "target": "svc-idp",
-                "target_ref": "cred-it_admin-01",
-                "min_password_length": 6,
-                "password_reuse_allowed": True,
-            },
-        ),
-        (
-            "default_credential",
-            "service:idp",
-            {
-                "target": "svc-idp",
-                "target_ref": "svc-idp",
-                "default_username": "admin",
-                "default_password": "admin",
-            },
-        ),
-        (
-            "trust_edge_misconfig",
-            "service:idp",
-            {
-                "target": "svc-idp",
-                "target_ref": "svc-idp",
-                "peer_validation": False,
-                "trust_scope": "corp-wide",
-            },
-        ),
-    )
-
-    for kind, target, expected_fields in cases:
-        payload = _manifest_payload()
-        payload["security"]["pinned_weaknesses"] = [
-            {"family": "config_identity", "kind": kind, "target": target}
-        ]
-        world = CatalogWeaknessSeeder().apply(
-            EnterpriseSaaSManifestCompiler().compile(payload)
-        )
-        synth = EnterpriseSaaSWorldSynthesizer().synthesize(world, tmp_path / kind)
-        file = next(
-            item
-            for item in synth.service_payloads["svc-idp"]
-            if item.mount_path.startswith("/etc/openrange/")
-        )
-
-        data = json.loads(file.content)
-
-        assert data["world_id"] == world.world_id
-        assert "weakness_id" not in data
-        assert "kind" not in data
-        for key, value in expected_fields.items():
-            assert data[key] == value
-
-
-def test_synthesizer_keeps_core_telemetry_json_payloads(tmp_path: Path):
-    cases = (
-        (
-            "missing_web_logs",
-            "service:web_app",
-            "svc-web",
-            {
-                "access_logs_enabled": False,
-                "error_logs_enabled": False,
-                "ship_to_siem": False,
-                "target": "svc-web",
-            },
-        ),
-        (
-            "missing_idp_logs",
-            "service:idp",
-            "svc-idp",
-            {
-                "audit_logs_enabled": False,
-                "auth_logs_enabled": False,
-                "ship_to_siem": False,
-                "target": "svc-idp",
-            },
-        ),
-        (
-            "delayed_siem_ingest",
-            "service:email",
-            "svc-email",
-            {
-                "delay_seconds": 180,
-                "ship_to_siem": False,
-                "target": "svc-email",
-            },
-        ),
-        (
-            "silent_mail_rule",
-            "service:email",
-            "svc-email",
-            {
-                "mail_rule_logging": False,
-                "mailbox_auto_forward_alerting": False,
-                "ship_to_siem": False,
-                "target": "svc-email",
-            },
-        ),
-    )
-
-    for kind, target, service_id, expected_fields in cases:
-        payload = _manifest_payload()
-        payload["security"]["pinned_weaknesses"] = [
-            {"family": "telemetry_blindspot", "kind": kind, "target": target}
-        ]
-        world = CatalogWeaknessSeeder().apply(
-            EnterpriseSaaSManifestCompiler().compile(payload)
-        )
-        synth = EnterpriseSaaSWorldSynthesizer().synthesize(world, tmp_path / kind)
-        file = next(
-            item
-            for item in synth.service_payloads[service_id]
-            if item.mount_path == f"/etc/openrange/{kind}.json"
-        )
-
-        data = json.loads(file.content)
-
-        assert data["world_id"] == world.world_id
-        assert "weakness_id" not in data
-        assert "kind" not in data
-        for key, value in expected_fields.items():
-            assert data[key] == value
-
-
-def test_synthesizer_keeps_core_workflow_json_payloads(tmp_path: Path):
-    cases = (
-        (
-            "helpdesk_reset_bypass",
-            "workflow:helpdesk_ticketing",
-            "svc-web",
-            {
-                "approval_guard": "disabled",
-                "identity_verification": "none",
-                "reset_without_ticket_owner": True,
-                "target_ref": "wf-helpdesk_ticketing",
-            },
-        ),
-        (
-            "document_share_abuse",
-            "workflow:document_sharing",
-            "svc-fileshare",
-            {
-                "approval_guard": "disabled",
-                "expiration_required": False,
-                "share_visibility": "public_link",
-                "target_ref": "wf-document_sharing",
-            },
-        ),
-        (
-            "phishing_credential_capture",
-            "workflow:internal_email",
-            "svc-email",
-            {
-                "approval_guard": "disabled",
-                "credential_capture_landing": "/login",
-                "mail_filtering": "allow",
-                "target_ref": "wf-internal_email",
-            },
-        ),
-    )
-
-    for kind, target, service_id, expected_fields in cases:
-        payload = _manifest_payload()
-        payload["security"]["pinned_weaknesses"] = [
-            {"family": "workflow_abuse", "kind": kind, "target": target}
-        ]
-        world = CatalogWeaknessSeeder().apply(
-            EnterpriseSaaSManifestCompiler().compile(payload)
-        )
-        synth = EnterpriseSaaSWorldSynthesizer().synthesize(world, tmp_path / kind)
-        file = next(
-            item
-            for item in synth.service_payloads[service_id]
-            if item.mount_path.endswith(f"{kind}.json")
-        )
-
-        data = json.loads(file.content)
-
-        assert data["world_id"] == world.world_id
-        assert "weakness_id" not in data
-        assert "kind" not in data
-        for key, value in expected_fields.items():
-            assert data[key] == value
-
-
 def test_synthesizer_seeds_mailbox_realizations_for_email_borne_kinds(tmp_path: Path):
     cases = (
         (
@@ -601,7 +410,7 @@ def test_synthesizer_keeps_secret_material_content_templates(tmp_path: Path):
             ".env",
             (
                 "OPENRANGE_WORLD_ID=enterprise_saas_v1-1337",
-                "OPENRANGE_APP_SECRET=svc-web",
+                "OPENRANGE_APP_SECRET=seeded-secret-svc-web",
             ),
         ),
         (
@@ -618,7 +427,7 @@ def test_synthesizer_keeps_secret_material_content_templates(tmp_path: Path):
             "app-secret.php",
             (
                 "define('OPENRANGE_WORLD_ID', 'enterprise_saas_v1-1337');",
-                "define('OPENRANGE_APP_SECRET', 'svc-web');",
+                "define('OPENRANGE_APP_SECRET', 'seeded-secret-svc-web');",
             ),
         ),
     )

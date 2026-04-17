@@ -54,6 +54,23 @@ def report_summary(
         or len(world.services)
     )
     continuity = min(1.0, live_service_count / max(1.0, float(len(world.services))))
+    workflow_checks = tuple(
+        name
+        for name in ("topology_workflow_consistency", "live_service_smoke")
+        if name in checks
+    )
+    telemetry_checks = tuple(
+        name for name in ("siem_ingest", "live_siem_ingest") if name in checks
+    )
+    attack_checks = tuple(
+        name for name in ("red_reference", "live_red_reference") if name in checks
+    )
+    defense_checks = tuple(
+        name for name in ("blue_reference", "live_blue_reference") if name in checks
+    )
+    necessity_checks = tuple(
+        name for name in ("necessity", "live_necessity") if name in checks
+    )
     return {
         "graph_ok": all(
             checks.get(name, ValidatorCheckReport(name=name, passed=False)).passed
@@ -72,31 +89,16 @@ def report_summary(
             checks.get(name, ValidatorCheckReport(name=name, passed=True)).passed
             for name in ("kind_boot", "kind_health")
         ),
-        "workflow_ok": all(
-            checks.get(name, ValidatorCheckReport(name=name, passed=False)).passed
-            for name in ("topology_workflow_consistency", "live_service_smoke")
-            if name in checks
-        ),
-        "telemetry_ok": all(
-            checks.get(name, ValidatorCheckReport(name=name, passed=False)).passed
-            for name in ("siem_ingest", "live_siem_ingest")
-            if name in checks
-        ),
-        "reference_attack_ok": all(
-            checks.get(name, ValidatorCheckReport(name=name, passed=False)).passed
-            for name in ("red_reference", "live_red_reference")
-            if name in checks
-        ),
-        "reference_defense_ok": all(
-            checks.get(name, ValidatorCheckReport(name=name, passed=False)).passed
-            for name in ("blue_reference", "live_blue_reference")
-            if name in checks
-        ),
-        "necessity_ok": all(
-            checks.get(name, ValidatorCheckReport(name=name, passed=False)).passed
-            for name in ("necessity", "live_necessity")
-            if name in checks
-        ),
+        "workflow_ok": bool(workflow_checks)
+        and all(checks[name].passed for name in workflow_checks),
+        "telemetry_ok": bool(telemetry_checks)
+        and all(checks[name].passed for name in telemetry_checks),
+        "reference_attack_ok": bool(attack_checks)
+        and all(checks[name].passed for name in attack_checks),
+        "reference_defense_ok": bool(defense_checks)
+        and all(checks[name].passed for name in defense_checks),
+        "necessity_ok": bool(necessity_checks)
+        and all(checks[name].passed for name in necessity_checks),
         "shortcut_risk": shortcut_risk,
         "determinism_score": round(determinism_score, 4),
         "flakiness": round(flakiness, 4),

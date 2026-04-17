@@ -65,10 +65,13 @@ class FileSnapshotStore:
         *,
         split: PoolSplit = "train",
     ) -> Snapshot:
-        seed_state = build_seed_state(world, artifacts, synth)
         snapshot_id = f"{world.world_id}-{split}-{world_hash(world)[:8]}"
+        existing = _snapshot_path(self.store_dir, snapshot_id)
+        if existing.exists():
+            return self.load(snapshot_id)
+        seed_state = build_seed_state(world, artifacts, synth)
         snap_dir = _snapshot_dir(self.store_dir, snapshot_id)
-        snap_dir.mkdir(parents=True, exist_ok=True)
+        snap_dir.mkdir(parents=True)
         stored_artifacts = _persist_artifacts_bundle(snap_dir, artifacts)
         stored_state_seed_dir = _persist_state_seed_dir(
             snap_dir,
@@ -98,9 +101,7 @@ class FileSnapshotStore:
             validator_report_path=str(report_json_path),
             artifacts=stored_artifacts,
             db_seed_state=seed_state.db_seed_state,
-            mail_state=seed_state.mail_state,
             file_assets=seed_state.file_assets,
-            identity_seed=seed_state.identity_seed,
             validator_report=public_report,
             world_hash=world_hash(world),
             parent_snapshot_id=None,
@@ -135,13 +136,13 @@ class FileSnapshotStore:
         return Snapshot.model_validate_json(path.read_text(encoding="utf-8"))
 
     def list(self, *, split: PoolSplit | None = None) -> tuple[Snapshot, ...]:
-        snapshots: list[Snapshot] = []
-        for entry in sorted(self.store_dir.iterdir(), key=lambda path: path.name):
+        snapshots: list[tuple[float, str, Snapshot]] = []
+        for entry in self.store_dir.iterdir():
             if not entry.is_dir():
                 continue
             meta_path = _metadata_path(self.store_dir, entry.name)
             metadata = (
-                {"split": "train"}
+                {"split": "train", "stored_at": 0.0}
                 if not meta_path.exists()
                 else json.loads(meta_path.read_text(encoding="utf-8"))
             )
@@ -151,9 +152,14 @@ class FileSnapshotStore:
             if not path.exists():
                 continue
             snapshots.append(
-                Snapshot.model_validate_json(path.read_text(encoding="utf-8"))
+                (
+                    float(metadata.get("stored_at", 0.0)),
+                    entry.name,
+                    Snapshot.model_validate_json(path.read_text(encoding="utf-8")),
+                )
             )
-        return tuple(snapshots)
+        snapshots.sort(key=lambda item: (item[0], item[1]))
+        return tuple(snapshot for _stored_at, _name, snapshot in snapshots)
 
     def sample(
         self,

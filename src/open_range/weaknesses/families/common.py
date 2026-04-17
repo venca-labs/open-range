@@ -155,7 +155,7 @@ def secret_material(world: WorldIR, target_ref: str) -> str:
     )
     if credential is not None:
         return f"seeded-secret-{credential.id}"
-    return target_ref
+    return f"seeded-secret-{target_ref}"
 
 
 def assemble_weakness_spec(

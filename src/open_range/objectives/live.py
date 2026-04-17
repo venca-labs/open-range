@@ -7,7 +7,7 @@ from collections.abc import Iterable, Mapping
 
 from open_range.objectives.common import (
     db_query_command,
-    event_linked_predicates,
+    event_matches_objective,
     event_target,
     event_type,
 )
@@ -31,7 +31,14 @@ def evaluate_objective_grader_live(
     outputs: Iterable[str],
 ) -> bool:
     linked_events = [
-        event for event in events if predicate in event_linked_predicates(event)
+        event
+        for event in events
+        if event_matches_objective(
+            event,
+            predicate,
+            service_id=grader.service_id,
+            target_id=grader.target_id,
+        )
     ]
     combined_output = "\n".join(output for output in outputs if output)
     if grader.grader_kind == "event_present":
