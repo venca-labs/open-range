@@ -54,6 +54,49 @@ class PathPredicateEngine(Protocol):
     def shortest_path(self, origin: str, target: str) -> tuple[str, ...]: ...
 
 
+class ActiveWeaknessSource(Protocol):
+    def active_weaknesses(self) -> tuple[WeaknessSpec, ...]: ...
+
+
+def prepare_red_execution(
+    action: Action,
+    *,
+    target: str,
+    action_backend: ActionBackend | None,
+    snapshot: RuntimeSnapshot | None,
+    predicates: PathPredicateEngine | None,
+    red_footholds: set[str] | frozenset[str],
+    last_red_target: str,
+    patched_targets: set[str] | frozenset[str],
+    contained_targets: set[str] | frozenset[str],
+) -> tuple[Action, str]:
+    blocked_reason = ""
+    if target in patched_targets:
+        blocked_reason = "patched"
+    elif target in contained_targets:
+        blocked_reason = "contained"
+    if action_backend is None:
+        return action, blocked_reason
+
+    payload = dict(action.payload)
+    if not target or snapshot is None or predicates is None:
+        payload.setdefault("origin", last_red_target or "sandbox-red")
+    else:
+        payload.setdefault(
+            "origin",
+            select_live_red_origin(
+                snapshot,
+                predicates=predicates,
+                red_footholds=red_footholds,
+                last_red_target=last_red_target,
+                target=target,
+            ),
+        )
+    if target:
+        payload.setdefault("target", target)
+    return action.model_copy(update={"payload": payload}), blocked_reason
+
+
 def simulate_action_execution(
     action: Action,
     *,
@@ -111,6 +154,27 @@ def select_live_red_origin(
     return min(
         reachable,
         key=lambda origin: (len(predicates.shortest_path(origin, target)), origin),
+    )
+
+
+def execute_runtime_action(
+    action: Action,
+    *,
+    action_backend: ActionBackend | None,
+    predicates: ActiveWeaknessSource | None,
+) -> ActionExecution:
+    if action_backend is not None:
+        return action_backend.execute(action)
+
+    active_weaknesses = (
+        tuple(predicates.active_weaknesses()) if predicates is not None else ()
+    )
+    return simulate_action_execution(
+        action,
+        resolve_active_weakness=lambda weakness_id: next(
+            (weakness for weakness in active_weaknesses if weakness.id == weakness_id),
+            None,
+        ),
     )
 
 

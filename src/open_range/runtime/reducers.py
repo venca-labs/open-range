@@ -5,6 +5,7 @@ from __future__ import annotations
 from collections.abc import Mapping
 from dataclasses import dataclass
 
+from open_range.objectives.engine import PredicateEngine
 from open_range.runtime.events import (
     EmitEvent,
     ServiceSurfaceResolver,
@@ -249,6 +250,24 @@ def reduce_blue_finding(
     )
 
 
+def emit_blue_action_event(
+    event_spec: BlueActionEventSpec | None,
+    *,
+    emit_event: EmitEvent,
+) -> RuntimeEvent | None:
+    if event_spec is None:
+        return None
+    return emit_event(
+        event_type=event_spec.event_type,
+        actor="blue",
+        source_entity="blue",
+        target_entity=event_spec.target_entity,
+        malicious=False,
+        observability_surfaces=("svc-siem",),
+        linked_objective_predicates=event_spec.linked_objective_predicates,
+    )
+
+
 def select_scripted_internal_blue_action(
     *,
     visible_events: tuple[RuntimeEvent, ...] | list[RuntimeEvent],
@@ -364,3 +383,57 @@ def reduce_observation_state(
         ),
         first_observation=observation_count == 0,
     )
+
+
+def update_continuity_state(
+    service_health: Mapping[str, float],
+    blue_objectives: set[str] | frozenset[str],
+    *,
+    continuity_threshold: float,
+    continuity_enforced: bool,
+) -> tuple[float, set[str]]:
+    continuity = continuity_for_service_health(service_health)
+    return continuity, blue_objectives_after_continuity(
+        blue_objectives,
+        continuity=continuity,
+        continuity_threshold=continuity_threshold,
+        continuity_enforced=continuity_enforced,
+    )
+
+
+def evaluate_terminal_state(
+    predicates: PredicateEngine | None,
+    *,
+    snapshot: RuntimeSnapshot | None,
+    events: tuple[RuntimeEvent, ...],
+    service_health: Mapping[str, float],
+    red_objectives_satisfied: set[str] | frozenset[str],
+    blue_detected: bool,
+    blue_contained: bool,
+    continuity: float,
+    continuity_threshold: float,
+    continuity_enforced: bool,
+    sim_time: float,
+    episode_horizon: float,
+) -> tuple[set[str], str, str]:
+    objectives = set(red_objectives_satisfied)
+    if snapshot is not None and predicates is not None:
+        objectives = predicates.evaluate_red_objectives(
+            snapshot=snapshot,
+            events=events,
+            service_health=service_health,
+        )
+        if predicates.red_terminal_satisfied(objectives):
+            return objectives, "red", "red_terminal"
+        if predicates.blue_terminal_satisfied(
+            red_terminal=False,
+            blue_detected=blue_detected,
+            blue_contained=blue_contained,
+            continuity=continuity,
+            continuity_threshold=continuity_threshold,
+            continuity_enforced=continuity_enforced,
+        ):
+            return objectives, "blue", "blue_terminal"
+    if sim_time >= episode_horizon:
+        return objectives, "timeout", "timeout"
+    return objectives, "", ""

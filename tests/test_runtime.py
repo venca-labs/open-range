@@ -584,7 +584,7 @@ def test_runtime_internal_snapshot_helpers_raise_clear_errors_without_reset() ->
     runtime = OpenRangeRuntime()
 
     with pytest.raises(RuntimeError, match="runtime has no active snapshot"):
-        runtime._briefing_text("red")
+        runtime._require_snapshot()
     with pytest.raises(RuntimeError, match="runtime has no active snapshot"):
         runtime._reference_attack_trace()
     with pytest.raises(RuntimeError, match="runtime has no active snapshot"):

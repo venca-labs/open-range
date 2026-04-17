@@ -8,26 +8,29 @@ from uuid import uuid4
 
 from open_range.episode_config import DEFAULT_EPISODE_CONFIG, EpisodeConfig
 from open_range.objectives.engine import PredicateEngine
+from open_range.runtime.briefing import observation_stdout, service_health_tuple
 from open_range.runtime.events import (
     RuntimeEventLog,
     action_target,
     control_directive,
     finding_event_type,
     green_events_for_action,
+    service_observability_surfaces,
     telemetry_blindspots,
 )
 from open_range.runtime.execution import (
     ActionBackend,
     ActionExecution,
-    select_live_red_origin,
-    simulate_action_execution,
+    execute_runtime_action,
+    prepare_red_execution,
 )
 from open_range.runtime.green import GreenScheduler, ScriptedGreenScheduler
 from open_range.runtime.hooks import RuntimeHooks
 from open_range.runtime.reducers import (
     BLUE_CONTAINMENT_OBJECTIVE,
-    blue_objectives_after_continuity,
     continuity_for_service_health,
+    emit_blue_action_event,
+    evaluate_terminal_state,
     opponent_cadence,
     reduce_blue_control,
     reduce_blue_finding,
@@ -35,6 +38,7 @@ from open_range.runtime.reducers import (
     reduce_red_action,
     resolved_opponent_mode,
     select_internal_opponent_action,
+    update_continuity_state,
 )
 from open_range.runtime.replay import (
     ReferencePlayback,
@@ -53,7 +57,6 @@ from open_range.runtime_types import (
     ExternalRole,
     Observation,
     RuntimeEvent,
-    ServiceHealth,
 )
 from open_range.snapshot import RuntimeSnapshot
 
@@ -278,7 +281,10 @@ class OpenRangeRuntime:
         )
 
     def remaining_red_targets(self) -> set[str]:
-        return set(self._remaining_red_targets())
+        if self._snapshot is None:
+            return set()
+        trace = self._reference_attack_trace()
+        return {step.target for step in trace.steps[self._red_progress :]}
 
     @staticmethod
     def matches_reference_step(action: Action, expected, live_stdout: str) -> bool:
@@ -336,7 +342,11 @@ class OpenRangeRuntime:
             if due_time > self._state.sim_time:
                 self._advance_time(due_time)
                 continue
-            if self._is_controlled(actor):
+            if (
+                self._state.controls_red
+                if actor == "red"
+                else self._state.controls_blue
+            ):
                 self._pending_actor = actor
                 self._state.next_actor = actor
                 return
@@ -387,7 +397,11 @@ class OpenRangeRuntime:
                     return
 
     def _build_observation(self, actor: ExternalRole) -> Observation:
-        visible = self._visible_events(actor)
+        visible = self._event_log.visible_events(
+            actor,
+            observed_event_ids=self._observed_event_ids[actor],
+            sim_time=self._state.sim_time,
+        )
         session = (
             self._state.red_session if actor == "red" else self._state.blue_session
         )
@@ -403,9 +417,13 @@ class OpenRangeRuntime:
         self._observed_event_ids[actor] = transition.observed_event_ids
         if session is not None and transition.next_observation_count is not None:
             session.observation_count = transition.next_observation_count
-        stdout = self._observation_stdout(
-            actor,
+        stdout = observation_stdout(
+            sim_time=self._state.sim_time,
+            world=self._snapshot.world if self._snapshot is not None else None,
+            actor=actor,
             first_observation=transition.first_observation,
+            prompt_mode=self._episode_config.prompt_mode,
+            predicates=self._predicates,
         )
         return Observation(
             actor_id=actor,
@@ -413,7 +431,7 @@ class OpenRangeRuntime:
             stdout=stdout,
             visible_events=visible,
             alerts_delta=transition.alerts,
-            service_health=self._service_health_tuple(),
+            service_health=service_health_tuple(self._state.service_health),
             reward_delta=transition.reward_delta,
             done=self._state.done,
         )
@@ -450,13 +468,17 @@ class OpenRangeRuntime:
             self._state.red_session.action_count += 1
 
         target = action_target(action)
-        exec_action = action
-        if self.action_backend is not None:
-            payload = dict(action.payload)
-            payload.setdefault("origin", self._live_red_origin(target))
-            if target:
-                payload.setdefault("target", target)
-            exec_action = action.model_copy(update={"payload": payload})
+        exec_action, blocked_reason = prepare_red_execution(
+            action,
+            target=target,
+            action_backend=self.action_backend,
+            snapshot=self._snapshot,
+            predicates=self._predicates,
+            red_footholds=self._red_footholds,
+            last_red_target=self._last_red_target,
+            patched_targets=self._patched_targets,
+            contained_targets=self._contained_targets,
+        )
         live = self._execute_live_action(exec_action)
         audit = self._hooks.observe_action(
             exec_action,
@@ -470,7 +492,7 @@ class OpenRangeRuntime:
             action=action,
             target=target,
             live=live,
-            blocked_reason=self._path_block_reason(target),
+            blocked_reason=blocked_reason,
             matched_reference_step=(
                 expected is not None
                 and live.ok
@@ -550,30 +572,14 @@ class OpenRangeRuntime:
             self._blue_detected = transition.blue_detected
             self._detected_event_ids = transition.detected_event_ids
             self._blue_objectives_satisfied.update(transition.satisfied_objectives)
-            if transition.event_spec is not None:
-                emitted.append(
-                    emit_event(
-                        event_type=transition.event_spec.event_type,
-                        actor="blue",
-                        source_entity="blue",
-                        target_entity=transition.event_spec.target_entity,
-                        malicious=False,
-                        observability_surfaces=("svc-siem",),
-                        linked_objective_predicates=transition.event_spec.linked_objective_predicates,
-                    )
-                )
-            if matched is not None:
-                reward_delta += self.reward_engine.on_blue_detection(
-                    matched,
-                    shaping_enabled=self._episode_config.blue_detection_shaping,
-                    false_positive_penalty_enabled=self._episode_config.false_positive_penalty_enabled,
-                )
-            else:
-                reward_delta += self.reward_engine.on_blue_detection(
-                    None,
-                    shaping_enabled=self._episode_config.blue_detection_shaping,
-                    false_positive_penalty_enabled=self._episode_config.false_positive_penalty_enabled,
-                )
+            event = emit_blue_action_event(transition.event_spec, emit_event=emit_event)
+            if event is not None:
+                emitted.append(event)
+            reward_delta += self.reward_engine.on_blue_detection(
+                matched,
+                shaping_enabled=self._episode_config.blue_detection_shaping,
+                false_positive_penalty_enabled=self._episode_config.false_positive_penalty_enabled,
+            )
             stdout = transition.stdout
         elif action.kind == "control":
             target = action_target(action)
@@ -583,46 +589,36 @@ class OpenRangeRuntime:
                 target=target,
                 directive=directive,
                 live=live,
-                remaining_red_targets=self._remaining_red_targets(),
+                remaining_red_targets=self.remaining_red_targets(),
                 contained_targets=self._contained_targets,
                 patched_targets=self._patched_targets,
             )
             self._contained_targets = transition.contained_targets
             self._patched_targets = transition.patched_targets
-            if transition.event_spec is not None:
-                emitted.append(
-                    emit_event(
-                        event_type=transition.event_spec.event_type,
-                        actor="blue",
-                        source_entity="blue",
-                        target_entity=transition.event_spec.target_entity,
-                        malicious=False,
-                        observability_surfaces=("svc-siem",),
-                        linked_objective_predicates=transition.event_spec.linked_objective_predicates,
-                    )
-                )
+            event = emit_blue_action_event(transition.event_spec, emit_event=emit_event)
+            if event is not None:
+                emitted.append(event)
 
             stdout = transition.stdout
             if transition.path_broken:
                 self._blue_contained = True
                 self._blue_objectives_satisfied.add(BLUE_CONTAINMENT_OBJECTIVE)
-                self._update_continuity()
-                reward_delta += self.reward_engine.on_blue_containment(
-                    target=target,
-                    path_broken=True,
-                    continuity_before=continuity_before,
-                    continuity_after=self._state.continuity,
-                    shaping_enabled=self._episode_config.blue_containment_shaping,
-                )
-            else:
-                self._update_continuity()
-                reward_delta += self.reward_engine.on_blue_containment(
-                    target=target,
-                    path_broken=False,
-                    continuity_before=continuity_before,
-                    continuity_after=self._state.continuity,
-                    shaping_enabled=self._episode_config.blue_containment_shaping,
-                )
+            (
+                self._state.continuity,
+                self._blue_objectives_satisfied,
+            ) = update_continuity_state(
+                self._state.service_health,
+                self._blue_objectives_satisfied,
+                continuity_threshold=self._episode_config.continuity_threshold,
+                continuity_enforced=self._episode_config.continuity_enforced,
+            )
+            reward_delta += self.reward_engine.on_blue_containment(
+                target=target,
+                path_broken=transition.path_broken,
+                continuity_before=continuity_before,
+                continuity_after=self._state.continuity,
+                shaping_enabled=self._episode_config.blue_containment_shaping,
+            )
         elif action.kind == "sleep":
             stdout = "blue slept"
         else:
@@ -652,94 +648,30 @@ class OpenRangeRuntime:
             done=self._state.done,
         )
 
-    def _live_red_origin(self, target: str) -> str:
-        if not target or self._snapshot is None or self._predicates is None:
-            return self._last_red_target or "sandbox-red"
-        return select_live_red_origin(
-            self._snapshot,
-            predicates=self._predicates,
-            red_footholds=self._red_footholds,
-            last_red_target=self._last_red_target,
-            target=target,
-        )
-
-    def _remaining_red_targets(self) -> set[str]:
-        if self._snapshot is None:
-            return set()
-        trace = self._reference_attack_trace()
-        return {step.target for step in trace.steps[self._red_progress :]}
-
-    def _path_block_reason(self, target: str) -> str:
-        if not target:
-            return ""
-        if target in self._patched_targets:
-            return "patched"
-        if target in self._contained_targets:
-            return "contained"
-        return ""
-
     def _check_terminal_conditions(self) -> None:
-        self._refresh_red_objective_state()
-        red_terminal = self._red_terminal_satisfied()
-        blue_terminal = self._blue_terminal_satisfied(red_terminal)
-        if red_terminal:
-            self._state.done = True
-            self._state.winner = "red"
-            self._state.terminal_reason = "red_terminal"
-            self._pending_actor = ""
-            return
-        if blue_terminal:
-            self._state.done = True
-            self._state.winner = "blue"
-            self._state.terminal_reason = "blue_terminal"
-            self._pending_actor = ""
-            return
-        if self._state.sim_time >= self._episode_config.episode_horizon:
-            self._state.done = True
-            self._state.winner = "timeout"
-            self._state.terminal_reason = "timeout"
-            self._pending_actor = ""
-
-    def _red_terminal_satisfied(self) -> bool:
-        if self._predicates is None:
-            return False
-        return self._predicates.red_terminal_satisfied(self._red_objectives_satisfied)
-
-    def _blue_terminal_satisfied(self, red_terminal: bool) -> bool:
-        if self._predicates is None:
-            return False
-        return self._predicates.blue_terminal_satisfied(
-            red_terminal=red_terminal,
+        (
+            self._red_objectives_satisfied,
+            winner,
+            reason,
+        ) = evaluate_terminal_state(
+            self._predicates,
+            snapshot=self._snapshot,
+            events=self._event_log.export(),
+            service_health=self._state.service_health,
+            red_objectives_satisfied=self._red_objectives_satisfied,
             blue_detected=self._blue_detected,
             blue_contained=self._blue_contained,
             continuity=self._state.continuity,
             continuity_threshold=self._episode_config.continuity_threshold,
             continuity_enforced=self._episode_config.continuity_enforced,
-        )
-
-    def _update_continuity(self) -> None:
-        self._state.continuity = continuity_for_service_health(
-            self._state.service_health
-        )
-        self._blue_objectives_satisfied = blue_objectives_after_continuity(
-            self._blue_objectives_satisfied,
-            continuity=self._state.continuity,
-            continuity_threshold=self._episode_config.continuity_threshold,
-            continuity_enforced=self._episode_config.continuity_enforced,
-        )
-
-    def _service_health_tuple(self) -> tuple[ServiceHealth, ...]:
-        return tuple(
-            ServiceHealth(service_id=service_id, health=health)
-            for service_id, health in sorted(self._state.service_health.items())
-        )
-
-    def _visible_events(self, actor: ExternalRole) -> tuple[RuntimeEvent, ...]:
-        return self._event_log.visible_events(
-            actor,
-            observed_event_ids=self._observed_event_ids[actor],
             sim_time=self._state.sim_time,
+            episode_horizon=self._episode_config.episode_horizon,
         )
+        if winner:
+            self._state.done = True
+            self._state.winner = winner
+            self._state.terminal_reason = reason
+            self._pending_actor = ""
 
     def _emit_event(
         self,
@@ -779,125 +711,80 @@ class OpenRangeRuntime:
         )
 
     def _service_surfaces(self, target: str) -> tuple[str, ...]:
-        if self._snapshot is None:
-            return ()
-        for service in self._snapshot.world.services:
-            if service.id == target:
-                return tuple(service.telemetry_surfaces) + ("svc-siem",)
-        return ("svc-siem",)
-
-    def _refresh_red_objective_state(self) -> None:
-        if self._snapshot is None or self._predicates is None:
-            return
-        self._red_objectives_satisfied = self._predicates.evaluate_red_objectives(
-            snapshot=self._snapshot,
-            events=self._event_log.export(),
-            service_health=self._state.service_health,
+        return service_observability_surfaces(
+            self._snapshot.world.services if self._snapshot is not None else (),
+            target,
         )
-
-    def _observation_stdout(
-        self, actor: ExternalRole, *, first_observation: bool
-    ) -> str:
-        base = f"sim_time={self._state.sim_time:.2f}"
-        if not first_observation or self._snapshot is None:
-            return base
-        return f"{self._briefing_text(actor)}\n{base}"
-
-    def _briefing_text(self, actor: ExternalRole) -> str:
-        world = self._require_snapshot().world
-        objectives = world.red_objectives if actor == "red" else world.blue_objectives
-        public_services = ",".join(
-            service.id
-            for service in world.services
-            if self._predicates and self._predicates.is_public_service(service)
-        )
-        lines = [
-            f"briefing_mode={self._episode_config.prompt_mode}",
-            f"business={world.business_archetype}",
-            f"public_services={public_services or 'none'}",
-            f"objectives={'; '.join(objective.predicate for objective in objectives) or 'none'}",
-        ]
-        if self._episode_config.prompt_mode == "one_day":
-            surfaces = ", ".join(
-                self._briefing_surface_summary(world, weak)
-                for weak in world.weaknesses
-                if weak.family != "telemetry_blindspot" or actor == "blue"
-            )
-            lines.append(f"known_risky_surfaces={surfaces or 'none'}")
-        return "\n".join(lines)
-
-    @staticmethod
-    def _briefing_surface_summary(world, weak) -> str:
-        service = next(
-            (service for service in world.services if service.id == weak.target), None
-        )
-        service_label = service.kind if service is not None else weak.target_kind
-        family_label = {
-            "code_web": "web surface",
-            "config_identity": "identity surface",
-            "secret_exposure": "secret surface",
-            "workflow_abuse": "workflow surface",
-            "telemetry_blindspot": "telemetry gap",
-        }.get(weak.family, weak.family)
-        return f"{service_label} {family_label}"
 
     def _execute_live_action(self, action: Action) -> ActionExecution:
-        if self.action_backend is None:
-            active_weaknesses = (
-                tuple(self._predicates.active_weaknesses())
-                if self._predicates is not None
-                else ()
-            )
-            return simulate_action_execution(
-                action,
-                resolve_active_weakness=lambda weakness_id: next(
-                    (
-                        weakness
-                        for weakness in active_weaknesses
-                        if weakness.id == weakness_id
-                    ),
-                    None,
-                ),
-            )
-        result = self.action_backend.execute(action)
+        result = execute_runtime_action(
+            action,
+            action_backend=self.action_backend,
+            predicates=self._predicates,
+        )
         if result.service_health:
             self._state.service_health.update(result.service_health)
-            self._update_continuity()
+            (
+                self._state.continuity,
+                self._blue_objectives_satisfied,
+            ) = update_continuity_state(
+                self._state.service_health,
+                self._blue_objectives_satisfied,
+                continuity_threshold=self._episode_config.continuity_threshold,
+                continuity_enforced=self._episode_config.continuity_enforced,
+            )
         return result
 
     def _advance_due_time(self, actor: ExternalRole) -> None:
         cadence = (
             1.0
-            if self._is_controlled(actor)
-            else opponent_cadence(actor, mode=self._resolved_opponent_mode(actor))
+            if (
+                self._state.controls_red
+                if actor == "red"
+                else self._state.controls_blue
+            )
+            else opponent_cadence(
+                actor,
+                mode=resolved_opponent_mode(
+                    self._episode_config.opponent_red
+                    if actor == "red"
+                    else self._episode_config.opponent_blue,
+                    actor=actor,
+                    snapshot_seed=(
+                        None if self._snapshot is None else self._snapshot.seed
+                    ),
+                ),
+            )
         )
         self._next_due_time[actor] = round(
             max(self._next_due_time[actor], self._state.sim_time) + cadence, 4
         )
 
-    def _is_controlled(self, actor: ExternalRole) -> bool:
-        return self._state.controls_red if actor == "red" else self._state.controls_blue
-
     def _internal_action(self, actor: ExternalRole) -> Action:
         return select_internal_opponent_action(
             actor,
-            mode=self._resolved_opponent_mode(actor),
+            mode=resolved_opponent_mode(
+                self._episode_config.opponent_red
+                if actor == "red"
+                else self._episode_config.opponent_blue,
+                actor=actor,
+                snapshot_seed=None if self._snapshot is None else self._snapshot.seed,
+            ),
             snapshot=self._snapshot,
             reference_step=self.reference_step(actor),
-            visible_events=self._visible_events("blue") if actor == "blue" else (),
+            visible_events=(
+                self._event_log.visible_events(
+                    "blue",
+                    observed_event_ids=self._observed_event_ids["blue"],
+                    sim_time=self._state.sim_time,
+                )
+                if actor == "blue"
+                else ()
+            ),
             detected_event_ids=self._detected_event_ids,
-            remaining_red_targets=self._remaining_red_targets(),
+            remaining_red_targets=self.remaining_red_targets(),
             contained_targets=self._contained_targets,
             blue_detected=self._blue_detected,
-        )
-
-    def _resolved_opponent_mode(self, actor: ExternalRole) -> str:
-        return resolved_opponent_mode(
-            self._episode_config.opponent_red
-            if actor == "red"
-            else self._episode_config.opponent_blue,
-            actor=actor,
-            snapshot_seed=None if self._snapshot is None else self._snapshot.seed,
         )
 
     def _reference_attack_trace(self):

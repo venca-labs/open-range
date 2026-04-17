@@ -264,6 +264,16 @@ def visible_events_for_actor(
     return tuple(visible)
 
 
+def service_observability_surfaces(
+    services: Iterable[object],
+    target: str,
+) -> tuple[str, ...]:
+    for service in services:
+        if getattr(service, "id", "") == target:
+            return tuple(getattr(service, "telemetry_surfaces", ())) + ("svc-siem",)
+    return ("svc-siem",)
+
+
 def green_events_for_action(
     action: Action,
     *,
