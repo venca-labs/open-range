@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from collections.abc import Callable
 
+from open_range.admission.checks import BUILTIN_ADMISSION_CHECKS
 from open_range.admission.models import ReferenceBundle, ValidatorCheckReport
 from open_range.contracts.snapshot import KindArtifacts
 from open_range.contracts.world import WorldIR
@@ -12,8 +13,9 @@ CheckFunc = Callable[
     [WorldIR, KindArtifacts, ReferenceBundle | None], ValidatorCheckReport
 ]
 
-_REGISTERED_CHECKS: dict[str, CheckFunc] = {}
-_BUILTIN_CHECKS_REGISTERED = False
+_REGISTERED_CHECKS: dict[str, CheckFunc] = {
+    spec.name: spec.fn for spec in BUILTIN_ADMISSION_CHECKS
+}
 
 
 def register_admission_check(name: str, fn: CheckFunc) -> None:
@@ -26,7 +28,6 @@ def register_admission_check(name: str, fn: CheckFunc) -> None:
 
 
 def get_admission_check(name: str) -> CheckFunc:
-    _ensure_builtin_admission_checks()
     try:
         return _REGISTERED_CHECKS[name]
     except KeyError as exc:
@@ -34,16 +35,4 @@ def get_admission_check(name: str) -> CheckFunc:
 
 
 def registered_admission_checks() -> tuple[str, ...]:
-    _ensure_builtin_admission_checks()
     return tuple(sorted(_REGISTERED_CHECKS))
-
-
-def _ensure_builtin_admission_checks() -> None:
-    global _BUILTIN_CHECKS_REGISTERED
-    if _BUILTIN_CHECKS_REGISTERED:
-        return
-    from open_range.admission.checks import builtin_admission_check_specs
-
-    for spec in builtin_admission_check_specs():
-        register_admission_check(spec.name, spec.fn)
-    _BUILTIN_CHECKS_REGISTERED = True

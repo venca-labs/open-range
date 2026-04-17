@@ -1,13 +1,13 @@
 from __future__ import annotations
 
-from open_range.admission.checks import builtin_admission_check_specs
+from open_range.admission.checks import BUILTIN_ADMISSION_CHECKS
 from open_range.admission.plan import admission_stages
 from open_range.admission.registry import registered_admission_checks
 from open_range.config import BuildConfig
 
 
 def test_admission_stage_plan_matches_builtin_check_specs() -> None:
-    builtin = {spec.name for spec in builtin_admission_check_specs()}
+    builtin = {spec.name for spec in BUILTIN_ADMISSION_CHECKS}
     planned: set[str] = set()
     for build_config in (
         BuildConfig(validation_profile="full"),

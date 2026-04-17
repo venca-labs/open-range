@@ -17,7 +17,7 @@ from .extensions import (
 )
 from .images import SANDBOX_IMAGE_BY_ROLE, service_image_for_kind
 from .models import KindArtifacts
-from .security import materialize_security_runtime
+from .security.runtime import materialize_security_runtime
 
 if TYPE_CHECKING:
     from open_range.contracts.world import GreenPersona, ServiceSpec, WorldIR

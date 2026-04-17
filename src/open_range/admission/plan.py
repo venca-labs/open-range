@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from open_range.admission.checks import builtin_admission_check_specs
+from open_range.admission.checks import BUILTIN_ADMISSION_CHECKS
 from open_range.config import BuildConfig
 
 
@@ -53,7 +53,7 @@ def admission_stages(build_config: BuildConfig) -> tuple[AdmissionStagePlan, ...
 
     stage_checks: dict[str, list[str]] = {}
     stage_requires_references: dict[str, bool] = {}
-    for spec in builtin_admission_check_specs():
+    for spec in BUILTIN_ADMISSION_CHECKS:
         stage_checks.setdefault(spec.stage, []).append(spec.name)
         stage_requires_references[spec.stage] = (
             stage_requires_references.get(spec.stage, False) or spec.requires_references

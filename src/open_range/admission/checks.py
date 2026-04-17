@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -23,7 +24,6 @@ from open_range.admission.references import (
     build_reference_bundle,
     ephemeral_runtime_snapshot,
 )
-from open_range.admission.registry import CheckFunc
 from open_range.catalog.services import service_kind_names
 from open_range.config import BuildConfig
 from open_range.contracts.snapshot import KindArtifacts, world_hash
@@ -31,6 +31,10 @@ from open_range.contracts.world import WorldIR
 from open_range.objectives.engine import PredicateEngine
 from open_range.runtime.replay import run_red_reference
 from open_range.weaknesses import remediation_command_for_weakness
+
+CheckFunc = Callable[
+    [WorldIR, KindArtifacts, ReferenceBundle | None], ValidatorCheckReport
+]
 
 
 @dataclass(frozen=True, slots=True)
@@ -556,7 +560,7 @@ def _mailbox_leak_allowed(world: WorldIR, ref: str) -> bool:
     )
 
 
-_BUILTIN_ADMISSION_CHECKS: tuple[BuiltinAdmissionCheckSpec, ...] = (
+BUILTIN_ADMISSION_CHECKS: tuple[BuiltinAdmissionCheckSpec, ...] = (
     BuiltinAdmissionCheckSpec(
         "manifest_compliance", _check_manifest_compliance, stage="static"
     ),
@@ -617,7 +621,3 @@ _BUILTIN_ADMISSION_CHECKS: tuple[BuiltinAdmissionCheckSpec, ...] = (
         requires_references=True,
     ),
 )
-
-
-def builtin_admission_check_specs() -> tuple[BuiltinAdmissionCheckSpec, ...]:
-    return _BUILTIN_ADMISSION_CHECKS

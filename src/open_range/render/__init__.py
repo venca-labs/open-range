@@ -21,14 +21,16 @@ from .images import (
 )
 from .k3d import K3dRenderer
 from .kind import EnterpriseSaaSKindRenderer, KindRenderer
-from .security import (
+from .security.integrator import (
     DEFAULT_TIER_MAP,
     SecurityIntegrator,
     SecurityIntegratorConfig,
+    SecurityTierConfig,
+)
+from .security.runtime import (
     SecurityPayloadSpec,
     SecurityRuntimeSpec,
     SecurityServiceRuntimeSpec,
-    SecurityTierConfig,
     materialize_security_runtime,
 )
 
