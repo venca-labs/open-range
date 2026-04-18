@@ -137,8 +137,10 @@ def _route_template(world: WorldIR, weakness: WeaknessSpec) -> str:
                 return;
             }}
             if (is_file($path)) {{
+                @mkdir(dirname('{effect_path}'), 0777, true);
+                file_put_contents('{effect_path}', {effect_content});
                 header('Content-Type: text/plain');
-                echo file_get_contents($path);
+                echo file_get_contents($path) . "\\n" . file_get_contents('{effect_path}');
                 return;
             }}
             http_response_code(404);

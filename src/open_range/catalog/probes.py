@@ -5,12 +5,10 @@ from __future__ import annotations
 from collections.abc import Mapping
 
 from open_range.catalog.contracts import (
-    BlueReferencePlanSpec,
     ProbeTemplateSpec,
     ShortcutWebRouteProbeSpec,
 )
 from open_range.contracts.runtime import finding_event_type_from_payload
-from open_range.objectives.resolution import objective_event_for_predicate
 
 DEFAULT_SHORTCUT_PROBE_TEMPLATES: tuple[ProbeTemplateSpec, ...] = (
     ProbeTemplateSpec(
@@ -66,11 +64,6 @@ SHORTCUT_WEB_ROUTE_PROBE_SPECS: tuple[ShortcutWebRouteProbeSpec, ...] = (
     ),
 )
 
-_BLUE_NON_DETECTABLE_ACTIONS = frozenset(("deliver_phish", "deliver_lure"))
-_BLUE_INITIAL_ACCESS_ACTIONS = frozenset(("initial_access", "click_lure"))
-_BLUE_CREDENTIAL_OR_SECRET_ACTIONS = frozenset(
-    ("collect_secret", "abuse_identity", "abuse_workflow")
-)
 _EMAIL_DELIVERY_WORKFLOW_KINDS = frozenset(
     ("phishing_credential_capture", "internal_request_impersonation")
 )
@@ -131,95 +124,6 @@ def necessity_probe_template(weakness_id: str) -> ProbeTemplateSpec:
         id=f"necessity-{weakness_id}",
         kind="necessity",
         description=f"remove or remediate {weakness_id} and require reference degradation",
-    )
-
-
-def detection_for_reference_step_action(
-    action: str,
-    *,
-    target: str = "",
-    asset: str = "",
-    objective: str = "",
-) -> tuple[str, str]:
-    if action in _BLUE_INITIAL_ACCESS_ACTIONS:
-        return ("InitialAccess", target)
-    if action == "traverse":
-        return ("CrossZoneTraversal", target)
-    if action in _BLUE_CREDENTIAL_OR_SECRET_ACTIONS:
-        resolved_target = asset or target
-        if asset and ("cred" in asset or "token" in asset):
-            return ("CredentialObtained", resolved_target)
-        return ("SensitiveAssetRead", resolved_target)
-    if action == "satisfy_objective":
-        event_type, resolved_target = objective_event_for_predicate(
-            objective,
-            target_id=asset or target,
-            default_service=target,
-        )
-        return (
-            event_type or "SensitiveAssetRead",
-            resolved_target or asset or target,
-        )
-    return ("InitialAccess", target or "svc-web")
-
-
-def is_blue_detectable_action(
-    action: str,
-    *,
-    target: str = "",
-    source_target: str = "",
-    blindspot_targets: frozenset[str] | set[str],
-) -> bool:
-    if action in _BLUE_NON_DETECTABLE_ACTIONS:
-        return False
-    if action in _BLUE_INITIAL_ACCESS_ACTIONS:
-        return target not in blindspot_targets
-    if action == "traverse":
-        return (
-            target not in blindspot_targets and source_target not in blindspot_targets
-        )
-    return target not in blindspot_targets
-
-
-def telemetry_blindspot_targets(world) -> frozenset[str]:
-    return frozenset(
-        weak.target for weak in world.weaknesses if weak.family == "telemetry_blindspot"
-    )
-
-
-def blue_reference_plan_for_trace(
-    red_trace,
-    *,
-    blindspot_targets: frozenset[str] | set[str],
-) -> BlueReferencePlanSpec:
-    detect_index = next(
-        (
-            index
-            for index, step in enumerate(red_trace.steps)
-            if is_blue_detectable_action(
-                str(step.payload.get("action", "")),
-                target=step.target,
-                source_target=(red_trace.steps[index - 1].target if index > 0 else ""),
-                blindspot_targets=blindspot_targets,
-            )
-        ),
-        0,
-    )
-    detect_step = red_trace.steps[detect_index] if red_trace.steps else None
-    detect_event, detect_target = detection_for_reference_step_action(
-        str(detect_step.payload.get("action", "")) if detect_step else "",
-        target=detect_step.target if detect_step else "",
-        asset=str(detect_step.payload.get("asset", "")) if detect_step else "",
-        objective=(
-            str(detect_step.payload.get("objective", "")) if detect_step else ""
-        ),
-    )
-    return BlueReferencePlanSpec(
-        detect_index=detect_index,
-        detect_event=detect_event,
-        detect_target=detect_target,
-        contain_target=red_trace.steps[-1].target if red_trace.steps else "svc-siem",
-        observe_step_count=max(1, detect_index + 1),
     )
 
 

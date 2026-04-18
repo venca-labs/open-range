@@ -77,7 +77,7 @@ class ReferenceSimPlane:
                 step = blue_steps[min(blue_idx, len(blue_steps) - 1)]
                 blue_idx += 1
             action = action_for_reference_step(snapshot, decision.actor, step)
-            result = runtime._replay_action(decision.actor, action)
+            result = runtime.act(decision.actor, action)
             turns.append(
                 SimTurn(
                     role=decision.actor,

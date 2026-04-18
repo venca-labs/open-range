@@ -105,7 +105,7 @@ def test_driver_can_run_blue_only_prefix_episode(tmp_path: Path):
                 kind="control",
                 payload={
                     "target": snapshot.reference_bundle.reference_defense_traces[0]
-                    .steps[2]
+                    .steps[1]
                     .target,
                     "action": "contain",
                 },

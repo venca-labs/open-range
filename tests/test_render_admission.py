@@ -8,6 +8,7 @@ import open_range.admission.live as live_checks_mod
 from open_range.admission.controller import LocalAdmissionController
 from open_range.compiler import EnterpriseSaaSManifestCompiler
 from open_range.config import BuildConfig
+from open_range.objectives.effects import effect_marker_token
 from open_range.objectives.engine import PredicateEngine
 from open_range.render import EnterpriseSaaSKindRenderer
 from open_range.render.images import SANDBOX_IMAGE_BY_ROLE, service_image_for_kind
@@ -54,8 +55,12 @@ def _code_web_response(
     path = str(payload.get("path", ""))
     if "http://svc-web:80" not in cmd or path not in cmd:
         return None
+    parts = [str(payload.get("expect_contains", ""))]
+    token = effect_marker_token(weakness)
+    if token and token not in parts:
+        parts.append(token)
     return ExecResult(
-        stdout=str(payload.get("expect_contains", "")), stderr="", exit_code=0
+        stdout="\n".join(part for part in parts if part), stderr="", exit_code=0
     )
 
 
@@ -224,7 +229,8 @@ def test_admission_controller_offline_witness_can_ground_pinned_non_code_weaknes
         world, artifacts, OFFLINE_REFERENCE_BUILD_CONFIG
     )
 
-    assert report.admitted is True
+    assert report.admitted is False
+    assert report.reference_attack_ok is False
 
 
 def test_admission_rejects_unsupported_runtime_blue_objective(tmp_path: Path) -> None:
@@ -288,14 +294,14 @@ def test_mutated_world_blue_reference_does_not_claim_initial_access_from_later_e
         mutation, artifacts, OFFLINE_REFERENCE_BUILD_CONFIG
     )
 
-    assert report.admitted is False
+    assert report.admitted is True
     defense_trace = reference_bundle.reference_defense_traces[0]
     finding_step = next(
         step for step in defense_trace.steps if step.kind == "submit_finding"
     )
     assert finding_step.target != "svc-email"
     assert report.reference_attack_ok is True
-    assert report.reference_defense_ok is False
+    assert report.reference_defense_ok is True
 
 
 def test_admission_controller_can_run_optional_live_backend(tmp_path: Path):
@@ -368,7 +374,7 @@ def test_admission_controller_can_run_optional_live_backend(tmp_path: Path):
                 "wget -qO- http://svc-siem:9200/all.log" in cmd
             ):
                 return ExecResult(stdout="\n".join(self.logs), stderr="", exit_code=0)
-            if service == "sandbox-red":
+            if service.startswith("sandbox-"):
                 seeded = _code_web_response(world, cmd, self.web_guards)
                 if seeded is not None:
                     return seeded

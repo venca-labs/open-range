@@ -604,15 +604,19 @@ def test_runtime_tags_emitted_events_when_a_live_action_matches_audit_pattern(
         ),
     )
 
-    first_step = snapshot.reference_bundle.reference_attack_traces[0].steps[0]
+    code_web_step = next(
+        step
+        for step in snapshot.reference_bundle.reference_attack_traces[0].steps
+        if step.kind == "api" and step.target == "svc-web"
+    )
     assert runtime.next_decision().actor == "red"
     result = runtime.act(
         "red",
         Action(
             actor_id="red",
             role="red",
-            kind=first_step.kind,
-            payload={"target": first_step.target, **first_step.payload},
+            kind=code_web_step.kind,
+            payload={"target": code_web_step.target, **code_web_step.payload},
         ),
     )
 
@@ -638,15 +642,19 @@ def test_runtime_serialized_events_keep_suspicious_fields(tmp_path: Path):
         ),
     )
 
-    first_step = snapshot.reference_bundle.reference_attack_traces[0].steps[0]
+    code_web_step = next(
+        step
+        for step in snapshot.reference_bundle.reference_attack_traces[0].steps
+        if step.kind == "api" and step.target == "svc-web"
+    )
     assert runtime.next_decision().actor == "red"
     runtime.act(
         "red",
         Action(
             actor_id="red",
             role="red",
-            kind=first_step.kind,
-            payload={"target": first_step.target, **first_step.payload},
+            kind=code_web_step.kind,
+            payload={"target": code_web_step.target, **code_web_step.payload},
         ),
     )
 
@@ -691,7 +699,7 @@ def test_runtime_matching_rejects_extra_api_path_when_reference_has_no_path() ->
     assert matches_reference_step(action, expected, "ok") is False
 
 
-def test_runtime_replay_action_keeps_reference_effects_internal(tmp_path: Path):
+def test_runtime_reference_steps_are_concrete_public_actions(tmp_path: Path):
     snapshot = _snapshot(tmp_path)
     trace = snapshot.reference_bundle.reference_attack_traces[0]
     runtime = OpenRangeRuntime()
@@ -701,16 +709,18 @@ def test_runtime_replay_action_keeps_reference_effects_internal(tmp_path: Path):
         reference_attack_index=0,
     )
 
-    replayed_objective = False
+    assert all(
+        str(step.payload.get("action", "")) not in {"satisfy_objective", "traverse"}
+        for step in trace.steps
+    )
+
+    emitted = False
     for step in trace.steps:
         assert runtime.next_decision().actor == "red"
-        result = runtime._replay_action("red", runtime_action("red", step))
-        if str(step.payload.get("action", "")) == "satisfy_objective":
-            assert result.emitted_events
-            replayed_objective = True
-            break
+        result = runtime.act("red", runtime_action("red", step))
+        emitted = emitted or bool(result.emitted_events)
 
-    assert replayed_objective is True
+    assert emitted is True
 
 
 def test_runtime_public_actions_do_not_infer_declared_effects(tmp_path: Path):
@@ -1199,8 +1209,8 @@ def test_internal_blue_controller_modes_are_not_aliases(tmp_path: Path):
         ),
     )
     reference_action = reference_runtime._internal_action("blue")
-    assert reference_action.kind == "shell"
-    assert reference_action.payload["action"] == "observe_events"
+    assert reference_action.kind == "submit_finding"
+    assert reference_action.payload["event_type"] == "InitialAccess"
 
     scripted_runtime = OpenRangeRuntime()
     scripted_runtime.reset(

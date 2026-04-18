@@ -15,6 +15,8 @@ from open_range.catalog.contracts import (
     WeaknessSeedSelectionSpec,
 )
 from open_range.catalog.objectives import weakness_objective_tags_for_kind
+from open_range.objectives.expr import predicate_inner
+from open_range.objectives.resolution import objective_event_for_predicate
 
 WEAKNESS_KIND_SPECS: tuple[WeaknessKindSpec, ...] = (
     WeaknessKindSpec("code_web", "sql_injection"),
@@ -495,12 +497,37 @@ def selected_seed_families_for_world(world, *, rng: Random) -> tuple[str, ...]:
     available = available_seed_families_for_world(world)
     if not available:
         return ()
-    weakness_count = min(world.target_weakness_count, len(available))
-    return select_seed_families(
-        available,
-        weakness_count=weakness_count,
-        rng=rng,
+    objective_count = len(getattr(world, "red_objectives", ()))
+    weakness_count = min(
+        len(available),
+        max(world.target_weakness_count, objective_count + 1),
     )
+    selected: list[str] = list(
+        family for family in available if seed_selection_for_family(family).auto_include
+    )[:weakness_count]
+    for objective in getattr(world, "red_objectives", ()):
+        if len(selected) >= weakness_count:
+            break
+        event_type, _target = objective_event_for_predicate(
+            objective.predicate,
+            target_id=predicate_inner(objective.predicate),
+        )
+        if event_type and any(
+            _family_supports_event_type(family, event_type) for family in selected
+        ):
+            continue
+        family = _best_family_for_objective(available, objective.predicate, selected)
+        if family and family not in selected:
+            selected.append(family)
+    if len(selected) < weakness_count:
+        starter = _best_starter_family(available, selected)
+        if starter and starter not in selected:
+            selected.append(starter)
+    remaining = [family for family in available if family not in selected]
+    remainder_count = weakness_count - len(selected)
+    if remainder_count > 0 and remaining:
+        selected.extend(sorted(rng.sample(remaining, k=remainder_count)))
+    return tuple(selected)
 
 
 def resolve_pinned_target(world, pinned_target: str) -> tuple[str, str, str]:
@@ -538,6 +565,64 @@ def weakness_id_for(kind: str, *, target: str, target_ref: str) -> str:
 
 def remediation_text_for_kind(kind: str) -> str:
     return f"apply remediation for {kind.replace('_', ' ')}"
+
+
+def _best_family_for_objective(
+    available: tuple[str, ...],
+    predicate: str,
+    selected: list[str],
+) -> str:
+    event_type, _target = objective_event_for_predicate(
+        predicate,
+        target_id=predicate_inner(predicate),
+    )
+    candidates = [
+        family
+        for family in available
+        if family not in selected and _family_supports_event_type(family, event_type)
+    ]
+    if not candidates:
+        return ""
+    candidates.sort(
+        key=lambda family: (
+            seed_selection_for_family(family).priority,
+            family,
+        )
+    )
+    return candidates[0]
+
+
+def _family_supports_event_type(family: str, event_type: str) -> bool:
+    return any(
+        event_type in expected_events_for_weakness(family, kind)
+        for kind in supported_weakness_kinds_for_family(family)
+    )
+
+
+def _best_starter_family(
+    available: tuple[str, ...],
+    selected: list[str],
+) -> str:
+    candidates = [
+        family
+        for family in available
+        if family not in selected
+        and _family_supports_event_type(family, "InitialAccess")
+    ]
+    if not candidates:
+        return ""
+    candidates.sort(
+        key=lambda family: (
+            0
+            if _family_supports_event_type(family, "CredentialObtained")
+            or _family_supports_event_type(family, "UnauthorizedCredentialUse")
+            else 1,
+            0 if not _family_supports_event_type(family, "SensitiveAssetRead") else 1,
+            seed_selection_for_family(family).priority,
+            family,
+        )
+    )
+    return candidates[0]
 
 
 def weakness_build_defaults(

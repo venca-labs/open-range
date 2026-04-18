@@ -26,7 +26,6 @@ from .common import (
     realization_summary,
     shell_payload,
     target_ref_objective,
-    traverse_to_target,
     write_text_command,
 )
 
@@ -77,11 +76,11 @@ def build_red_reference_plan(
     satisfied: list[str] = []
     objective = target_ref_objective(world, weakness.target_ref)
     if objective is not None:
+        payload["asset"] = weakness.target_ref
         payload["objective"] = objective
         satisfied.append(objective)
     return RedReferencePlan(
-        steps=traverse_to_target(engine, start, weakness.target)
-        + (
+        steps=(
             ReferenceAction(
                 actor="red",
                 kind="shell",
@@ -178,8 +177,15 @@ def _config_identity_remediation_payload(kind: str) -> str:
 
 
 def seed_defaults(world: WorldIR) -> tuple[str, str]:
-    del world
-    return ("svc-idp", "svc-idp")
+    credential = next(
+        (
+            asset.id
+            for asset in world.assets
+            if asset.asset_class == "sensitive" or "cred" in asset.id
+        ),
+        "svc-idp",
+    )
+    return ("svc-idp", credential)
 
 
 def default_kind(world: WorldIR, target: str, target_ref: str) -> str:

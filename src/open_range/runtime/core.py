@@ -42,7 +42,6 @@ from open_range.runtime.hooks import RuntimeHooks
 from open_range.runtime.replay import (
     ReferencePlayback,
     action_for_reference_step,
-    effects_for_reference_step,
     matches_reference_step,
     prefix_satisfied,
 )
@@ -214,14 +213,6 @@ class OpenRangeRuntime:
         return Decision(decision_id=f"dec-{self._decision_seq}", actor=actor, obs=obs)
 
     def act(self, actor: str, action: Action) -> ActionResult:
-        return self._external_action_result(actor, action, internal=False)
-
-    def _replay_action(self, actor: str, action: Action) -> ActionResult:
-        return self._external_action_result(actor, action, internal=True)
-
-    def _external_action_result(
-        self, actor: str, action: Action, *, internal: bool
-    ) -> ActionResult:
         if self._snapshot is None:
             raise RuntimeError("runtime must be reset before act()")
         if self._state.done:
@@ -238,9 +229,9 @@ class OpenRangeRuntime:
             raise ValueError("action.role must match the acting external role")
 
         result = (
-            self._act_red(action, internal=internal)
+            self._act_red(action, internal=False)
             if actor == "red"
-            else self._act_blue(action, internal=internal)
+            else self._act_blue(action, internal=False)
         )
         self._pending_actor = ""
         self._state.next_actor = ""
@@ -489,7 +480,6 @@ class OpenRangeRuntime:
         exec_action, blocked_reason = prepare_red_execution(
             action,
             target=target,
-            action_backend=self.action_backend,
             snapshot=self._snapshot,
             predicates=self._predicates,
             red_footholds=self._red_footholds,
@@ -497,7 +487,15 @@ class OpenRangeRuntime:
             patched_targets=self._patched_targets,
             contained_targets=self._contained_targets,
         )
-        live = self._execute_live_action(exec_action)
+        live = (
+            ActionExecution(
+                stderr=f"target {target} is {blocked_reason}",
+                ok=False,
+                target_service=target,
+            )
+            if blocked_reason
+            else self._execute_live_action(exec_action)
+        )
         audit = self._hooks.observe_action(
             exec_action,
             live,
@@ -511,26 +509,12 @@ class OpenRangeRuntime:
             and live.ok
             and matches_reference_step(action, expected, live.stdout)
         )
-        stderr = _append_blocked_reason(live.stderr, target, blocked_reason)
-        effects = ()
+        stderr = live.stderr
+        effects = live.effects
         emitted = ()
         if blocked_reason:
             stdout = live.stdout or "red action had no strategic effect"
         else:
-            if (
-                internal
-                and expected is not None
-                and matched_reference_step
-                and not live.effects
-            ):
-                effects = effects_for_reference_step(
-                    expected,
-                    exec_action,
-                    source_entity=live.runner_service
-                    or str(exec_action.payload.get("origin", exec_action.actor_id)),
-                )
-            else:
-                effects = live.effects
             emitted = (
                 events_for_effects(
                     effects,
@@ -973,15 +957,6 @@ def _initial_due_times(config: EpisodeConfig) -> dict[str, float]:
     if config.scheduler_mode == "strict_turns":
         return {"red": 0.0, "blue": 0.0}
     return {"red": 0.0, "blue": _telemetry_delay(config)}
-
-
-def _append_blocked_reason(stderr: str, target: str, blocked_reason: str) -> str:
-    if not blocked_reason:
-        return stderr
-    blocked_msg = f"target {target} is {blocked_reason}"
-    if blocked_msg in {line.strip() for line in stderr.splitlines() if line.strip()}:
-        return stderr
-    return "\n".join(filter(None, [stderr, blocked_msg])).strip()
 
 
 def _continuity_for_service_health(service_health: dict[str, float]) -> float:

@@ -64,8 +64,15 @@ def build(context: WeaknessBuildContext):
 
 
 def seed_defaults(world: WorldIR) -> tuple[str, str]:
-    del world
-    return ("svc-web", "svc-web")
+    asset_id = next(
+        (
+            asset.id
+            for asset in world.assets
+            if asset.asset_class in {"crown_jewel", "sensitive"}
+        ),
+        world.assets[0].id if world.assets else "svc-web",
+    )
+    return ("svc-web", asset_id)
 
 
 def default_kind(world: WorldIR, target: str, target_ref: str) -> str:

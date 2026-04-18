@@ -108,9 +108,17 @@ def code_web_template(world: WorldIR, weakness: WeaknessSpec) -> CodeWebTemplate
 
 def code_web_payload(world: WorldIR, weakness: WeaknessSpec) -> dict[str, object]:
     template = code_web_template(world, weakness)
+    asset_id = next(
+        (asset.id for asset in world.assets if asset.id == weakness.target_ref),
+        None,
+    ) or preferred_asset(world)
     return {
         "path": template.route_path,
-        "query": {key: value for key, value in template.witness_query},
+        "query": {
+            key: (asset_id if key == "asset" else value)
+            for key, value in template.witness_query
+        },
+        "asset": asset_id,
         "exploit_kind": weakness.kind,
         "expect_contains": template.expected_contains,
     }

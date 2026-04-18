@@ -16,9 +16,6 @@ from open_range.contracts.runtime import (
     finding_event_type_from_payload,
 )
 from open_range.contracts.snapshot import RuntimeSnapshot
-from open_range.objectives.expr import predicate_inner
-from open_range.objectives.resolution import objective_event_for_predicate
-from open_range.runtime.execution import ActionEffect
 from open_range.support.trace_actions import normalize_trace_action
 
 
@@ -155,85 +152,6 @@ def reference_trace_pairs(
         return tuple((idx % attack_count, idx) for idx in range(defense_count))
     count = max(attack_count, defense_count)
     return tuple((idx % attack_count, idx % defense_count) for idx in range(count))
-
-
-def effects_for_reference_step(
-    reference_step: Any,
-    action: Action,
-    *,
-    source_entity: str,
-) -> tuple[ActionEffect, ...]:
-    step_action = str(getattr(reference_step, "payload", {}).get("action", ""))
-    target = str(getattr(reference_step, "target", "")) or str(
-        action.payload.get("target", "")
-    )
-    asset_id = str(getattr(reference_step, "payload", {}).get("asset", ""))
-    objective = str(getattr(reference_step, "payload", {}).get("objective", "")).strip()
-    weakness_id = str(
-        getattr(reference_step, "payload", {}).get(
-            "weakness_id",
-            getattr(reference_step, "payload", {}).get("weakness", ""),
-        )
-    )
-    if step_action in {"initial_access", "click_lure"}:
-        return (
-            ActionEffect(
-                kind="InitialAccess",
-                source_entity=source_entity,
-                target_entity=target,
-                weakness_id=weakness_id,
-            ),
-        )
-    if step_action == "traverse":
-        return (
-            ActionEffect(
-                kind="CrossZoneTraversal",
-                source_entity=source_entity,
-                target_entity=target,
-                weakness_id=weakness_id,
-            ),
-        )
-    if objective:
-        event_type, target_ref = objective_event_for_predicate(
-            objective,
-            target_id=asset_id or predicate_inner(objective),
-            default_service=target,
-        )
-        return (
-            ActionEffect(
-                kind=event_type or "SensitiveAssetRead",
-                source_entity=source_entity,
-                target_entity=target,
-                target_ref=target_ref or asset_id,
-                weakness_id=weakness_id,
-            ),
-        )
-    if step_action == "collect_secret" and asset_id:
-        effect_type = (
-            "CredentialObtained"
-            if "cred" in asset_id or "token" in asset_id
-            else "SensitiveAssetRead"
-        )
-        return (
-            ActionEffect(
-                kind=effect_type,
-                source_entity=source_entity,
-                target_entity=target,
-                target_ref=asset_id,
-                weakness_id=weakness_id,
-            ),
-        )
-    if step_action in {"abuse_identity", "abuse_workflow"}:
-        return (
-            ActionEffect(
-                kind="UnauthorizedCredentialUse",
-                source_entity=source_entity,
-                target_entity=target,
-                target_ref=asset_id,
-                weakness_id=weakness_id,
-            ),
-        )
-    return ()
 
 
 def prefix_satisfied(

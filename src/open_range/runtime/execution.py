@@ -78,7 +78,6 @@ def prepare_red_execution(
     action: Action,
     *,
     target: str,
-    action_backend: ActionBackend | None,
     snapshot: RuntimeSnapshot | None,
     predicates: PathPredicateEngine | None,
     red_footholds: set[str] | frozenset[str],
@@ -94,20 +93,17 @@ def prepare_red_execution(
 
     payload = dict(action.payload)
     if not target or snapshot is None or predicates is None:
-        payload.setdefault("origin", last_red_target or "sandbox-red")
+        payload["origin"] = last_red_target or "sandbox-red"
     else:
-        payload.setdefault(
-            "origin",
-            select_live_red_origin(
-                snapshot,
-                predicates=predicates,
-                red_footholds=red_footholds,
-                last_red_target=last_red_target,
-                target=target,
-            ),
+        payload["origin"] = select_live_red_origin(
+            snapshot,
+            predicates=predicates,
+            red_footholds=red_footholds,
+            last_red_target=last_red_target,
+            target=target,
         )
-    if target:
-        payload.setdefault("target", target)
+    if target and "target" not in payload:
+        payload["target"] = target
     return action.model_copy(update={"payload": payload}), blocked_reason
 
 
@@ -178,6 +174,12 @@ def execute_runtime_action(
     action_backend: ActionBackend | None,
     predicates: ActiveWeaknessSource | None,
 ) -> ActionExecution:
+    if blocked := _red_access_block(action, snapshot):
+        return ActionExecution(
+            stderr=blocked,
+            ok=False,
+            target_service=action_target(action),
+        )
     if action_backend is not None:
         return _attach_action_effects(
             action_backend.execute(action),
@@ -203,6 +205,36 @@ def execute_runtime_action(
         action,
         snapshot=snapshot,
     )
+
+
+def _red_access_block(action: Action, snapshot: RuntimeSnapshot | None) -> str:
+    if action.role != "red" or snapshot is None:
+        return ""
+    target = action_target(action)
+    if not target:
+        return ""
+    service = next(
+        (item for item in snapshot.world.services if item.id == target),
+        None,
+    )
+    if service is None:
+        return ""
+    origin = str(action.payload.get("origin", "sandbox-red")).strip() or "sandbox-red"
+    if _is_public_service(service):
+        return ""
+    if origin.startswith("sandbox-"):
+        return f"target {target} is unreachable from {origin}"
+    if origin == target:
+        return ""
+    if origin not in {item.id for item in snapshot.world.services}:
+        return f"origin {origin} is invalid"
+    if _foothold_can_reach_target(snapshot, origin, target):
+        return ""
+    return f"target {target} is unreachable from {origin}"
+
+
+def _is_public_service(service: ServiceSpec) -> bool:
+    return service.kind in {"web_app", "email"}
 
 
 def _foothold_can_reach_target(
@@ -666,51 +698,7 @@ def _derive_action_effects(
 ) -> tuple[ActionEffect, ...]:
     effects: list[ActionEffect] = []
     effects.extend(_control_effects(result, action))
-
-    target = action_target(action)
-    source = str(action.payload.get("origin", result.runner_service or action.actor_id))
-    markers = _effect_tokens(result.stdout)
-
-    for token in markers:
-        if token.startswith("OPENRANGE-FOOTHOLD:"):
-            weakness_id = token.rsplit(":", 1)[-1]
-            weakness = _weakness_by_id(snapshot, weakness_id)
-            effects.append(
-                ActionEffect(
-                    kind="InitialAccess",
-                    source_entity=source,
-                    target_entity=str(
-                        getattr(weakness, "target", "")
-                        or target
-                        or result.target_service
-                    ),
-                    weakness_id=weakness_id,
-                    evidence=(token,),
-                )
-            )
-            continue
-        scope, weakness_id, token_target = _parse_effect_token(token)
-        weakness = _weakness_by_id(snapshot, weakness_id)
-        target_ref = token_target or str(getattr(weakness, "target_ref", ""))
-        event_type = {
-            "asset": "SensitiveAssetRead",
-            "admin": "UnauthorizedCredentialUse",
-            "privilege": "PrivilegeEscalation",
-            "egress": "PersistenceEstablished",
-        }.get(scope, "")
-        if not event_type:
-            continue
-        effects.append(
-            ActionEffect(
-                kind=event_type,
-                source_entity=source,
-                target_entity=target or result.target_service,
-                target_ref=target_ref,
-                weakness_id=weakness_id,
-                evidence=(token,),
-            )
-        )
-
+    effects.extend(_exploit_effects(result, action, snapshot=snapshot))
     return _dedupe_effects(effects)
 
 
@@ -745,21 +733,68 @@ def _control_effects(
     return ()
 
 
-def _effect_tokens(stdout: str) -> tuple[str, ...]:
+def _exploit_effects(
+    result: ActionExecution,
+    action: Action,
+    *,
+    snapshot: RuntimeSnapshot | None,
+) -> tuple[ActionEffect, ...]:
+    if snapshot is None:
+        return ()
+    weakness_tokens: dict[str, list[str]] = {}
+    for token in _witness_tokens(result.stdout):
+        weakness_id = _token_weakness_id(token)
+        if not weakness_id:
+            continue
+        weakness_tokens.setdefault(weakness_id, []).append(token)
+    if not weakness_tokens:
+        return ()
+
+    source = str(action.payload.get("origin", result.runner_service or action.actor_id))
+    service_target = action_target(action) or result.target_service
+    effects: list[ActionEffect] = []
+    for weakness_id, evidence in sorted(weakness_tokens.items()):
+        weakness = _weakness_by_id(snapshot, weakness_id)
+        if weakness is None:
+            continue
+        target_ref = _effect_target_ref(action, weakness)
+        for event_type in weakness.expected_event_signatures:
+            effects.append(
+                ActionEffect(
+                    kind=event_type,
+                    source_entity=source,
+                    target_entity=service_target
+                    or str(getattr(weakness, "target", "")),
+                    target_ref=(
+                        target_ref
+                        if event_type in {"CredentialObtained", "SensitiveAssetRead"}
+                        else ""
+                    ),
+                    weakness_id=weakness_id,
+                    evidence=tuple(evidence),
+                )
+            )
+    return tuple(effects)
+
+
+def _witness_tokens(stdout: str) -> tuple[str, ...]:
     return tuple(
         token
-        for token in stdout.split()
+        for token in (
+            chunk.strip("'\"`()[]{}<>,;") for chunk in stdout.replace("\n", " ").split()
+        )
         if token.startswith("OPENRANGE-FOOTHOLD:")
         or token.startswith("OPENRANGE-EFFECT:")
     )
 
 
-def _parse_effect_token(token: str) -> tuple[str, str, str]:
-    prefix, scope, remainder = token.split(":", 2)
-    if prefix != "OPENRANGE-EFFECT":
-        return "", "", ""
-    weakness_id, sep, target_ref = remainder.partition(":")
-    return scope, weakness_id, target_ref if sep else ""
+def _token_weakness_id(token: str) -> str:
+    if token.startswith("OPENRANGE-FOOTHOLD:"):
+        return token.rsplit(":", 1)[-1]
+    if not token.startswith("OPENRANGE-EFFECT:"):
+        return ""
+    parts = token.split(":")
+    return parts[2] if len(parts) >= 3 else ""
 
 
 def _weakness_by_id(
@@ -775,6 +810,18 @@ def _weakness_by_id(
         ),
         None,
     )
+
+
+def _effect_target_ref(action: Action, weakness: WeaknessSpec) -> str:
+    payload_asset = str(action.payload.get("asset", ""))
+    if payload_asset:
+        return payload_asset
+    query = action.payload.get("query", {})
+    if isinstance(query, dict):
+        asset = str(query.get("asset", ""))
+        if asset:
+            return asset
+    return str(getattr(weakness, "target_ref", ""))
 
 
 def _dedupe_effects(effects: list[ActionEffect]) -> tuple[ActionEffect, ...]:

@@ -80,14 +80,14 @@ def test_end_to_end_pipeline_store_reset_and_tandem_episode(tmp_path: Path):
             Action(
                 actor_id="blue",
                 role="blue",
-                kind=blue_steps[1].kind,
+                kind=blue_steps[0].kind,
                 payload={"event_type": "InitialAccess", "target": red_steps[0].target},
             ),
             Action(
                 actor_id="blue",
                 role="blue",
-                kind=blue_steps[2].kind,
-                payload={"target": blue_steps[2].target, "action": "contain"},
+                kind=blue_steps[1].kind,
+                payload={"target": blue_steps[1].target, "action": "contain"},
             ),
         ]
     )
@@ -286,7 +286,7 @@ def test_green_reactive_branches_flow_through_runtime_between_external_decisions
     for idx, step in enumerate(red_steps[: credential_index + 1]):
         decision = service.next_decision()
         assert decision.actor == "red"
-        service.runtime._replay_action(
+        service.runtime.act(
             "red",
             Action(
                 actor_id="red",
@@ -308,7 +308,7 @@ def test_green_reactive_branches_flow_through_runtime_between_external_decisions
     assert decision.actor == "blue"
     service.act("blue", Action(actor_id="blue", role="blue", kind="sleep", payload={}))
 
-    for _ in range(4):
+    for _ in range(8):
         events = service.runtime.export_events()
         if any(
             event.actor == "green"

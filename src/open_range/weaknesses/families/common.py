@@ -8,7 +8,6 @@ from dataclasses import dataclass
 from open_range.contracts.validation import ReferenceAction
 from open_range.contracts.world import WeaknessRealizationSpec, WeaknessSpec, WorldIR
 from open_range.manifest import WeaknessFamily
-from open_range.objectives.engine import PredicateEngine
 from open_range.objectives.expr import predicate_inner
 
 
@@ -48,34 +47,6 @@ def first_objective_service(world: WorldIR) -> str:
     return "svc-siem"
 
 
-def traverse_to_target(
-    engine: PredicateEngine,
-    start: str,
-    target: str,
-) -> tuple[ReferenceAction, ...]:
-    if start == target:
-        return ()
-    steps = [
-        ReferenceAction(
-            actor="red",
-            kind="api",
-            target=start,
-            payload={"action": "initial_access"},
-        )
-    ]
-    path = engine.shortest_path(start, target)
-    for service_id in path[1:]:
-        steps.append(
-            ReferenceAction(
-                actor="red",
-                kind="api",
-                target=service_id,
-                payload={"action": "traverse"},
-            )
-        )
-    return tuple(steps)
-
-
 def shell_payload(
     *,
     action: str,
@@ -88,7 +59,6 @@ def shell_payload(
         "action": action,
         "weakness_id": weakness_id,
         "target": target,
-        "origin": target,
         "expect_contains": expect_contains,
     }
     if path:
