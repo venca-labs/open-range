@@ -2,13 +2,12 @@
 
 from __future__ import annotations
 
-import time
 from typing import TYPE_CHECKING, Any
 
+from open_range.admission.live_necessity import LiveNecessityRunner
 from open_range.admission.models import ValidatorCheckReport
 from open_range.config import EpisodeConfig
 from open_range.contracts.snapshot import RuntimeSnapshot
-from open_range.objectives.effects import effect_marker_service
 from open_range.objectives.engine import PredicateEngine
 from open_range.objectives.live import evaluate_objective_grader_live
 from open_range.runtime.core import OpenRangeRuntime
@@ -393,125 +392,15 @@ def _live_necessity_check(
     release: BootedRelease,
     backend: PodActionBackend,
 ) -> ValidatorCheckReport:
-    engine = PredicateEngine(snapshot.world)
-    active_weaknesses = engine.active_weaknesses()
-    trace_bindings = reference_trace_bindings(
-        snapshot.reference_bundle.reference_attack_traces,
-        active_weaknesses,
-    )
-    referenced_weakness_ids = {
-        weakness.id
-        for _trace_index, _trace, weaknesses in trace_bindings
-        for weakness in weaknesses
-    }
-    if not referenced_weakness_ids:
-        return ValidatorCheckReport(
-            name="live_necessity",
-            passed=False,
-            details={"reason": "no reference-relevant weakness"},
-            error="no reference-relevant weakness available for live necessity check",
-        )
-    results = []
-    passed = True
-    for trace_index, trace, weaknesses in trace_bindings:
-        for weakness in weaknesses:
-            command = remediation_command_for_weakness(weakness)
-            if not command:
-                passed = False
-                results.append(
-                    {
-                        "trace_id": trace.id,
-                        "trace_index": trace_index,
-                        "weakness_id": weakness.id,
-                        "target": weakness.target,
-                        "remediation": weakness.remediation,
-                        "remediation_kind": weakness.remediation_kind,
-                        "passed": False,
-                        "error": "weakness remediation is not executable",
-                    }
-                )
-                continue
-            restored_before = _restore_live_necessity_state(snapshot, release, weakness)
-            apply_result = run_async(
-                release.pods.exec(weakness.target, command, timeout=10.0)
-            )
-            score, _events, _health, outputs = run_red_reference(
-                snapshot,
-                backend,
-                trace_index=trace_index,
-            )
-            restored_after = _restore_live_necessity_state(snapshot, release, weakness)
-            check_passed = (
-                restored_before
-                and apply_result.ok
-                and score.winner != "red"
-                and restored_after
-            )
-            passed = passed and check_passed
-            results.append(
-                {
-                    "trace_id": trace.id,
-                    "trace_index": trace_index,
-                    "weakness_id": weakness.id,
-                    "target": weakness.target,
-                    "winner_after_remediation": score.winner,
-                    "restored_before": restored_before,
-                    "restored_after": restored_after,
-                    "outputs": outputs,
-                    "passed": check_passed,
-                }
-            )
-    return ValidatorCheckReport(
-        name="live_necessity",
-        passed=passed,
-        details={"checks": results},
-        error="" if passed else "live remediation did not break the reference path",
-    )
-
-
-def _restore_live_necessity_state(
-    snapshot: RuntimeSnapshot,
-    release: BootedRelease,
-    weakness: Any,
-) -> bool:
-    _clear_live_reference_markers(release, snapshot)
-    services = _live_necessity_services(weakness)
-    restarted = _restart_live_services(release, services)
-    _clear_live_reference_markers(release, snapshot)
-    return restarted
-
-
-def _live_necessity_services(weakness: Any) -> tuple[str, ...]:
-    services = {
-        str(getattr(weakness, "target", "")),
-        effect_marker_service(weakness),
-        *(
-            str(getattr(realization, "service", ""))
-            for realization in getattr(weakness, "realization", ())
+    return LiveNecessityRunner(
+        snapshot=snapshot,
+        release=release,
+        backend=backend,
+        trace_bindings=reference_trace_bindings(
+            snapshot.reference_bundle.reference_attack_traces,
+            PredicateEngine(snapshot.world).active_weaknesses(),
         ),
-    }
-    return tuple(sorted(service for service in services if service))
-
-
-def _restart_live_services(release: BootedRelease, services: tuple[str, ...]) -> bool:
-    restart = getattr(release.pods, "restart", None)
-    if restart is None:
-        return True
-    restarted = True
-    for service in services:
-        if service not in release.pods.pod_ids:
-            continue
-        run_async(restart(service, timeout=30.0))
-        restarted = _wait_for_live_service(release, service) and restarted
-    return restarted
-
-
-def _wait_for_live_service(
-    release: BootedRelease, service: str, *, timeout_s: float = 60.0
-) -> bool:
-    deadline = time.monotonic() + timeout_s
-    while time.monotonic() < deadline:
-        if run_async(release.pods.is_healthy(service)):
-            return True
-        time.sleep(1.0)
-    return False
+        remediation_for_weakness=remediation_command_for_weakness,
+        run_red_reference=run_red_reference,
+        clear_reference_markers=_clear_live_reference_markers,
+    ).report()
