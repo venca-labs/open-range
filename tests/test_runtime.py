@@ -704,7 +704,7 @@ def test_runtime_replay_action_keeps_reference_effects_internal(tmp_path: Path):
     replayed_objective = False
     for step in trace.steps:
         assert runtime.next_decision().actor == "red"
-        result = runtime.replay_action("red", runtime_action("red", step))
+        result = runtime._replay_action("red", runtime_action("red", step))
         if str(step.payload.get("action", "")) == "satisfy_objective":
             assert result.emitted_events
             replayed_objective = True

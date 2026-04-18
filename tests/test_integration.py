@@ -286,7 +286,7 @@ def test_green_reactive_branches_flow_through_runtime_between_external_decisions
     for idx, step in enumerate(red_steps[: credential_index + 1]):
         decision = service.next_decision()
         assert decision.actor == "red"
-        service.runtime.replay_action(
+        service.runtime._replay_action(
             "red",
             Action(
                 actor_id="red",

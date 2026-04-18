@@ -48,7 +48,7 @@ def run_red_reference(
             raise
         if decision.actor != "red":
             break
-        result = runtime.replay_action(
+        result = runtime._replay_action(
             "red",
             action_for_reference_step(snapshot, "red", step),
         )
@@ -226,7 +226,7 @@ def check_blue_reference(
                 raise
             step = trace.steps[step_idx] if step_idx < len(trace.steps) else None
             action = action_for_reference_step(snapshot, "blue", step)
-            result = runtime.replay_action("blue", action)
+            result = runtime._replay_action("blue", action)
             outputs.append(result.stdout or result.stderr)
             if decision.actor != "blue":
                 break

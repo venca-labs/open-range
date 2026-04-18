@@ -216,7 +216,7 @@ class OpenRangeRuntime:
     def act(self, actor: str, action: Action) -> ActionResult:
         return self._external_action_result(actor, action, internal=False)
 
-    def replay_action(self, actor: str, action: Action) -> ActionResult:
+    def _replay_action(self, actor: str, action: Action) -> ActionResult:
         return self._external_action_result(actor, action, internal=True)
 
     def _external_action_result(
