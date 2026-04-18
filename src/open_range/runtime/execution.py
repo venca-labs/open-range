@@ -19,8 +19,6 @@ from open_range.contracts.runtime import (
 from open_range.contracts.snapshot import RuntimeSnapshot
 from open_range.contracts.world import ServiceSpec, WeaknessSpec
 from open_range.objectives.effects import effect_marker_cleanup_command
-from open_range.objectives.expr import predicate_inner
-from open_range.objectives.resolution import objective_event_for_predicate
 from open_range.render.live import BootedRelease
 from open_range.runtime.audit import command_text_for_action
 from open_range.support.async_utils import run_async
@@ -703,15 +701,6 @@ def _derive_action_effects(
             )
         )
 
-    effects.extend(
-        _declared_effects_for_action(
-            snapshot,
-            action,
-            target=target,
-            source=source,
-            evidence=tuple(markers),
-        )
-    )
     return _dedupe_effects(effects)
 
 
@@ -746,82 +735,6 @@ def _control_effects(
     return ()
 
 
-def _declared_effects_for_action(
-    snapshot: RuntimeSnapshot | None,
-    action: Action,
-    *,
-    target: str,
-    source: str,
-    evidence: tuple[str, ...],
-) -> tuple[ActionEffect, ...]:
-    step_action = str(action.payload.get("action", "")).strip()
-    if step_action not in {
-        "initial_access",
-        "click_lure",
-        "collect_secret",
-        "abuse_identity",
-        "abuse_workflow",
-        "satisfy_objective",
-    }:
-        return ()
-    objective = str(action.payload.get("objective", "")).strip()
-    asset_id = str(action.payload.get("asset", "")).strip()
-    weakness_id = str(
-        action.payload.get("weakness_id", action.payload.get("weakness", ""))
-    ).strip()
-    weakness = _weakness_by_id(snapshot, weakness_id)
-    if not objective and not asset_id and weakness is not None:
-        asset_id = str(getattr(weakness, "target_ref", ""))
-    has_service_origin = _originates_from_service(action)
-    if step_action == "satisfy_objective" and not (evidence or has_service_origin):
-        return ()
-    if step_action in {"collect_secret", "abuse_identity", "abuse_workflow"} and not (
-        evidence or has_service_origin or weakness is not None
-    ):
-        return ()
-    if step_action in {"initial_access", "click_lure"}:
-        if not (evidence or weakness is not None):
-            return ()
-        return (
-            ActionEffect(
-                kind="InitialAccess",
-                source_entity=source,
-                target_entity=target,
-                weakness_id=weakness_id,
-                evidence=evidence,
-            ),
-        )
-    event_type = ""
-    target_ref = asset_id
-    if objective:
-        event_type, target_ref = objective_event_for_predicate(
-            objective,
-            target_id=asset_id or predicate_inner(objective),
-            default_service=target,
-        )
-    elif asset_id:
-        event_type = (
-            "CredentialObtained"
-            if "cred" in asset_id or "token" in asset_id
-            else "SensitiveAssetRead"
-        )
-    if step_action in {"abuse_identity", "abuse_workflow"} and not event_type:
-        event_type = "UnauthorizedCredentialUse"
-        target_ref = asset_id
-    if not event_type:
-        return ()
-    return (
-        ActionEffect(
-            kind=event_type,
-            source_entity=source,
-            target_entity=target,
-            target_ref=target_ref,
-            weakness_id=weakness_id,
-            evidence=evidence,
-        ),
-    )
-
-
 def _effect_tokens(stdout: str) -> tuple[str, ...]:
     return tuple(
         token
@@ -851,13 +764,6 @@ def _weakness_by_id(
             if weakness.id == weakness_id
         ),
         None,
-    )
-
-
-def _originates_from_service(action: Action) -> bool:
-    origin = str(action.payload.get("origin", "")).strip()
-    return bool(
-        origin and origin != action.actor_id and not origin.startswith("sandbox-")
     )
 
 

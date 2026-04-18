@@ -205,6 +205,14 @@ class OpenRangeRuntime:
         return Decision(decision_id=f"dec-{self._decision_seq}", actor=actor, obs=obs)
 
     def act(self, actor: str, action: Action) -> ActionResult:
+        return self._external_action_result(actor, action, internal=False)
+
+    def replay_action(self, actor: str, action: Action) -> ActionResult:
+        return self._external_action_result(actor, action, internal=True)
+
+    def _external_action_result(
+        self, actor: str, action: Action, *, internal: bool
+    ) -> ActionResult:
         if self._snapshot is None:
             raise RuntimeError("runtime must be reset before act()")
         if self._state.done:
@@ -220,7 +228,11 @@ class OpenRangeRuntime:
         if action.role != actor:
             raise ValueError("action.role must match the acting external role")
 
-        result = self._act_red(action) if actor == "red" else self._act_blue(action)
+        result = (
+            self._act_red(action, internal=internal)
+            if actor == "red"
+            else self._act_blue(action, internal=internal)
+        )
         self._pending_actor = ""
         self._state.next_actor = ""
         self._advance_due_time(actor)

@@ -691,6 +691,56 @@ def test_runtime_matching_rejects_extra_api_path_when_reference_has_no_path() ->
     assert matches_reference_step(action, expected, "ok") is False
 
 
+def test_runtime_replay_action_keeps_reference_effects_internal(tmp_path: Path):
+    snapshot = _snapshot(tmp_path)
+    trace = snapshot.reference_bundle.reference_attack_traces[0]
+    runtime = OpenRangeRuntime()
+    runtime.reset(
+        snapshot,
+        EpisodeConfig(mode="red_only", green_enabled=False),
+        reference_attack_index=0,
+    )
+
+    replayed_objective = False
+    for step in trace.steps:
+        assert runtime.next_decision().actor == "red"
+        result = runtime.replay_action("red", runtime_action("red", step))
+        if str(step.payload.get("action", "")) == "satisfy_objective":
+            assert result.emitted_events
+            replayed_objective = True
+            break
+
+    assert replayed_objective is True
+
+
+def test_runtime_public_actions_do_not_infer_declared_effects(tmp_path: Path):
+    snapshot = _snapshot(tmp_path)
+    runtime = OpenRangeRuntime()
+    runtime.reset(
+        snapshot,
+        EpisodeConfig(mode="red_only", green_enabled=False),
+    )
+
+    assert runtime.next_decision().actor == "red"
+    result = runtime.act(
+        "red",
+        Action(
+            actor_id="red",
+            role="red",
+            kind="shell",
+            payload={
+                "target": snapshot.world.services[0].id,
+                "action": "collect_secret",
+                "asset": "finance_docs",
+                "expect_contains": "finance_docs",
+            },
+        ),
+    )
+
+    assert result.effects == ()
+    assert result.emitted_events == ()
+
+
 def test_runtime_red_public_effects_do_not_depend_on_current_reference_step(
     tmp_path: Path,
 ):
