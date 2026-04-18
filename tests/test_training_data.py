@@ -7,7 +7,7 @@ from open_range.training.trace_exports import (
 )
 
 
-def test_public_trace_action_keeps_visible_payload() -> None:
+def test_public_trace_action_keeps_public_payload_only() -> None:
     action = Action(
         actor_id="red",
         role="red",
@@ -15,13 +15,19 @@ def test_public_trace_action_keeps_visible_payload() -> None:
         payload={
             "target": "svc-idp",
             "command": "cat /etc/openrange/admin-surface.json",
+            "path": "/etc/openrange/admin-surface.json",
+            "weakness_id": "wk-admin-surface",
+            "expect_contains": "OPENRANGE-EFFECT:admin:wk-admin-surface",
         },
     )
 
     public = public_trace_action(action)
 
     assert public.payload["target"] == "svc-idp"
-    assert public.payload["command"] == "cat /etc/openrange/admin-surface.json"
+    assert public.payload["path"] == "/etc/openrange/admin-surface.json"
+    assert "command" not in public.payload
+    assert "weakness_id" not in public.payload
+    assert "expect_contains" not in public.payload
 
 
 def test_render_action_text_keeps_http_semantics() -> None:

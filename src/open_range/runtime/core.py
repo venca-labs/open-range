@@ -855,6 +855,7 @@ class OpenRangeRuntime:
     def _execute_live_action(self, action: Action) -> ActionExecution:
         result = execute_runtime_action(
             action,
+            internal=False,
             snapshot=self._snapshot,
             action_backend=self.action_backend,
             predicates=self._predicates,
@@ -870,6 +871,7 @@ class OpenRangeRuntime:
     def _execute_internal_action(self, action: Action) -> ActionExecution:
         result = execute_runtime_action(
             action,
+            internal=True,
             snapshot=self._snapshot,
             action_backend=self.action_backend,
             predicates=self._predicates,
@@ -991,9 +993,9 @@ class OpenRangeRuntime:
         if self._predicates is None:
             return targets
         targets.update(
-            service.id
-            for service in self._snapshot.world.services
-            if self._predicates.is_public_service(service)
+            weakness.target
+            for weakness in self._predicates.active_weaknesses()
+            if "InitialAccess" in getattr(weakness, "expected_event_signatures", ())
         )
         for objective in self._snapshot.world.red_objectives:
             if objective.predicate in self._red_objectives_satisfied:

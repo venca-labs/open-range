@@ -36,6 +36,7 @@ def build_red_reference_plan(
     weakness: WeaknessSpec,
 ) -> RedReferencePlan:
     del engine
+    supports_staged_reference = weakness.kind == "sql_injection"
     initial_payload = {
         "action": "initial_access",
         "weakness_id": weakness.id,
@@ -46,7 +47,7 @@ def build_red_reference_plan(
     steps: list[ReferenceAction] = []
     satisfied: list[str] = []
     objective = target_ref_objective(world, weakness.target_ref)
-    if start == weakness.target:
+    if start == weakness.target and (supports_staged_reference or objective is None):
         steps.append(
             ReferenceAction(
                 actor="red",
@@ -55,7 +56,9 @@ def build_red_reference_plan(
                 payload=initial_payload,
             )
         )
-    if objective is not None and (start != weakness.target or terminal_count == 1):
+    if objective is not None and (
+        not supports_staged_reference or start != weakness.target or terminal_count == 1
+    ):
         objective_payload = {
             "action": "collect_secret",
             "weakness_id": weakness.id,

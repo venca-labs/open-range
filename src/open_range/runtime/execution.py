@@ -26,6 +26,7 @@ from open_range.weaknesses.code_web import (
     code_web_cleanup_commands,
     code_web_guard_path,
 )
+from open_range.weaknesses.witnesses import offline_witness_stdout
 
 
 @dataclass(frozen=True, slots=True)
@@ -117,12 +118,15 @@ def simulate_action_execution(
     action: Action,
     *,
     resolve_active_weakness: Callable[[str], WeaknessSpec | None],
+    snapshot: RuntimeSnapshot | None = None,
+    active_weaknesses: tuple[WeaknessSpec, ...] = (),
+    internal: bool = False,
 ) -> ActionExecution:
     directive = control_directive(action, default="contain")
     weakness_id = str(
         action.payload.get("weakness_id", action.payload.get("weakness", ""))
     ).strip()
-    if action.kind in {"api", "shell", "mail"} and weakness_id:
+    if internal and action.kind in {"api", "shell", "mail"} and weakness_id:
         weakness = resolve_active_weakness(weakness_id)
         if weakness is None:
             return ActionExecution(
@@ -133,9 +137,15 @@ def simulate_action_execution(
             or f"exercised {weakness.kind}",
         )
     return ActionExecution(
-        stdout=str(action.payload.get("expect_contains", ""))
-        if action.kind in {"api", "shell", "mail"}
-        else "",
+        stdout=(
+            offline_witness_stdout(
+                snapshot.world,
+                action,
+                active_weaknesses,
+            )
+            if action.kind in {"api", "shell", "mail"} and snapshot is not None
+            else ""
+        ),
         containment_applied=action.kind == "control" and directive == "contain",
         patch_applied=action.kind == "control" and directive in {"patch", "mitigate"},
         recovery_applied=action.kind == "control"
@@ -176,6 +186,7 @@ def select_live_red_origin(
 def execute_runtime_action(
     action: Action,
     *,
+    internal: bool,
     snapshot: RuntimeSnapshot | None,
     action_backend: ActionBackend | None,
     predicates: ActiveWeaknessSource | None,
@@ -207,6 +218,9 @@ def execute_runtime_action(
                 ),
                 None,
             ),
+            snapshot=snapshot,
+            active_weaknesses=active_weaknesses,
+            internal=internal,
         ),
         action,
         snapshot=snapshot,

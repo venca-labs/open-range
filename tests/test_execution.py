@@ -165,10 +165,30 @@ def test_simulate_action_execution_rejects_missing_weakness() -> None:
     result = simulate_action_execution(
         action,
         resolve_active_weakness=lambda weakness_id: None,
+        internal=True,
     )
 
     assert result.ok is False
     assert result.stderr == "weakness weak-missing unavailable"
+
+
+def test_simulate_action_execution_public_mode_ignores_weakness_ids() -> None:
+    action = Action(
+        actor_id="red",
+        role="red",
+        kind="shell",
+        payload={"weakness_id": "weak-present", "expect_contains": "owned"},
+    )
+
+    result = simulate_action_execution(
+        action,
+        resolve_active_weakness=lambda weakness_id: SimpleNamespace(
+            id=weakness_id, kind="sql_injection"
+        ),
+    )
+
+    assert result.ok is True
+    assert result.stdout == ""
 
 
 def test_select_live_red_origin_prefers_shortest_reachable_foothold() -> None:

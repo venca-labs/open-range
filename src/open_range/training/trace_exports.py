@@ -13,9 +13,29 @@ from open_range.contracts.runtime import (
 from open_range.contracts.snapshot import RuntimeSnapshot
 from open_range.training.data import TraceWeakness
 
+_HIDDEN_TRACE_PAYLOAD_KEYS = frozenset(
+    {
+        "action",
+        "asset",
+        "claim_objective",
+        "expect_contains",
+        "objective",
+        "origin",
+        "weakness",
+        "weakness_id",
+    }
+)
+
 
 def public_trace_action(action: Action) -> Action:
-    return action
+    payload = {
+        key: value
+        for key, value in action.payload.items()
+        if key not in _HIDDEN_TRACE_PAYLOAD_KEYS
+    }
+    if action.kind == "shell" and "path" in payload:
+        payload.pop("command", None)
+    return action.model_copy(update={"payload": payload})
 
 
 def render_action_text(action: Action) -> str:

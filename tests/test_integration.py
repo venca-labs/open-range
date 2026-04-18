@@ -129,9 +129,19 @@ def test_live_backend_integration_carries_logs_from_runtime_events(tmp_path: Pat
             self.contained: set[str] = set()
             self.patched: set[str] = set()
             self.web_guards: set[str] = set()
+            self.remediated_weakness_ids: set[str] = set()
+            self._weakness_id_by_service = {
+                weakness.target: weakness.id for weakness in world.weaknesses
+            }
 
         async def is_healthy(self, service: str) -> bool:
             return service in self.pod_ids
+
+        async def restart(self, service: str, timeout: float = 30.0) -> None:
+            del timeout
+            weakness_id = self._weakness_id_by_service.get(service, "")
+            if weakness_id:
+                self.remediated_weakness_ids.discard(weakness_id)
 
         async def exec(
             self, service: str, cmd: str, timeout: float = 30.0
@@ -181,9 +191,18 @@ def test_live_backend_integration_carries_logs_from_runtime_events(tmp_path: Pat
             if "grep -q 'InitialAccess' /srv/http/siem/all.log" in cmd:
                 seen = any("InitialAccess" in line for line in self.logs)
                 return ExecResult(stdout="", stderr="", exit_code=0 if seen else 1)
+            if "touch /tmp/openrange-patched" in cmd or "cat <<'EOF' >" in cmd:
+                weakness_id = self._weakness_id_by_service.get(service, "")
+                if weakness_id:
+                    self.remediated_weakness_ids.add(weakness_id)
             seeded = _code_web_response(self.world, cmd, self.web_guards)
             if seeded is not None:
                 return seeded
+            if (
+                any(weakness_id in cmd for weakness_id in self.remediated_weakness_ids)
+                and "OPENRANGE-EFFECT:" in cmd
+            ):
+                return ExecResult(stdout="", stderr="remediated", exit_code=1)
             if service == "sandbox-red" and any(
                 target in cmd for target in ("svc-fileshare", "svc-db", "svc-idp")
             ):

@@ -786,6 +786,36 @@ def test_runtime_public_actions_do_not_infer_declared_effects(tmp_path: Path):
     assert result.emitted_events == ()
 
 
+def test_runtime_public_offline_actions_ignore_weakness_ids(tmp_path: Path) -> None:
+    snapshot = _snapshot(tmp_path)
+    weakness = next(
+        weak for weak in snapshot.world.weaknesses if weak.family == "code_web"
+    )
+    runtime = OpenRangeRuntime()
+    runtime.reset(
+        snapshot,
+        EpisodeConfig(mode="red_only", green_enabled=False),
+    )
+
+    assert runtime.next_decision().actor == "red"
+    result = runtime.act(
+        "red",
+        Action(
+            actor_id="red",
+            role="red",
+            kind="api",
+            payload={
+                "target": weakness.target,
+                "weakness_id": weakness.id,
+                "expect_contains": f"OPENRANGE-FOOTHOLD:{weakness.id}",
+            },
+        ),
+    )
+
+    assert result.emitted_events == ()
+    assert result.reward_delta < 0.0
+
+
 def test_runtime_red_public_effects_do_not_depend_on_current_reference_step(
     tmp_path: Path,
 ):
@@ -965,6 +995,44 @@ def test_runtime_live_containment_blocks_future_red_step(tmp_path: Path):
     )
 
     assert "contained" in blocked.stderr
+
+
+def test_runtime_containing_unrelated_public_service_does_not_break_red_path(
+    tmp_path: Path,
+):
+    snapshot = _snapshot(tmp_path)
+    runtime = OpenRangeRuntime()
+    runtime.reset(
+        snapshot,
+        EpisodeConfig(mode="joint_pool", green_enabled=False),
+    )
+
+    first_step = snapshot.reference_bundle.reference_attack_traces[0].steps[0]
+
+    assert runtime.next_decision().actor == "red"
+    runtime.act(
+        "red",
+        Action(
+            actor_id="red",
+            role="red",
+            kind=first_step.kind,
+            payload={"target": first_step.target, **first_step.payload},
+        ),
+    )
+
+    assert runtime.next_decision().actor == "blue"
+    result = runtime.act(
+        "blue",
+        Action(
+            actor_id="blue",
+            role="blue",
+            kind="control",
+            payload={"target": "svc-email", "action": "contain"},
+        ),
+    )
+
+    assert result.reward_delta == 0.0
+    assert "no path-breaking effect" in result.stdout
 
 
 def test_runtime_live_patch_blocks_future_red_step_and_emits_patch_event(
