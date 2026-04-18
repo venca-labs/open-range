@@ -57,7 +57,7 @@ def _code_web_response(
         return None
     parts = [str(payload.get("expect_contains", ""))]
     token = effect_marker_token(weakness)
-    if token and token not in parts:
+    if token and token not in parts and f"asset={payload['asset']}" in cmd:
         parts.append(token)
     return ExecResult(
         stdout="\n".join(part for part in parts if part), stderr="", exit_code=0
@@ -150,6 +150,21 @@ def test_admission_controller_admits_seeded_world(tmp_path: Path):
     )
     assert reference_bundle.reference_attack_traces
     assert reference_bundle.reference_defense_traces
+
+
+def test_reference_planner_starts_with_terminal_relevant_weakness(tmp_path: Path):
+    world = _build_seeded_world()
+    artifacts = EnterpriseSaaSKindRenderer().render(
+        world, _synth(world, tmp_path), tmp_path / "rendered-reference"
+    )
+
+    reference_bundle, report = LocalAdmissionController(mode="fail_fast").admit(
+        world, artifacts, OFFLINE_REFERENCE_BUILD_CONFIG
+    )
+
+    assert report.admitted is True
+    first_step = reference_bundle.reference_attack_traces[0].steps[0]
+    assert first_step.payload["weakness_id"] == "wk-sql-injection-finance_docs"
 
 
 def test_auto_live_backend_uses_resolved_host_binaries(monkeypatch) -> None:

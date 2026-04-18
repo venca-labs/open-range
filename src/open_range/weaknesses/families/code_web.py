@@ -4,12 +4,18 @@ from __future__ import annotations
 
 from open_range.contracts.validation import ReferenceAction
 from open_range.contracts.world import WeaknessRealizationSpec, WeaknessSpec, WorldIR
+from open_range.objectives.effects import effect_marker_token
 from open_range.objectives.engine import PredicateEngine
 
 from ..code_web.remediation import code_web_remediation_command
 from ..code_web.render import code_web_realization_content
 from ..code_web.specs import code_web_payload, code_web_realizations
-from .common import RedReferencePlan, WeaknessBuildContext, assemble_weakness_spec
+from .common import (
+    RedReferencePlan,
+    WeaknessBuildContext,
+    assemble_weakness_spec,
+    target_ref_objective,
+)
 
 
 def mutation_target_service(world: WorldIR) -> str | None:
@@ -29,23 +35,57 @@ def build_red_reference_plan(
     start: str,
     weakness: WeaknessSpec,
 ) -> RedReferencePlan:
-    del engine, start
-    payload = {
+    del engine
+    initial_payload = {
         "action": "initial_access",
         "weakness_id": weakness.id,
         "weakness": weakness.id,
     }
-    payload.update(code_web_payload(world, weakness))
-    return RedReferencePlan(
-        steps=(
+    initial_payload.update(code_web_payload(world, weakness, include_asset=False))
+    terminal_count = sum(1 for objective in world.red_objectives if objective.terminal)
+    steps: list[ReferenceAction] = []
+    satisfied: list[str] = []
+    objective = target_ref_objective(world, weakness.target_ref)
+    if start == weakness.target:
+        steps.append(
             ReferenceAction(
                 actor="red",
                 kind="api",
                 target=weakness.target,
-                payload=payload,
-            ),
-        ),
+                payload=initial_payload,
+            )
+        )
+    if objective is not None and (start != weakness.target or terminal_count == 1):
+        objective_payload = {
+            "action": "collect_secret",
+            "weakness_id": weakness.id,
+            "weakness": weakness.id,
+            "objective": objective,
+        }
+        objective_payload.update(code_web_payload(world, weakness))
+        objective_payload["expect_contains"] = effect_marker_token(weakness)
+        steps.append(
+            ReferenceAction(
+                actor="red",
+                kind="api",
+                target=weakness.target,
+                payload=objective_payload,
+            )
+        )
+        satisfied.append(objective)
+    if not steps:
+        steps.append(
+            ReferenceAction(
+                actor="red",
+                kind="api",
+                target=weakness.target,
+                payload=initial_payload,
+            )
+        )
+    return RedReferencePlan(
+        steps=tuple(steps),
         current=weakness.target,
+        satisfied_predicates=tuple(satisfied),
     )
 
 

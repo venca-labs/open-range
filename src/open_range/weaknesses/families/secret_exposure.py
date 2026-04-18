@@ -80,7 +80,6 @@ def build_red_reference_plan(
         markers=_secret_effect_markers(world, weakness),
     )
     payload["command"] = live_command
-    payload["service_command"] = live_command
     satisfied: list[str] = []
     objective = target_ref_objective(world, weakness.target_ref)
     if objective is not None:

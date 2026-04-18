@@ -42,6 +42,7 @@ def _route_template(world: WorldIR, weakness: WeaknessSpec) -> str:
     target_guard_path = guard_path(weakness)
     effect_path = effect_marker_path(weakness)
     effect_content = php_string_literal(effect_marker_content(weakness))
+    target_ref = php_string_literal(getattr(weakness, "target_ref", ""))
     if weakness.kind == "sql_injection":
         return textwrap.dedent(
             f"""\
@@ -52,12 +53,16 @@ def _route_template(world: WorldIR, weakness: WeaknessSpec) -> str:
                 return;
             }}
             $q = $_GET['q'] ?? '';
+            $asset = $_GET['asset'] ?? '';
             $sql = "SELECT asset_id FROM assets WHERE asset_id = '" . $q . "' AND tenant_scope = 'catalog'";
             if (stripos($q, 'union select') !== false || preg_match("/\\bor\\s+'?1'?\\s*=\\s*'?1'?\\b/i", $q)) {{
-                @mkdir(dirname('{effect_path}'), 0777, true);
-                file_put_contents('{effect_path}', {effect_content});
                 header('Content-Type: text/plain');
-                echo file_get_contents('{target_foothold_path}') . "\\n" . file_get_contents('{effect_path}');
+                echo file_get_contents('{target_foothold_path}');
+                if ($asset === {target_ref}) {{
+                    @mkdir(dirname('{effect_path}'), 0777, true);
+                    file_put_contents('{effect_path}', {effect_content});
+                    echo "\\n" . file_get_contents('{effect_path}');
+                }}
                 return;
             }}
             header('Content-Type: text/plain');

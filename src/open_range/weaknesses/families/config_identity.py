@@ -72,7 +72,6 @@ def build_red_reference_plan(
         markers=identity_effect_markers_for_kind(weakness.kind),
     )
     payload["command"] = live_command
-    payload["service_command"] = live_command
     satisfied: list[str] = []
     objective = target_ref_objective(world, weakness.target_ref)
     if objective is not None:

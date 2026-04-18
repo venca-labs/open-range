@@ -232,15 +232,8 @@ class TraceDatasetGenerator:
                 raise
             actor = decision.actor
             expected = runtime.reference_step(actor)
-            replay_action = action_for_reference_step(
-                snapshot,
-                actor,
-                expected,
-                include_hidden_payload=actor == "red",
-            )
-            public_action = public_trace_action(
-                action_for_reference_step(snapshot, actor, expected)
-            )
+            replay_action = action_for_reference_step(snapshot, actor, expected)
+            public_action = public_trace_action(replay_action)
             result = runtime._replay_action(actor, replay_action)
             rows.append(
                 TraceDecisionRow(

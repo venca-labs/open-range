@@ -13,16 +13,9 @@ from open_range.contracts.runtime import (
 from open_range.contracts.snapshot import RuntimeSnapshot
 from open_range.training.data import TraceWeakness
 
-_HIDDEN_ACTION_PAYLOAD_KEYS = frozenset({"service_command"})
-
 
 def public_trace_action(action: Action) -> Action:
-    payload = {
-        key: value
-        for key, value in action.payload.items()
-        if key not in _HIDDEN_ACTION_PAYLOAD_KEYS
-    }
-    return action.model_copy(update={"payload": payload})
+    return action
 
 
 def render_action_text(action: Action) -> str:

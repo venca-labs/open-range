@@ -381,7 +381,13 @@ def _select_follow_up_weakness(
     candidates = [
         weakness
         for weakness in weaknesses
-        if getattr(weakness, "id", "") not in used_weakness_ids
+        if (
+            getattr(weakness, "id", "") not in used_weakness_ids
+            or (
+                getattr(weakness, "family", "") == "code_web"
+                and getattr(weakness, "target", "") != current
+            )
+        )
         and any(
             _weakness_satisfies_objective(engine, weakness, predicate)
             for predicate in remaining
@@ -434,14 +440,18 @@ def _select_initial_reference_weakness(
     ranked.sort(
         key=lambda weakness: (
             0
-            if len(terminal) > 1
-            and not any(
+            if any(
                 _weakness_satisfies_objective(engine, weakness, predicate)
                 for predicate in terminal
             )
             else 1,
-            red_reference_family_priority(getattr(weakness, "family", "")),
+            -sum(
+                1
+                for predicate in terminal
+                if _weakness_satisfies_objective(engine, weakness, predicate)
+            ),
             0 if getattr(weakness, "target", "") == start else 1,
+            red_reference_family_priority(getattr(weakness, "family", "")),
             getattr(weakness, "target", ""),
             getattr(weakness, "id", ""),
         )

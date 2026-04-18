@@ -7,7 +7,7 @@ from open_range.training.trace_exports import (
 )
 
 
-def test_public_trace_action_strips_internal_execution_payload() -> None:
+def test_public_trace_action_keeps_visible_payload() -> None:
     action = Action(
         actor_id="red",
         role="red",
@@ -15,13 +15,12 @@ def test_public_trace_action_strips_internal_execution_payload() -> None:
         payload={
             "target": "svc-idp",
             "command": "cat /etc/openrange/admin-surface.json",
-            "service_command": "grep -Fq admin /etc/openrange/admin-surface.json",
         },
     )
 
     public = public_trace_action(action)
 
-    assert "service_command" not in public.payload
+    assert public.payload["target"] == "svc-idp"
     assert public.payload["command"] == "cat /etc/openrange/admin-surface.json"
 
 

@@ -50,12 +50,7 @@ def run_red_reference(
             break
         result = runtime._replay_action(
             "red",
-            action_for_reference_step(
-                snapshot,
-                "red",
-                step,
-                include_hidden_payload=True,
-            ),
+            action_for_reference_step(snapshot, "red", step),
         )
         outputs.append(result.stdout or result.stderr)
     score = runtime.score()

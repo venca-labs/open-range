@@ -60,7 +60,7 @@ def _code_web_response(
         return None
     parts = [str(payload.get("expect_contains", ""))]
     token = effect_marker_token(weakness)
-    if token and token not in parts:
+    if token and token not in parts and f"asset={payload['asset']}" in cmd:
         parts.append(token)
     return ExecResult(
         stdout="\n".join(part for part in parts if part),
@@ -724,21 +724,20 @@ def test_runtime_reference_steps_are_concrete_public_actions(tmp_path: Path):
     assert emitted is True
 
 
-def test_runtime_reference_actions_hide_service_command_by_default(
+def test_runtime_reference_actions_do_not_include_service_command(
     tmp_path: Path,
 ) -> None:
     snapshot = _snapshot(tmp_path)
     red_step = next(
         step
         for step in snapshot.reference_bundle.reference_attack_traces[0].steps
-        if step.kind == "shell" and step.payload.get("service_command")
+        if step.kind == "shell" and step.payload.get("command")
     )
 
     public = runtime_action("red", red_step)
-    hidden = runtime_action("red", red_step, include_hidden_payload=True)
 
     assert "service_command" not in public.payload
-    assert hidden.payload["service_command"] == red_step.payload["service_command"]
+    assert "service_command" not in red_step.payload
 
 
 def test_reference_trace_bindings_include_all_trace_weaknesses(tmp_path: Path) -> None:

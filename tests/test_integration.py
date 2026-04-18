@@ -38,7 +38,7 @@ def _code_web_response(
         return None
     parts = [str(payload.get("expect_contains", ""))]
     token = effect_marker_token(weakness)
-    if token and token not in parts:
+    if token and token not in parts and f"asset={payload['asset']}" in cmd:
         parts.append(token)
     return ExecResult(
         stdout="\n".join(part for part in parts if part),
