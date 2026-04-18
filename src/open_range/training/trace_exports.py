@@ -7,7 +7,6 @@ from urllib.parse import urlencode
 
 from open_range.contracts.runtime import (
     Action,
-    ActionEffect,
     control_directive,
     finding_event_type,
 )
@@ -94,51 +93,3 @@ def trace_benchmark_tags(snapshot: RuntimeSnapshot) -> tuple[str, ...]:
         tag for weakness in snapshot.world.weaknesses for tag in weakness.benchmark_tags
     }
     return tuple(sorted(tags))
-
-
-def grounded_effects_for_result(
-    *,
-    effects: tuple[ActionEffect, ...],
-) -> tuple[str, ...]:
-    labels = {
-        effect.kind
-        for effect in effects
-        if effect.kind
-        in {
-            "CredentialObtained",
-            "UnauthorizedCredentialUse",
-            "PrivilegeEscalation",
-            "SensitiveAssetRead",
-            "PersistenceEstablished",
-            "ServiceDegraded",
-        }
-    }
-    labels.update(
-        evidence
-        for effect in effects
-        for evidence in effect.evidence
-        if evidence.startswith("OPENRANGE-EFFECT:")
-        or evidence.startswith("OPENRANGE-FOOTHOLD:")
-    )
-    return tuple(sorted(labels))
-
-
-def mitigation_effects_for_result(
-    *,
-    action: Action,
-    effects: tuple[ActionEffect, ...],
-) -> tuple[str, ...]:
-    labels = {
-        effect.kind
-        for effect in effects
-        if effect.kind in {"ContainmentApplied", "PatchApplied", "RecoveryCompleted"}
-    }
-    if action.kind == "control":
-        directive = str(action.payload.get("action", "")).lower()
-        target = str(action.payload.get("target", ""))
-        if (
-            directive in {"contain", "patch", "mitigate", "recover", "restore"}
-            and target
-        ):
-            labels.add(f"{directive}:{target}")
-    return tuple(sorted(labels))

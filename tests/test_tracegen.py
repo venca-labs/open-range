@@ -44,9 +44,7 @@ def test_generate_trace_dataset_writes_raw_and_decision_views(tmp_path: Path) ->
     }
     assert all("candidate_actions" not in row for row in raw_rows)
     assert all("chosen_action" in row and row["chosen_action"] for row in raw_rows)
-    assert all(
-        "grounded_effects" in row and "mitigation_effects" in row for row in raw_rows
-    )
+    assert all("effects" in row and "emitted_events" in row for row in raw_rows)
     assert all(
         "service_command" not in row["chosen_action"]["payload"] for row in raw_rows
     )

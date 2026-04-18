@@ -1,9 +1,7 @@
 from __future__ import annotations
 
-from open_range.contracts.runtime import Action, ActionEffect
+from open_range.contracts.runtime import Action
 from open_range.training.trace_exports import (
-    grounded_effects_for_result,
-    mitigation_effects_for_result,
     public_trace_action,
     render_action_text,
 )
@@ -25,39 +23,6 @@ def test_public_trace_action_strips_internal_execution_payload() -> None:
 
     assert "service_command" not in public.payload
     assert public.payload["command"] == "cat /etc/openrange/admin-surface.json"
-
-
-def test_grounded_and_mitigation_effect_helpers_extract_runtime_signals() -> None:
-    effects = (
-        ActionEffect(
-            kind="PrivilegeEscalation",
-            source_entity="svc-idp",
-            target_entity="svc-idp",
-            target_ref="idp_admin_cred",
-            evidence=("OPENRANGE-EFFECT:privilege:wk-1:svc-idp",),
-        ),
-        ActionEffect(
-            kind="PatchApplied",
-            source_entity="blue",
-            target_entity="svc-idp",
-        ),
-    )
-
-    grounded = grounded_effects_for_result(effects=effects)
-    mitigations = mitigation_effects_for_result(
-        action=Action(
-            actor_id="blue",
-            role="blue",
-            kind="control",
-            payload={"target": "svc-idp", "action": "mitigate"},
-        ),
-        effects=effects,
-    )
-
-    assert "PrivilegeEscalation" in grounded
-    assert any(item.startswith("OPENRANGE-EFFECT:privilege:") for item in grounded)
-    assert "PatchApplied" in mitigations
-    assert "mitigate:svc-idp" in mitigations
 
 
 def test_render_action_text_keeps_http_semantics() -> None:
