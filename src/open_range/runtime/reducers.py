@@ -5,13 +5,18 @@ from __future__ import annotations
 from collections.abc import Mapping
 from dataclasses import dataclass
 
-from open_range.contracts.runtime import Action, ExternalRole, RuntimeEvent
+from open_range.contracts.runtime import (
+    Action,
+    ActionEffect,
+    ExternalRole,
+    RuntimeEvent,
+)
 from open_range.contracts.snapshot import RuntimeSnapshot
 from open_range.objectives.engine import PredicateEngine
 from open_range.runtime.events import (
     EmitEvent,
     ServiceSurfaceResolver,
-    red_events_for_step,
+    events_for_effects,
 )
 from open_range.runtime.execution import ActionExecution
 from open_range.runtime.replay import action_for_reference_step
@@ -41,10 +46,8 @@ OBSERVATION_ALERT_EVENT_TYPES = frozenset(
 class RedActionReduction:
     stdout: str
     stderr: str
+    effects: tuple[ActionEffect, ...] = ()
     emitted_events: tuple[RuntimeEvent, ...] = ()
-    satisfied_objectives: tuple[str, ...] = ()
-    advanced_target: str = ""
-    progress_advanced: bool = False
 
 
 @dataclass(frozen=True, slots=True)
@@ -93,9 +96,9 @@ def reduce_red_action(
     target: str,
     live: ActionExecution,
     blocked_reason: str,
+    use_reference_semantics: bool,
     matched_reference_step: bool,
-    expected_reference_step: object | None,
-    last_red_target: str,
+    reference_step: object | None,
     emit_event: EmitEvent,
     service_surfaces: ServiceSurfaceResolver,
 ) -> RedActionReduction:
@@ -111,22 +114,45 @@ def reduce_red_action(
             stderr=stderr,
         )
 
-    if expected_reference_step is not None and matched_reference_step:
-        batch = red_events_for_step(
-            expected_reference_step,
-            action,
-            last_red_target=last_red_target,
-            emit_event=emit_event,
-            service_surfaces=service_surfaces,
-        )
+    if (
+        use_reference_semantics
+        and reference_step is not None
+        and matched_reference_step
+        and not live.effects
+    ):
+        effects = _reference_effects(reference_step, action, live=live)
         return RedActionReduction(
             stdout=f"red advanced on {target}",
             stderr=stderr,
-            emitted_events=batch.events,
-            satisfied_objectives=batch.satisfied_objectives,
-            advanced_target=batch.last_red_target,
-            progress_advanced=True,
+            effects=effects,
+            emitted_events=events_for_effects(
+                effects,
+                actor="red",
+                malicious=True,
+                default_source=live.runner_service or action.actor_id,
+                default_target=target,
+                emit_event=emit_event,
+                service_surfaces=service_surfaces,
+            ),
         )
+
+    if live.effects:
+        emitted = events_for_effects(
+            live.effects,
+            actor="red",
+            malicious=True,
+            default_source=live.runner_service or action.actor_id,
+            default_target=target,
+            emit_event=emit_event,
+            service_surfaces=service_surfaces,
+        )
+        if emitted:
+            return RedActionReduction(
+                stdout=f"red advanced on {target}",
+                stderr=stderr,
+                effects=live.effects,
+                emitted_events=emitted,
+            )
 
     return RedActionReduction(
         stdout=live.stdout or f"red executed on {target or 'unknown target'}",
@@ -139,7 +165,7 @@ def reduce_blue_control(
     target: str,
     directive: str,
     live: ActionExecution,
-    remaining_red_targets: set[str] | frozenset[str],
+    active_red_targets: set[str] | frozenset[str],
     contained_targets: set[str] | frozenset[str],
     patched_targets: set[str] | frozenset[str],
     blue_contained: bool,
@@ -148,7 +174,7 @@ def reduce_blue_control(
     next_patched = set(patched_targets)
     path_broken = bool(
         target
-        and target in remaining_red_targets
+        and target in active_red_targets
         and (live.containment_applied or live.patch_applied)
     )
     next_blue_contained = blue_contained or path_broken
@@ -270,7 +296,7 @@ def select_scripted_internal_blue_action(
     *,
     visible_events: tuple[RuntimeEvent, ...] | list[RuntimeEvent],
     detected_event_ids: set[str] | frozenset[str],
-    remaining_red_targets: set[str] | frozenset[str],
+    active_red_targets: set[str] | frozenset[str],
     contained_targets: set[str] | frozenset[str],
     blue_detected: bool,
 ) -> Action:
@@ -288,7 +314,7 @@ def select_scripted_internal_blue_action(
                     "target": event.target_entity,
                 },
             )
-    remaining = sorted(set(remaining_red_targets) - set(contained_targets))
+    remaining = sorted(set(active_red_targets) - set(contained_targets))
     if remaining and blue_detected:
         return Action(
             actor_id="blue",
@@ -340,7 +366,7 @@ def select_internal_opponent_action(
     reference_step: object | None,
     visible_events: tuple[RuntimeEvent, ...] | list[RuntimeEvent] = (),
     detected_event_ids: set[str] | frozenset[str] = frozenset(),
-    remaining_red_targets: set[str] | frozenset[str] = frozenset(),
+    active_red_targets: set[str] | frozenset[str] = frozenset(),
     contained_targets: set[str] | frozenset[str] = frozenset(),
     blue_detected: bool = False,
 ) -> Action:
@@ -357,7 +383,7 @@ def select_internal_opponent_action(
     return select_scripted_internal_blue_action(
         visible_events=visible_events,
         detected_event_ids=detected_event_ids,
-        remaining_red_targets=remaining_red_targets,
+        active_red_targets=active_red_targets,
         contained_targets=contained_targets,
         blue_detected=blue_detected,
     )
@@ -420,3 +446,103 @@ def evaluate_terminal_state(
     if sim_time >= episode_horizon:
         return objectives, "timeout", "timeout"
     return objectives, "", ""
+
+
+def _reference_effects(
+    reference_step: object,
+    action: Action,
+    *,
+    live: ActionExecution,
+) -> tuple[ActionEffect, ...]:
+    step_action = str(getattr(reference_step, "payload", {}).get("action", ""))
+    target = str(getattr(reference_step, "target", "")) or str(
+        action.payload.get("target", "")
+    )
+    asset_id = str(getattr(reference_step, "payload", {}).get("asset", ""))
+    objective = str(getattr(reference_step, "payload", {}).get("objective", "")).strip()
+    source = live.runner_service or str(action.payload.get("origin", action.actor_id))
+    weakness_id = str(
+        getattr(reference_step, "payload", {}).get(
+            "weakness_id",
+            getattr(reference_step, "payload", {}).get("weakness", ""),
+        )
+    )
+    if step_action in {"initial_access", "click_lure"}:
+        return (
+            ActionEffect(
+                kind="InitialAccess",
+                source_entity=source,
+                target_entity=target,
+                weakness_id=weakness_id,
+            ),
+        )
+    if step_action == "traverse":
+        return (
+            ActionEffect(
+                kind="CrossZoneTraversal",
+                source_entity=source,
+                target_entity=target,
+                weakness_id=weakness_id,
+            ),
+        )
+    if objective:
+        return (
+            _objective_effect(
+                objective,
+                source=source,
+                target=target,
+                weakness_id=weakness_id,
+                asset_id=asset_id,
+            ),
+        )
+    if step_action == "collect_secret" and asset_id:
+        effect_type = (
+            "CredentialObtained"
+            if "cred" in asset_id or "token" in asset_id
+            else "SensitiveAssetRead"
+        )
+        return (
+            ActionEffect(
+                kind=effect_type,
+                source_entity=source,
+                target_entity=target,
+                target_ref=asset_id,
+                weakness_id=weakness_id,
+            ),
+        )
+    if step_action in {"abuse_identity", "abuse_workflow"}:
+        return (
+            ActionEffect(
+                kind="UnauthorizedCredentialUse",
+                source_entity=source,
+                target_entity=target,
+                target_ref=asset_id,
+                weakness_id=weakness_id,
+            ),
+        )
+    return ()
+
+
+def _objective_effect(
+    objective: str,
+    *,
+    source: str,
+    target: str,
+    weakness_id: str,
+    asset_id: str,
+) -> ActionEffect:
+    from open_range.objectives.expr import predicate_inner
+    from open_range.objectives.resolution import objective_event_for_predicate
+
+    event_type, target_ref = objective_event_for_predicate(
+        objective,
+        target_id=asset_id or predicate_inner(objective),
+        default_service=target,
+    )
+    return ActionEffect(
+        kind=event_type or "SensitiveAssetRead",
+        source_entity=source,
+        target_entity=target,
+        target_ref=target_ref or asset_id,
+        weakness_id=weakness_id,
+    )

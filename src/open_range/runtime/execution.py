@@ -5,12 +5,13 @@ from __future__ import annotations
 import json
 import shlex
 from collections.abc import Callable
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from typing import Any, Protocol
 from urllib.parse import urlencode
 
 from open_range.contracts.runtime import (
     Action,
+    ActionEffect,
     IntegritySample,
     action_target,
     control_directive,
@@ -18,6 +19,8 @@ from open_range.contracts.runtime import (
 from open_range.contracts.snapshot import RuntimeSnapshot
 from open_range.contracts.world import ServiceSpec, WeaknessSpec
 from open_range.objectives.effects import effect_marker_cleanup_command
+from open_range.objectives.expr import predicate_inner
+from open_range.objectives.resolution import objective_event_for_predicate
 from open_range.render.live import BootedRelease
 from open_range.runtime.audit import command_text_for_action
 from open_range.support.async_utils import run_async
@@ -41,6 +44,7 @@ class ActionExecution:
     executed_command: str = ""
     runner_service: str = ""
     target_service: str = ""
+    effects: tuple[ActionEffect, ...] = field(default_factory=tuple)
 
 
 class ActionBackend(Protocol):
@@ -79,8 +83,6 @@ def prepare_red_execution(
         blocked_reason = "patched"
     elif target in contained_targets:
         blocked_reason = "contained"
-    if action_backend is None:
-        return action, blocked_reason
 
     payload = dict(action.payload)
     if not target or snapshot is None or predicates is None:
@@ -164,21 +166,34 @@ def select_live_red_origin(
 def execute_runtime_action(
     action: Action,
     *,
+    snapshot: RuntimeSnapshot | None,
     action_backend: ActionBackend | None,
     predicates: ActiveWeaknessSource | None,
 ) -> ActionExecution:
     if action_backend is not None:
-        return action_backend.execute(action)
+        return _attach_action_effects(
+            action_backend.execute(action),
+            action,
+            snapshot=snapshot,
+        )
 
     active_weaknesses = (
         tuple(predicates.active_weaknesses()) if predicates is not None else ()
     )
-    return simulate_action_execution(
-        action,
-        resolve_active_weakness=lambda weakness_id: next(
-            (weakness for weakness in active_weaknesses if weakness.id == weakness_id),
-            None,
+    return _attach_action_effects(
+        simulate_action_execution(
+            action,
+            resolve_active_weakness=lambda weakness_id: next(
+                (
+                    weakness
+                    for weakness in active_weaknesses
+                    if weakness.id == weakness_id
+                ),
+                None,
+            ),
         ),
+        action,
+        snapshot=snapshot,
     )
 
 
@@ -264,6 +279,9 @@ class PodActionBackend:
                 "observability_surfaces": list(
                     getattr(event, "observability_surfaces", ())
                 ),
+                "weakness_id": getattr(event, "weakness_id", ""),
+                "evidence": list(getattr(event, "evidence", ())),
+                "technique_ids": list(getattr(event, "technique_ids", ())),
                 "suspicious": getattr(event, "suspicious", False),
                 "suspicious_reasons": list(getattr(event, "suspicious_reasons", ())),
             },
@@ -616,3 +634,245 @@ def _parse_integrity_sample(service_id: str, path: str, result) -> IntegritySamp
         exists=True,
         digest=digest.strip(),
     )
+
+
+def _attach_action_effects(
+    result: ActionExecution,
+    action: Action,
+    *,
+    snapshot: RuntimeSnapshot | None,
+) -> ActionExecution:
+    if result.effects or not result.ok:
+        return result
+    effects = _derive_action_effects(result, action, snapshot=snapshot)
+    if not effects:
+        return result
+    return replace(result, effects=effects)
+
+
+def _derive_action_effects(
+    result: ActionExecution,
+    action: Action,
+    *,
+    snapshot: RuntimeSnapshot | None,
+) -> tuple[ActionEffect, ...]:
+    effects: list[ActionEffect] = []
+    effects.extend(_control_effects(result, action))
+
+    target = action_target(action)
+    source = str(action.payload.get("origin", result.runner_service or action.actor_id))
+    markers = _effect_tokens(result.stdout)
+
+    for token in markers:
+        if token.startswith("OPENRANGE-FOOTHOLD:"):
+            weakness_id = token.rsplit(":", 1)[-1]
+            weakness = _weakness_by_id(snapshot, weakness_id)
+            effects.append(
+                ActionEffect(
+                    kind="InitialAccess",
+                    source_entity=source,
+                    target_entity=str(
+                        getattr(weakness, "target", "")
+                        or target
+                        or result.target_service
+                    ),
+                    weakness_id=weakness_id,
+                    evidence=(token,),
+                )
+            )
+            continue
+        scope, weakness_id, token_target = _parse_effect_token(token)
+        weakness = _weakness_by_id(snapshot, weakness_id)
+        target_ref = token_target or str(getattr(weakness, "target_ref", ""))
+        event_type = {
+            "asset": "SensitiveAssetRead",
+            "admin": "UnauthorizedCredentialUse",
+            "privilege": "PrivilegeEscalation",
+            "egress": "PersistenceEstablished",
+        }.get(scope, "")
+        if not event_type:
+            continue
+        effects.append(
+            ActionEffect(
+                kind=event_type,
+                source_entity=source,
+                target_entity=target or result.target_service,
+                target_ref=target_ref,
+                weakness_id=weakness_id,
+                evidence=(token,),
+            )
+        )
+
+    effects.extend(
+        _declared_effects_for_action(
+            snapshot,
+            action,
+            target=target,
+            source=source,
+            evidence=tuple(markers),
+        )
+    )
+    return _dedupe_effects(effects)
+
+
+def _control_effects(
+    result: ActionExecution, action: Action
+) -> tuple[ActionEffect, ...]:
+    target = action_target(action)
+    if result.containment_applied:
+        return (
+            ActionEffect(
+                kind="ContainmentApplied",
+                source_entity=action.actor_id,
+                target_entity=target,
+            ),
+        )
+    if result.patch_applied:
+        return (
+            ActionEffect(
+                kind="PatchApplied",
+                source_entity=action.actor_id,
+                target_entity=target,
+            ),
+        )
+    if result.recovery_applied:
+        return (
+            ActionEffect(
+                kind="RecoveryCompleted",
+                source_entity=action.actor_id,
+                target_entity=target,
+            ),
+        )
+    return ()
+
+
+def _declared_effects_for_action(
+    snapshot: RuntimeSnapshot | None,
+    action: Action,
+    *,
+    target: str,
+    source: str,
+    evidence: tuple[str, ...],
+) -> tuple[ActionEffect, ...]:
+    step_action = str(action.payload.get("action", "")).strip()
+    if step_action not in {
+        "initial_access",
+        "click_lure",
+        "collect_secret",
+        "abuse_identity",
+        "abuse_workflow",
+        "satisfy_objective",
+    }:
+        return ()
+    objective = str(action.payload.get("objective", "")).strip()
+    asset_id = str(action.payload.get("asset", "")).strip()
+    weakness_id = str(
+        action.payload.get("weakness_id", action.payload.get("weakness", ""))
+    ).strip()
+    weakness = _weakness_by_id(snapshot, weakness_id)
+    if not objective and not asset_id and weakness is not None:
+        asset_id = str(getattr(weakness, "target_ref", ""))
+    has_service_origin = _originates_from_service(action)
+    if step_action == "satisfy_objective" and not (evidence or has_service_origin):
+        return ()
+    if step_action in {"collect_secret", "abuse_identity", "abuse_workflow"} and not (
+        evidence or has_service_origin or weakness is not None
+    ):
+        return ()
+    if step_action in {"initial_access", "click_lure"}:
+        if not (evidence or weakness is not None):
+            return ()
+        return (
+            ActionEffect(
+                kind="InitialAccess",
+                source_entity=source,
+                target_entity=target,
+                weakness_id=weakness_id,
+                evidence=evidence,
+            ),
+        )
+    event_type = ""
+    target_ref = asset_id
+    if objective:
+        event_type, target_ref = objective_event_for_predicate(
+            objective,
+            target_id=asset_id or predicate_inner(objective),
+            default_service=target,
+        )
+    elif asset_id:
+        event_type = (
+            "CredentialObtained"
+            if "cred" in asset_id or "token" in asset_id
+            else "SensitiveAssetRead"
+        )
+    if step_action in {"abuse_identity", "abuse_workflow"} and not event_type:
+        event_type = "UnauthorizedCredentialUse"
+        target_ref = asset_id
+    if not event_type:
+        return ()
+    return (
+        ActionEffect(
+            kind=event_type,
+            source_entity=source,
+            target_entity=target,
+            target_ref=target_ref,
+            weakness_id=weakness_id,
+            evidence=evidence,
+        ),
+    )
+
+
+def _effect_tokens(stdout: str) -> tuple[str, ...]:
+    return tuple(
+        token
+        for token in stdout.split()
+        if token.startswith("OPENRANGE-FOOTHOLD:")
+        or token.startswith("OPENRANGE-EFFECT:")
+    )
+
+
+def _parse_effect_token(token: str) -> tuple[str, str, str]:
+    prefix, scope, remainder = token.split(":", 2)
+    if prefix != "OPENRANGE-EFFECT":
+        return "", "", ""
+    weakness_id, sep, target_ref = remainder.partition(":")
+    return scope, weakness_id, target_ref if sep else ""
+
+
+def _weakness_by_id(
+    snapshot: RuntimeSnapshot | None, weakness_id: str
+) -> WeaknessSpec | None:
+    if snapshot is None or not weakness_id:
+        return None
+    return next(
+        (
+            weakness
+            for weakness in snapshot.world.weaknesses
+            if weakness.id == weakness_id
+        ),
+        None,
+    )
+
+
+def _originates_from_service(action: Action) -> bool:
+    origin = str(action.payload.get("origin", "")).strip()
+    return bool(
+        origin and origin != action.actor_id and not origin.startswith("sandbox-")
+    )
+
+
+def _dedupe_effects(effects: list[ActionEffect]) -> tuple[ActionEffect, ...]:
+    deduped: list[ActionEffect] = []
+    seen: set[tuple[str, str, str, str]] = set()
+    for effect in effects:
+        key = (
+            effect.kind,
+            effect.source_entity,
+            effect.target_entity,
+            effect.target_ref,
+        )
+        if key in seen:
+            continue
+        seen.add(key)
+        deduped.append(effect)
+    return tuple(deduped)

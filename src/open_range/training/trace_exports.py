@@ -7,7 +7,7 @@ from urllib.parse import urlencode
 
 from open_range.contracts.runtime import (
     Action,
-    RuntimeEvent,
+    ActionEffect,
     control_directive,
     finding_event_type,
 )
@@ -98,13 +98,12 @@ def trace_benchmark_tags(snapshot: RuntimeSnapshot) -> tuple[str, ...]:
 
 def grounded_effects_for_result(
     *,
-    stdout: str,
-    emitted_events: tuple[RuntimeEvent, ...],
+    effects: tuple[ActionEffect, ...],
 ) -> tuple[str, ...]:
     labels = {
-        event.event_type
-        for event in emitted_events
-        if event.event_type
+        effect.kind
+        for effect in effects
+        if effect.kind
         in {
             "CredentialObtained",
             "UnauthorizedCredentialUse",
@@ -115,10 +114,11 @@ def grounded_effects_for_result(
         }
     }
     labels.update(
-        token
-        for token in stdout.split()
-        if token.startswith("OPENRANGE-EFFECT:")
-        or token.startswith("OPENRANGE-FOOTHOLD:")
+        evidence
+        for effect in effects
+        for evidence in effect.evidence
+        if evidence.startswith("OPENRANGE-EFFECT:")
+        or evidence.startswith("OPENRANGE-FOOTHOLD:")
     )
     return tuple(sorted(labels))
 
@@ -126,14 +126,12 @@ def grounded_effects_for_result(
 def mitigation_effects_for_result(
     *,
     action: Action,
-    stdout: str,
-    emitted_events: tuple[RuntimeEvent, ...],
+    effects: tuple[ActionEffect, ...],
 ) -> tuple[str, ...]:
     labels = {
-        event.event_type
-        for event in emitted_events
-        if event.event_type
-        in {"ContainmentApplied", "PatchApplied", "RecoveryCompleted"}
+        effect.kind
+        for effect in effects
+        if effect.kind in {"ContainmentApplied", "PatchApplied", "RecoveryCompleted"}
     }
     if action.kind == "control":
         directive = str(action.payload.get("action", "")).lower()
@@ -143,10 +141,4 @@ def mitigation_effects_for_result(
             and target
         ):
             labels.add(f"{directive}:{target}")
-    if "mitigation applied to " in stdout:
-        labels.add("mitigation_applied")
-    if "patch applied to " in stdout:
-        labels.add("patch_applied")
-    if "containment applied to " in stdout:
-        labels.add("containment_applied")
     return tuple(sorted(labels))

@@ -4,6 +4,7 @@ from itertools import count
 
 from open_range.contracts.runtime import (
     Action,
+    ActionEffect,
     RuntimeEvent,
 )
 from open_range.contracts.validation import ReferenceAction
@@ -47,15 +48,15 @@ def test_reduce_red_action_appends_blocked_reason_once() -> None:
             ok=True,
         ),
         blocked_reason="patched",
+        use_reference_semantics=False,
         matched_reference_step=False,
-        expected_reference_step=None,
-        last_red_target="",
+        reference_step=None,
         emit_event=_emit_event,
         service_surfaces=lambda target: (f"surf:{target}",),
     )
 
     assert reduction.stderr == "target svc-web is patched"
-    assert reduction.progress_advanced is False
+    assert reduction.effects == ()
     assert reduction.emitted_events == ()
 
 
@@ -70,21 +71,20 @@ def test_reduce_red_action_emits_reference_events_for_matching_step() -> None:
         target="svc-web",
         live=ActionExecution(stdout="access", stderr="", ok=True),
         blocked_reason="",
+        use_reference_semantics=True,
         matched_reference_step=True,
-        expected_reference_step=ReferenceAction(
+        reference_step=ReferenceAction(
             actor="red",
             kind="shell",
             target="svc-web",
             payload={"action": "initial_access"},
         ),
-        last_red_target="",
         emit_event=_emit_event,
         service_surfaces=lambda target: (f"surf:{target}",),
     )
 
     assert reduction.stderr == ""
-    assert reduction.progress_advanced is True
-    assert reduction.advanced_target == "svc-web"
+    assert reduction.effects
     assert len(reduction.emitted_events) == 1
     assert reduction.emitted_events[0].event_type == "InitialAccess"
 
@@ -100,21 +100,71 @@ def test_reduce_red_action_nonmatching_step_does_not_advance_reference() -> None
         target="svc-web",
         live=ActionExecution(stdout="", stderr="", ok=True),
         blocked_reason="",
+        use_reference_semantics=True,
         matched_reference_step=False,
-        expected_reference_step=ReferenceAction(
+        reference_step=ReferenceAction(
             actor="red",
             kind="shell",
             target="svc-web",
             payload={"action": "initial_access"},
         ),
-        last_red_target="",
         emit_event=_emit_event,
         service_surfaces=lambda target: (f"surf:{target}",),
     )
 
     assert reduction.stderr == ""
-    assert reduction.progress_advanced is False
+    assert reduction.effects == ()
     assert reduction.emitted_events == ()
+
+
+def test_reduce_red_action_emits_public_events_without_reference_match() -> None:
+    reduction = reduce_red_action(
+        action=Action(
+            actor_id="red",
+            role="red",
+            kind="api",
+            payload={
+                "target": "svc-web",
+                "path": "/search.php",
+                "query": {"asset": "finance_docs"},
+            },
+        ),
+        target="svc-web",
+        live=ActionExecution(
+            stdout="ignored",
+            stderr="",
+            ok=True,
+            effects=(
+                ActionEffect(
+                    kind="InitialAccess",
+                    source_entity="sandbox-red",
+                    target_entity="svc-web",
+                    weakness_id="wk-1",
+                    evidence=("OPENRANGE-FOOTHOLD:world-1:wk-1",),
+                ),
+                ActionEffect(
+                    kind="SensitiveAssetRead",
+                    source_entity="sandbox-red",
+                    target_entity="svc-web",
+                    target_ref="finance_docs",
+                    evidence=("OPENRANGE-FOOTHOLD:world-1:wk-1",),
+                ),
+            ),
+        ),
+        blocked_reason="",
+        use_reference_semantics=False,
+        matched_reference_step=False,
+        reference_step=None,
+        emit_event=_emit_event,
+        service_surfaces=lambda target: (f"surf:{target}",),
+    )
+
+    assert reduction.stderr == ""
+    assert len(reduction.effects) == 2
+    assert {event.event_type for event in reduction.emitted_events} == {
+        "InitialAccess",
+        "SensitiveAssetRead",
+    }
 
 
 def test_reduce_blue_control_marks_path_breaking_containment() -> None:
@@ -122,7 +172,7 @@ def test_reduce_blue_control_marks_path_breaking_containment() -> None:
         target="svc-web",
         directive="contain",
         live=ActionExecution(containment_applied=True, ok=True),
-        remaining_red_targets={"svc-web"},
+        active_red_targets={"svc-web"},
         contained_targets=set(),
         patched_targets=set(),
         blue_contained=False,
@@ -141,7 +191,7 @@ def test_reduce_blue_control_tracks_nonbreaking_mitigation() -> None:
         target="svc-web",
         directive="mitigate",
         live=ActionExecution(patch_applied=True, ok=True),
-        remaining_red_targets=set(),
+        active_red_targets=set(),
         contained_targets={"svc-web"},
         patched_targets=set(),
         blue_contained=True,
@@ -160,7 +210,7 @@ def test_reduce_blue_control_clears_state_on_recovery() -> None:
         target="svc-web",
         directive="recover",
         live=ActionExecution(recovery_applied=True, ok=True, stdout=""),
-        remaining_red_targets={"svc-web"},
+        active_red_targets={"svc-web"},
         contained_targets={"svc-web"},
         patched_targets={"svc-web"},
         blue_contained=True,
@@ -278,7 +328,7 @@ def test_select_scripted_internal_blue_action_detects_before_containment() -> No
     action = select_scripted_internal_blue_action(
         visible_events=visible_events,
         detected_event_ids=set(),
-        remaining_red_targets={"svc-web"},
+        active_red_targets={"svc-web"},
         contained_targets=set(),
         blue_detected=False,
     )
@@ -291,7 +341,7 @@ def test_select_scripted_internal_blue_action_contains_after_detection() -> None
     action = select_scripted_internal_blue_action(
         visible_events=(),
         detected_event_ids={"evt-1"},
-        remaining_red_targets={"svc-db", "svc-web"},
+        active_red_targets={"svc-db", "svc-web"},
         contained_targets={"svc-web"},
         blue_detected=True,
     )

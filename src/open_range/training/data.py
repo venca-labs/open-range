@@ -8,7 +8,12 @@ from pydantic import BaseModel, ConfigDict, Field
 
 from open_range.catalog.contracts import StandardAttackObjective
 from open_range.config import BuildConfig, EpisodeConfig
-from open_range.contracts.runtime import Action, Observation, RuntimeEvent
+from open_range.contracts.runtime import (
+    Action,
+    ActionEffect,
+    Observation,
+    RuntimeEvent,
+)
 
 TraceSource = Literal["runtime", "sim"]
 TraceSplit = Literal["train", "val", "test"]
@@ -53,6 +58,7 @@ class TraceDecisionRow(_StrictModel):
     chosen_action_text: str
     result_stdout: str = ""
     result_stderr: str = ""
+    effects: tuple[ActionEffect, ...] = Field(default_factory=tuple)
     emitted_events: tuple[RuntimeEvent, ...] = Field(default_factory=tuple)
     grounded_effects: tuple[str, ...] = Field(default_factory=tuple)
     mitigation_effects: tuple[str, ...] = Field(default_factory=tuple)

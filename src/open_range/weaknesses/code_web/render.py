@@ -54,7 +54,10 @@ def _route_template(world: WorldIR, weakness: WeaknessSpec) -> str:
             $q = $_GET['q'] ?? '';
             $sql = "SELECT asset_id FROM assets WHERE asset_id = '" . $q . "' AND tenant_scope = 'catalog'";
             if (stripos($q, 'union select') !== false || preg_match("/\\bor\\s+'?1'?\\s*=\\s*'?1'?\\b/i", $q)) {{
-                echo file_get_contents('{target_foothold_path}');
+                @mkdir(dirname('{effect_path}'), 0777, true);
+                file_put_contents('{effect_path}', {effect_content});
+                header('Content-Type: text/plain');
+                echo file_get_contents('{target_foothold_path}') . "\\n" . file_get_contents('{effect_path}');
                 return;
             }}
             header('Content-Type: text/plain');
@@ -85,6 +88,12 @@ def _route_template(world: WorldIR, weakness: WeaknessSpec) -> str:
             ];
             $record = $_GET['record'] ?? 'public';
             header('Content-Type: text/plain');
+            if ($record === 'admin-console') {{
+                @mkdir(dirname('{effect_path}'), 0777, true);
+                file_put_contents('{effect_path}', {effect_content});
+                echo $records[$record] . "\\n" . file_get_contents('{effect_path}');
+                return;
+            }}
             echo $records[$record] ?? 'missing';
             ?>
             """

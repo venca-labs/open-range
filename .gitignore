@@ -44,6 +44,7 @@ training/*.png
 .env.local
 CLAUDE.md
 IMPLEMENTATION_PLAN.md
+docs/runtime-base-thoughts.md
 
 # Jupyter
 .ipynb_checkpoints/

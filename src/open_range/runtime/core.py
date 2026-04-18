@@ -286,12 +286,6 @@ class OpenRangeRuntime:
             self._red_progress if actor == "red" else self._blue_progress,
         )
 
-    def remaining_red_targets(self) -> set[str]:
-        if self._snapshot is None or self._reference_playback is None:
-            return set()
-        trace = self._reference_playback.attack_trace()
-        return {step.target for step in trace.steps[self._red_progress :]}
-
     def _apply_prefix_start(self) -> None:
         if self._snapshot is None or self._reference_playback is None:
             return
@@ -461,6 +455,7 @@ class OpenRangeRuntime:
             sim_time=self._state.sim_time,
             stdout=live.stdout or f"green routine executed on {target}",
             stderr=live.stderr,
+            effects=live.effects,
             emitted_events=emitted,
             reward_delta=0.0,
             done=self._state.done,
@@ -492,27 +487,28 @@ class OpenRangeRuntime:
         emit_event = self._hooks.emit_event(audit, self._emit_event)
         expected = self.reference_step("red")
         reduction = reduce_red_action(
-            action=action,
+            action=exec_action,
             target=target,
             live=live,
             blocked_reason=blocked_reason,
+            use_reference_semantics=internal,
             matched_reference_step=(
                 expected is not None
                 and live.ok
                 and matches_reference_step(action, expected, live.stdout)
             ),
-            expected_reference_step=expected,
-            last_red_target=self._last_red_target,
+            reference_step=expected,
             emit_event=emit_event,
             service_surfaces=self._service_surfaces,
         )
         emitted = list(reduction.emitted_events)
-        self._red_objectives_satisfied.update(reduction.satisfied_objectives)
-        if reduction.progress_advanced:
+        self._remember_red_effects(reduction.effects)
+        if (
+            expected is not None
+            and live.ok
+            and matches_reference_step(action, expected, live.stdout)
+        ):
             self._red_progress += 1
-            self._last_red_target = reduction.advanced_target
-            if reduction.advanced_target:
-                self._red_footholds.add(reduction.advanced_target)
 
         reward_delta = self.reward_engine.on_red_action(
             action,
@@ -535,6 +531,7 @@ class OpenRangeRuntime:
             sim_time=round(self._state.sim_time, 4),
             stdout=reduction.stdout,
             stderr=reduction.stderr,
+            effects=reduction.effects,
             emitted_events=tuple(emitted),
             reward_delta=reward_delta,
             done=self._state.done,
@@ -595,7 +592,7 @@ class OpenRangeRuntime:
                 target=target,
                 directive=directive,
                 live=live,
-                remaining_red_targets=self.remaining_red_targets(),
+                active_red_targets=self._active_red_targets(),
                 contained_targets=self._contained_targets,
                 patched_targets=self._patched_targets,
                 blue_contained=self._blue_contained,
@@ -641,6 +638,7 @@ class OpenRangeRuntime:
             sim_time=round(self._state.sim_time, 4),
             stdout=stdout,
             stderr=stderr,
+            effects=live.effects,
             emitted_events=tuple(emitted),
             reward_delta=reward_delta,
             done=self._state.done,
@@ -676,6 +674,9 @@ class OpenRangeRuntime:
         target_entity: str,
         malicious: bool,
         observability_surfaces: tuple[str, ...],
+        weakness_id: str = "",
+        evidence: tuple[str, ...] = (),
+        technique_ids: tuple[str, ...] = (),
         suspicious: bool = False,
         suspicious_reasons: tuple[str, ...] = (),
         green_reactive: bool = True,
@@ -691,6 +692,9 @@ class OpenRangeRuntime:
             target_entity=target_entity,
             malicious=malicious,
             observability_surfaces=observability_surfaces,
+            weakness_id=weakness_id,
+            evidence=evidence,
+            technique_ids=technique_ids,
             suspicious=suspicious,
             suspicious_reasons=suspicious_reasons,
             telemetry_delay=_telemetry_delay(self._episode_config),
@@ -711,6 +715,7 @@ class OpenRangeRuntime:
     def _execute_live_action(self, action: Action) -> ActionExecution:
         result = execute_runtime_action(
             action,
+            snapshot=self._snapshot,
             action_backend=self.action_backend,
             predicates=self._predicates,
         )
@@ -776,10 +781,57 @@ class OpenRangeRuntime:
                 else ()
             ),
             detected_event_ids=self._detected_event_ids,
-            remaining_red_targets=self.remaining_red_targets(),
+            active_red_targets=self._active_red_targets(),
             contained_targets=self._contained_targets,
             blue_detected=self._blue_detected,
         )
+
+    def _remember_red_effects(self, effects) -> None:
+        service_ids = (
+            {service.id for service in self._snapshot.world.services}
+            if self._snapshot is not None
+            else set()
+        )
+        for effect in effects:
+            target = next(
+                (
+                    candidate
+                    for candidate in (
+                        getattr(effect, "target_entity", ""),
+                        getattr(effect, "target_ref", ""),
+                    )
+                    if candidate and (not service_ids or candidate in service_ids)
+                ),
+                "",
+            )
+            if not target:
+                continue
+            self._red_footholds.add(target)
+            self._last_red_target = target
+
+    def _active_red_targets(self) -> set[str]:
+        if self._snapshot is None:
+            return set(self._red_footholds)
+        targets = set(self._red_footholds)
+        if self._predicates is None:
+            return targets
+        targets.update(
+            service.id
+            for service in self._snapshot.world.services
+            if self._predicates.is_public_service(service)
+        )
+        for objective in self._snapshot.world.red_objectives:
+            if objective.predicate in self._red_objectives_satisfied:
+                continue
+            target_service = self._predicates.objective_target_service(
+                objective.predicate
+            )
+            if target_service:
+                targets.add(target_service)
+            target_asset = self._predicates.objective_target_asset(objective.predicate)
+            if target_asset is not None and target_asset.owner_service:
+                targets.add(target_asset.owner_service)
+        return targets
 
 
 def _initial_due_times(config: EpisodeConfig) -> dict[str, float]:

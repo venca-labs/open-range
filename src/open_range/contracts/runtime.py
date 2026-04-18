@@ -39,6 +39,18 @@ class Action(_StrictModel):
     timeout_s: float = Field(default=30.0, ge=0.0)
 
 
+class ActionEffect(_StrictModel):
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    kind: str = Field(min_length=1)
+    source_entity: str = ""
+    target_entity: str = ""
+    target_ref: str = ""
+    weakness_id: str = ""
+    evidence: tuple[str, ...] = Field(default_factory=tuple)
+    technique_ids: tuple[str, ...] = Field(default_factory=tuple)
+
+
 def action_target(action: Action) -> str:
     target = action.payload.get("target")
     if isinstance(target, str) and target:
@@ -80,6 +92,9 @@ class RuntimeEvent(_StrictModel):
     target_entity: str
     malicious: bool
     observability_surfaces: tuple[str, ...] = Field(default_factory=tuple)
+    weakness_id: str = ""
+    evidence: tuple[str, ...] = Field(default_factory=tuple)
+    technique_ids: tuple[str, ...] = Field(default_factory=tuple)
     suspicious: bool = False
     suspicious_reasons: tuple[str, ...] = Field(default_factory=tuple)
 
@@ -134,6 +149,7 @@ class ActionResult(_StrictModel):
     sim_time: float = Field(ge=0.0)
     stdout: str = ""
     stderr: str = ""
+    effects: tuple[ActionEffect, ...] = Field(default_factory=tuple)
     emitted_events: tuple[RuntimeEvent, ...] = Field(default_factory=tuple)
     reward_delta: float = 0.0
     done: bool = False

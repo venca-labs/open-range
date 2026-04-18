@@ -261,15 +261,14 @@ class TraceDatasetGenerator:
                     chosen_action_text=render_action_text(public_action),
                     result_stdout=result.stdout,
                     result_stderr=result.stderr,
+                    effects=result.effects,
                     emitted_events=result.emitted_events,
                     grounded_effects=grounded_effects_for_result(
-                        stdout=result.stdout,
-                        emitted_events=result.emitted_events,
+                        effects=result.effects,
                     ),
                     mitigation_effects=mitigation_effects_for_result(
                         action=public_action,
-                        stdout=result.stdout,
-                        emitted_events=result.emitted_events,
+                        effects=result.effects,
                     ),
                     reward_delta=result.reward_delta,
                     winner="",

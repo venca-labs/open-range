@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from open_range.contracts.runtime import Action, RuntimeEvent
+from open_range.contracts.runtime import Action, ActionEffect
 from open_range.training.trace_exports import (
     grounded_effects_for_result,
     mitigation_effects_for_result,
@@ -28,30 +28,22 @@ def test_public_trace_action_strips_internal_execution_payload() -> None:
 
 
 def test_grounded_and_mitigation_effect_helpers_extract_runtime_signals() -> None:
-    events = (
-        RuntimeEvent(
-            id="evt-1",
-            event_type="PrivilegeEscalation",
-            actor="red",
-            time=1.0,
+    effects = (
+        ActionEffect(
+            kind="PrivilegeEscalation",
             source_entity="svc-idp",
-            target_entity="idp_admin_cred",
-            malicious=True,
+            target_entity="svc-idp",
+            target_ref="idp_admin_cred",
+            evidence=("OPENRANGE-EFFECT:privilege:wk-1:svc-idp",),
         ),
-        RuntimeEvent(
-            id="evt-2",
-            event_type="PatchApplied",
-            actor="blue",
-            time=2.0,
+        ActionEffect(
+            kind="PatchApplied",
             source_entity="blue",
             target_entity="svc-idp",
-            malicious=False,
         ),
     )
 
-    grounded = grounded_effects_for_result(
-        stdout="OPENRANGE-EFFECT:privilege:wk-1:svc-idp", emitted_events=events
-    )
+    grounded = grounded_effects_for_result(effects=effects)
     mitigations = mitigation_effects_for_result(
         action=Action(
             actor_id="blue",
@@ -59,8 +51,7 @@ def test_grounded_and_mitigation_effect_helpers_extract_runtime_signals() -> Non
             kind="control",
             payload={"target": "svc-idp", "action": "mitigate"},
         ),
-        stdout="mitigation applied to svc-idp",
-        emitted_events=events,
+        effects=effects,
     )
 
     assert "PrivilegeEscalation" in grounded
