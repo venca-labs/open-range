@@ -8,7 +8,6 @@ from typing import Any
 from open_range.catalog.probes import runtime_payload_for_reference_action
 from open_range.contracts.runtime import (
     Action,
-    ActionEffect,
     RuntimeEvent,
     action_target,
     control_directive,
@@ -19,6 +18,7 @@ from open_range.contracts.runtime import (
 from open_range.contracts.snapshot import RuntimeSnapshot
 from open_range.objectives.expr import predicate_inner
 from open_range.objectives.resolution import objective_event_for_predicate
+from open_range.runtime.execution import ActionEffect
 from open_range.support.trace_actions import normalize_trace_action
 
 

@@ -259,7 +259,6 @@ class TraceDatasetGenerator:
                     chosen_action_text=render_action_text(public_action),
                     result_stdout=result.stdout,
                     result_stderr=result.stderr,
-                    effects=result.effects,
                     emitted_events=result.emitted_events,
                     reward_delta=result.reward_delta,
                     winner="",

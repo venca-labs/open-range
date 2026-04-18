@@ -10,7 +10,6 @@ from open_range.catalog.contracts import StandardAttackObjective
 from open_range.config import BuildConfig, EpisodeConfig
 from open_range.contracts.runtime import (
     Action,
-    ActionEffect,
     Observation,
     RuntimeEvent,
 )
@@ -58,7 +57,6 @@ class TraceDecisionRow(_StrictModel):
     chosen_action_text: str
     result_stdout: str = ""
     result_stderr: str = ""
-    effects: tuple[ActionEffect, ...] = Field(default_factory=tuple)
     emitted_events: tuple[RuntimeEvent, ...] = Field(default_factory=tuple)
     reward_delta: float = 0.0
     winner: str = ""

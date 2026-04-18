@@ -11,7 +11,6 @@ from urllib.parse import urlencode
 
 from open_range.contracts.runtime import (
     Action,
-    ActionEffect,
     IntegritySample,
     action_target,
     control_directive,
@@ -43,6 +42,17 @@ class ActionExecution:
     runner_service: str = ""
     target_service: str = ""
     effects: tuple[ActionEffect, ...] = field(default_factory=tuple)
+
+
+@dataclass(frozen=True, slots=True)
+class ActionEffect:
+    kind: str
+    source_entity: str = ""
+    target_entity: str = ""
+    target_ref: str = ""
+    weakness_id: str = ""
+    evidence: tuple[str, ...] = ()
+    technique_ids: tuple[str, ...] = ()
 
 
 class ActionBackend(Protocol):

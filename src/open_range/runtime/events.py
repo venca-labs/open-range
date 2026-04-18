@@ -9,11 +9,11 @@ from typing import Callable
 
 from open_range.contracts.runtime import (
     Action,
-    ActionEffect,
     ExternalRole,
     RuntimeEvent,
     action_target,
 )
+from open_range.runtime.execution import ActionEffect
 
 __all__ = [
     "EmitEvent",

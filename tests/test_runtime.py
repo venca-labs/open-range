@@ -737,7 +737,6 @@ def test_runtime_public_actions_do_not_infer_declared_effects(tmp_path: Path):
         ),
     )
 
-    assert result.effects == ()
     assert result.emitted_events == ()
 
 
