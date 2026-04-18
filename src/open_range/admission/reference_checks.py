@@ -48,9 +48,14 @@ def run_red_reference(
             raise
         if decision.actor != "red":
             break
-        result = runtime.act(
+        result = runtime._replay_action(
             "red",
-            action_for_reference_step(snapshot, "red", step),
+            action_for_reference_step(
+                snapshot,
+                "red",
+                step,
+                include_hidden_payload=True,
+            ),
         )
         outputs.append(result.stdout or result.stderr)
     score = runtime.score()
@@ -102,25 +107,27 @@ def _evaluate_live_red_objectives(
 
 def reference_trace_bindings(
     attack_traces: tuple[Any, ...], active_weaknesses: tuple[Any, ...]
-) -> tuple[tuple[int, Any, Any], ...]:
+) -> tuple[tuple[int, Any, tuple[Any, ...]], ...]:
     weakness_by_id = {str(weakness.id): weakness for weakness in active_weaknesses}
     bindings = []
     for trace_index, trace in enumerate(attack_traces):
-        weakness = weakness_by_id.get(
-            next(
-                (
-                    step.payload.get("weakness_id") or step.payload.get("weakness")
-                    for step in getattr(trace, "steps", ())
-                    if isinstance(
-                        step.payload.get("weakness_id") or step.payload.get("weakness"),
-                        str,
-                    )
-                ),
-                "",
+        weakness_ids = tuple(
+            dict.fromkeys(
+                str(step.payload.get("weakness_id") or step.payload.get("weakness", ""))
+                for step in getattr(trace, "steps", ())
+                if isinstance(
+                    step.payload.get("weakness_id") or step.payload.get("weakness"),
+                    str,
+                )
             )
         )
-        if weakness is not None:
-            bindings.append((trace_index, trace, weakness))
+        weaknesses = tuple(
+            weakness_by_id[weakness_id]
+            for weakness_id in weakness_ids
+            if weakness_id in weakness_by_id
+        )
+        if weaknesses:
+            bindings.append((trace_index, trace, weaknesses))
     return tuple(bindings)
 
 
@@ -395,13 +402,17 @@ def _live_necessity_check(
         snapshot.reference_bundle.reference_attack_traces,
         active_weaknesses,
     )
-    red_targets = {
-        step.target
-        for _trace_index, trace, _weakness in trace_bindings
-        for step in trace.steps
+    referenced_weakness_ids = {
+        weakness.id
+        for _trace_index, _trace, weaknesses in trace_bindings
+        for weakness in weaknesses
     }
     candidate_weaknesses = sorted(
-        (weakness for weakness in active_weaknesses if weakness.target in red_targets),
+        (
+            weakness
+            for weakness in active_weaknesses
+            if weakness.id in referenced_weakness_ids
+        ),
         key=lambda weakness: (
             0 if weakness.instantiation_mode == "exact_code" else 1,
             0
@@ -415,8 +426,9 @@ def _live_necessity_check(
     trace_index = next(
         (
             candidate_index
-            for candidate_index, _trace, weakness in trace_bindings
-            if target_weakness is not None and weakness.id == target_weakness.id
+            for candidate_index, _trace, weaknesses in trace_bindings
+            if target_weakness is not None
+            and any(weakness.id == target_weakness.id for weakness in weaknesses)
         ),
         0,
     )

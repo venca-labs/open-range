@@ -9,6 +9,7 @@ from types import SimpleNamespace
 import pytest
 
 from open_range.admission.controller import LocalAdmissionController
+from open_range.admission.reference_checks import reference_trace_bindings
 from open_range.compiler import EnterpriseSaaSManifestCompiler
 from open_range.config import EpisodeConfig
 from open_range.contracts.runtime import Action, RuntimeEvent
@@ -721,6 +722,42 @@ def test_runtime_reference_steps_are_concrete_public_actions(tmp_path: Path):
         emitted = emitted or bool(result.emitted_events)
 
     assert emitted is True
+
+
+def test_runtime_reference_actions_hide_service_command_by_default(
+    tmp_path: Path,
+) -> None:
+    snapshot = _snapshot(tmp_path)
+    red_step = next(
+        step
+        for step in snapshot.reference_bundle.reference_attack_traces[0].steps
+        if step.kind == "shell" and step.payload.get("service_command")
+    )
+
+    public = runtime_action("red", red_step)
+    hidden = runtime_action("red", red_step, include_hidden_payload=True)
+
+    assert "service_command" not in public.payload
+    assert hidden.payload["service_command"] == red_step.payload["service_command"]
+
+
+def test_reference_trace_bindings_include_all_trace_weaknesses(tmp_path: Path) -> None:
+    snapshot = _snapshot(tmp_path)
+    trace = snapshot.reference_bundle.reference_attack_traces[0]
+
+    bindings = reference_trace_bindings(
+        snapshot.reference_bundle.reference_attack_traces,
+        tuple(snapshot.world.weaknesses),
+    )
+    trace_index, bound_trace, weaknesses = bindings[0]
+
+    assert trace_index == 0
+    assert bound_trace.id == trace.id
+    assert {weakness.id for weakness in weaknesses} == {
+        str(step.payload.get("weakness_id") or step.payload.get("weakness", ""))
+        for step in trace.steps
+        if str(step.payload.get("weakness_id") or step.payload.get("weakness", ""))
+    }
 
 
 def test_runtime_public_actions_do_not_infer_declared_effects(tmp_path: Path):

@@ -36,6 +36,7 @@ from open_range.runtime.execution import (
     ActionExecution,
     execute_runtime_action,
     prepare_red_execution,
+    sanitize_execution_action,
 )
 from open_range.runtime.green import GreenScheduler, ScriptedGreenScheduler
 from open_range.runtime.hooks import RuntimeHooks
@@ -244,6 +245,38 @@ class OpenRangeRuntime:
             }
         )
 
+    def _replay_action(self, actor: str, action: Action) -> ActionResult:
+        if self._snapshot is None:
+            raise RuntimeError("runtime must be reset before replay")
+        if self._state.done:
+            raise RuntimeError(
+                "episode is done; reset() is required before more actions"
+            )
+        if actor not in {"red", "blue"}:
+            raise ValueError("replay only supports red and blue")
+        if self._pending_actor != actor:
+            raise RuntimeError(
+                f"cannot replay as {actor!r}; next actor is {self._pending_actor!r}"
+            )
+        if action.role != actor:
+            raise ValueError("action.role must match the replaying actor")
+
+        result = (
+            self._act_red(action, internal=True)
+            if actor == "red"
+            else self._act_blue(action, internal=True)
+        )
+        self._pending_actor = ""
+        self._state.next_actor = ""
+        self._advance_due_time(actor)
+        self._check_terminal_conditions()
+        return result.model_copy(
+            update={
+                "done": self._state.done,
+                "sim_time": round(self._state.sim_time, 4),
+            }
+        )
+
     def score(self) -> EpisodeScore:
         red_terminal, blue_terminal = self.reward_engine.terminal_rewards(
             winner=self._state.winner,
@@ -326,7 +359,12 @@ class OpenRangeRuntime:
             due = max(self._state.sim_time, self._next_due_time["red"])
             self._advance_time(due)
             emitted = self._act_red(
-                action_for_reference_step(self._snapshot, "red", step),
+                action_for_reference_step(
+                    self._snapshot,
+                    "red",
+                    step,
+                    include_hidden_payload=True,
+                ),
                 internal=True,
             ).emitted_events
             self._advance_due_time("red")
@@ -487,6 +525,10 @@ class OpenRangeRuntime:
             patched_targets=self._patched_targets,
             contained_targets=self._contained_targets,
         )
+        runtime_action = sanitize_execution_action(
+            exec_action,
+            allow_service_command=internal,
+        )
         live = (
             ActionExecution(
                 stderr=f"target {target} is {blocked_reason}",
@@ -494,10 +536,14 @@ class OpenRangeRuntime:
                 target_service=target,
             )
             if blocked_reason
-            else self._execute_live_action(exec_action)
+            else (
+                self._execute_internal_action(runtime_action)
+                if internal
+                else self._execute_live_action(runtime_action)
+            )
         )
         audit = self._hooks.observe_action(
-            exec_action,
+            runtime_action,
             live,
             sim_time=self._state.sim_time,
             controlled=not internal,
@@ -520,7 +566,7 @@ class OpenRangeRuntime:
                     effects,
                     actor="red",
                     malicious=True,
-                    default_source=live.runner_service or exec_action.actor_id,
+                    default_source=live.runner_service or runtime_action.actor_id,
                     default_target=target,
                     emit_event=emit_event,
                     service_surfaces=self._service_surfaces,
@@ -549,7 +595,7 @@ class OpenRangeRuntime:
         emitted_events = list(emitted)
         self._hooks.finalize_action(
             audit,
-            action=exec_action,
+            action=runtime_action,
             emitted=emitted_events,
             emit_event=self._emit_event,
         )
@@ -817,6 +863,23 @@ class OpenRangeRuntime:
             snapshot=self._snapshot,
             action_backend=self.action_backend,
             predicates=self._predicates,
+            allow_service_command=False,
+        )
+        if result.service_health:
+            self._state.service_health.update(result.service_health)
+            self._state.continuity = _continuity_for_service_health(
+                self._state.service_health
+            )
+            self._refresh_blue_objectives()
+        return result
+
+    def _execute_internal_action(self, action: Action) -> ActionExecution:
+        result = execute_runtime_action(
+            action,
+            snapshot=self._snapshot,
+            action_backend=self.action_backend,
+            predicates=self._predicates,
+            allow_service_command=True,
         )
         if result.service_health:
             self._state.service_health.update(result.service_health)
@@ -874,7 +937,10 @@ class OpenRangeRuntime:
             return Action(actor_id=actor, role=actor, kind="sleep", payload={})
         if actor == "red" or mode in {"reference", "replay"}:
             return action_for_reference_step(
-                self._snapshot, actor, self.reference_step(actor)
+                self._snapshot,
+                actor,
+                self.reference_step(actor),
+                include_hidden_payload=actor == "red",
             )
         visible_events = self._event_log.visible_events(
             "blue",

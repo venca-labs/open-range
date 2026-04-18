@@ -67,7 +67,7 @@ def test_execution_helpers_raise_clear_errors_when_unbound() -> None:
         backend._weakness_for("svc-web")
 
 
-def test_runner_for_red_service_origin_uses_zone_tooling_runner() -> None:
+def test_runner_for_red_service_origin_uses_compromised_service() -> None:
     backend = PodActionBackend()
     backend._service_by_id = {
         "svc-web": ServiceSpec(
@@ -87,12 +87,6 @@ def test_runner_for_red_service_origin_uses_zone_tooling_runner() -> None:
             telemetry_surfaces=(),
         ),
     }
-    backend._service_zone_by_id = {"svc-web": "dmz", "svc-idp": "management"}
-    backend._green_runner_by_zone = {
-        "dmz": "sandbox-green-sales-01",
-        "management": "sandbox-green-it-admin-01",
-    }
-
     web_origin = Action(
         actor_id="red",
         role="red",
@@ -106,8 +100,8 @@ def test_runner_for_red_service_origin_uses_zone_tooling_runner() -> None:
         payload={"target": "svc-idp", "origin": "svc-idp"},
     )
 
-    assert backend._runner_for(web_origin) == "sandbox-green-sales-01"
-    assert backend._runner_for(idp_origin) == "sandbox-green-it-admin-01"
+    assert backend._runner_for(web_origin) == "svc-web"
+    assert backend._runner_for(idp_origin) == "svc-idp"
 
 
 def test_capture_integrity_hashes_or_marks_missing_live_paths() -> None:

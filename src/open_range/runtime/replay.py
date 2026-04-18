@@ -84,19 +84,29 @@ class ReferencePlayback:
 
 
 def action_for_reference_step(
-    snapshot: RuntimeSnapshot, actor: str, step: Any | None
+    snapshot: RuntimeSnapshot,
+    actor: str,
+    step: Any | None,
+    *,
+    include_hidden_payload: bool = False,
 ) -> Action:
     if step is None:
         return Action(actor_id=actor, role=actor, kind="sleep", payload={})
-    return normalize_trace_action(snapshot, runtime_action(actor, step))
+    return normalize_trace_action(
+        snapshot,
+        runtime_action(actor, step, include_hidden_payload=include_hidden_payload),
+    )
 
 
-def runtime_action(actor: str, step: Any) -> Action:
+def runtime_action(
+    actor: str, step: Any, *, include_hidden_payload: bool = False
+) -> Action:
     payload = runtime_payload_for_reference_action(
         actor,
         getattr(step, "kind", ""),
         target=getattr(step, "target", ""),
         payload=dict(getattr(step, "payload", {})),
+        include_hidden_payload=include_hidden_payload,
     )
     return Action(
         actor_id=actor,

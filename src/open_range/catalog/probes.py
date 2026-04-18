@@ -149,8 +149,11 @@ def runtime_payload_for_reference_action(
     *,
     target: str = "",
     payload: Mapping[str, object] | None = None,
+    include_hidden_payload: bool = False,
 ) -> dict[str, object]:
     next_payload: dict[str, object] = dict(payload or {})
+    if not include_hidden_payload:
+        next_payload.pop("service_command", None)
     if target:
         next_payload.setdefault("target", target)
     if actor == "blue" and kind == "submit_finding":

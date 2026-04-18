@@ -3,11 +3,12 @@
 from __future__ import annotations
 
 import json
+import re
 import shlex
 from collections.abc import Callable
 from dataclasses import dataclass, field, replace
 from typing import Any, Protocol
-from urllib.parse import urlencode
+from urllib.parse import unquote, urlencode
 
 from open_range.contracts.runtime import (
     Action,
@@ -173,17 +174,22 @@ def execute_runtime_action(
     snapshot: RuntimeSnapshot | None,
     action_backend: ActionBackend | None,
     predicates: ActiveWeaknessSource | None,
+    allow_service_command: bool = False,
 ) -> ActionExecution:
-    if blocked := _red_access_block(action, snapshot):
+    runtime_action = sanitize_execution_action(
+        action,
+        allow_service_command=allow_service_command,
+    )
+    if blocked := _red_access_block(runtime_action, snapshot):
         return ActionExecution(
             stderr=blocked,
             ok=False,
-            target_service=action_target(action),
+            target_service=action_target(runtime_action),
         )
     if action_backend is not None:
         return _attach_action_effects(
-            action_backend.execute(action),
-            action,
+            action_backend.execute(runtime_action),
+            runtime_action,
             snapshot=snapshot,
         )
 
@@ -192,7 +198,7 @@ def execute_runtime_action(
     )
     return _attach_action_effects(
         simulate_action_execution(
-            action,
+            runtime_action,
             resolve_active_weakness=lambda weakness_id: next(
                 (
                     weakness
@@ -202,9 +208,17 @@ def execute_runtime_action(
                 None,
             ),
         ),
-        action,
+        runtime_action,
         snapshot=snapshot,
     )
+
+
+def sanitize_execution_action(action: Action, *, allow_service_command: bool) -> Action:
+    if allow_service_command or "service_command" not in action.payload:
+        return action
+    payload = dict(action.payload)
+    payload.pop("service_command", None)
+    return action.model_copy(update={"payload": payload})
 
 
 def _red_access_block(action: Action, snapshot: RuntimeSnapshot | None) -> str:
@@ -454,22 +468,13 @@ class PodActionBackend:
                 if origin.startswith("sandbox-"):
                     return origin
                 if origin in self._service_by_id:
-                    return self._tool_runner_for_service(origin)
+                    return origin
             return "sandbox-red"
         if action.role == "blue":
             return "sandbox-blue"
         if action.role == "green":
             return _green_sandbox_name(action.actor_id)
         raise ValueError(f"unsupported runner role: {action.role}")
-
-    def _tool_runner_for_service(self, service_id: str) -> str:
-        zone = self._service_zone_by_id.get(service_id, "")
-        if zone == "management":
-            return self._green_runner_by_zone.get(zone, "sandbox-blue")
-        green_runner = self._green_runner_by_zone.get(zone)
-        if green_runner:
-            return green_runner
-        return service_id
 
     def _api_command(self, action: Action) -> str:
         target = action_target(action)
@@ -778,14 +783,11 @@ def _exploit_effects(
 
 
 def _witness_tokens(stdout: str) -> tuple[str, ...]:
-    return tuple(
-        token
-        for token in (
-            chunk.strip("'\"`()[]{}<>,;") for chunk in stdout.replace("\n", " ").split()
-        )
-        if token.startswith("OPENRANGE-FOOTHOLD:")
-        or token.startswith("OPENRANGE-EFFECT:")
-    )
+    pattern = r"OPENRANGE-(?:FOOTHOLD|EFFECT):[^\s'\"`()\[\]{}<>,;]+"
+    tokens: list[str] = []
+    for text in (stdout, unquote(stdout)):
+        tokens.extend(re.findall(pattern, text))
+    return tuple(dict.fromkeys(tokens))
 
 
 def _token_weakness_id(token: str) -> str:
