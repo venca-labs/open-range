@@ -483,7 +483,7 @@ class OpenRangeRuntime:
 
     def _act_green(self, action: Action) -> ActionResult:
         target = action_target(action)
-        live = self._execute_live_action(action)
+        live = self._execute_action(action, internal=False)
         emitted = (
             green_events_for_action(
                 action,
@@ -532,9 +532,9 @@ class OpenRangeRuntime:
             )
             if blocked_reason
             else (
-                self._execute_internal_action(exec_action)
+                self._execute_action(exec_action, internal=True)
                 if internal
-                else self._execute_live_action(exec_action)
+                else self._execute_action(exec_action, internal=False)
             )
         )
         audit = self._hooks.observe_action(
@@ -612,7 +612,7 @@ class OpenRangeRuntime:
         emitted: list[RuntimeEvent] = []
         reward_delta = 0.0
         expected_reference = self.reference_step("blue")
-        live = self._execute_live_action(action)
+        live = self._execute_action(action, internal=internal)
         audit = self._hooks.observe_action(
             action,
             live,
@@ -664,6 +664,17 @@ class OpenRangeRuntime:
             target = action_target(action)
             directive = control_directive(action, default="contain")
             continuity_before = self._state.continuity
+            emitted.extend(
+                events_for_effects(
+                    live.effects,
+                    actor="blue",
+                    malicious=False,
+                    default_source=action.actor_id,
+                    default_target=target,
+                    emit_event=emit_event,
+                    service_surfaces=lambda _target: ("svc-siem",),
+                )
+            )
             path_broken = bool(
                 target
                 and target in self._active_red_targets()
@@ -673,42 +684,12 @@ class OpenRangeRuntime:
             if target and live.containment_applied:
                 self._contained_targets.add(target)
                 self._patched_targets.discard(target)
-                emitted.append(
-                    emit_event(
-                        event_type="ContainmentApplied",
-                        actor="blue",
-                        source_entity="blue",
-                        target_entity=target,
-                        malicious=False,
-                        observability_surfaces=("svc-siem",),
-                    )
-                )
             elif target and live.patch_applied:
                 self._patched_targets.add(target)
                 self._contained_targets.discard(target)
-                emitted.append(
-                    emit_event(
-                        event_type="PatchApplied",
-                        actor="blue",
-                        source_entity="blue",
-                        target_entity=target,
-                        malicious=False,
-                        observability_surfaces=("svc-siem",),
-                    )
-                )
             elif target and live.recovery_applied:
                 self._contained_targets.discard(target)
                 self._patched_targets.discard(target)
-                emitted.append(
-                    emit_event(
-                        event_type="RecoveryCompleted",
-                        actor="blue",
-                        source_entity="blue",
-                        target_entity=target,
-                        malicious=False,
-                        observability_surfaces=("svc-siem",),
-                    )
-                )
 
             if path_broken:
                 stdout = (
@@ -852,26 +833,10 @@ class OpenRangeRuntime:
             target,
         )
 
-    def _execute_live_action(self, action: Action) -> ActionExecution:
+    def _execute_action(self, action: Action, *, internal: bool) -> ActionExecution:
         result = execute_runtime_action(
             action,
-            internal=False,
-            snapshot=self._snapshot,
-            action_backend=self.action_backend,
-            predicates=self._predicates,
-        )
-        if result.service_health:
-            self._state.service_health.update(result.service_health)
-            self._state.continuity = _continuity_for_service_health(
-                self._state.service_health
-            )
-            self._refresh_blue_objectives()
-        return result
-
-    def _execute_internal_action(self, action: Action) -> ActionExecution:
-        result = execute_runtime_action(
-            action,
-            internal=True,
+            internal=internal,
             snapshot=self._snapshot,
             action_backend=self.action_backend,
             predicates=self._predicates,

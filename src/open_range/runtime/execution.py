@@ -297,8 +297,6 @@ class PodActionBackend:
         self._snapshot: RuntimeSnapshot | None = None
         self._release: BootedRelease | None = None
         self._service_by_id: dict[str, ServiceSpec] = {}
-        self._service_zone_by_id: dict[str, str] = {}
-        self._green_runner_by_zone: dict[str, str] = {}
 
     def bind(self, snapshot: RuntimeSnapshot, release: BootedRelease) -> None:
         self._snapshot = snapshot
@@ -306,23 +304,11 @@ class PodActionBackend:
         self._service_by_id = {
             service.id: service for service in snapshot.world.services
         }
-        host_zone_by_id = {host.id: host.zone for host in snapshot.world.hosts}
-        self._service_zone_by_id = {
-            service.id: host_zone_by_id.get(service.host, "")
-            for service in snapshot.world.services
-        }
-        self._green_runner_by_zone = {}
-        for persona in snapshot.world.green_personas:
-            zone = host_zone_by_id.get(persona.home_host, "")
-            if zone and zone not in self._green_runner_by_zone:
-                self._green_runner_by_zone[zone] = _green_sandbox_name(persona.id)
 
     def clear(self) -> None:
         self._snapshot = None
         self._release = None
         self._service_by_id = {}
-        self._service_zone_by_id = {}
-        self._green_runner_by_zone = {}
 
     def record_event(self, event: Any) -> None:
         if self._release is None or "svc-siem" not in self._service_by_id:
