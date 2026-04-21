@@ -3,11 +3,12 @@
 from __future__ import annotations
 
 import json
+import re
 import shlex
 from collections.abc import Callable
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from typing import Any, Protocol
-from urllib.parse import urlencode
+from urllib.parse import unquote, urlencode
 
 from open_range.contracts.runtime import (
     Action,
@@ -25,6 +26,7 @@ from open_range.weaknesses.code_web import (
     code_web_cleanup_commands,
     code_web_guard_path,
 )
+from open_range.weaknesses.witnesses import offline_witness_stdout
 
 
 @dataclass(frozen=True, slots=True)
@@ -41,6 +43,18 @@ class ActionExecution:
     executed_command: str = ""
     runner_service: str = ""
     target_service: str = ""
+    effects: tuple[ActionEffect, ...] = field(default_factory=tuple)
+
+
+@dataclass(frozen=True, slots=True)
+class ActionEffect:
+    kind: str
+    source_entity: str = ""
+    target_entity: str = ""
+    target_ref: str = ""
+    weakness_id: str = ""
+    evidence: tuple[str, ...] = ()
+    technique_ids: tuple[str, ...] = ()
 
 
 class ActionBackend(Protocol):
@@ -65,8 +79,8 @@ class ActiveWeaknessSource(Protocol):
 def prepare_red_execution(
     action: Action,
     *,
+    internal: bool,
     target: str,
-    action_backend: ActionBackend | None,
     snapshot: RuntimeSnapshot | None,
     predicates: PathPredicateEngine | None,
     red_footholds: set[str] | frozenset[str],
@@ -79,25 +93,24 @@ def prepare_red_execution(
         blocked_reason = "patched"
     elif target in contained_targets:
         blocked_reason = "contained"
-    if action_backend is None:
-        return action, blocked_reason
 
     payload = dict(action.payload)
-    if not target or snapshot is None or predicates is None:
-        payload.setdefault("origin", last_red_target or "sandbox-red")
+    if action.kind != "shell":
+        payload["origin"] = "sandbox-red"
+    elif internal and target:
+        payload["origin"] = target
+    elif not target or snapshot is None or predicates is None:
+        payload["origin"] = last_red_target or "sandbox-red"
     else:
-        payload.setdefault(
-            "origin",
-            select_live_red_origin(
-                snapshot,
-                predicates=predicates,
-                red_footholds=red_footholds,
-                last_red_target=last_red_target,
-                target=target,
-            ),
+        payload["origin"] = select_live_red_origin(
+            snapshot,
+            predicates=predicates,
+            red_footholds=red_footholds,
+            last_red_target=last_red_target,
+            target=target,
         )
-    if target:
-        payload.setdefault("target", target)
+    if target and "target" not in payload:
+        payload["target"] = target
     return action.model_copy(update={"payload": payload}), blocked_reason
 
 
@@ -105,12 +118,15 @@ def simulate_action_execution(
     action: Action,
     *,
     resolve_active_weakness: Callable[[str], WeaknessSpec | None],
+    snapshot: RuntimeSnapshot | None = None,
+    active_weaknesses: tuple[WeaknessSpec, ...] = (),
+    internal: bool = False,
 ) -> ActionExecution:
     directive = control_directive(action, default="contain")
     weakness_id = str(
         action.payload.get("weakness_id", action.payload.get("weakness", ""))
     ).strip()
-    if action.kind in {"api", "shell", "mail"} and weakness_id:
+    if internal and action.kind in {"api", "shell", "mail"} and weakness_id:
         weakness = resolve_active_weakness(weakness_id)
         if weakness is None:
             return ActionExecution(
@@ -121,9 +137,15 @@ def simulate_action_execution(
             or f"exercised {weakness.kind}",
         )
     return ActionExecution(
-        stdout=str(action.payload.get("expect_contains", ""))
-        if action.kind in {"api", "shell", "mail"}
-        else "",
+        stdout=(
+            offline_witness_stdout(
+                snapshot.world,
+                action,
+                active_weaknesses,
+            )
+            if action.kind in {"api", "shell", "mail"} and snapshot is not None
+            else ""
+        ),
         containment_applied=action.kind == "control" and directive == "contain",
         patch_applied=action.kind == "control" and directive in {"patch", "mitigate"},
         recovery_applied=action.kind == "control"
@@ -164,22 +186,75 @@ def select_live_red_origin(
 def execute_runtime_action(
     action: Action,
     *,
+    internal: bool,
+    snapshot: RuntimeSnapshot | None,
     action_backend: ActionBackend | None,
     predicates: ActiveWeaknessSource | None,
 ) -> ActionExecution:
+    if blocked := _red_access_block(action, snapshot):
+        return ActionExecution(
+            stderr=blocked,
+            ok=False,
+            target_service=action_target(action),
+        )
     if action_backend is not None:
-        return action_backend.execute(action)
+        return _attach_action_effects(
+            action_backend.execute(action),
+            action,
+            snapshot=snapshot,
+        )
 
     active_weaknesses = (
         tuple(predicates.active_weaknesses()) if predicates is not None else ()
     )
-    return simulate_action_execution(
-        action,
-        resolve_active_weakness=lambda weakness_id: next(
-            (weakness for weakness in active_weaknesses if weakness.id == weakness_id),
-            None,
+    return _attach_action_effects(
+        simulate_action_execution(
+            action,
+            resolve_active_weakness=lambda weakness_id: next(
+                (
+                    weakness
+                    for weakness in active_weaknesses
+                    if weakness.id == weakness_id
+                ),
+                None,
+            ),
+            snapshot=snapshot,
+            active_weaknesses=active_weaknesses,
+            internal=internal,
         ),
+        action,
+        snapshot=snapshot,
     )
+
+
+def _red_access_block(action: Action, snapshot: RuntimeSnapshot | None) -> str:
+    if action.role != "red" or snapshot is None:
+        return ""
+    target = action_target(action)
+    if not target:
+        return ""
+    service = next(
+        (item for item in snapshot.world.services if item.id == target),
+        None,
+    )
+    if service is None:
+        return ""
+    origin = str(action.payload.get("origin", "sandbox-red")).strip() or "sandbox-red"
+    if _is_public_service(service):
+        return ""
+    if origin.startswith("sandbox-"):
+        return f"target {target} is unreachable from {origin}"
+    if origin == target:
+        return ""
+    if origin not in {item.id for item in snapshot.world.services}:
+        return f"origin {origin} is invalid"
+    if _foothold_can_reach_target(snapshot, origin, target):
+        return ""
+    return f"target {target} is unreachable from {origin}"
+
+
+def _is_public_service(service: ServiceSpec) -> bool:
+    return service.kind in {"web_app", "email"}
 
 
 def _foothold_can_reach_target(
@@ -222,8 +297,6 @@ class PodActionBackend:
         self._snapshot: RuntimeSnapshot | None = None
         self._release: BootedRelease | None = None
         self._service_by_id: dict[str, ServiceSpec] = {}
-        self._service_zone_by_id: dict[str, str] = {}
-        self._green_runner_by_zone: dict[str, str] = {}
 
     def bind(self, snapshot: RuntimeSnapshot, release: BootedRelease) -> None:
         self._snapshot = snapshot
@@ -231,23 +304,11 @@ class PodActionBackend:
         self._service_by_id = {
             service.id: service for service in snapshot.world.services
         }
-        host_zone_by_id = {host.id: host.zone for host in snapshot.world.hosts}
-        self._service_zone_by_id = {
-            service.id: host_zone_by_id.get(service.host, "")
-            for service in snapshot.world.services
-        }
-        self._green_runner_by_zone = {}
-        for persona in snapshot.world.green_personas:
-            zone = host_zone_by_id.get(persona.home_host, "")
-            if zone and zone not in self._green_runner_by_zone:
-                self._green_runner_by_zone[zone] = _green_sandbox_name(persona.id)
 
     def clear(self) -> None:
         self._snapshot = None
         self._release = None
         self._service_by_id = {}
-        self._service_zone_by_id = {}
-        self._green_runner_by_zone = {}
 
     def record_event(self, event: Any) -> None:
         if self._release is None or "svc-siem" not in self._service_by_id:
@@ -264,6 +325,9 @@ class PodActionBackend:
                 "observability_surfaces": list(
                     getattr(event, "observability_surfaces", ())
                 ),
+                "weakness_id": getattr(event, "weakness_id", ""),
+                "evidence": list(getattr(event, "evidence", ())),
+                "technique_ids": list(getattr(event, "technique_ids", ())),
                 "suspicious": getattr(event, "suspicious", False),
                 "suspicious_reasons": list(getattr(event, "suspicious_reasons", ())),
             },
@@ -296,9 +360,6 @@ class PodActionBackend:
         if action.kind == "control":
             return self._execute_control(action)
         if action.kind == "shell":
-            service_command = str(action.payload.get("service_command", "")).strip()
-            if service_command:
-                return self._run_on_target_service(action, service_command)
             return self._run_in_runner(action, self._shell_command(action))
         if action.kind == "mail":
             return self._run_in_runner(action, self._mail_command(action))
@@ -372,23 +433,6 @@ class PodActionBackend:
             timeout_s=action.timeout_s,
         )
 
-    def _run_on_target_service(self, action: Action, command: str) -> ActionExecution:
-        target = action_target(action)
-        if not target or target not in self._service_by_id:
-            return ActionExecution(
-                stderr="missing or unknown target service",
-                ok=False,
-                service_health=self.service_health(),
-            )
-        if blocked := self._blocked_target(target):
-            return blocked
-        return self._run_pod_command(
-            runner=target,
-            target=target,
-            command=command,
-            timeout_s=action.timeout_s,
-        )
-
     def _runner_for(self, action: Action) -> str:
         if action.role == "red":
             origin = action.payload.get("origin")
@@ -396,22 +440,13 @@ class PodActionBackend:
                 if origin.startswith("sandbox-"):
                     return origin
                 if origin in self._service_by_id:
-                    return self._tool_runner_for_service(origin)
+                    return origin
             return "sandbox-red"
         if action.role == "blue":
             return "sandbox-blue"
         if action.role == "green":
             return _green_sandbox_name(action.actor_id)
         raise ValueError(f"unsupported runner role: {action.role}")
-
-    def _tool_runner_for_service(self, service_id: str) -> str:
-        zone = self._service_zone_by_id.get(service_id, "")
-        if zone == "management":
-            return self._green_runner_by_zone.get(zone, "sandbox-blue")
-        green_runner = self._green_runner_by_zone.get(zone)
-        if green_runner:
-            return green_runner
-        return service_id
 
     def _api_command(self, action: Action) -> str:
         target = action_target(action)
@@ -616,3 +651,178 @@ def _parse_integrity_sample(service_id: str, path: str, result) -> IntegritySamp
         exists=True,
         digest=digest.strip(),
     )
+
+
+def _attach_action_effects(
+    result: ActionExecution,
+    action: Action,
+    *,
+    snapshot: RuntimeSnapshot | None,
+) -> ActionExecution:
+    if result.effects or not result.ok:
+        return result
+    effects = _derive_action_effects(result, action, snapshot=snapshot)
+    if not effects:
+        return result
+    return replace(result, effects=effects)
+
+
+def _derive_action_effects(
+    result: ActionExecution,
+    action: Action,
+    *,
+    snapshot: RuntimeSnapshot | None,
+) -> tuple[ActionEffect, ...]:
+    effects: list[ActionEffect] = []
+    effects.extend(_control_effects(result, action))
+    effects.extend(_exploit_effects(result, action, snapshot=snapshot))
+    return _dedupe_effects(effects)
+
+
+def _control_effects(
+    result: ActionExecution, action: Action
+) -> tuple[ActionEffect, ...]:
+    target = action_target(action)
+    if result.containment_applied:
+        return (
+            ActionEffect(
+                kind="ContainmentApplied",
+                source_entity=action.actor_id,
+                target_entity=target,
+            ),
+        )
+    if result.patch_applied:
+        return (
+            ActionEffect(
+                kind="PatchApplied",
+                source_entity=action.actor_id,
+                target_entity=target,
+            ),
+        )
+    if result.recovery_applied:
+        return (
+            ActionEffect(
+                kind="RecoveryCompleted",
+                source_entity=action.actor_id,
+                target_entity=target,
+            ),
+        )
+    return ()
+
+
+def _exploit_effects(
+    result: ActionExecution,
+    action: Action,
+    *,
+    snapshot: RuntimeSnapshot | None,
+) -> tuple[ActionEffect, ...]:
+    if snapshot is None:
+        return ()
+    weakness_tokens: dict[str, list[str]] = {}
+    for token in _witness_tokens(result.stdout):
+        weakness_id = _token_weakness_id(token)
+        if not weakness_id:
+            continue
+        weakness_tokens.setdefault(weakness_id, []).append(token)
+    if not weakness_tokens:
+        return ()
+
+    source = str(action.payload.get("origin", result.runner_service or action.actor_id))
+    service_target = action_target(action) or result.target_service
+    effects: list[ActionEffect] = []
+    for weakness_id, evidence in sorted(weakness_tokens.items()):
+        weakness = _weakness_by_id(snapshot, weakness_id)
+        if weakness is None:
+            continue
+        has_effect_marker = any(
+            token.startswith("OPENRANGE-EFFECT:") for token in evidence
+        )
+        has_foothold_marker = any(
+            token.startswith("OPENRANGE-FOOTHOLD:") for token in evidence
+        )
+        event_types = tuple(getattr(weakness, "expected_event_signatures", ()))
+        if has_foothold_marker and not has_effect_marker:
+            event_types = tuple(
+                event_type
+                for event_type in event_types
+                if event_type == "InitialAccess"
+            )
+        target_ref = _effect_target_ref(action, weakness)
+        for event_type in event_types:
+            effects.append(
+                ActionEffect(
+                    kind=event_type,
+                    source_entity=source,
+                    target_entity=service_target
+                    or str(getattr(weakness, "target", "")),
+                    target_ref=(
+                        target_ref
+                        if event_type in {"CredentialObtained", "SensitiveAssetRead"}
+                        else ""
+                    ),
+                    weakness_id=weakness_id,
+                    evidence=tuple(evidence),
+                )
+            )
+    return tuple(effects)
+
+
+def _witness_tokens(stdout: str) -> tuple[str, ...]:
+    pattern = r"OPENRANGE-(?:FOOTHOLD|EFFECT):[^\s'\"`()\[\]{}<>,;]+"
+    tokens: list[str] = []
+    for text in (stdout, unquote(stdout)):
+        tokens.extend(re.findall(pattern, text))
+    return tuple(dict.fromkeys(tokens))
+
+
+def _token_weakness_id(token: str) -> str:
+    if token.startswith("OPENRANGE-FOOTHOLD:"):
+        return token.rsplit(":", 1)[-1]
+    if not token.startswith("OPENRANGE-EFFECT:"):
+        return ""
+    parts = token.split(":")
+    return parts[2] if len(parts) >= 3 else ""
+
+
+def _weakness_by_id(
+    snapshot: RuntimeSnapshot | None, weakness_id: str
+) -> WeaknessSpec | None:
+    if snapshot is None or not weakness_id:
+        return None
+    return next(
+        (
+            weakness
+            for weakness in snapshot.world.weaknesses
+            if weakness.id == weakness_id
+        ),
+        None,
+    )
+
+
+def _effect_target_ref(action: Action, weakness: WeaknessSpec) -> str:
+    payload_asset = str(action.payload.get("asset", ""))
+    if payload_asset:
+        return payload_asset
+    query = action.payload.get("query", {})
+    if isinstance(query, dict):
+        asset = str(query.get("asset", ""))
+        if asset:
+            return asset
+    return str(getattr(weakness, "target_ref", ""))
+
+
+def _dedupe_effects(effects: list[ActionEffect]) -> tuple[ActionEffect, ...]:
+    deduped: list[ActionEffect] = []
+    seen: set[tuple[str, str, str, str]] = set()
+    for effect in effects:
+        key = (
+            effect.kind,
+            effect.source_entity,
+            effect.target_entity,
+            effect.target_ref,
+        )
+        if key in seen:
+            continue
+        seen.add(key)
+        deduped.append(effect)
+    return tuple(deduped)

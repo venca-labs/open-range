@@ -361,9 +361,7 @@ def command_text_for_action(action: Action) -> str:
 
     target = action_target(action)
     if action.kind == "shell":
-        return str(
-            action.payload.get("service_command", action.payload.get("command", ""))
-        ).strip()
+        return str(action.payload.get("command", "")).strip()
     if action.kind == "mail":
         sender = str(action.payload.get("from", action.actor_id))
         recipient = str(action.payload.get("to", "noreply@corp.local"))

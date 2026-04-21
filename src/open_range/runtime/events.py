@@ -13,30 +13,21 @@ from open_range.contracts.runtime import (
     RuntimeEvent,
     action_target,
 )
-from open_range.objectives.expr import predicate_inner
-from open_range.objectives.resolution import objective_event_for_predicate
+from open_range.runtime.execution import ActionEffect
 
 __all__ = [
     "EmitEvent",
     "EventEmission",
-    "RedEventBatch",
     "RuntimeEventLog",
     "action_target",
     "blue_visibility_time",
     "emit_runtime_event",
+    "events_for_effects",
     "green_events_for_action",
-    "red_events_for_step",
     "service_observability_surfaces",
     "telemetry_blindspots",
     "visible_events_for_actor",
 ]
-
-
-@dataclass(frozen=True, slots=True)
-class RedEventBatch:
-    events: tuple[RuntimeEvent, ...]
-    satisfied_objectives: tuple[str, ...]
-    last_red_target: str
 
 
 @dataclass(frozen=True, slots=True)
@@ -82,6 +73,9 @@ class RuntimeEventLog:
         target_entity: str,
         malicious: bool,
         observability_surfaces: tuple[str, ...],
+        weakness_id: str = "",
+        evidence: tuple[str, ...] = (),
+        technique_ids: tuple[str, ...] = (),
         suspicious: bool = False,
         suspicious_reasons: tuple[str, ...] = (),
         telemetry_delay: float,
@@ -99,6 +93,9 @@ class RuntimeEventLog:
             target_entity=target_entity,
             malicious=malicious,
             observability_surfaces=observability_surfaces,
+            weakness_id=weakness_id,
+            evidence=evidence,
+            technique_ids=technique_ids,
             suspicious=suspicious,
             suspicious_reasons=suspicious_reasons,
             telemetry_delay=telemetry_delay,
@@ -193,6 +190,9 @@ def emit_runtime_event(
     target_entity: str,
     malicious: bool,
     observability_surfaces: tuple[str, ...],
+    weakness_id: str = "",
+    evidence: tuple[str, ...] = (),
+    technique_ids: tuple[str, ...] = (),
     suspicious: bool = False,
     suspicious_reasons: tuple[str, ...] = (),
     telemetry_delay: float,
@@ -207,6 +207,9 @@ def emit_runtime_event(
         target_entity=target_entity,
         malicious=malicious,
         observability_surfaces=observability_surfaces,
+        weakness_id=weakness_id,
+        evidence=evidence,
+        technique_ids=technique_ids,
         suspicious=suspicious,
         suspicious_reasons=suspicious_reasons,
     )
@@ -318,232 +321,34 @@ def green_events_for_action(
     )
 
 
-def red_events_for_step(
-    expected,
-    action: Action,
+def events_for_effects(
+    effects: tuple[ActionEffect, ...],
     *,
-    last_red_target: str,
+    actor: str,
+    malicious: bool,
+    default_source: str,
+    default_target: str,
     emit_event: EmitEvent,
     service_surfaces: ServiceSurfaceResolver,
-) -> RedEventBatch:
-    target = expected.target
-    step_action = str(expected.payload.get("action", ""))
-    asset_id = str(expected.payload.get("asset", ""))
-    objective = str(expected.payload.get("objective", "")).strip()
-
-    if step_action in {"initial_access", "click_lure"}:
-        return RedEventBatch(
-            events=(
-                emit_event(
-                    event_type="InitialAccess",
-                    actor="red",
-                    source_entity=action.actor_id,
-                    target_entity=target,
-                    malicious=True,
-                    observability_surfaces=service_surfaces(target),
-                ),
-            ),
-            satisfied_objectives=(),
-            last_red_target=target,
+) -> tuple[RuntimeEvent, ...]:
+    events: list[RuntimeEvent] = []
+    for effect in effects:
+        if not effect.kind:
+            continue
+        surface_target = effect.target_entity or default_target
+        events.append(
+            emit_event(
+                event_type=effect.kind,
+                actor=actor,
+                source_entity=effect.source_entity or default_source,
+                target_entity=effect.target_ref
+                or effect.target_entity
+                or default_target,
+                malicious=malicious,
+                observability_surfaces=service_surfaces(surface_target),
+                weakness_id=effect.weakness_id,
+                evidence=effect.evidence,
+                technique_ids=effect.technique_ids,
+            )
         )
-    if step_action == "traverse":
-        return RedEventBatch(
-            events=(
-                emit_event(
-                    event_type="CrossZoneTraversal",
-                    actor="red",
-                    source_entity=last_red_target or action.actor_id,
-                    target_entity=target,
-                    malicious=True,
-                    observability_surfaces=service_surfaces(target),
-                ),
-            ),
-            satisfied_objectives=(),
-            last_red_target=target,
-        )
-    if step_action == "collect_secret":
-        return _secret_collection_events(
-            target=target,
-            asset_id=asset_id,
-            objective=objective,
-            emit_event=emit_event,
-            service_surfaces=service_surfaces,
-        )
-    if step_action == "abuse_identity":
-        return _identity_abuse_events(
-            target=target,
-            objective=objective,
-            emit_event=emit_event,
-            service_surfaces=service_surfaces,
-        )
-    if step_action == "abuse_workflow":
-        return _workflow_abuse_events(
-            target=target,
-            objective=objective,
-            emit_event=emit_event,
-            service_surfaces=service_surfaces,
-        )
-    if step_action == "satisfy_objective":
-        return objective_events(
-            target=target,
-            objective=objective,
-            asset_id=asset_id,
-            emit_event=emit_event,
-            service_surfaces=service_surfaces,
-        )
-    return RedEventBatch(events=(), satisfied_objectives=(), last_red_target=target)
-
-
-def objective_events(
-    *,
-    target: str,
-    objective: str,
-    asset_id: str,
-    emit_event: EmitEvent,
-    service_surfaces: ServiceSurfaceResolver,
-) -> RedEventBatch:
-    if not objective and not asset_id:
-        return RedEventBatch(events=(), satisfied_objectives=(), last_red_target=target)
-    resolved_objective = objective or (
-        f"credential_obtained({asset_id})"
-        if "cred" in asset_id
-        else f"asset_read({asset_id})"
-    )
-    event_type, target_ref = objective_event_for_predicate(
-        resolved_objective,
-        target_id=asset_id or predicate_inner(resolved_objective) or target,
-        default_service=target,
-    )
-    surfaces = service_surfaces(target)
-    event = emit_event(
-        event_type=event_type or "SensitiveAssetRead",
-        actor="red",
-        source_entity=target,
-        target_entity=target_ref or asset_id or target,
-        malicious=True,
-        observability_surfaces=surfaces,
-    )
-    return RedEventBatch(
-        events=(event,),
-        satisfied_objectives=(resolved_objective,),
-        last_red_target=target,
-    )
-
-
-def _secret_collection_events(
-    *,
-    target: str,
-    asset_id: str,
-    objective: str,
-    emit_event: EmitEvent,
-    service_surfaces: ServiceSurfaceResolver,
-) -> RedEventBatch:
-    if objective:
-        return objective_events(
-            target=target,
-            objective=objective,
-            asset_id=asset_id,
-            emit_event=emit_event,
-            service_surfaces=service_surfaces,
-        )
-    if not asset_id:
-        event = emit_event(
-            event_type="SensitiveAssetRead",
-            actor="red",
-            source_entity=target,
-            target_entity=target,
-            malicious=True,
-            observability_surfaces=service_surfaces(target),
-        )
-        return RedEventBatch(
-            events=(event,), satisfied_objectives=(), last_red_target=target
-        )
-    if "cred" in asset_id or "token" in asset_id:
-        objective = f"credential_obtained({asset_id})"
-        event = emit_event(
-            event_type="CredentialObtained",
-            actor="red",
-            source_entity=target,
-            target_entity=asset_id,
-            malicious=True,
-            observability_surfaces=service_surfaces(target),
-        )
-        return RedEventBatch(
-            events=(event,), satisfied_objectives=(objective,), last_red_target=target
-        )
-    objective = f"asset_read({asset_id})"
-    event = emit_event(
-        event_type="SensitiveAssetRead",
-        actor="red",
-        source_entity=target,
-        target_entity=asset_id,
-        malicious=True,
-        observability_surfaces=service_surfaces(target),
-    )
-    return RedEventBatch(
-        events=(event,), satisfied_objectives=(objective,), last_red_target=target
-    )
-
-
-def _identity_abuse_events(
-    *,
-    target: str,
-    objective: str,
-    emit_event: EmitEvent,
-    service_surfaces: ServiceSurfaceResolver,
-) -> RedEventBatch:
-    if objective:
-        return objective_events(
-            target=target,
-            objective=objective,
-            asset_id="",
-            emit_event=emit_event,
-            service_surfaces=service_surfaces,
-        )
-    events = (
-        emit_event(
-            event_type="CredentialObtained",
-            actor="red",
-            source_entity=target,
-            target_entity=target,
-            malicious=True,
-            observability_surfaces=service_surfaces(target),
-        ),
-        emit_event(
-            event_type="UnauthorizedCredentialUse",
-            actor="red",
-            source_entity=target,
-            target_entity=target,
-            malicious=True,
-            observability_surfaces=service_surfaces(target),
-        ),
-    )
-    return RedEventBatch(events=events, satisfied_objectives=(), last_red_target=target)
-
-
-def _workflow_abuse_events(
-    *,
-    target: str,
-    objective: str,
-    emit_event: EmitEvent,
-    service_surfaces: ServiceSurfaceResolver,
-) -> RedEventBatch:
-    if objective:
-        return objective_events(
-            target=target,
-            objective=objective,
-            asset_id="",
-            emit_event=emit_event,
-            service_surfaces=service_surfaces,
-        )
-    event = emit_event(
-        event_type="UnauthorizedCredentialUse",
-        actor="red",
-        source_entity=target,
-        target_entity=target,
-        malicious=True,
-        observability_surfaces=service_surfaces(target),
-    )
-    return RedEventBatch(
-        events=(event,), satisfied_objectives=(), last_red_target=target
-    )
+    return tuple(events)

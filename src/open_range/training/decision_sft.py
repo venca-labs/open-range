@@ -162,8 +162,6 @@ def row_to_sft_record(row: TraceDecisionRow) -> dict[str, Any]:
         "chosen_action_text": row.chosen_action_text,
         "winner": row.winner,
         "terminal_reason": row.terminal_reason,
-        "grounded_effects": list(row.grounded_effects),
-        "mitigation_effects": list(row.mitigation_effects),
     }
 
 

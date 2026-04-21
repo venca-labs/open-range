@@ -352,38 +352,40 @@ def _check_necessity(
         issues.append("no executable remediation exists for live necessity checks")
     elif not any(
         weakness.target in executable_targets
-        for _idx, _trace, weakness in trace_bindings
+        for _idx, _trace, weaknesses in trace_bindings
+        for weakness in weaknesses
     ):
         issues.append("no reference-relevant weakness has executable remediation")
     if not issues and trace_bindings:
         trace_results = []
-        for trace_index, _trace, weakness in trace_bindings:
-            counterfactual_world = world.model_copy(
-                update={
-                    "weaknesses": tuple(
-                        weak for weak in world.weaknesses if weak.id != weakness.id
-                    )
-                }
-            )
-            score, _events, _health, outputs = run_red_reference(
-                ephemeral_runtime_snapshot(counterfactual_world, artifacts, wb),
-                None,
-                trace_index=trace_index,
-            )
-            trace_passed = score.winner != "red"
-            if not trace_passed:
-                issues.append(
-                    f"counterfactual red reference {trace_index} still succeeds after removing {weakness.id}"
+        for trace_index, _trace, weaknesses in trace_bindings:
+            for weakness in weaknesses:
+                counterfactual_world = world.model_copy(
+                    update={
+                        "weaknesses": tuple(
+                            weak for weak in world.weaknesses if weak.id != weakness.id
+                        )
+                    }
                 )
-            trace_results.append(
-                {
-                    "trace_id": wb.reference_attack_traces[trace_index].id,
-                    "weakness_id": weakness.id,
-                    "counterfactual_winner": score.winner,
-                    "outputs": outputs,
-                    "passed": trace_passed,
-                }
-            )
+                score, _events, _health, outputs = run_red_reference(
+                    ephemeral_runtime_snapshot(counterfactual_world, artifacts, wb),
+                    None,
+                    trace_index=trace_index,
+                )
+                trace_passed = score.winner != "red"
+                if not trace_passed:
+                    issues.append(
+                        f"counterfactual red reference {trace_index} still succeeds after removing {weakness.id}"
+                    )
+                trace_results.append(
+                    {
+                        "trace_id": wb.reference_attack_traces[trace_index].id,
+                        "weakness_id": weakness.id,
+                        "counterfactual_winner": score.winner,
+                        "outputs": outputs,
+                        "passed": trace_passed,
+                    }
+                )
         details = {"traces": trace_results}
     else:
         details = {"issues": issues}

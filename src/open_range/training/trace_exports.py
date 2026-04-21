@@ -7,22 +7,34 @@ from urllib.parse import urlencode
 
 from open_range.contracts.runtime import (
     Action,
-    RuntimeEvent,
     control_directive,
     finding_event_type,
 )
 from open_range.contracts.snapshot import RuntimeSnapshot
 from open_range.training.data import TraceWeakness
 
-_HIDDEN_ACTION_PAYLOAD_KEYS = frozenset({"service_command"})
+_HIDDEN_TRACE_PAYLOAD_KEYS = frozenset(
+    {
+        "action",
+        "asset",
+        "claim_objective",
+        "expect_contains",
+        "objective",
+        "origin",
+        "weakness",
+        "weakness_id",
+    }
+)
 
 
 def public_trace_action(action: Action) -> Action:
     payload = {
         key: value
         for key, value in action.payload.items()
-        if key not in _HIDDEN_ACTION_PAYLOAD_KEYS
+        if key not in _HIDDEN_TRACE_PAYLOAD_KEYS
     }
+    if action.kind == "shell" and "path" in payload:
+        payload.pop("command", None)
     return action.model_copy(update={"payload": payload})
 
 
@@ -94,59 +106,3 @@ def trace_benchmark_tags(snapshot: RuntimeSnapshot) -> tuple[str, ...]:
         tag for weakness in snapshot.world.weaknesses for tag in weakness.benchmark_tags
     }
     return tuple(sorted(tags))
-
-
-def grounded_effects_for_result(
-    *,
-    stdout: str,
-    emitted_events: tuple[RuntimeEvent, ...],
-) -> tuple[str, ...]:
-    labels = {
-        event.event_type
-        for event in emitted_events
-        if event.event_type
-        in {
-            "CredentialObtained",
-            "UnauthorizedCredentialUse",
-            "PrivilegeEscalation",
-            "SensitiveAssetRead",
-            "PersistenceEstablished",
-            "ServiceDegraded",
-        }
-    }
-    labels.update(
-        token
-        for token in stdout.split()
-        if token.startswith("OPENRANGE-EFFECT:")
-        or token.startswith("OPENRANGE-FOOTHOLD:")
-    )
-    return tuple(sorted(labels))
-
-
-def mitigation_effects_for_result(
-    *,
-    action: Action,
-    stdout: str,
-    emitted_events: tuple[RuntimeEvent, ...],
-) -> tuple[str, ...]:
-    labels = {
-        event.event_type
-        for event in emitted_events
-        if event.event_type
-        in {"ContainmentApplied", "PatchApplied", "RecoveryCompleted"}
-    }
-    if action.kind == "control":
-        directive = str(action.payload.get("action", "")).lower()
-        target = str(action.payload.get("target", ""))
-        if (
-            directive in {"contain", "patch", "mitigate", "recover", "restore"}
-            and target
-        ):
-            labels.add(f"{directive}:{target}")
-    if "mitigation applied to " in stdout:
-        labels.add("mitigation_applied")
-    if "patch applied to " in stdout:
-        labels.add("patch_applied")
-    if "containment applied to " in stdout:
-        labels.add("containment_applied")
-    return tuple(sorted(labels))

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Any
 
+from open_range.admission.live_necessity import LiveNecessityRunner
 from open_range.admission.models import ValidatorCheckReport
 from open_range.config import EpisodeConfig
 from open_range.contracts.snapshot import RuntimeSnapshot
@@ -48,7 +49,10 @@ def run_red_reference(
             raise
         if decision.actor != "red":
             break
-        result = runtime.act("red", action_for_reference_step(snapshot, "red", step))
+        result = runtime._replay_action(
+            "red",
+            action_for_reference_step(snapshot, "red", step),
+        )
         outputs.append(result.stdout or result.stderr)
     score = runtime.score()
     events = tuple(event.model_dump(mode="json") for event in runtime.export_events())
@@ -99,25 +103,27 @@ def _evaluate_live_red_objectives(
 
 def reference_trace_bindings(
     attack_traces: tuple[Any, ...], active_weaknesses: tuple[Any, ...]
-) -> tuple[tuple[int, Any, Any], ...]:
+) -> tuple[tuple[int, Any, tuple[Any, ...]], ...]:
     weakness_by_id = {str(weakness.id): weakness for weakness in active_weaknesses}
     bindings = []
     for trace_index, trace in enumerate(attack_traces):
-        weakness = weakness_by_id.get(
-            next(
-                (
-                    step.payload.get("weakness_id") or step.payload.get("weakness")
-                    for step in getattr(trace, "steps", ())
-                    if isinstance(
-                        step.payload.get("weakness_id") or step.payload.get("weakness"),
-                        str,
-                    )
-                ),
-                "",
+        weakness_ids = tuple(
+            dict.fromkeys(
+                str(step.payload.get("weakness_id") or step.payload.get("weakness", ""))
+                for step in getattr(trace, "steps", ())
+                if isinstance(
+                    step.payload.get("weakness_id") or step.payload.get("weakness"),
+                    str,
+                )
             )
         )
-        if weakness is not None:
-            bindings.append((trace_index, trace, weakness))
+        weaknesses = tuple(
+            weakness_by_id[weakness_id]
+            for weakness_id in weakness_ids
+            if weakness_id in weakness_by_id
+        )
+        if weaknesses:
+            bindings.append((trace_index, trace, weaknesses))
     return tuple(bindings)
 
 
@@ -386,80 +392,15 @@ def _live_necessity_check(
     release: BootedRelease,
     backend: PodActionBackend,
 ) -> ValidatorCheckReport:
-    engine = PredicateEngine(snapshot.world)
-    active_weaknesses = engine.active_weaknesses()
-    trace_bindings = reference_trace_bindings(
-        snapshot.reference_bundle.reference_attack_traces,
-        active_weaknesses,
-    )
-    red_targets = {
-        step.target
-        for _trace_index, trace, _weakness in trace_bindings
-        for step in trace.steps
-    }
-    candidate_weaknesses = sorted(
-        (weakness for weakness in active_weaknesses if weakness.target in red_targets),
-        key=lambda weakness: (
-            0 if weakness.instantiation_mode == "exact_code" else 1,
-            0
-            if trace_bindings
-            and weakness.target == trace_bindings[0][1].steps[0].target
-            else 1,
-            weakness.id,
+    return LiveNecessityRunner(
+        snapshot=snapshot,
+        release=release,
+        backend=backend,
+        trace_bindings=reference_trace_bindings(
+            snapshot.reference_bundle.reference_attack_traces,
+            PredicateEngine(snapshot.world).active_weaknesses(),
         ),
-    )
-    target_weakness = candidate_weaknesses[0] if candidate_weaknesses else None
-    trace_index = next(
-        (
-            candidate_index
-            for candidate_index, _trace, weakness in trace_bindings
-            if target_weakness is not None and weakness.id == target_weakness.id
-        ),
-        0,
-    )
-    if target_weakness is None:
-        return ValidatorCheckReport(
-            name="live_necessity",
-            passed=False,
-            details={"reason": "no reference-relevant weakness"},
-            error="no reference-relevant weakness available for live necessity check",
-        )
-    command = remediation_command_for_weakness(target_weakness)
-    if not command:
-        return ValidatorCheckReport(
-            name="live_necessity",
-            passed=False,
-            details={
-                "weakness_id": target_weakness.id,
-                "remediation": target_weakness.remediation,
-                "remediation_kind": target_weakness.remediation_kind,
-            },
-            error="weakness remediation is not executable",
-        )
-    apply_result = run_async(
-        release.pods.exec(target_weakness.target, command, timeout=10.0)
-    )
-    score, _events, _health, outputs = run_red_reference(
-        snapshot,
-        backend,
-        trace_index=trace_index,
-    )
-    run_async(
-        release.pods.exec(
-            target_weakness.target,
-            "rm -f /tmp/openrange-contained /tmp/openrange-patched",
-            timeout=10.0,
-        )
-    )
-    passed = apply_result.ok and score.winner != "red"
-    return ValidatorCheckReport(
-        name="live_necessity",
-        passed=passed,
-        details={
-            "weakness_id": target_weakness.id,
-            "target": target_weakness.target,
-            "winner_after_remediation": score.winner,
-            "outputs": outputs,
-        },
-        error="" if passed else "live remediation did not break the reference path",
-    )
+        remediation_for_weakness=remediation_command_for_weakness,
+        run_red_reference=run_red_reference,
+        clear_reference_markers=_clear_live_reference_markers,
+    ).report()

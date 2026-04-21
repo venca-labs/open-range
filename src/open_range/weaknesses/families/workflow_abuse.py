@@ -32,7 +32,6 @@ from .common import (
     realization_summary,
     shell_payload,
     target_ref_objective,
-    traverse_to_target,
     write_text_command,
 )
 
@@ -108,7 +107,6 @@ def build_red_reference_plan(
             )
         current = "svc-email"
     else:
-        steps.extend(traverse_to_target(engine, start, weakness.target))
         current = weakness.target
 
     realization_path = first_realization_path(
@@ -130,7 +128,6 @@ def build_red_reference_plan(
             markers=workflow_effect_markers_for_kind(weakness.kind),
         )
         payload["command"] = live_command
-        payload["service_command"] = live_command
     satisfied: list[str] = []
     objective = target_ref_objective(world, weakness.target_ref)
     if objective is not None:

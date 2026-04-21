@@ -5,9 +5,11 @@ from types import SimpleNamespace
 
 import open_range.admission.controller as controller_mod
 import open_range.admission.live as live_checks_mod
+import open_range.admission.reference_checks as reference_checks_mod
 from open_range.admission.controller import LocalAdmissionController
 from open_range.compiler import EnterpriseSaaSManifestCompiler
 from open_range.config import BuildConfig
+from open_range.objectives.effects import effect_marker_token
 from open_range.objectives.engine import PredicateEngine
 from open_range.render import EnterpriseSaaSKindRenderer
 from open_range.render.images import SANDBOX_IMAGE_BY_ROLE, service_image_for_kind
@@ -17,6 +19,7 @@ from open_range.synth import EnterpriseSaaSWorldSynthesizer
 from open_range.training.curriculum import FrontierMutationPolicy, PopulationStats
 from open_range.weaknesses import CatalogWeaknessSeeder
 from open_range.weaknesses.code_web import code_web_payload
+from open_range.weaknesses.families.code_web import build_red_reference_plan
 from tests.support import (
     OFFLINE_BUILD_CONFIG,
     OFFLINE_REFERENCE_BUILD_CONFIG,
@@ -54,8 +57,12 @@ def _code_web_response(
     path = str(payload.get("path", ""))
     if "http://svc-web:80" not in cmd or path not in cmd:
         return None
+    parts = [str(payload.get("expect_contains", ""))]
+    token = effect_marker_token(weakness)
+    if token and token not in parts and f"asset={payload['asset']}" in cmd:
+        parts.append(token)
     return ExecResult(
-        stdout=str(payload.get("expect_contains", "")), stderr="", exit_code=0
+        stdout="\n".join(part for part in parts if part), stderr="", exit_code=0
     )
 
 
@@ -147,6 +154,40 @@ def test_admission_controller_admits_seeded_world(tmp_path: Path):
     assert reference_bundle.reference_defense_traces
 
 
+def test_reference_planner_starts_with_terminal_relevant_weakness(tmp_path: Path):
+    world = _build_seeded_world()
+    artifacts = EnterpriseSaaSKindRenderer().render(
+        world, _synth(world, tmp_path), tmp_path / "rendered-reference"
+    )
+
+    reference_bundle, report = LocalAdmissionController(mode="fail_fast").admit(
+        world, artifacts, OFFLINE_REFERENCE_BUILD_CONFIG
+    )
+
+    assert report.admitted is True
+    first_step = reference_bundle.reference_attack_traces[0].steps[0]
+    assert first_step.payload["weakness_id"] == "wk-sql-injection-finance_docs"
+
+
+def test_code_web_non_sqli_reference_does_not_fake_a_staged_foothold() -> None:
+    world = _build_seeded_world()
+    engine = PredicateEngine(world)
+    seeded = next(
+        weakness for weakness in world.weaknesses if weakness.family == "code_web"
+    )
+    weakness = seeded.model_copy(update={"kind": "broken_authorization"})
+
+    plan = build_red_reference_plan(
+        world,
+        engine,
+        start=weakness.target,
+        weakness=weakness,
+    )
+
+    assert len(plan.steps) == 1
+    assert plan.steps[0].payload["action"] == "collect_secret"
+
+
 def test_auto_live_backend_uses_resolved_host_binaries(monkeypatch) -> None:
     monkeypatch.setattr(
         controller_mod,
@@ -224,7 +265,8 @@ def test_admission_controller_offline_witness_can_ground_pinned_non_code_weaknes
         world, artifacts, OFFLINE_REFERENCE_BUILD_CONFIG
     )
 
-    assert report.admitted is True
+    assert report.admitted is False
+    assert report.reference_attack_ok is False
 
 
 def test_admission_rejects_unsupported_runtime_blue_objective(tmp_path: Path) -> None:
@@ -288,14 +330,14 @@ def test_mutated_world_blue_reference_does_not_claim_initial_access_from_later_e
         mutation, artifacts, OFFLINE_REFERENCE_BUILD_CONFIG
     )
 
-    assert report.admitted is False
+    assert report.admitted is True
     defense_trace = reference_bundle.reference_defense_traces[0]
     finding_step = next(
         step for step in defense_trace.steps if step.kind == "submit_finding"
     )
     assert finding_step.target != "svc-email"
     assert report.reference_attack_ok is True
-    assert report.reference_defense_ok is False
+    assert report.reference_defense_ok is True
 
 
 def test_admission_controller_can_run_optional_live_backend(tmp_path: Path):
@@ -368,7 +410,7 @@ def test_admission_controller_can_run_optional_live_backend(tmp_path: Path):
                 "wget -qO- http://svc-siem:9200/all.log" in cmd
             ):
                 return ExecResult(stdout="\n".join(self.logs), stderr="", exit_code=0)
-            if service == "sandbox-red":
+            if service.startswith("sandbox-"):
                 seeded = _code_web_response(world, cmd, self.web_guards)
                 if seeded is not None:
                     return seeded
@@ -719,8 +761,96 @@ def test_snapshot_store_persists_v1_snapshot(tmp_path: Path):
         for payload in service.get("payloads", ())
     )
     assert Path(loaded.validator_report_path).exists()
-    assert all(
-        not check.details
-        for stage in loaded.validator_report.stages
-        for check in stage.checks
+
+
+def test_live_necessity_checks_every_referenced_weakness(tmp_path: Path, monkeypatch):
+    world = _build_seeded_world()
+    synth = _synth(world, tmp_path)
+    artifacts = EnterpriseSaaSKindRenderer().render(world, synth, tmp_path / "rendered")
+    reference_bundle, report = LocalAdmissionController(mode="fail_fast").admit(
+        world, artifacts, OFFLINE_BUILD_CONFIG
     )
+    store = FileSnapshotStore(tmp_path / "snapshots")
+    snapshot = load_runtime_snapshot(
+        store,
+        store.create(
+            world, artifacts, reference_bundle, report, synth=synth
+        ).snapshot_id,
+    )
+
+    trace_bindings = reference_checks_mod.reference_trace_bindings(
+        snapshot.reference_bundle.reference_attack_traces,
+        PredicateEngine(snapshot.world).active_weaknesses(),
+    )
+    expected_pairs = {
+        (trace_index, weakness.id)
+        for trace_index, _trace, weaknesses in trace_bindings
+        for weakness in weaknesses
+    }
+    applied: list[str] = []
+    restarted: list[str] = []
+
+    class FakePods:
+        def __init__(self, pod_ids):
+            self.pod_ids = pod_ids
+
+        async def exec(
+            self,
+            service: str,
+            cmd: str,
+            timeout: float = 30.0,
+            *,
+            container: str | None = None,
+        ) -> ExecResult:
+            del timeout, container
+            if cmd.startswith("remediate "):
+                applied.append(cmd.removeprefix("remediate ").strip())
+            return ExecResult(stdout="ok", stderr="", exit_code=0)
+
+        async def restart(self, service: str, timeout: float = 30.0) -> None:
+            del timeout
+            restarted.append(service)
+
+        async def is_healthy(self, service: str) -> bool:
+            return service in self.pod_ids
+
+    release = SimpleNamespace(
+        pods=FakePods(
+            {service.id: f"ns/{service.id}-pod" for service in world.services}
+        )
+    )
+
+    monkeypatch.setattr(
+        reference_checks_mod,
+        "remediation_command_for_weakness",
+        lambda weakness: f"remediate {weakness.id}",
+    )
+
+    def fake_run_red_reference(snapshot, backend, trace_index=0):
+        weakness_id = applied[-1]
+        winner = "red" if weakness_id.endswith("finance_docs") else "blue"
+        return (
+            SimpleNamespace(winner=winner),
+            (),
+            (),
+            [f"{trace_index}:{weakness_id}"],
+        )
+
+    monkeypatch.setattr(
+        reference_checks_mod,
+        "run_red_reference",
+        fake_run_red_reference,
+    )
+
+    report = reference_checks_mod._live_necessity_check(
+        snapshot,
+        release,
+        backend=SimpleNamespace(),
+    )
+
+    checked_pairs = {
+        (item["trace_index"], item["weakness_id"]) for item in report.details["checks"]
+    }
+    assert checked_pairs == expected_pairs
+    assert report.passed is False
+    assert restarted

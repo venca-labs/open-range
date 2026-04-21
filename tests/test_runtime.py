@@ -9,9 +9,11 @@ from types import SimpleNamespace
 import pytest
 
 from open_range.admission.controller import LocalAdmissionController
+from open_range.admission.reference_checks import reference_trace_bindings
 from open_range.compiler import EnterpriseSaaSManifestCompiler
 from open_range.config import EpisodeConfig
 from open_range.contracts.runtime import Action, RuntimeEvent
+from open_range.objectives.effects import effect_marker_token
 from open_range.render import EnterpriseSaaSKindRenderer
 from open_range.render.live import ExecResult
 from open_range.runtime import OpenRangeRuntime
@@ -56,8 +58,14 @@ def _code_web_response(
     path = str(payload.get("path", ""))
     if "http://svc-web:80" not in cmd or path not in cmd:
         return None
+    parts = [str(payload.get("expect_contains", ""))]
+    token = effect_marker_token(weakness)
+    if token and token not in parts and f"asset={payload['asset']}" in cmd:
+        parts.append(token)
     return ExecResult(
-        stdout=str(payload.get("expect_contains", "")), stderr="", exit_code=0
+        stdout="\n".join(part for part in parts if part),
+        stderr="",
+        exit_code=0,
     )
 
 
@@ -597,15 +605,19 @@ def test_runtime_tags_emitted_events_when_a_live_action_matches_audit_pattern(
         ),
     )
 
-    first_step = snapshot.reference_bundle.reference_attack_traces[0].steps[0]
+    code_web_step = next(
+        step
+        for step in snapshot.reference_bundle.reference_attack_traces[0].steps
+        if step.kind == "api" and step.target == "svc-web"
+    )
     assert runtime.next_decision().actor == "red"
     result = runtime.act(
         "red",
         Action(
             actor_id="red",
             role="red",
-            kind=first_step.kind,
-            payload={"target": first_step.target, **first_step.payload},
+            kind=code_web_step.kind,
+            payload={"target": code_web_step.target, **code_web_step.payload},
         ),
     )
 
@@ -614,7 +626,9 @@ def test_runtime_tags_emitted_events_when_a_live_action_matches_audit_pattern(
     assert result.emitted_events[0].suspicious_reasons == (r"api svc-web /search\.php",)
     audit = runtime.score().audit
     assert audit is not None
-    assert audit.suspicious_event_ids == (result.emitted_events[0].id,)
+    assert audit.suspicious_event_ids == tuple(
+        event.id for event in result.emitted_events
+    )
 
 
 def test_runtime_serialized_events_keep_suspicious_fields(tmp_path: Path):
@@ -629,15 +643,19 @@ def test_runtime_serialized_events_keep_suspicious_fields(tmp_path: Path):
         ),
     )
 
-    first_step = snapshot.reference_bundle.reference_attack_traces[0].steps[0]
+    code_web_step = next(
+        step
+        for step in snapshot.reference_bundle.reference_attack_traces[0].steps
+        if step.kind == "api" and step.target == "svc-web"
+    )
     assert runtime.next_decision().actor == "red"
     runtime.act(
         "red",
         Action(
             actor_id="red",
             role="red",
-            kind=first_step.kind,
-            payload={"target": first_step.target, **first_step.payload},
+            kind=code_web_step.kind,
+            payload={"target": code_web_step.target, **code_web_step.payload},
         ),
     )
 
@@ -680,6 +698,201 @@ def test_runtime_matching_rejects_extra_api_path_when_reference_has_no_path() ->
     )
 
     assert matches_reference_step(action, expected, "ok") is False
+
+
+def test_runtime_reference_steps_are_concrete_public_actions(tmp_path: Path):
+    snapshot = _snapshot(tmp_path)
+    trace = snapshot.reference_bundle.reference_attack_traces[0]
+    runtime = OpenRangeRuntime()
+    runtime.reset(
+        snapshot,
+        EpisodeConfig(mode="red_only", green_enabled=False),
+        reference_attack_index=0,
+    )
+
+    assert all(
+        str(step.payload.get("action", "")) not in {"satisfy_objective", "traverse"}
+        for step in trace.steps
+    )
+
+    emitted = False
+    for step in trace.steps:
+        assert runtime.next_decision().actor == "red"
+        result = runtime.act("red", runtime_action("red", step))
+        emitted = emitted or bool(result.emitted_events)
+
+    assert emitted is True
+
+
+def test_runtime_reference_actions_do_not_include_service_command(
+    tmp_path: Path,
+) -> None:
+    snapshot = _snapshot(tmp_path)
+    red_step = next(
+        step
+        for step in snapshot.reference_bundle.reference_attack_traces[0].steps
+        if step.kind == "shell" and step.payload.get("command")
+    )
+
+    public = runtime_action("red", red_step)
+
+    assert "service_command" not in public.payload
+    assert "service_command" not in red_step.payload
+
+
+def test_reference_trace_bindings_include_all_trace_weaknesses(tmp_path: Path) -> None:
+    snapshot = _snapshot(tmp_path)
+    trace = snapshot.reference_bundle.reference_attack_traces[0]
+
+    bindings = reference_trace_bindings(
+        snapshot.reference_bundle.reference_attack_traces,
+        tuple(snapshot.world.weaknesses),
+    )
+    trace_index, bound_trace, weaknesses = bindings[0]
+
+    assert trace_index == 0
+    assert bound_trace.id == trace.id
+    assert {weakness.id for weakness in weaknesses} == {
+        str(step.payload.get("weakness_id") or step.payload.get("weakness", ""))
+        for step in trace.steps
+        if str(step.payload.get("weakness_id") or step.payload.get("weakness", ""))
+    }
+
+
+def test_runtime_public_actions_do_not_infer_declared_effects(tmp_path: Path):
+    snapshot = _snapshot(tmp_path)
+    runtime = OpenRangeRuntime()
+    runtime.reset(
+        snapshot,
+        EpisodeConfig(mode="red_only", green_enabled=False),
+    )
+
+    assert runtime.next_decision().actor == "red"
+    result = runtime.act(
+        "red",
+        Action(
+            actor_id="red",
+            role="red",
+            kind="shell",
+            payload={
+                "target": snapshot.world.services[0].id,
+                "action": "collect_secret",
+                "asset": "finance_docs",
+                "expect_contains": "finance_docs",
+            },
+        ),
+    )
+
+    assert result.emitted_events == ()
+
+
+def test_runtime_public_offline_actions_ignore_weakness_ids(tmp_path: Path) -> None:
+    snapshot = _snapshot(tmp_path)
+    weakness = next(
+        weak for weak in snapshot.world.weaknesses if weak.family == "code_web"
+    )
+    runtime = OpenRangeRuntime()
+    runtime.reset(
+        snapshot,
+        EpisodeConfig(mode="red_only", green_enabled=False),
+    )
+
+    assert runtime.next_decision().actor == "red"
+    result = runtime.act(
+        "red",
+        Action(
+            actor_id="red",
+            role="red",
+            kind="api",
+            payload={
+                "target": weakness.target,
+                "weakness_id": weakness.id,
+                "expect_contains": f"OPENRANGE-FOOTHOLD:{weakness.id}",
+            },
+        ),
+    )
+
+    assert result.emitted_events == ()
+    assert result.reward_delta < 0.0
+
+
+def test_runtime_red_public_effects_do_not_depend_on_current_reference_step(
+    tmp_path: Path,
+):
+    snapshot = _snapshot(tmp_path)
+    weakness = next(
+        weak for weak in snapshot.world.weaknesses if weak.family == "code_web"
+    )
+    public_payload = code_web_payload(snapshot.world, weakness)
+
+    class FakePods:
+        def __init__(self, pod_ids):
+            self.pod_ids = pod_ids
+
+        async def exec(
+            self, service: str, cmd: str, timeout: float = 30.0
+        ) -> ExecResult:
+            del timeout
+            seeded = _code_web_response(snapshot, cmd, set())
+            if seeded is not None:
+                return seeded
+            return ExecResult(stdout=f"{service}:{cmd}", stderr="", exit_code=0)
+
+        async def is_healthy(self, service: str) -> bool:
+            return service in self.pod_ids
+
+    pod_ids = {
+        service.id: f"ns/{service.id}-pod" for service in snapshot.world.services
+    }
+    pod_ids["sandbox-red"] = "ns/sandbox-red-pod"
+    pod_ids["sandbox-blue"] = "ns/sandbox-blue-pod"
+    for persona in snapshot.world.green_personas:
+        pod_ids[f"sandbox-green-{persona.id.replace('_', '-').lower()}"] = (
+            f"ns/{persona.id}-pod"
+        )
+
+    backend = PodActionBackend()
+    backend.bind(
+        snapshot, SimpleNamespace(release_name="or-test", pods=FakePods(pod_ids))
+    )
+    runtime = OpenRangeRuntime(action_backend=backend)
+    runtime.reset(
+        snapshot,
+        EpisodeConfig(mode="red_only", green_enabled=False),
+    )
+
+    first_step = snapshot.reference_bundle.reference_attack_traces[0].steps[0]
+    assert runtime.next_decision().actor == "red"
+    runtime.act(
+        "red",
+        Action(
+            actor_id="red",
+            role="red",
+            kind=first_step.kind,
+            payload={"target": first_step.target, **first_step.payload},
+        ),
+    )
+
+    assert runtime.next_decision().actor == "red"
+    result = runtime.act(
+        "red",
+        Action(
+            actor_id="red",
+            role="red",
+            kind="api",
+            payload={
+                "target": weakness.target,
+                "path": str(public_payload["path"]),
+                "query": dict(public_payload["query"]),
+            },
+        ),
+    )
+
+    assert result.emitted_events
+    assert {event.event_type for event in result.emitted_events} == {
+        "InitialAccess",
+        "SensitiveAssetRead",
+    }
 
 
 def test_runtime_live_containment_blocks_future_red_step(tmp_path: Path):
@@ -782,6 +995,44 @@ def test_runtime_live_containment_blocks_future_red_step(tmp_path: Path):
     )
 
     assert "contained" in blocked.stderr
+
+
+def test_runtime_containing_unrelated_public_service_does_not_break_red_path(
+    tmp_path: Path,
+):
+    snapshot = _snapshot(tmp_path)
+    runtime = OpenRangeRuntime()
+    runtime.reset(
+        snapshot,
+        EpisodeConfig(mode="joint_pool", green_enabled=False),
+    )
+
+    first_step = snapshot.reference_bundle.reference_attack_traces[0].steps[0]
+
+    assert runtime.next_decision().actor == "red"
+    runtime.act(
+        "red",
+        Action(
+            actor_id="red",
+            role="red",
+            kind=first_step.kind,
+            payload={"target": first_step.target, **first_step.payload},
+        ),
+    )
+
+    assert runtime.next_decision().actor == "blue"
+    result = runtime.act(
+        "blue",
+        Action(
+            actor_id="blue",
+            role="blue",
+            kind="control",
+            payload={"target": "svc-email", "action": "contain"},
+        ),
+    )
+
+    assert result.reward_delta == 0.0
+    assert "no path-breaking effect" in result.stdout
 
 
 def test_runtime_live_patch_blocks_future_red_step_and_emits_patch_event(
@@ -1062,8 +1313,8 @@ def test_internal_blue_controller_modes_are_not_aliases(tmp_path: Path):
         ),
     )
     reference_action = reference_runtime._internal_action("blue")
-    assert reference_action.kind == "shell"
-    assert reference_action.payload["action"] == "observe_events"
+    assert reference_action.kind == "submit_finding"
+    assert reference_action.payload["event_type"] == "InitialAccess"
 
     scripted_runtime = OpenRangeRuntime()
     scripted_runtime.reset(

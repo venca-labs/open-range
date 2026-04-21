@@ -84,7 +84,9 @@ class ReferencePlayback:
 
 
 def action_for_reference_step(
-    snapshot: RuntimeSnapshot, actor: str, step: Any | None
+    snapshot: RuntimeSnapshot,
+    actor: str,
+    step: Any | None,
 ) -> Action:
     if step is None:
         return Action(actor_id=actor, role=actor, kind="sleep", payload={})

@@ -13,7 +13,6 @@ from .common import (
     WeaknessBuildContext,
     assemble_weakness_spec,
     realization_summary,
-    traverse_to_target,
     write_text_command,
 )
 
@@ -48,8 +47,7 @@ def build_red_reference_plan(
 ) -> RedReferencePlan:
     del world
     return RedReferencePlan(
-        steps=traverse_to_target(engine, start, weakness.target)
-        + (
+        steps=(
             ReferenceAction(
                 actor="red",
                 kind="api",

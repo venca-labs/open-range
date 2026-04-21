@@ -7,6 +7,11 @@ import textwrap
 from open_range.catalog.probes import reference_action_for_weakness_family
 from open_range.contracts.validation import ReferenceAction
 from open_range.contracts.world import WeaknessRealizationSpec, WeaknessSpec, WorldIR
+from open_range.objectives.effects import (
+    effect_marker_content,
+    effect_marker_path,
+    effect_marker_token,
+)
 from open_range.objectives.engine import PredicateEngine
 from open_range.objectives.expr import predicate_inner
 
@@ -14,6 +19,7 @@ from .common import (
     RedReferencePlan,
     WeaknessBuildContext,
     assemble_weakness_spec,
+    effect_marker_command,
     first_objective_service,
     first_realization_path,
     mailbox_for_ref,
@@ -23,7 +29,6 @@ from .common import (
     secret_material,
     shell_payload,
     target_ref_objective,
-    traverse_to_target,
     write_text_command,
 )
 
@@ -65,8 +70,16 @@ def build_red_reference_plan(
         weakness_id=weakness.id,
         target=weakness.target,
         path=first_realization_path(weakness),
-        expect_contains=_secret_expectation(world, weakness),
+        expect_contains=effect_marker_token(weakness)
+        or _secret_expectation(world, weakness),
     )
+    live_command = effect_marker_command(
+        realization_path=first_realization_path(weakness) or "",
+        effect_path=effect_marker_path(weakness),
+        effect_content=effect_marker_content(weakness),
+        markers=_secret_effect_markers(world, weakness),
+    )
+    payload["command"] = live_command
     satisfied: list[str] = []
     objective = target_ref_objective(world, weakness.target_ref)
     if objective is not None:
@@ -74,8 +87,7 @@ def build_red_reference_plan(
         payload["objective"] = objective
         satisfied.append(objective)
     return RedReferencePlan(
-        steps=traverse_to_target(engine, start, weakness.target)
-        + (
+        steps=(
             ReferenceAction(
                 actor="red",
                 kind="shell",
@@ -289,3 +301,8 @@ def _secret_expectation(world: WorldIR, weakness: WeaknessSpec) -> str:
     if weakness.kind in {"token_in_email", "credential_in_share"}:
         return secret_material(world, weakness.target_ref or weakness.target)
     return weakness.kind
+
+
+def _secret_effect_markers(world: WorldIR, weakness: WeaknessSpec) -> tuple[str, ...]:
+    marker = _secret_expectation(world, weakness)
+    return (marker,) if marker else ()

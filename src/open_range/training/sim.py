@@ -31,7 +31,7 @@ class SimTrace(_StrictModel):
 
 
 class ReferenceSimPlane:
-    """Replay hidden reference traces through the public decision loop."""
+    """Replay hidden reference traces through the runtime replay path."""
 
     def generate_bootstrap_trace(
         self, snapshot: RuntimeSnapshot, *, episode_seed: int
@@ -76,8 +76,9 @@ class ReferenceSimPlane:
             else:
                 step = blue_steps[min(blue_idx, len(blue_steps) - 1)]
                 blue_idx += 1
+            replay_action = action_for_reference_step(snapshot, decision.actor, step)
             action = action_for_reference_step(snapshot, decision.actor, step)
-            result = runtime.act(decision.actor, action)
+            result = runtime._replay_action(decision.actor, replay_action)
             turns.append(
                 SimTurn(
                     role=decision.actor,

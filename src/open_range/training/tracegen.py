@@ -30,8 +30,6 @@ from open_range.training.data import (
 )
 from open_range.training.decision_sft import row_to_sft_record
 from open_range.training.trace_exports import (
-    grounded_effects_for_result,
-    mitigation_effects_for_result,
     public_trace_action,
     render_action_text,
     trace_benchmark_tags,
@@ -234,9 +232,9 @@ class TraceDatasetGenerator:
                 raise
             actor = decision.actor
             expected = runtime.reference_step(actor)
-            chosen_action = action_for_reference_step(snapshot, actor, expected)
-            result = runtime.act(actor, chosen_action)
-            public_action = public_trace_action(chosen_action)
+            replay_action = action_for_reference_step(snapshot, actor, expected)
+            public_action = public_trace_action(replay_action)
+            result = runtime._replay_action(actor, replay_action)
             rows.append(
                 TraceDecisionRow(
                     trace_source=trace_source,
@@ -262,15 +260,6 @@ class TraceDatasetGenerator:
                     result_stdout=result.stdout,
                     result_stderr=result.stderr,
                     emitted_events=result.emitted_events,
-                    grounded_effects=grounded_effects_for_result(
-                        stdout=result.stdout,
-                        emitted_events=result.emitted_events,
-                    ),
-                    mitigation_effects=mitigation_effects_for_result(
-                        action=public_action,
-                        stdout=result.stdout,
-                        emitted_events=result.emitted_events,
-                    ),
                     reward_delta=result.reward_delta,
                     winner="",
                     terminal_reason="",

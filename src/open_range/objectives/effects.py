@@ -7,6 +7,8 @@ import shlex
 
 def effect_scope(weakness: object) -> str:
     objective_tags = tuple(getattr(weakness, "objective_tags", ()))
+    if "file_access" in objective_tags or "db_access" in objective_tags:
+        return "asset"
     if "unauthorized_admin_login" in objective_tags:
         return "admin"
     if "privilege_escalation" in objective_tags:

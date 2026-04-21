@@ -19,14 +19,12 @@ from open_range.catalog.probes import (
     blue_containment_payload,
     blue_observe_reference_payload,
     blue_reference_expected_events,
-    blue_reference_plan_for_trace,
     blue_submit_finding_payload,
     necessity_probe_template,
     ordered_red_reference_candidates,
+    red_reference_family_priority,
     red_reference_starts,
-    select_primary_red_reference_weakness,
     smoke_probe_template,
-    telemetry_blindspot_targets,
 )
 from open_range.config import DEFAULT_BUILD_CONFIG, BuildConfig
 from open_range.contracts.snapshot import KindArtifacts, RuntimeSnapshot, world_hash
@@ -74,14 +72,16 @@ class ReferencePlanner:
     def build_red_references(self) -> tuple[ReferenceTrace, ...]:
         engine = PredicateEngine(self.world)
         starts = _reference_starts(self.world, engine)
-        weaknesses = engine.active_weaknesses()
-        candidates = ordered_red_reference_candidates(starts, weaknesses)
+        starters = _starter_weaknesses(self.world, engine)
+        candidates = ordered_red_reference_candidates(starts, starters)
         traces: list[ReferenceTrace] = []
         seen: set[str] = set()
         for start, exploit in candidates:
-            trace = self.build_red_reference(
+            trace, satisfied = self._build_red_reference_candidate(
                 start=start, exploit=exploit, ordinal=len(traces) + 1
             )
+            if not _terminal_red_predicates(self.world) <= satisfied:
+                continue
             token = json.dumps(
                 trace.model_dump(mode="json", exclude={"id"}), sort_keys=True
             )
@@ -92,9 +92,10 @@ class ReferencePlanner:
             if len(traces) >= self.build_config.red_reference_count:
                 break
         if not traces:
-            traces.append(
-                self.build_red_reference(start=starts[0], exploit=None, ordinal=1)
+            fallback, _satisfied = self._build_red_reference_candidate(
+                start=starts[0], exploit=None, ordinal=1
             )
+            traces.append(fallback)
         return tuple(traces)
 
     def build_blue_references(
@@ -117,94 +118,90 @@ class ReferencePlanner:
         exploit=None,
         ordinal: int = 1,
     ) -> ReferenceTrace:
+        return self._build_red_reference_candidate(
+            start=start,
+            exploit=exploit,
+            ordinal=ordinal,
+        )[0]
+
+    def _build_red_reference_candidate(
+        self,
+        *,
+        start: str | None = None,
+        exploit=None,
+        ordinal: int = 1,
+    ) -> tuple[ReferenceTrace, set[str]]:
         engine = PredicateEngine(self.world)
         start = start or next(iter(_reference_starts(self.world, engine)), "")
-        weaknesses = engine.active_weaknesses()
-        exploit = exploit or select_primary_red_reference_weakness(start, weaknesses)
+        weaknesses = _reference_weaknesses(self.world, engine)
+        starter_weaknesses = _starter_weaknesses(self.world, engine)
+        exploit = exploit or _select_initial_reference_weakness(
+            self.world,
+            engine,
+            start=start,
+            weaknesses=starter_weaknesses,
+        )
         satisfied_predicates: set[str] = set()
         steps: list[ReferenceAction] = []
+        expected_events: list[str] = []
         current = start
         if exploit is not None:
-            plan = build_reference_plan_for_weakness(
+            current = _append_reference_plan(
                 self.world,
                 engine,
-                start,
-                exploit,
+                start=current,
+                weakness=exploit,
+                steps=steps,
+                expected_events=expected_events,
+                satisfied=satisfied_predicates,
             )
-            steps.extend(list(plan.steps))
-            current = plan.current
-            satisfied_predicates = set(plan.satisfied_predicates)
-        if not steps:
-            steps.append(
-                ReferenceAction(
-                    actor="red",
-                    kind="api",
-                    target=start,
-                    payload={"action": "initial_access"},
-                )
+        used_weakness_ids = {getattr(exploit, "id", "")} - {""}
+        remaining = _terminal_red_predicates(self.world) - satisfied_predicates
+        while remaining:
+            follow_up = _select_follow_up_weakness(
+                self.world,
+                engine,
+                current=current,
+                weaknesses=weaknesses,
+                remaining=remaining,
+                used_weakness_ids=used_weakness_ids,
             )
-        for objective in self.world.red_objectives:
-            if objective.predicate in satisfied_predicates:
-                continue
-            resolved = engine.resolve_objective(objective.predicate)
-            target = resolved.target_service or current
-            path = engine.shortest_path(current, target)
-            for service_id in path[1:]:
-                steps.append(
-                    ReferenceAction(
-                        actor="red",
-                        kind="api",
-                        target=service_id,
-                        payload={"action": "traverse"},
-                    )
-                )
-            steps.append(
-                ReferenceAction(
-                    actor="red",
-                    kind="api",
-                    target=target,
-                    payload={
-                        "action": "satisfy_objective",
-                        "asset": (
-                            resolved.target_id
-                            if resolved.target_kind == "asset"
-                            else ""
-                        ),
-                        "objective": objective.predicate,
-                    },
-                )
+            if follow_up is None:
+                break
+            before = set(satisfied_predicates)
+            current = _append_reference_plan(
+                self.world,
+                engine,
+                start=current,
+                weakness=follow_up,
+                steps=steps,
+                expected_events=expected_events,
+                satisfied=satisfied_predicates,
             )
-            current = target
+            used_weakness_ids.add(follow_up.id)
+            if satisfied_predicates == before:
+                break
+            remaining = _terminal_red_predicates(self.world) - satisfied_predicates
 
-        events: list[str] = []
-        for weak in (exploit,) if exploit is not None else weaknesses:
-            if weak is None:
-                continue
-            events.extend(weak.expected_event_signatures)
-        objective_events = [
-            resolved.event_type
-            for resolved in (
-                engine.resolve_objective(objective.predicate)
-                for objective in self.world.red_objectives
-            )
-            if resolved.event_type
-        ]
-        return ReferenceTrace(
-            id=f"red-{self.world.world_id}-{ordinal}",
-            role="red",
-            objective_ids=tuple(
-                objective.id for objective in self.world.red_objectives
+        return (
+            ReferenceTrace(
+                id=f"red-{self.world.world_id}-{ordinal}",
+                role="red",
+                objective_ids=tuple(
+                    objective.id for objective in self.world.red_objectives
+                ),
+                expected_events=tuple(dict.fromkeys(expected_events)),
+                steps=tuple(steps),
             ),
-            expected_events=tuple(dict.fromkeys(events + objective_events)),
-            steps=tuple(steps),
+            satisfied_predicates,
         )
 
     def build_blue_reference(
         self, red_trace: ReferenceTrace, *, ordinal: int = 1
     ) -> ReferenceTrace:
-        plan = blue_reference_plan_for_trace(
+        detect_index, detect_event, detect_target = _blue_reference_detection(
+            self.world,
             red_trace,
-            blindspot_targets=telemetry_blindspot_targets(self.world),
         )
         observe_steps = tuple(
             ReferenceAction(
@@ -213,7 +210,12 @@ class ReferencePlanner:
                 target="svc-siem",
                 payload=blue_observe_reference_payload(),
             )
-            for _ in range(plan.observe_step_count)
+            for _ in range(max(0, detect_index))
+        )
+        contain_target = _blue_reference_containment_target(
+            self.world,
+            red_trace,
+            default=detect_target,
         )
         return ReferenceTrace(
             id=f"blue-{self.world.world_id}-{ordinal}",
@@ -227,13 +229,13 @@ class ReferencePlanner:
                 ReferenceAction(
                     actor="blue",
                     kind="submit_finding",
-                    target=plan.detect_target,
-                    payload=blue_submit_finding_payload(detect_event=plan.detect_event),
+                    target=detect_target,
+                    payload=blue_submit_finding_payload(detect_event=detect_event),
                 ),
                 ReferenceAction(
                     actor="blue",
                     kind="control",
-                    target=plan.contain_target,
+                    target=contain_target,
                     payload=blue_containment_payload(),
                 ),
             ),
@@ -303,6 +305,229 @@ def _reference_starts(world: WorldIR, engine: PredicateEngine) -> tuple[str, ...
             if engine.is_public_service(service)
         ),
     )
+
+
+def _append_reference_plan(
+    world: WorldIR,
+    engine: PredicateEngine,
+    *,
+    start: str,
+    weakness,
+    steps: list[ReferenceAction],
+    expected_events: list[str],
+    satisfied: set[str],
+) -> str:
+    plan = build_reference_plan_for_weakness(world, engine, start, weakness)
+    steps.extend(plan.steps)
+    expected_events.extend(weakness.expected_event_signatures)
+    satisfied.update(plan.satisfied_predicates)
+    return plan.current
+
+
+def _reference_weaknesses(
+    world: WorldIR, engine: PredicateEngine
+) -> tuple[object, ...]:
+    terminal = _terminal_red_predicates(world)
+    return tuple(
+        weakness
+        for weakness in engine.active_weaknesses()
+        if any(
+            _weakness_satisfies_objective(engine, weakness, predicate)
+            for predicate in terminal
+        )
+    )
+
+
+def _starter_weaknesses(world: WorldIR, engine: PredicateEngine) -> tuple[object, ...]:
+    starters = tuple(
+        weakness
+        for weakness in engine.active_weaknesses()
+        if "InitialAccess" in getattr(weakness, "expected_event_signatures", ())
+    )
+    return starters or _reference_weaknesses(world, engine)
+
+
+def _terminal_red_predicates(world: WorldIR) -> set[str]:
+    return {
+        objective.predicate for objective in world.red_objectives if objective.terminal
+    }
+
+
+def _weakness_satisfies_objective(
+    engine: PredicateEngine, weakness, predicate: str
+) -> bool:
+    resolved = engine.resolve_objective(predicate)
+    if not resolved.event_type:
+        return False
+    if resolved.event_type not in getattr(weakness, "expected_event_signatures", ()):
+        return False
+    if resolved.target_kind == "asset":
+        return bool(resolved.target_id) and resolved.target_id == getattr(
+            weakness, "target_ref", ""
+        )
+    target_service = resolved.target_service or getattr(weakness, "target", "")
+    return bool(target_service) and target_service == getattr(weakness, "target", "")
+
+
+def _select_follow_up_weakness(
+    world: WorldIR,
+    engine: PredicateEngine,
+    *,
+    current: str,
+    weaknesses: tuple[object, ...],
+    remaining: set[str],
+    used_weakness_ids: set[str],
+):
+    candidates = [
+        weakness
+        for weakness in weaknesses
+        if (
+            getattr(weakness, "id", "") not in used_weakness_ids
+            or (
+                getattr(weakness, "family", "") == "code_web"
+                and getattr(weakness, "target", "") != current
+            )
+        )
+        and any(
+            _weakness_satisfies_objective(engine, weakness, predicate)
+            for predicate in remaining
+        )
+    ]
+    if not candidates:
+        return None
+    candidates.sort(
+        key=lambda weakness: (
+            0
+            if len(remaining) > 1
+            and not any(
+                engine.resolve_objective(predicate).event_type == "SensitiveAssetRead"
+                and _weakness_satisfies_objective(engine, weakness, predicate)
+                for predicate in remaining
+            )
+            else 1,
+            -sum(
+                1
+                for predicate in remaining
+                if _weakness_satisfies_objective(engine, weakness, predicate)
+            ),
+            0 if getattr(weakness, "target", "") == current else 1,
+            red_reference_family_priority(getattr(weakness, "family", "")),
+            getattr(weakness, "target", ""),
+            getattr(weakness, "id", ""),
+        )
+    )
+    return candidates[0]
+
+
+def _select_initial_reference_weakness(
+    world: WorldIR,
+    engine: PredicateEngine,
+    *,
+    start: str,
+    weaknesses: tuple[object, ...],
+):
+    terminal = _terminal_red_predicates(world)
+    if not weaknesses:
+        return None
+    ranked = [
+        weakness
+        for weakness in weaknesses
+        if getattr(weakness, "target", "") == start
+        or "InitialAccess" in getattr(weakness, "expected_event_signatures", ())
+    ]
+    if not ranked:
+        ranked = list(weaknesses)
+    ranked.sort(
+        key=lambda weakness: (
+            0
+            if any(
+                _weakness_satisfies_objective(engine, weakness, predicate)
+                for predicate in terminal
+            )
+            else 1,
+            -sum(
+                1
+                for predicate in terminal
+                if _weakness_satisfies_objective(engine, weakness, predicate)
+            ),
+            0 if getattr(weakness, "target", "") == start else 1,
+            red_reference_family_priority(getattr(weakness, "family", "")),
+            getattr(weakness, "target", ""),
+            getattr(weakness, "id", ""),
+        )
+    )
+    return ranked[0]
+
+
+def _telemetry_blindspot_targets(world: WorldIR) -> frozenset[str]:
+    return frozenset(
+        weakness.target
+        for weakness in world.weaknesses
+        if weakness.family == "telemetry_blindspot"
+    )
+
+
+def _blue_reference_detection(
+    world: WorldIR,
+    red_trace: ReferenceTrace,
+) -> tuple[int, str, str]:
+    weakness_by_id = {weakness.id: weakness for weakness in world.weaknesses}
+    blindspots = _telemetry_blindspot_targets(world)
+    for index, step in enumerate(red_trace.steps):
+        action = str(step.payload.get("action", ""))
+        if action in {"deliver_phish", "deliver_lure", "click_lure"}:
+            continue
+        weakness_id = str(
+            step.payload.get("weakness_id", step.payload.get("weakness", ""))
+        )
+        weakness = weakness_by_id.get(weakness_id)
+        if weakness is None or weakness.target in blindspots:
+            continue
+        event_type = next(
+            (
+                event
+                for event in weakness.expected_event_signatures
+                if event != "DetectionAlertRaised"
+            ),
+            "InitialAccess",
+        )
+        return index, event_type, _reference_event_target(step, weakness, event_type)
+    if not red_trace.steps:
+        return 0, "InitialAccess", "svc-web"
+    step = red_trace.steps[0]
+    return 0, "InitialAccess", step.target or "svc-web"
+
+
+def _blue_reference_containment_target(
+    world: WorldIR,
+    red_trace: ReferenceTrace,
+    *,
+    default: str,
+) -> str:
+    weakness_by_id = {weakness.id: weakness for weakness in world.weaknesses}
+    for step in reversed(red_trace.steps):
+        weakness_id = str(
+            step.payload.get("weakness_id", step.payload.get("weakness", ""))
+        )
+        weakness = weakness_by_id.get(weakness_id)
+        if weakness is None:
+            continue
+        return getattr(weakness, "target", "") or step.target or default
+    return default or (red_trace.steps[-1].target if red_trace.steps else "svc-siem")
+
+
+def _reference_event_target(step: ReferenceAction, weakness, event_type: str) -> str:
+    if event_type in {"CredentialObtained", "SensitiveAssetRead"}:
+        payload_asset = str(step.payload.get("asset", ""))
+        if payload_asset:
+            return payload_asset
+        query = step.payload.get("query", {})
+        if isinstance(query, dict):
+            asset = str(query.get("asset", ""))
+            if asset:
+                return asset
+        return getattr(weakness, "target_ref", "") or getattr(weakness, "target", "")
+    return getattr(weakness, "target", "") or step.target
 
 
 def _probe_spec_from_template(template: ProbeTemplateSpec) -> ProbeSpec:
