@@ -25,11 +25,10 @@ from typing import TYPE_CHECKING, Any, Literal
 
 from openrange.core.errors import OpenRangeError
 from openrange.core.pack import Entrypoint, Task
+from openrange.core.runtime_backing import RUNTIME_BACKINGS, RunningArtifact
 from openrange.core.turn import ActorTurn
 
 if TYPE_CHECKING:
-    import subprocess
-
     from openrange.core.snapshot import Snapshot
     from openrange.dashboard import DashboardView
 
@@ -158,12 +157,10 @@ class _RunningEpisode:
     env_root: Path
     agent_root: Path
     base_url: str
-    process: subprocess.Popen[str] | None = None
+    running_artifact: RunningArtifact | None = None
     request_log: Path | None = None
     request_count: int = 0
     request_lock: threading.Lock = field(default_factory=threading.Lock)
-    request_thread: threading.Thread | None = None
-    request_stop: threading.Event | None = None
     dashboard: DashboardView | None = None
     agent_summary: str = ""
     final_state: Mapping[str, object] | None = None
@@ -198,12 +195,8 @@ class EpisodeService:
         snapshot: Snapshot,
         task_id: str | None = None,
     ) -> EpisodeHandle:
-        from openrange.runtime import (
-            materialize_artifacts,
-            read_base_url,
-            start_runtime_process,
-            write_task_file,
-        )
+        from openrange.core.runtime_backing import RUNTIME_BACKINGS, BackingContext
+        from openrange.runtime import write_task_file
 
         task = (
             snapshot.task(task_id) if task_id is not None else snapshot.get_tasks()[0]
@@ -211,6 +204,7 @@ class EpisodeService:
         if not task.entrypoints:
             raise EpisodeError(f"task {task.id!r} has no entrypoints")
         entrypoint = task.entrypoints[0]
+        backing = RUNTIME_BACKINGS.require(entrypoint.kind)
 
         episode_id = uuid.uuid4().hex[:12]
         # First episode for this task in this run uses the bare task.id;
@@ -226,16 +220,14 @@ class EpisodeService:
         env_root.mkdir(parents=True)
         agent_root.mkdir()
 
-        app_root = env_root / "pack"
-        materialize_artifacts(snapshot.artifacts, app_root)
-        request_log = env_root / str(entrypoint.metadata["request_log"])
-        process = start_runtime_process(
-            app_root / str(entrypoint.metadata["artifact"]),
+        running_artifact = backing.start(
             entrypoint,
+            snapshot.artifacts,
             snapshot.world,
-            request_log,
+            BackingContext(episode_id=episode_id, workdir=env_root),
         )
-        base_url = read_base_url(process)
+        base_url = str(running_artifact.metadata["base_url"])
+        request_log = Path(str(running_artifact.metadata["request_log"]))
         write_task_file(agent_root, task, entrypoint, base_url)
 
         handle = EpisodeHandle(episode_id, snapshot.id, task.id)
@@ -248,7 +240,7 @@ class EpisodeService:
             env_root=env_root,
             agent_root=agent_root,
             base_url=base_url,
-            process=process,
+            running_artifact=running_artifact,
             request_log=request_log,
             dashboard=self.dashboard,
         )
@@ -275,14 +267,15 @@ class EpisodeService:
         from openrange.runtime import (
             final_state_from_episode,
             read_requests,
-            stop_process,
             validate_public_interface_interaction,
         )
 
         del reason
         running = self._require(episode)
-        stop_process(running.process)
-        running.process = None
+        if running.running_artifact is not None:
+            backing = RUNTIME_BACKINGS.require(running.running_artifact.kind)
+            backing.stop(running.running_artifact)
+            running.running_artifact = None
         self._stop_auto_tick(running)
         # Drain any remaining log entries to the dashboard, then read the
         # full request history for validation + final-state assembly.
@@ -493,8 +486,8 @@ class EpisodeService:
         result_file = str(running.entrypoint.metadata.get("result_file", ""))
         if result_file and (running.agent_root / result_file).exists():
             return True, "result_written"
-        if running.process is not None and running.process.poll() is not None:
-            return True, "process_exited"
+        if running.running_artifact is None:
+            return True, "stopped"
         return False, None
 
     def _sync_request_log(
@@ -583,10 +576,11 @@ class EpisodeService:
 
     def close(self) -> None:
         """Stop all live episodes."""
-        from openrange.runtime import stop_process
-
         for running in list(self._episodes.values()):
-            stop_process(running.process)
+            if running.running_artifact is not None:
+                backing = RUNTIME_BACKINGS.require(running.running_artifact.kind)
+                backing.stop(running.running_artifact)
+                running.running_artifact = None
             self._stop_auto_tick(running)
         self._episodes.clear()
 

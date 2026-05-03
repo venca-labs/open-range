@@ -10,12 +10,17 @@ and returns a ``BuildState`` — but typically domain-specific in their
 **implementation**. Two builders for the same pack are interchangeable
 because both speak the pack's ontology; a pack may ship a default builder
 for convenience, but any conforming Builder works.
+
+Construction is the Builder's choice — Core does not impose an
+``__init__`` signature. The pack's ``default_builder(context)`` factory
+constructs the builder however it likes, reading whatever it needs from
+the BuildContext (LLM, prompt, curriculum, ...).
 """
 
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
     from openrange.core.admission import AdmissionFailure
@@ -31,14 +36,7 @@ class Builder(ABC):
 
     Each method takes a ``BuildState`` and returns a new ``BuildState``
     with one more field populated. Use ``dataclasses.replace`` to update.
-
-    Convention: builders accept an ``llm`` argument at construction (may
-    be ``None``). Non-LLM builders ignore it. The orchestrator
-    instantiates the pack's default builder via ``builder_cls(llm)``.
     """
-
-    def __init__(self, llm: Any | None = None) -> None:
-        self.llm = llm
 
     @abstractmethod
     def generate_world_graph(self, state: BuildState) -> BuildState: ...

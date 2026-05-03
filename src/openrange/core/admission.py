@@ -5,7 +5,7 @@ from __future__ import annotations
 from collections.abc import Mapping
 from dataclasses import dataclass, field
 from types import MappingProxyType
-from typing import TYPE_CHECKING, cast
+from typing import TYPE_CHECKING, Literal, cast
 
 from openrange.core.errors import AdmissionError, OpenRangeError, StoreError
 from openrange.core.pack import VerifierResult
@@ -14,17 +14,20 @@ if TYPE_CHECKING:
     from openrange.core.builder import BuildState
 
 
+FailureStage = Literal["world", "tasks", "verifier", "generation", "probe"]
+
+
 @dataclass(frozen=True, slots=True)
 class AdmissionFailure:
     """One structured reason a build failed admission.
 
-    ``stage`` is one of: 'world', 'tasks', 'verifier'. ``task_id`` is set
-    when the failure is attributable to a specific task. ``details`` is a
-    free-form mapping for builders to inspect during repair.
+    ``stage`` is one of: 'world', 'tasks', 'verifier', 'generation', 'probe'.
+    ``task_id`` is set when the failure is attributable to a specific task.
+    ``details`` is a free-form mapping for builders to inspect during repair.
     """
 
     reason: str
-    stage: str
+    stage: FailureStage
     task_id: str | None = None
     details: Mapping[str, object] = field(default_factory=dict)
 

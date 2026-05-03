@@ -927,8 +927,9 @@ def test_custom_builder_repair_receives_structured_failures(tmp_path: Path) -> N
             return state
 
     class _CustomPack(type(pack)):  # type: ignore[misc]
-        def default_builder(self) -> type[Builder] | None:
-            return _NoTasksBuilder
+        def default_builder(self, context: BuildContext) -> Builder | None:
+            del context
+            return _NoTasksBuilder()
 
     custom_registry = OR.PackRegistry()
     custom_registry.register(_CustomPack(pack.dir))

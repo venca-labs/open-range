@@ -37,6 +37,7 @@ from openrange.dashboard import (
     DashboardHTTPServer,
     DashboardView,
 )
+from openrange.llm import LLMBackend
 
 
 class EpisodeRuntimeError(OpenRangeError):
@@ -100,7 +101,7 @@ class OpenRangeRun:
         manifest: str | Path | Mapping[str, object] | Manifest,
         *,
         prompt: str = "",
-        llm: object | None = None,
+        llm: LLMBackend | None = None,
         max_repairs: int = 3,
     ) -> Snapshot:
         snapshot = core_build(

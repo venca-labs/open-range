@@ -1,5 +1,7 @@
 """OpenRange core public API."""
 
+# Side-effect: registers built-in backings (HTTP) into RUNTIME_BACKINGS.
+import openrange.core.backings as _backings  # noqa: F401, E402
 from openrange.core.admission import (
     AdmissionFailure,
     AdmissionReport,

@@ -6,7 +6,7 @@ from collections.abc import Callable, Mapping
 from dataclasses import dataclass, field, replace
 from pathlib import Path
 from types import MappingProxyType
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING
 
 from openrange.core.admission import (
     AdmissionFailure,
@@ -34,7 +34,7 @@ from openrange.core.pack import (
 from openrange.core.snapshot import Snapshot, freeze
 
 if TYPE_CHECKING:
-    pass
+    from openrange.llm import LLMBackend
 
 BuildEventSink = Callable[[str, Mapping[str, object]], object]
 
@@ -42,7 +42,7 @@ BuildEventSink = Callable[[str, Mapping[str, object]], object]
 @dataclass(frozen=True, slots=True)
 class BuildContext:
     prompt: str = ""
-    llm: Any | None = None
+    llm: LLMBackend | None = None
     curriculum: Mapping[str, object] | None = None
     previous: Snapshot | None = None
     feedback: tuple[str, ...] = ()
@@ -77,7 +77,7 @@ def build(
     manifest: str | Path | Mapping[str, object] | Manifest,
     *,
     prompt: str = "",
-    llm: Any | None = None,
+    llm: LLMBackend | None = None,
     event_sink: BuildEventSink | None = None,
     registry: PackRegistry | None = None,
     max_repairs: int = 3,
@@ -97,7 +97,7 @@ def evolve(
     curriculum: Mapping[str, object],
     *,
     prompt: str = "",
-    llm: Any | None = None,
+    llm: LLMBackend | None = None,
     event_sink: BuildEventSink | None = None,
     registry: PackRegistry | None = None,
     max_repairs: int = 3,
@@ -206,10 +206,10 @@ def _instantiate_path_pack(pack_id: str, path: Path) -> Pack:
 
 
 def _resolve_builder(pack: Pack, context: BuildContext) -> Builder:
-    builder_cls = pack.default_builder()
-    if builder_cls is None:
+    builder = pack.default_builder(context)
+    if builder is None:
         raise PackError(f"pack {pack.id!r} has no default builder")
-    return builder_cls(context.llm)
+    return builder
 
 
 def _build_with_repair(state: BuildState, *, max_repairs: int) -> BuildState:
@@ -314,24 +314,67 @@ def _attach_verifiers(state: BuildState) -> BuildState:
 
 
 def _run_admission_probe(state: BuildState) -> BuildState:
-    """Execute the feasibility checks against the realized world.
+    """Execute feasibility checks against the realized world.
 
     The probe captures runtime state that the episode-check verifiers run
-    against during admission. Delegated to the pack so Core stays
-    domain-agnostic.
+    against during admission. Delegated to the runtime backing for the
+    task's entrypoint kind, so Core stays domain-agnostic.
     """
-    if state.feasibility_checks and state.runtime is not None:
-        emit_build_event(
-            state.context, "admission_probe_started", task_id=state.tasks[0].id,
+    if not state.feasibility_checks or state.runtime is None or not state.tasks:
+        return state
+    import tempfile
+
+    from openrange.core.runtime_backing import RUNTIME_BACKINGS, BackingContext
+
+    task = state.tasks[0]
+    feasibility = state.feasibility_checks[0]
+    entrypoint = task.entrypoints[0]
+    backing = RUNTIME_BACKINGS.require(entrypoint.kind)
+
+    emit_build_event(state.context, "admission_probe_started", task_id=task.id)
+    with tempfile.TemporaryDirectory() as tmp:
+        running = backing.start(
+            entrypoint,
+            state.runtime.files(),
+            _world_dict_from_state(state),
+            BackingContext(episode_id=f"probe-{task.id}", workdir=Path(tmp)),
         )
-        probe = state.pack.run_feasibility_check(state)
-        emit_build_event(
-            state.context,
-            "admission_probe_generated",
-            task_id=state.tasks[0].id,
-        )
-        return replace(state, admission_probe=probe)
-    return state
+        try:
+            probe = dict(backing.run_check(running, feasibility.source))
+        except Exception as exc:
+            raise AdmissionError(
+                "feasibility check failed against realized world",
+            ) from exc
+        finally:
+            backing.stop(running)
+    # Augment probe with the world snapshot, matching the legacy shape
+    # episode verifiers expect.
+    world_key = _final_state_key_for_world(entrypoint)
+    if world_key is not None:
+        probe[world_key] = _world_dict_from_state(state)
+    emit_build_event(
+        state.context,
+        "admission_probe_generated",
+        task_id=task.id,
+    )
+    return replace(state, admission_probe=MappingProxyType(probe))
+
+
+def _world_dict_from_state(state: BuildState) -> dict[str, object]:
+    if state.world_graph is None or not state.world_graph.nodes:
+        return {}
+    return dict(state.world_graph.nodes[0].attrs)
+
+
+def _final_state_key_for_world(entrypoint: object) -> str | None:
+    metadata = getattr(entrypoint, "metadata", {})
+    final_state = metadata.get("final_state") if isinstance(metadata, Mapping) else None
+    if not isinstance(final_state, Mapping):
+        return None
+    for name, spec in final_state.items():
+        if isinstance(spec, Mapping) and spec.get("kind") == "world":
+            return str(name)
+    return None
 
 
 def admission_feedback(attempt: int, failure: AdmissionFailure) -> str:

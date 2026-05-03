@@ -13,7 +13,9 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 from dataclasses import dataclass, field
-from typing import Any, Protocol
+from typing import Any, Literal, Protocol
+
+CheckKind = Literal["feasibility", "episode"]
 
 
 @dataclass(frozen=True, slots=True)
@@ -163,7 +165,7 @@ class CheckScript:
 
     id: str
     task_id: str
-    kind: str  # "feasibility" | "episode"
+    kind: CheckKind
     source: str
 
 

@@ -21,7 +21,7 @@ from openrange.core.manifest import Manifest
 from openrange.core.pack import PACKS, Entrypoint, Pack
 
 if TYPE_CHECKING:
-    from openrange.core.builder import BuildState
+    from openrange.core.builder import BuildContext
 
 CYBER_WEBAPP_ONTOLOGY = WorldSchema(
     node_types=(
@@ -81,15 +81,10 @@ class CyberWebappOffensePack(Pack):
     def ontology(self) -> WorldSchema:
         return CYBER_WEBAPP_ONTOLOGY
 
-    def default_builder(self) -> type[Builder] | None:
+    def default_builder(self, context: BuildContext) -> Builder | None:
         from openrange.packs.cyber_offense_builder import CyberOffenseBuilder
 
-        return CyberOffenseBuilder
-
-    def run_feasibility_check(self, state: BuildState) -> Mapping[str, object]:
-        from openrange.packs.cyber_offense_builder import run_admission_probe
-
-        return run_admission_probe(state)
+        return CyberOffenseBuilder(context.llm)
 
     def realize(self, graph: WorldGraph, manifest: Manifest) -> RuntimeBundle:
         webapp_nodes = graph.nodes_of("webapp")

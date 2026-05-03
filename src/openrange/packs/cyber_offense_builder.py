@@ -204,40 +204,6 @@ def _generate_verification_sources(
     return verifier_source, admission_source
 
 
-def run_admission_probe(state: BuildState) -> Mapping[str, object]:
-    """Run the cyber HTTP feasibility probe and return captured state.
-
-    Called by the orchestrator after generate_feasibility_checks to capture
-    the runtime state the verifier will check against during admission.
-    """
-    if (
-        state.runtime is None
-        or not state.tasks
-        or not state.feasibility_checks
-        or state.world_graph is None
-    ):
-        raise PackError("runtime, tasks, checks, and world graph required")
-    world_graph = state.world_graph
-    task = state.tasks[0]
-    feasibility = state.feasibility_checks[0]
-    entrypoint = task.entrypoints[0]
-    if entrypoint.kind != "http":
-        raise AdmissionError(
-            f"admission interface {entrypoint.kind!r} is not implemented",
-        )
-    final_state = dict(
-        _admission_probe_from_http(
-            feasibility.source,
-            state.runtime.files(),
-            entrypoint,
-            world_graph,
-        ),
-    )
-    world_key = _final_state_key(entrypoint, "world")
-    final_state[world_key] = _world_dict_from_graph(world_graph)
-    return MappingProxyType(final_state)
-
-
 def _placeholder_verifier() -> Any:
     def _placeholder(state: Mapping[str, object]) -> Mapping[str, object]:
         raise PackError("verifier not loaded yet")
@@ -349,72 +315,6 @@ def _admission_interface_spec(entrypoint: Entrypoint) -> Mapping[str, object]:
     else:
         spec["handles"] = {}
     return spec
-
-
-def _admission_probe_from_http(
-    source: str,
-    files: Mapping[str, str],
-    entrypoint: Entrypoint,
-    world_graph: WorldGraph,
-) -> Mapping[str, object]:
-    from urllib.request import urlopen
-
-    from openrange.runtime import (
-        materialize_artifacts,
-        read_base_url,
-        start_runtime_process,
-        stop_process,
-    )
-
-    world_dict = _world_dict_from_graph(world_graph)
-    with tempfile.TemporaryDirectory() as tmp:
-        root = Path(tmp)
-        app_root = root / "pack"
-        request_log = root / str(entrypoint.metadata["request_log"])
-        materialize_artifacts(files, app_root)
-        process = start_runtime_process(
-            app_root / str(entrypoint.metadata["artifact"]),
-            entrypoint,
-            world_dict,
-            request_log,
-        )
-        try:
-            base_url = read_base_url(process)
-
-            def http_get(path: object) -> bytes:
-                return cast(bytes, urlopen(base_url + str(path), timeout=5).read())
-
-            def http_get_json(path: object) -> object:
-                return json.loads(http_get(path).decode())
-
-            interface = {
-                "base_url": base_url,
-                "http_get": http_get,
-                "http_get_json": http_get_json,
-            }
-            return admission_state_from_source(source)(interface)
-        except Exception as exc:
-            message = "generated admission source did not prove task through interface"
-            raise AdmissionError(message) from exc
-        finally:
-            stop_process(process)
-
-
-def _world_dict_from_graph(graph: WorldGraph) -> dict[str, object]:
-    nodes = graph.nodes_of("webapp")
-    if not nodes:
-        return {}
-    return dict(nodes[0].attrs)
-
-
-def _final_state_key(entrypoint: Entrypoint, kind: str) -> str:
-    final_state = cast(
-        Mapping[str, Mapping[str, object]],
-        entrypoint.metadata["final_state"],
-    )
-    return next(
-        str(name) for name, spec in final_state.items() if spec.get("kind") == kind
-    )
 
 
 def _complete_with_pack_dir(
