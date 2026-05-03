@@ -34,5 +34,6 @@ or-runs/
 node_modules/
 
 # Other
+/AGENTS.md
 TASKLIST.md
 snapshots/
