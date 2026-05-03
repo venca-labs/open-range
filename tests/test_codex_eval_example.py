@@ -306,8 +306,6 @@ def test_codex_eval_runs_full_snapshot_episode_pipeline(tmp_path: Path) -> None:
         "build_started",
         "pack_resolved",
         "attempt_started",
-        "pack_loading",
-        "pack_loaded",
         "world_generation_started",
         "world_generated",
         "task_generation_started",

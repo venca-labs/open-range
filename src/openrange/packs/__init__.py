@@ -6,7 +6,9 @@ import json
 from collections.abc import Mapping
 from pathlib import Path
 from types import MappingProxyType
+from typing import TYPE_CHECKING
 
+from openrange.core.builder_protocol import Builder
 from openrange.core.errors import PackError
 from openrange.core.graph import (
     NodeType,
@@ -17,6 +19,9 @@ from openrange.core.graph import (
 )
 from openrange.core.manifest import Manifest
 from openrange.core.pack import PACKS, Entrypoint, Pack
+
+if TYPE_CHECKING:
+    from openrange.core.builder import BuildState
 
 CYBER_WEBAPP_ONTOLOGY = WorldSchema(
     node_types=(
@@ -56,6 +61,9 @@ class CyberWebappOffensePack(Pack):
         descriptor = json.loads(descriptor_path.read_text(encoding="utf-8"))
         if not isinstance(descriptor, Mapping):
             raise PackError("pack descriptor must be a JSON object")
+        descriptor_id = descriptor.get("id")
+        if descriptor_id is not None and descriptor_id != self.id:
+            raise PackError("manifest pack id does not match pack source")
         version = descriptor.get("version")
         runtime = descriptor.get("runtime", {})
         if not isinstance(version, str):
@@ -72,6 +80,16 @@ class CyberWebappOffensePack(Pack):
     @property
     def ontology(self) -> WorldSchema:
         return CYBER_WEBAPP_ONTOLOGY
+
+    def default_builder(self) -> type[Builder] | None:
+        from openrange.packs.cyber_offense_builder import CyberOffenseBuilder
+
+        return CyberOffenseBuilder
+
+    def run_feasibility_check(self, state: BuildState) -> Mapping[str, object]:
+        from openrange.packs.cyber_offense_builder import run_admission_probe
+
+        return run_admission_probe(state)
 
     def realize(self, graph: WorldGraph, manifest: Manifest) -> RuntimeBundle:
         webapp_nodes = graph.nodes_of("webapp")

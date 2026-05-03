@@ -7,6 +7,7 @@ from openrange.core.builder import (
     build,
     evolve,
 )
+from openrange.core.builder_protocol import Builder
 from openrange.core.errors import (
     AdmissionError,
     ManifestError,
@@ -15,6 +16,7 @@ from openrange.core.errors import (
     StoreError,
 )
 from openrange.core.graph import (
+    CheckScript,
     Edge,
     EdgeType,
     GraphConstraint,
@@ -72,6 +74,8 @@ __all__ = [
     "BuildContext",
     "BuildOutput",
     "BuildState",
+    "Builder",
+    "CheckScript",
     "Edge",
     "EdgeType",
     "Entrypoint",

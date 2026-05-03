@@ -151,6 +151,23 @@ class WorldGraph:
 
 
 @dataclass(frozen=True, slots=True)
+class CheckScript:
+    """A pack-/builder-produced check that runs against world or task state.
+
+    ``feasibility`` checks run during admission against the realized world
+    to confirm a builder's intent is buildable. ``episode`` checks run at
+    the end of an agent episode to grade the outcome. Both are emitted as
+    Python source defining a single callable; the source is stored in
+    snapshots and exec'd at run time inside a sandboxed namespace.
+    """
+
+    id: str
+    task_id: str
+    kind: str  # "feasibility" | "episode"
+    source: str
+
+
+@dataclass(frozen=True, slots=True)
 class RuntimeArtifact:
     """One realized piece of a world: a file, container, process, etc.
 

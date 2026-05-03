@@ -7,18 +7,20 @@ from collections.abc import Mapping
 from dataclasses import dataclass
 from hashlib import sha256
 from types import MappingProxyType
-from typing import cast
+from typing import TYPE_CHECKING, cast
 
 from openrange.core.admission import AdmissionReport
-from openrange.core.errors import StoreError
+from openrange.core.errors import AdmissionError, StoreError
 from openrange.core.manifest import Manifest
 from openrange.core.pack import (
-    BuildOutput,
     Entrypoint,
     Task,
     Verifier,
     verifier_from_source,
 )
+
+if TYPE_CHECKING:
+    from openrange.core.builder import BuildState
 
 
 @dataclass(frozen=True, slots=True)
@@ -203,17 +205,22 @@ def task_from_mapping(data: object, verifiers: Mapping[str, Verifier]) -> Task:
 
 def snapshot_hash(
     manifest: Manifest,
-    build: BuildOutput,
+    *,
+    world: Mapping[str, object],
+    tasks: tuple[Task, ...],
+    verifier_sources: Mapping[str, str],
+    generated: Mapping[str, object],
+    artifacts: Mapping[str, str],
     pack_version: str,
     parent_id: str | None,
 ) -> str:
     payload = {
         "manifest": manifest.as_dict(),
-        "world": build.world,
-        "tasks": [task.as_dict() for task in build.tasks],
-        "verifier_sources": build.verifier_sources,
-        "generated": build.generated.as_dict(),
-        "artifacts": build.artifacts,
+        "world": world,
+        "tasks": [task.as_dict() for task in tasks],
+        "verifier_sources": verifier_sources,
+        "generated": generated,
+        "artifacts": artifacts,
         "pack_version": pack_version,
         "parent_id": parent_id,
     }
@@ -230,3 +237,116 @@ def json_safe(value: object) -> object:
     if isinstance(value, tuple | list):
         return [json_safe(item) for item in value]
     return value
+
+
+def freeze(state: BuildState) -> Snapshot:
+    """Freeze a fully-admitted BuildState into a Snapshot."""
+    if (
+        state.world_graph is None
+        or state.runtime is None
+        or state.admission is None
+    ):
+        raise AdmissionError("cannot freeze snapshot before admission")
+    parent_id = None if state.context.previous is None else state.context.previous.id
+    world_dict = _world_dict_from_state(state)
+    artifacts = state.runtime.files()
+    verifier_sources = MappingProxyType(
+        {check.id: check.source for check in state.episode_checks},
+    )
+    generated = _generated_view(state, world_dict, artifacts)
+    summary = state.summary or f"Built {state.pack.id} world from pack source"
+    touched = state.touched_files or tuple(sorted(artifacts))
+    snapshot_id = snapshot_hash(
+        state.manifest,
+        world=world_dict,
+        tasks=state.tasks,
+        verifier_sources=verifier_sources,
+        generated=generated,
+        artifacts=artifacts,
+        pack_version=state.pack.version,
+        parent_id=parent_id,
+    )
+    lineage = LineageNode(
+        snapshot_id,
+        parent_id,
+        state.manifest.as_dict(),
+        state.pack.as_dict(),
+        state.context.prompt,
+        summary,
+        touched,
+        state.context.curriculum,
+    )
+    previous_lineage = (
+        () if state.context.previous is None else state.context.previous.lineage
+    )
+    return Snapshot(
+        snapshot_id,
+        state.manifest,
+        MappingProxyType(dict(world_dict)),
+        state.tasks,
+        verifier_sources,
+        MappingProxyType(generated),
+        artifacts,
+        state.admission,
+        (*previous_lineage, lineage),
+    )
+
+
+def _world_dict_from_state(state: BuildState) -> Mapping[str, object]:
+    """Project the world graph back to a flat dict for snapshot.world.
+
+    Phase 3 stopgap: legacy snapshot consumers expect a flat ``world``
+    dict. The cyber pack ontology has a single ``webapp`` node whose
+    attrs are exactly that dict. Future phases store the WorldGraph
+    directly on Snapshot and drop this projection.
+    """
+    if state.world_graph is None:
+        return {}
+    nodes = state.world_graph.nodes
+    if not nodes:
+        return {}
+    return MappingProxyType(dict(nodes[0].attrs))
+
+
+def _generated_view(
+    state: BuildState,
+    world: Mapping[str, object],
+    artifacts: Mapping[str, str],
+) -> Mapping[str, object]:
+    """Build the legacy GeneratedArtifacts shape from new state fields."""
+    pack_runtime: Mapping[str, object] = {}
+    if state.runtime is not None and state.pack.dir is not None:
+        try:
+            descriptor = json.loads(
+                (state.pack.dir / "pack.json").read_text(encoding="utf-8"),
+            )
+            if isinstance(descriptor, Mapping):
+                rt = descriptor.get("runtime", {})
+                if isinstance(rt, Mapping):
+                    pack_runtime = MappingProxyType(dict(rt))
+        except OSError:
+            pack_runtime = MappingProxyType({})
+    verifiers = [
+        {"id": check.id, "task_id": check.task_id, "source": check.source}
+        for check in state.episode_checks
+    ]
+    admission_rows: list[Mapping[str, object]] = []
+    if state.admission_probe is not None:
+        for check in state.feasibility_checks:
+            admission_rows.append(
+                {
+                    "task_id": check.task_id,
+                    "source": check.source,
+                    "final_state": dict(state.admission_probe),
+                },
+            )
+    return {
+        "world": {
+            "world": dict(world),
+            "artifacts": dict(artifacts),
+            "runtime": dict(pack_runtime),
+        },
+        "tasks": [task.as_dict() for task in state.tasks],
+        "verifiers": verifiers,
+        "admission": admission_rows,
+    }

@@ -12,6 +12,8 @@ from typing import TYPE_CHECKING, cast
 from openrange.core.errors import PackError, StoreError
 
 if TYPE_CHECKING:
+    from openrange.core.builder import BuildState
+    from openrange.core.builder_protocol import Builder
     from openrange.core.graph import RuntimeBundle, WorldGraph, WorldSchema
     from openrange.core.manifest import Manifest
 
@@ -233,10 +235,20 @@ class Pack(ABC):
     @abstractmethod
     def realize(self, graph: WorldGraph, manifest: Manifest) -> RuntimeBundle: ...
 
+    def run_feasibility_check(self, state: BuildState) -> Mapping[str, object]:
+        """Run feasibility checks against the realized world.
+
+        Returns the captured probe state that episode-check verifiers run
+        against during admission. Default: no probe (empty mapping). Packs
+        whose runtime needs probing (HTTP servers, containers, simulators)
+        override this.
+        """
+        return MappingProxyType({})
+
     def verifier_helpers(self) -> Mapping[str, Callable[..., object]]:
         return MappingProxyType({})
 
-    def default_builder(self) -> type | None:
+    def default_builder(self) -> type[Builder] | None:
         return None
 
     def generation_priors(self) -> Mapping[str, object]:

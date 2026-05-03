@@ -5,10 +5,13 @@ from __future__ import annotations
 from collections.abc import Mapping
 from dataclasses import dataclass
 from types import MappingProxyType
-from typing import cast
+from typing import TYPE_CHECKING, cast
 
 from openrange.core.errors import AdmissionError, StoreError
-from openrange.core.pack import BuildOutput, VerifierResult
+from openrange.core.pack import VerifierResult
+
+if TYPE_CHECKING:
+    from openrange.core.builder import BuildState
 
 
 @dataclass(frozen=True, slots=True)
@@ -60,17 +63,18 @@ class AdmissionReport:
         )
 
 
-def admit(build: BuildOutput) -> AdmissionReport:
+def admit(state: BuildState) -> AdmissionReport:
     errors: list[str] = []
-    if not build.world:
+    if state.world_graph is None or not state.world_graph.nodes:
         errors.append("world is empty")
-    if not build.tasks:
+    if not state.tasks:
         errors.append("no tasks generated")
     if errors:
         raise AdmissionError("; ".join(errors))
+    probe = state.admission_probe or {}
     verifier_results = {
-        task.id: MappingProxyType(dict(task.verify(build.admission_probe)))
-        for task in build.tasks
+        task.id: MappingProxyType(dict(task.verify(probe)))
+        for task in state.tasks
     }
     for task_id, result in verifier_results.items():
         if result.get("passed") is not True:

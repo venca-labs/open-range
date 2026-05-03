@@ -28,25 +28,6 @@ from openrange.core import (
     stable_json,
     task_from_mapping,
 )
-from openrange.core.builder import (
-    admission_probe_from_interface,
-    as_llm,
-    builder_prompt,
-    default_difficulty,
-    generate_admission_pass,
-    generate_task_pass,
-    generate_verifier_pass,
-    generate_world_pass,
-    generated_verifier_from_source,
-    load_pack_reference,
-    normalize_world,
-    pack_files,
-    public_world_summary,
-    verification_prompt,
-    verification_request,
-    verification_schema,
-    world_schema,
-)
 
 MANIFEST = {
     "world": {"goal": "find the admin flag", "title": "Ops Portal"},
@@ -209,8 +190,6 @@ def test_builder_emits_dashboard_safe_steps_without_flag_leak(
         "build_started",
         "pack_resolved",
         "attempt_started",
-        "pack_loading",
-        "pack_loaded",
         "world_generation_started",
         "world_generated",
         "task_generation_started",
@@ -384,92 +363,85 @@ def test_pack_source_ref_registry_and_errors(tmp_path: Path) -> None:
         build(path_manifest, llm=builder_llm(tmp_path), registry=registry)
 
 
-def test_pack_directory_reference_validation(tmp_path: Path) -> None:
+def test_pack_descriptor_validation(tmp_path: Path) -> None:
+    """Constructing CyberWebappOffensePack validates its pack.json."""
+    from openrange.packs import CyberWebappOffensePack
+
     pack = OR.PACKS.resolve("cyber.webapp.offense")
-    reference = load_pack_reference(pack.dir)
+    rebuilt = CyberWebappOffensePack(pack.dir)
+    assert rebuilt.id == "cyber.webapp.offense"
+    assert rebuilt.version == pack.version
 
-    assert reference.id == "cyber.webapp.offense"
-    assert reference.runtime["app"] == "app.py"
-
-    missing = tmp_path / "missing"
-    with pytest.raises(PackError, match="pack directory"):
-        load_pack_reference(missing)
-    empty = tmp_path / "empty"
-    empty.mkdir()
-    with pytest.raises(PackError, match="descriptor"):
-        load_pack_reference(empty)
     invalid = tmp_path / "invalid"
     invalid.mkdir()
     (invalid / "pack.json").write_text("{", encoding="utf-8")
-    with pytest.raises(PackError, match="valid JSON"):
-        load_pack_reference(invalid)
+    with pytest.raises(json.JSONDecodeError):
+        CyberWebappOffensePack(invalid)
 
-    for name, descriptor, message in [
+    pid = "cyber.webapp.offense"
+    for name, descriptor, expected_msg in [
         ("list", [], "JSON object"),
-        ("bad_id", {"id": 1, "version": "v"}, "id/version"),
-        (
-            "bad_runtime",
-            {"id": "x", "version": "v", "runtime": []},
-            "runtime",
-        ),
+        ("missing_version", {"id": pid}, "version"),
+        ("bad_runtime", {"id": pid, "version": "v", "runtime": []}, "runtime"),
         (
             "bad_runtime_app",
-            {"id": "x", "version": "v", "runtime": {"app": 1}},
+            {"id": pid, "version": "v", "runtime": {"app": 1}},
             "runtime app",
         ),
         (
-            "missing_runtime_app",
-            {
-                "id": "x",
-                "version": "v",
-                "runtime": {"app": "missing.py"},
-            },
-            "not found",
+            "wrong_id",
+            {"id": "other.pack", "version": "v", "runtime": {"app": "app.py"}},
+            "does not match",
         ),
     ]:
         pack_dir = tmp_path / name
         pack_dir.mkdir()
         (pack_dir / "pack.json").write_text(json.dumps(descriptor), encoding="utf-8")
-        with pytest.raises(PackError, match=message):
-            load_pack_reference(pack_dir)
-
-    source_dir = tmp_path / "files"
-    source_dir.mkdir()
-    (source_dir / "a.txt").write_text("a", encoding="utf-8")
-    (source_dir / "__pycache__").mkdir()
-    (source_dir / "__pycache__" / "ignored.pyc").write_text("x", encoding="utf-8")
-    assert pack_files(source_dir) == {"a.txt": "a"}
+        with pytest.raises(PackError, match=expected_msg):
+            CyberWebappOffensePack(pack_dir)
 
 
 def test_admission_rejects_empty_world_missing_tasks_and_failed_probe(
     tmp_path: Path,
 ) -> None:
+    from dataclasses import replace as _replace
+
     good = build(MANIFEST, llm=builder_llm(tmp_path))
+    pack = OR.PACKS.resolve("cyber.webapp.offense")
+    base_state = OR.BuildState(
+        manifest=good.manifest,
+        pack=pack,
+        builder=_NoopBuilder(),
+        context=BuildContext(),
+    )
+    nonempty_graph = OR.WorldGraph(
+        nodes=(OR.Node("webapp", "webapp", dict(good.world)),),
+    )
 
     with pytest.raises(AdmissionError, match="world is empty"):
         admit(
-            OR.BuildOutput(
-                world={},
+            _replace(
+                base_state,
+                world_graph=OR.WorldGraph(),
                 tasks=good.tasks,
-                verifier_sources=good.verifier_sources,
-                admission_probe=good.admission.verifier_results[good.tasks[0].id],
+                admission_probe={},
             ),
         )
     with pytest.raises(AdmissionError, match="no tasks generated"):
         admit(
-            OR.BuildOutput(
-                world={"ok": True},
+            _replace(
+                base_state,
+                world_graph=nonempty_graph,
                 tasks=(),
-                verifier_sources={},
                 admission_probe={},
             ),
         )
     with pytest.raises(AdmissionError, match="verifier did not pass"):
         admit(
-            OR.BuildOutput(
-                world={"flag": "wrong"},
+            _replace(
+                base_state,
+                world_graph=nonempty_graph,
                 tasks=good.tasks,
-                verifier_sources=good.verifier_sources,
                 admission_probe={
                     "result": {"flag": "wrong"},
                     "world": {"flag": "expected"},
@@ -605,11 +577,8 @@ def test_task_and_entrypoint_from_mapping_validation(tmp_path: Path) -> None:
 
 
 def test_builder_generation_error_paths(tmp_path: Path) -> None:
-    backend = OR.CodexBackend()
-
-    assert as_llm(backend) is backend
     with pytest.raises(ManifestError, match="max_repairs"):
-        build(MANIFEST, llm=backend, max_repairs=0)
+        build(MANIFEST, llm=OR.CodexBackend(), max_repairs=0)
     failed_events: list[tuple[str, Mapping[str, object]]] = []
     with pytest.raises(PackError, match="complete"):
         build(
@@ -619,99 +588,6 @@ def test_builder_generation_error_paths(tmp_path: Path) -> None:
         )
     assert failed_events[-1][0] == "build_failed"
     assert failed_events[-1][1]["error_type"] == "PackError"
-    assert default_difficulty(BuildContext()) == "easy"
-    assert default_difficulty(BuildContext(curriculum={"edit": "harder"})) == "hard"
-    assert normalize_world(
-        {
-            "service": "generated-webapp",
-            "title": "generated",
-            "flag": "FLAG",
-        },
-        Manifest.load(MANIFEST),
-        BuildContext(),
-    ) == {
-        "service": "generated-webapp",
-        "title": "generated",
-        "flag": "FLAG",
-        "mode": "simulation",
-        "difficulty": "llm",
-        "npc_count": 1,
-        "previous_snapshot": None,
-    }
-    assert public_world_summary(
-        {
-            "flag": "ORANGE{secret}",
-            "service": "webapp",
-            "tags": ["nested"],
-        },
-    ) == {"service": "webapp", "has_flag": True}
-    pack = OR.PACKS.resolve("cyber.webapp.offense")
-    reference = load_pack_reference(pack.dir)
-    assert json.loads(
-        builder_prompt(
-            pack,
-            reference,
-            Manifest.load(MANIFEST),
-            BuildContext(prompt="prompt", curriculum={"edit": "harder"}),
-        ),
-    )["pack_files"]["app.py"].startswith("from __future__")
-    assert world_schema()["required"] == [
-        "service",
-        "title",
-        "flag",
-    ]
-    with pytest.raises(PackError, match="llm backend"):
-        generate_world_pass(pack, reference, Manifest.load(MANIFEST), BuildContext())
-    context = BuildContext(llm=builder_llm(tmp_path))
-    generated_world, generated_bundle = generate_world_pass(
-        pack,
-        reference,
-        Manifest.load(MANIFEST),
-        context,
-    )
-    generated_task = generate_task_pass(generated_bundle)
-    assert str(generated_task.as_dict()["instruction"]).startswith(
-        "Read OPENRANGE_TASK",
-    )
-    prompt = json.loads(verification_prompt(generated_task, context))
-    admission_entrypoints = cast(
-        list[Mapping[str, object]],
-        cast(Mapping[str, object], prompt["admission"])["entrypoints"],
-    )
-    assert admission_entrypoints[0]["kind"] == "http"
-    assert "interface['http_get'](path)" in cast(
-        Mapping[str, object],
-        admission_entrypoints[0]["handles"],
-    )
-    shell_task = OR.GeneratedTask(
-        "shell_task",
-        "inspect the shell",
-        (
-            OR.Entrypoint(
-                "shell",
-                "host",
-                {"final_state": {"result": {"kind": "json_file"}}},
-            ),
-        ),
-        "shell_verified",
-    )
-    shell_prompt = json.loads(verification_prompt(shell_task, context))
-    assert "http_get" not in json.dumps(shell_prompt)
-    with pytest.raises(AdmissionError, match="not implemented"):
-        admission_probe_from_interface(
-            "def admission_state(interface):\n    return {}\n",
-            generated_world,
-            shell_task.entrypoints[0],
-        )
-    request = verification_request(generated_task, context)
-    assert json.loads(request.prompt)["task"]["id"] == generated_task.id
-    assert request.json_schema == verification_schema()
-    with pytest.raises(PackError, match="llm backend"):
-        generate_verifier_pass(generated_task)
-    with pytest.raises(PackError, match="llm backend"):
-        generate_verifier_pass(generated_task, BuildContext())
-    with pytest.raises(AdmissionError, match="verifier source"):
-        generated_verifier_from_source(generated_task, "x = 1")
     bad_verifier = executable(
         tmp_path,
         "bad_verifier_backend.py",
@@ -721,37 +597,38 @@ def test_builder_generation_error_paths(tmp_path: Path) -> None:
         from pathlib import Path
 
         output_path = Path(sys.argv[sys.argv.index("--output-last-message") + 1])
-        output_path.write_text(
-            json.dumps(
-                {
-                    "verifier_source": "x = 1",
-                    "admission_source": (
-                        "def admission_state(interface):\\n    return {}\\n"
-                    ),
-                },
-            ),
-            encoding="utf-8",
-        )
+        prompt = json.loads(sys.stdin.read().split("\\n\\n", 1)[1])
+        if "task" in prompt:
+            output_path.write_text(
+                json.dumps(
+                    {
+                        "verifier_source": "x = 1",
+                        "admission_source": (
+                            "def admission_state(interface):\\n    return {}\\n"
+                        ),
+                    },
+                ),
+                encoding="utf-8",
+            )
+        else:
+            output_path.write_text(
+                json.dumps(
+                    {
+                        "service": "webapp",
+                        "title": "Ops Portal",
+                        "flag": "ORANGE{webapp_admin_flag}",
+                    },
+                ),
+                encoding="utf-8",
+            )
         """,
     )
     with pytest.raises(AdmissionError, match="verifier source"):
-        generate_verifier_pass(
-            generated_task,
-            BuildContext(
-                llm=OR.CodexBackend(command=bad_verifier, model="local", timeout=5),
-            ),
+        build(
+            MANIFEST,
+            llm=OR.CodexBackend(command=bad_verifier, model="local", timeout=5),
+            max_repairs=1,
         )
-    generated_verifier = generate_verifier_pass(generated_task, context)
-    assert generated_verifier.as_dict()["source"] == generated_verifier.source
-    assert "result.get('flag')" in generated_verifier.source
-    generated_admission = generate_admission_pass(
-        generated_world,
-        generated_task,
-        context=context,
-    )
-    assert generated_admission.final_state["result"] == {
-        "flag": "ORANGE{webapp_admin_flag}",
-    }
 
 
 def test_builder_retries_admission_with_feedback_to_llm(tmp_path: Path) -> None:
@@ -884,8 +761,6 @@ def test_stable_json_is_sorted_and_public_api_exports(tmp_path: Path) -> None:
     assert OR.PACKS.resolve("cyber.webapp.offense").id == "cyber.webapp.offense"
     assert OR.ActorTurn("task", "actor", "agent", "target", {}).actor_kind == "agent"
     assert OR.PACKS.resolve("cyber.webapp.offense").version
-    assert OR.BuildOutput({}, (), {}, {}).summary == ""
-    assert OR.GeneratedArtifacts(OR.GeneratedWorld({}, {}, {}), (), (), ()).as_dict()
     assert OR.CODEX_DEFAULT_MODEL == "gpt-5.3-codex-spark"
     assert OR.OpenRangeRun.__name__ == "OpenRangeRun"
     assert OR.RunConfig(Path("runs")).root == Path("runs")
@@ -972,3 +847,26 @@ def generated_verifiers(tmp_path: Path) -> Mapping[str, OR.Verifier]:
         verifier_id: OR.verifier_from_source(source)
         for verifier_id, source in snapshot.verifier_sources.items()
     }
+
+
+class _NoopBuilder:
+    """Builder stub used by tests that exercise admit() in isolation."""
+
+    def generate_world_graph(self, state: OR.BuildState) -> OR.BuildState:
+        return state
+
+    def generate_tasks(self, state: OR.BuildState) -> OR.BuildState:
+        return state
+
+    def generate_feasibility_checks(self, state: OR.BuildState) -> OR.BuildState:
+        return state
+
+    def generate_episode_checks(self, state: OR.BuildState) -> OR.BuildState:
+        return state
+
+    def repair(
+        self,
+        state: OR.BuildState,
+        failures: tuple[str, ...],
+    ) -> OR.BuildState:
+        return state

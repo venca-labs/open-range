@@ -14,8 +14,7 @@ import yaml
 
 import openrange as OR
 import openrange.packs as _packs  # noqa: F401
-from openrange.core import Manifest
-from openrange.core.builder import http_entrypoint, load_pack_reference
+from openrange.core import Manifest, Node, WorldGraph
 from openrange.runtime import (
     materialize_artifacts,
     read_base_url,
@@ -30,25 +29,30 @@ def test_cyber_webapp_offense_pack_exposes_local_offense_range(
 ) -> None:
     flag = "ORANGE{full_cyber_offense_pack}"
     pack = OR.PACKS.resolve("cyber.webapp.offense")
-    reference = load_pack_reference(pack.dir)
     manifest = Manifest.load(
         {
             "world": {"goal": "exercise the local offense range"},
             "pack": {"id": "cyber.webapp.offense"},
         },
     )
-    entrypoint = http_entrypoint(reference, manifest)
+    world_attrs = {
+        "service": "webapp",
+        "title": "Ops Portal",
+        "flag": flag,
+        "mode": manifest.mode,
+        "difficulty": "test",
+        "npc_count": 0,
+    }
+    graph = WorldGraph(nodes=(Node("webapp", "webapp", world_attrs),))
+    bundle = pack.realize(graph, manifest)
+    entrypoint = bundle.entrypoints[0]
     app_root = tmp_path / "pack"
     request_log = tmp_path / "requests.jsonl"
-    materialize_artifacts(reference.files, app_root)
+    materialize_artifacts(bundle.files(), app_root)
     process = start_runtime_process(
         app_root / "app.py",
         entrypoint,
-        {
-            "service": "webapp",
-            "title": "Ops Portal",
-            "flag": flag,
-        },
+        world_attrs,
         request_log,
     )
     try:
