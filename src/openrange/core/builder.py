@@ -13,6 +13,11 @@ from typing import TYPE_CHECKING, Any, cast
 
 from openrange.core.admission import AdmissionReport, admit
 from openrange.core.errors import AdmissionError, ManifestError, PackError, StoreError
+from openrange.core.graph import (
+    Node,
+    RuntimeBundle,
+    WorldGraph,
+)
 from openrange.core.manifest import Manifest
 from openrange.core.pack import (
     PACKS,
@@ -177,8 +182,27 @@ def resolve_pack(manifest: Manifest, registry: PackRegistry) -> Pack:
         reference = load_pack_reference(path)
         if reference.id != manifest.pack.id:
             raise PackError("manifest pack id does not match pack source")
-        return Pack(reference.id, reference.version, path)
+        return _instantiate_path_pack(reference.id, path)
     raise PackError(f"unsupported pack source {source.kind!r}")
+
+
+def _require_pack_dir(pack: Pack) -> Path:
+    if pack.dir is None:
+        raise PackError(f"pack {pack.id!r} is not filesystem-backed")
+    return pack.dir
+
+
+def _instantiate_path_pack(pack_id: str, path: Path) -> Pack:
+    """Resolve a path-loaded pack to its concrete Pack subclass.
+
+    Phase 2: only cyber.webapp.offense is bundled as a class. Phase 7
+    replaces this lookup with an entry-point-based plugin registry.
+    """
+    if pack_id == "cyber.webapp.offense":
+        from openrange.packs import CyberWebappOffensePack
+
+        return CyberWebappOffensePack(path)
+    raise PackError(f"unsupported pack id for path source: {pack_id!r}")
 
 
 def admit_with_feedback(state: BuildState, *, max_repairs: int) -> BuildState:
@@ -259,7 +283,7 @@ def admission_feedback(attempt: int, error: AdmissionError) -> str:
 
 def generate(pack: Pack, manifest: Manifest, context: BuildContext) -> BuildOutput:
     emit_build_event(context, "pack_loading", pack_id=pack.id)
-    reference = load_pack_reference(pack.dir)
+    reference = load_pack_reference(_require_pack_dir(pack))
     emit_build_event(
         context,
         "pack_loaded",
@@ -269,14 +293,14 @@ def generate(pack: Pack, manifest: Manifest, context: BuildContext) -> BuildOutp
         runtime=dict(reference.runtime),
     )
     emit_build_event(context, "world_generation_started")
-    world = generate_world_pass(pack, reference, manifest, context)
+    world, bundle = generate_world_pass(pack, reference, manifest, context)
     emit_build_event(
         context,
         "world_generated",
         world=public_world_summary(world.world),
     )
     emit_build_event(context, "task_generation_started")
-    task = generate_task_pass(reference, manifest)
+    task = generate_task_pass(bundle)
     emit_build_event(
         context,
         "task_generated",
@@ -339,16 +363,39 @@ def generate_world_pass(
     reference: PackReference,
     manifest: Manifest,
     context: BuildContext,
-) -> GeneratedWorld:
-    return GeneratedWorld(
-        generated_world(pack, reference, manifest, context),
-        MappingProxyType(dict(reference.files)),
-        MappingProxyType(dict(reference.runtime)),
+) -> tuple[GeneratedWorld, RuntimeBundle]:
+    world_dict = generated_world(pack, reference, manifest, context)
+    graph = _llm_world_to_graph(world_dict)
+    schema_errors = pack.ontology.validate(graph)
+    if schema_errors:
+        details = "; ".join(error.message for error in schema_errors)
+        raise AdmissionError(f"world graph fails ontology: {details}")
+    bundle = pack.realize(graph, manifest)
+    return (
+        GeneratedWorld(
+            world_dict,
+            bundle.files(),
+            MappingProxyType(dict(reference.runtime)),
+        ),
+        bundle,
     )
 
 
-def generate_task_pass(reference: PackReference, manifest: Manifest) -> GeneratedTask:
-    entrypoint = http_entrypoint(reference, manifest)
+def _llm_world_to_graph(world: Mapping[str, object]) -> WorldGraph:
+    """Wrap an LLM-produced world dict as a single-node graph.
+
+    Phase 2 stopgap: today's LLM produces a flat parameter dict; Phase 3
+    replaces this with a Builder protocol that produces graphs directly.
+    """
+    return WorldGraph(
+        nodes=(Node("webapp", "webapp", MappingProxyType(dict(world))),),
+    )
+
+
+def generate_task_pass(bundle: RuntimeBundle) -> GeneratedTask:
+    if not bundle.entrypoints:
+        raise PackError("pack realize() returned no entrypoints")
+    entrypoint = cast(Entrypoint, bundle.entrypoints[0])
     task_file = str(entrypoint.metadata["task_file"])
     result_file = str(entrypoint.metadata["result_file"])
     return GeneratedTask(
@@ -617,9 +664,10 @@ def complete_with_pack_dir(
 
     if not isinstance(llm, CodexBackend) or llm.cwd is not None:
         return llm.complete(request)
+    pack_dir = _require_pack_dir(pack)
     with tempfile.TemporaryDirectory() as tmp:
         root = Path(tmp)
-        shutil.copytree(pack.dir, root / pack.dir.name)
+        shutil.copytree(pack_dir, root / pack_dir.name)
         return replace(llm, cwd=root, sandbox="workspace-write").complete(request)
 
 

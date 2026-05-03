@@ -343,7 +343,7 @@ def test_pack_source_ref_registry_and_errors(tmp_path: Path) -> None:
     with pytest.raises(PackError, match="unknown pack"):
         registry.resolve("missing")
     pack = OR.PACKS.resolve("cyber.webapp.offense")
-    registry.register(OR.Pack(pack.id, pack.version, pack.dir, pack.context))
+    registry.register(pack)
     assert registry.ids() == ("cyber.webapp.offense",)
     assert registry.resolve("cyber.webapp.offense").as_dict() == pack.as_dict()
     snapshot = build(MANIFEST, llm=builder_llm(tmp_path))
@@ -663,13 +663,13 @@ def test_builder_generation_error_paths(tmp_path: Path) -> None:
     with pytest.raises(PackError, match="llm backend"):
         generate_world_pass(pack, reference, Manifest.load(MANIFEST), BuildContext())
     context = BuildContext(llm=builder_llm(tmp_path))
-    generated_world = generate_world_pass(
+    generated_world, generated_bundle = generate_world_pass(
         pack,
         reference,
         Manifest.load(MANIFEST),
         context,
     )
-    generated_task = generate_task_pass(reference, Manifest.load(MANIFEST))
+    generated_task = generate_task_pass(generated_bundle)
     assert str(generated_task.as_dict()["instruction"]).startswith(
         "Read OPENRANGE_TASK",
     )
@@ -883,7 +883,7 @@ def test_stable_json_is_sorted_and_public_api_exports(tmp_path: Path) -> None:
     assert stable_json({"b": 1, "a": 2}) == '{"a":2,"b":1}'
     assert OR.PACKS.resolve("cyber.webapp.offense").id == "cyber.webapp.offense"
     assert OR.ActorTurn("task", "actor", "agent", "target", {}).actor_kind == "agent"
-    assert OR.Pack("id", "version", Path(".")).version == "version"
+    assert OR.PACKS.resolve("cyber.webapp.offense").version
     assert OR.BuildOutput({}, (), {}, {}).summary == ""
     assert OR.GeneratedArtifacts(OR.GeneratedWorld({}, {}, {}), (), (), ()).as_dict()
     assert OR.CODEX_DEFAULT_MODEL == "gpt-5.3-codex-spark"

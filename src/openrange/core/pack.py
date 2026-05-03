@@ -2,13 +2,18 @@
 
 from __future__ import annotations
 
+from abc import ABC, abstractmethod
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass, field
 from pathlib import Path
 from types import MappingProxyType
-from typing import cast
+from typing import TYPE_CHECKING, cast
 
 from openrange.core.errors import PackError, StoreError
+
+if TYPE_CHECKING:
+    from openrange.core.graph import RuntimeBundle, WorldGraph, WorldSchema
+    from openrange.core.manifest import Manifest
 
 VerifierResult = Mapping[str, object]
 Verifier = Callable[[Mapping[str, object]], VerifierResult]
@@ -203,19 +208,45 @@ class BuildOutput:
     summary: str = ""
 
 
-@dataclass(frozen=True, slots=True)
-class Pack:
-    id: str
-    version: str
-    dir: Path
-    context: Mapping[str, object] = field(default_factory=dict)
+class Pack(ABC):
+    """Domain SDK contract.
+
+    A Pack ships an ontology, a realizer that turns conforming graphs into
+    runtime artifacts, and optional verifier helpers, generation priors,
+    and a default builder. Core does not interpret pack-internal data —
+    the ``ontology`` and ``realize()`` are the only seams Core requires.
+
+    Subclasses must set ``id`` and ``version`` as class attributes (or
+    properties) and implement ``ontology`` and ``realize()``. Filesystem-
+    backed packs may also expose ``dir`` so the runtime can locate
+    on-disk assets.
+    """
+
+    id: str = ""
+    version: str = ""
+    dir: Path | None = None
+
+    @property
+    @abstractmethod
+    def ontology(self) -> WorldSchema: ...
+
+    @abstractmethod
+    def realize(self, graph: WorldGraph, manifest: Manifest) -> RuntimeBundle: ...
+
+    def verifier_helpers(self) -> Mapping[str, Callable[..., object]]:
+        return MappingProxyType({})
+
+    def default_builder(self) -> type | None:
+        return None
+
+    def generation_priors(self) -> Mapping[str, object]:
+        return MappingProxyType({})
 
     def as_dict(self) -> dict[str, object]:
         return {
             "id": self.id,
             "version": self.version,
-            "dir": str(self.dir),
-            "context": dict(self.context),
+            "dir": None if self.dir is None else str(self.dir),
         }
 
 
