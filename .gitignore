@@ -37,3 +37,7 @@ node_modules/
 /AGENTS.md
 TASKLIST.md
 snapshots/
+
+# Working / planning docs (kept local, not committed)
+docs/migration-plan.md
+docs/ontology/

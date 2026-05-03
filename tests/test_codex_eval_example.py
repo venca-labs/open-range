@@ -345,7 +345,7 @@ def test_codex_eval_rejects_snapshot_result_without_http_requests(
         print("done")
         """,
     )
-    snapshot = OR.Builder().build(MANIFEST, llm=builder_llm(tmp_path))
+    snapshot = OR.build(MANIFEST, llm=builder_llm(tmp_path))
     harness = CodexHarness(command=command, model="local")
     task = snapshot.get_tasks()[0]
 

@@ -377,7 +377,7 @@ def test_reference_pack_can_build_with_local_llm_backend(tmp_path: Path) -> None
         output_path.write_text(json.dumps(output), encoding="utf-8")
         """,
     )
-    snapshot = OR.Builder().build(
+    snapshot = OR.build(
         MANIFEST,
         prompt="use local backend",
         llm=OR.CodexBackend(command=command, model="local", timeout=5),
@@ -385,7 +385,7 @@ def test_reference_pack_can_build_with_local_llm_backend(tmp_path: Path) -> None
 
     assert snapshot.world["service"] == "generated-webapp"
     assert snapshot.world["difficulty"] == "llm"
-    snapshot_with_cwd = OR.Builder().build(
+    snapshot_with_cwd = OR.build(
         MANIFEST,
         llm=OR.CodexBackend(command=command, model="local", cwd=tmp_path, timeout=5),
     )
@@ -393,7 +393,7 @@ def test_reference_pack_can_build_with_local_llm_backend(tmp_path: Path) -> None
 
 
 def test_dashboard_view_state_events_and_narration(tmp_path: Path) -> None:
-    snapshot = OR.Builder().build(MANIFEST, llm=builder_llm(tmp_path))
+    snapshot = OR.build(MANIFEST, llm=builder_llm(tmp_path))
     view = DashboardView(snapshot)
 
     assert view.topology()["snapshot_id"] == snapshot.id
@@ -539,7 +539,7 @@ def test_dashboard_http_server_can_start_without_snapshot() -> None:
 def test_dashboard_http_server_serves_documented_json_endpoints(
     tmp_path: Path,
 ) -> None:
-    snapshot = OR.Builder().build(MANIFEST, llm=builder_llm(tmp_path))
+    snapshot = OR.build(MANIFEST, llm=builder_llm(tmp_path))
     view = DashboardView(snapshot)
     view.record_event(
         "agent_step",
@@ -641,7 +641,7 @@ def test_dashboard_http_server_serves_documented_json_endpoints(
 def test_dashboard_http_server_streams_events_and_narration(
     tmp_path: Path,
 ) -> None:
-    snapshot = OR.Builder().build(MANIFEST, llm=builder_llm(tmp_path))
+    snapshot = OR.build(MANIFEST, llm=builder_llm(tmp_path))
     view = DashboardView(snapshot)
     first = view.record_event("agent_step", actor="red", target="webapp")
 
@@ -846,7 +846,7 @@ def test_dashboard_view_can_open_persisted_run_artifacts(
 def test_dashboard_normalizes_sparse_topology_and_health_edges(
     tmp_path: Path,
 ) -> None:
-    snapshot = OR.Builder().build(MANIFEST, llm=builder_llm(tmp_path))
+    snapshot = OR.build(MANIFEST, llm=builder_llm(tmp_path))
     no_artifact_topology = replace(
         snapshot,
         world=MappingProxyType({"title": "No service"}),
@@ -928,7 +928,7 @@ def test_dashboard_normalizes_sparse_topology_and_health_edges(
 
 
 def test_dashboard_records_actor_turns_from_env_actors(tmp_path: Path) -> None:
-    snapshot = OR.Builder().build(MANIFEST, llm=builder_llm(tmp_path))
+    snapshot = OR.build(MANIFEST, llm=builder_llm(tmp_path))
     view = DashboardView(snapshot)
     agent_turn = OR.ActorTurn(
         task_id="find_admin_flag",
@@ -1018,7 +1018,7 @@ def test_dashboard_records_actor_turns_from_env_actors(tmp_path: Path) -> None:
 
 
 def test_episode_runtime_records_env_owned_turns(tmp_path: Path) -> None:
-    snapshot = OR.Builder().build(MANIFEST, llm=builder_llm(tmp_path))
+    snapshot = OR.build(MANIFEST, llm=builder_llm(tmp_path))
     task = snapshot.get_tasks()[0]
     run_root = tmp_path / "episode"
     env = OR.EpisodeEnvironment(snapshot, task, run_root)
@@ -1145,7 +1145,7 @@ def test_run_config_starts_live_dashboard_internally(tmp_path: Path) -> None:
 
 
 def test_episode_reset_recreates_existing_roots(tmp_path: Path) -> None:
-    snapshot = OR.Builder().build(MANIFEST, llm=builder_llm(tmp_path))
+    snapshot = OR.build(MANIFEST, llm=builder_llm(tmp_path))
     task = snapshot.get_tasks()[0]
     env = OR.EpisodeEnvironment(snapshot, task, tmp_path / "episode")
     first = env.reset()
@@ -1170,7 +1170,7 @@ def test_episode_reset_recreates_existing_roots(tmp_path: Path) -> None:
 
 
 def test_runtime_error_and_reader_paths(tmp_path: Path) -> None:
-    snapshot = OR.Builder().build(MANIFEST, llm=builder_llm(tmp_path))
+    snapshot = OR.build(MANIFEST, llm=builder_llm(tmp_path))
     task = snapshot.get_tasks()[0]
     env = OR.EpisodeEnvironment(snapshot, task, tmp_path / "episode")
 
@@ -1294,8 +1294,8 @@ def test_event_bridge_replays_live_events_and_closes() -> None:
 
 def test_dashboard_reset_can_swap_snapshot(tmp_path: Path) -> None:
     llm = builder_llm(tmp_path)
-    first = OR.Builder().build(MANIFEST, llm=llm)
-    second = OR.Builder().evolve(first, {"edit": "harder"}, llm=llm)
+    first = OR.build(MANIFEST, llm=llm)
+    second = OR.evolve(first, {"edit": "harder"}, llm=llm)
     view = DashboardView(first)
 
     reset = view.reset(second)

@@ -1,7 +1,12 @@
 """OpenRange core public API."""
 
 from openrange.core.admission import AdmissionReport, admit
-from openrange.core.builder import BuildContext, Builder
+from openrange.core.builder import (
+    BuildContext,
+    BuildState,
+    build,
+    evolve,
+)
 from openrange.core.errors import (
     AdmissionError,
     ManifestError,
@@ -53,7 +58,7 @@ __all__ = [
     "AdmissionState",
     "BuildContext",
     "BuildOutput",
-    "Builder",
+    "BuildState",
     "Entrypoint",
     "GeneratedAdmission",
     "GeneratedArtifacts",
@@ -79,6 +84,8 @@ __all__ = [
     "WorldMode",
     "admission_state_from_source",
     "admit",
+    "build",
+    "evolve",
     "json_safe",
     "snapshot_hash",
     "stable_json",

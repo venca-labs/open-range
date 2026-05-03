@@ -54,158 +54,203 @@ class PackReference:
     runtime: Mapping[str, object]
 
 
-class Builder:
-    def __init__(self, registry: PackRegistry = PACKS, *, max_tries: int = 3) -> None:
-        if max_tries < 1:
-            raise ManifestError("max_tries must be at least 1")
-        if registry is PACKS:
-            import openrange.packs as _packs  # noqa: F401
+@dataclass(frozen=True, slots=True)
+class BuildState:
+    """Accumulator threaded through the build pipeline.
 
-        self.registry = registry
-        self.max_tries = max_tries
+    Each stage takes a BuildState and returns a new one with one more
+    field populated, via ``dataclasses.replace``. Not a base class:
+    domain-specific data belongs on Pack and Builder, not here.
 
-    def build(
-        self,
-        manifest: str | Path | Mapping[str, object] | Manifest,
-        *,
-        prompt: str = "",
-        llm: Any | None = None,
-        event_sink: BuildEventSink | None = None,
-    ) -> Snapshot:
-        return self._run(
-            Manifest.load(manifest),
-            BuildContext(prompt=prompt, llm=llm, event_sink=event_sink),
-        )
+    Phase 1 shape lumps generated content into ``output`` and the
+    admission report into ``admission``. Phase 2-3 will split these
+    into ``world_graph``, ``runtime``, ``tasks``, ``feasibility_checks``,
+    and ``episode_checks`` as those concepts become first-class.
+    """
 
-    def evolve(
-        self,
-        snapshot: Snapshot,
-        curriculum: Mapping[str, object],
-        *,
-        prompt: str = "",
-        llm: Any | None = None,
-        event_sink: BuildEventSink | None = None,
-    ) -> Snapshot:
-        if not isinstance(curriculum, Mapping):
-            raise ManifestError("curriculum must be a mapping")
-        return self._run(
-            snapshot.manifest,
-            BuildContext(
-                prompt=prompt,
-                llm=llm,
-                curriculum=MappingProxyType(dict(curriculum)),
-                previous=snapshot,
-                event_sink=event_sink,
-            ),
-        )
+    manifest: Manifest
+    pack: Pack
+    context: BuildContext
+    output: BuildOutput | None = None
+    admission: AdmissionReport | None = None
 
-    def _run(self, manifest: Manifest, context: BuildContext) -> Snapshot:
+
+def build(
+    manifest: str | Path | Mapping[str, object] | Manifest,
+    *,
+    prompt: str = "",
+    llm: Any | None = None,
+    event_sink: BuildEventSink | None = None,
+    registry: PackRegistry | None = None,
+    max_repairs: int = 3,
+) -> Snapshot:
+    if max_repairs < 1:
+        raise ManifestError("max_repairs must be at least 1")
+    return _orchestrate(
+        Manifest.load(manifest),
+        BuildContext(prompt=prompt, llm=llm, event_sink=event_sink),
+        _resolve_registry(registry),
+        max_repairs,
+    )
+
+
+def evolve(
+    snapshot: Snapshot,
+    curriculum: Mapping[str, object],
+    *,
+    prompt: str = "",
+    llm: Any | None = None,
+    event_sink: BuildEventSink | None = None,
+    registry: PackRegistry | None = None,
+    max_repairs: int = 3,
+) -> Snapshot:
+    if max_repairs < 1:
+        raise ManifestError("max_repairs must be at least 1")
+    if not isinstance(curriculum, Mapping):
+        raise ManifestError("curriculum must be a mapping")
+    return _orchestrate(
+        snapshot.manifest,
+        BuildContext(
+            prompt=prompt,
+            llm=llm,
+            curriculum=MappingProxyType(dict(curriculum)),
+            previous=snapshot,
+            event_sink=event_sink,
+        ),
+        _resolve_registry(registry),
+        max_repairs,
+    )
+
+
+def _orchestrate(
+    manifest: Manifest,
+    context: BuildContext,
+    registry: PackRegistry,
+    max_repairs: int,
+) -> Snapshot:
+    emit_build_event(
+        context,
+        "build_started",
+        pack_id=manifest.pack.id,
+        mode=manifest.mode,
+        prompt_present=bool(context.prompt),
+        evolved=context.previous is not None,
+    )
+    try:
+        pack = resolve_pack(manifest, registry)
         emit_build_event(
             context,
-            "build_started",
-            pack_id=manifest.pack.id,
-            mode=manifest.mode,
-            prompt_present=bool(context.prompt),
-            evolved=context.previous is not None,
+            "pack_resolved",
+            pack_id=pack.id,
+            pack_version=pack.version,
+            pack_dir=str(pack.dir),
         )
+        state = BuildState(manifest=manifest, pack=pack, context=context)
+        state = admit_with_feedback(state, max_repairs=max_repairs)
+        return freeze_snapshot(state)
+    except Exception as exc:
+        emit_build_event(
+            context,
+            "build_failed",
+            error_type=type(exc).__name__,
+            error=str(exc),
+        )
+        raise
+
+
+def _resolve_registry(registry: PackRegistry | None) -> PackRegistry:
+    if registry is None:
+        import openrange.packs as _packs  # noqa: F401
+
+        return PACKS
+    return registry
+
+
+def resolve_pack(manifest: Manifest, registry: PackRegistry) -> Pack:
+    source = manifest.pack.source
+    if source.kind == "builtin":
+        return registry.resolve(manifest.pack.id)
+    if source.kind == "path":
+        if source.uri is None:
+            raise PackError("'pack.source.uri' is required for path packs")
+        path = Path(source.uri).expanduser().resolve()
+        reference = load_pack_reference(path)
+        if reference.id != manifest.pack.id:
+            raise PackError("manifest pack id does not match pack source")
+        return Pack(reference.id, reference.version, path)
+    raise PackError(f"unsupported pack source {source.kind!r}")
+
+
+def admit_with_feedback(state: BuildState, *, max_repairs: int) -> BuildState:
+    feedback = state.context.feedback
+    last_error = AdmissionError("builder did not run admission")
+    for attempt in range(1, max_repairs + 1):
+        emit_build_event(state.context, "attempt_started", attempt=attempt)
         try:
-            pack = self.resolve_pack(manifest)
+            output = generate(
+                state.pack,
+                state.manifest,
+                replace(state.context, feedback=feedback),
+            )
+            emit_build_event(state.context, "admission_started", attempt=attempt)
+            report = admit(output)
             emit_build_event(
-                context,
-                "pack_resolved",
-                pack_id=pack.id,
-                pack_version=pack.version,
-                pack_dir=str(pack.dir),
+                state.context,
+                "admission_passed",
+                attempt=attempt,
+                checks=list(report.checks),
             )
-            build, admission = self.admit_with_feedback(pack, manifest, context)
-            parent_id = None if context.previous is None else context.previous.id
-            snapshot_id = snapshot_hash(manifest, build, pack.version, parent_id)
-            lineage = LineageNode(
-                snapshot_id,
-                parent_id,
-                manifest.as_dict(),
-                pack.as_dict(),
-                context.prompt,
-                build.summary,
-                build.touched_files,
-                context.curriculum,
-            )
+            return replace(state, output=output, admission=report)
+        except AdmissionError as exc:
+            last_error = exc
             emit_build_event(
-                context,
-                "snapshot_created",
-                snapshot_id=snapshot_id,
-                task_count=len(build.tasks),
-                touched_files=list(build.touched_files),
-            )
-            previous_lineage = (
-                () if context.previous is None else context.previous.lineage
-            )
-            return Snapshot(
-                snapshot_id,
-                manifest,
-                MappingProxyType(dict(build.world)),
-                build.tasks,
-                MappingProxyType(dict(build.verifier_sources)),
-                MappingProxyType(build.generated.as_dict()),
-                MappingProxyType(dict(build.artifacts)),
-                admission,
-                (*previous_lineage, lineage),
-            )
-        except Exception as exc:
-            emit_build_event(
-                context,
-                "build_failed",
-                error_type=type(exc).__name__,
+                state.context,
+                "admission_failed",
+                attempt=attempt,
                 error=str(exc),
             )
-            raise
+            feedback = (*feedback, admission_feedback(attempt, exc))
+    message = f"builder failed admission after {max_repairs} tries: {last_error}"
+    raise AdmissionError(message) from last_error
 
-    def admit_with_feedback(
-        self,
-        pack: Pack,
-        manifest: Manifest,
-        context: BuildContext,
-    ) -> tuple[BuildOutput, AdmissionReport]:
-        feedback = context.feedback
-        last_error = AdmissionError("builder did not run admission")
-        for attempt in range(1, self.max_tries + 1):
-            emit_build_event(context, "attempt_started", attempt=attempt)
-            try:
-                build = generate(pack, manifest, replace(context, feedback=feedback))
-                emit_build_event(context, "admission_started", attempt=attempt)
-                report = admit(build)
-                emit_build_event(
-                    context,
-                    "admission_passed",
-                    attempt=attempt,
-                    checks=list(report.checks),
-                )
-                return build, report
-            except AdmissionError as exc:
-                last_error = exc
-                emit_build_event(
-                    context,
-                    "admission_failed",
-                    attempt=attempt,
-                    error=str(exc),
-                )
-                feedback = (*feedback, admission_feedback(attempt, exc))
-        message = f"builder failed admission after {self.max_tries} tries: {last_error}"
-        raise AdmissionError(message) from last_error
 
-    def resolve_pack(self, manifest: Manifest) -> Pack:
-        source = manifest.pack.source
-        if source.kind == "builtin":
-            return self.registry.resolve(manifest.pack.id)
-        if source.kind == "path":
-            if source.uri is None:
-                raise PackError("'pack.source.uri' is required for path packs")
-            path = Path(source.uri).expanduser().resolve()
-            reference = load_pack_reference(path)
-            if reference.id != manifest.pack.id:
-                raise PackError("manifest pack id does not match pack source")
-            return Pack(reference.id, reference.version, path)
-        raise PackError(f"unsupported pack source {source.kind!r}")
+def freeze_snapshot(state: BuildState) -> Snapshot:
+    if state.output is None or state.admission is None:
+        raise AdmissionError("cannot freeze snapshot before admission")
+    output = state.output
+    parent_id = None if state.context.previous is None else state.context.previous.id
+    snapshot_id = snapshot_hash(state.manifest, output, state.pack.version, parent_id)
+    lineage = LineageNode(
+        snapshot_id,
+        parent_id,
+        state.manifest.as_dict(),
+        state.pack.as_dict(),
+        state.context.prompt,
+        output.summary,
+        output.touched_files,
+        state.context.curriculum,
+    )
+    emit_build_event(
+        state.context,
+        "snapshot_created",
+        snapshot_id=snapshot_id,
+        task_count=len(output.tasks),
+        touched_files=list(output.touched_files),
+    )
+    previous_lineage = (
+        () if state.context.previous is None else state.context.previous.lineage
+    )
+    return Snapshot(
+        snapshot_id,
+        state.manifest,
+        MappingProxyType(dict(output.world)),
+        output.tasks,
+        MappingProxyType(dict(output.verifier_sources)),
+        MappingProxyType(output.generated.as_dict()),
+        MappingProxyType(dict(output.artifacts)),
+        state.admission,
+        (*previous_lineage, lineage),
+    )
 
 
 def admission_feedback(attempt: int, error: AdmissionError) -> str:

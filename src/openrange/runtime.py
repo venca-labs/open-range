@@ -15,12 +15,14 @@ from typing import TYPE_CHECKING, cast
 
 from openrange.core import (
     ActorTurn,
-    Builder,
     Entrypoint,
     Manifest,
     OpenRangeError,
     Snapshot,
     Task,
+)
+from openrange.core import (
+    build as core_build,
 )
 from openrange.dashboard import (
     DashboardArtifactLog,
@@ -69,12 +71,13 @@ class OpenRangeRun:
         *,
         prompt: str = "",
         llm: object | None = None,
-        builder: Builder | None = None,
+        max_repairs: int = 3,
     ) -> Snapshot:
-        snapshot = (builder or Builder()).build(
+        snapshot = core_build(
             manifest,
             prompt=prompt,
             llm=llm,
+            max_repairs=max_repairs,
             event_sink=(
                 None if self._dashboard is None else self._dashboard.record_builder_step
             ),

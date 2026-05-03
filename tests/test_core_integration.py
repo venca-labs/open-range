@@ -12,7 +12,6 @@ import openrange as OR
 from openrange.core import (
     AdmissionError,
     BuildContext,
-    Builder,
     Manifest,
     ManifestError,
     PackError,
@@ -23,6 +22,8 @@ from openrange.core import (
     SnapshotStore,
     StoreError,
     admit,
+    build,
+    evolve,
     json_safe,
     stable_json,
     task_from_mapping,
@@ -57,7 +58,7 @@ MANIFEST = {
 def test_builder_admits_snapshot_task_verifier_artifacts_and_lineage(
     tmp_path: Path,
 ) -> None:
-    snapshot = Builder().build(
+    snapshot = build(
         MANIFEST,
         prompt="make it small",
         llm=builder_llm(tmp_path),
@@ -198,7 +199,7 @@ def test_builder_emits_dashboard_safe_steps_without_flag_leak(
     def record(step: str, data: Mapping[str, object]) -> None:
         events.append((step, dict(data)))
 
-    snapshot = Builder().build(MANIFEST, llm=builder_llm(tmp_path), event_sink=record)
+    snapshot = build(MANIFEST, llm=builder_llm(tmp_path), event_sink=record)
     steps = [step for step, _ in events]
     world_step = next(data for step, data in events if step == "world_generated")
     snapshot_step = next(data for step, data in events if step == "snapshot_created")
@@ -229,10 +230,9 @@ def test_builder_emits_dashboard_safe_steps_without_flag_leak(
 
 
 def test_evolve_creates_child_lineage_and_changes_world(tmp_path: Path) -> None:
-    builder = Builder()
     llm = builder_llm(tmp_path)
-    original = builder.build(MANIFEST, llm=llm)
-    evolved = builder.evolve(
+    original = build(MANIFEST, llm=llm)
+    evolved = evolve(
         original,
         {"edit": "harder"},
         prompt="make it harder",
@@ -248,7 +248,7 @@ def test_evolve_creates_child_lineage_and_changes_world(tmp_path: Path) -> None:
 
 
 def test_snapshot_store_round_trips_admitted_snapshot(tmp_path: Path) -> None:
-    snapshot = Builder().build(MANIFEST, llm=builder_llm(tmp_path))
+    snapshot = build(MANIFEST, llm=builder_llm(tmp_path))
     store = SnapshotStore(tmp_path)
 
     path = store.save(snapshot)
@@ -346,16 +346,18 @@ def test_pack_source_ref_registry_and_errors(tmp_path: Path) -> None:
     registry.register(OR.Pack(pack.id, pack.version, pack.dir, pack.context))
     assert registry.ids() == ("cyber.webapp.offense",)
     assert registry.resolve("cyber.webapp.offense").as_dict() == pack.as_dict()
-    snapshot = Builder().build(MANIFEST, llm=builder_llm(tmp_path))
+    snapshot = build(MANIFEST, llm=builder_llm(tmp_path))
     with pytest.raises(ManifestError, match="curriculum"):
-        Builder(registry).evolve(snapshot, cast(Any, []))
+        evolve(snapshot, cast(Any, []), registry=registry)
     with pytest.raises(PackError, match="source"):
-        Builder(registry).build(
+        build(
             {"world": {}, "pack": {"id": pack.id, "source": {"kind": "git"}}},
+            registry=registry,
         )
     with pytest.raises(PackError, match="required"):
-        Builder(registry).build(
+        build(
             {"world": {}, "pack": {"id": pack.id, "source": {"kind": "path"}}},
+            registry=registry,
         )
 
     copied = tmp_path / "copied-pack"
@@ -368,19 +370,18 @@ def test_pack_source_ref_registry_and_errors(tmp_path: Path) -> None:
         },
     }
     assert (
-        Builder(registry)
-        .build(
+        build(
             path_manifest,
             llm=builder_llm(tmp_path),
-        )
-        .world["service"]
+            registry=registry,
+        ).world["service"]
         == "webapp"
     )
     bad_descriptor = json.loads((copied / "pack.json").read_text(encoding="utf-8"))
     bad_descriptor["id"] = "other.pack"
     (copied / "pack.json").write_text(json.dumps(bad_descriptor), encoding="utf-8")
     with pytest.raises(PackError, match="does not match"):
-        Builder(registry).build(path_manifest, llm=builder_llm(tmp_path))
+        build(path_manifest, llm=builder_llm(tmp_path), registry=registry)
 
 
 def test_pack_directory_reference_validation(tmp_path: Path) -> None:
@@ -443,7 +444,7 @@ def test_pack_directory_reference_validation(tmp_path: Path) -> None:
 def test_admission_rejects_empty_world_missing_tasks_and_failed_probe(
     tmp_path: Path,
 ) -> None:
-    good = Builder().build(MANIFEST, llm=builder_llm(tmp_path))
+    good = build(MANIFEST, llm=builder_llm(tmp_path))
 
     with pytest.raises(AdmissionError, match="world is empty"):
         admit(
@@ -497,7 +498,7 @@ def test_store_rejects_missing_or_invalid_snapshots(tmp_path: Path) -> None:
 
 
 def test_snapshot_from_mapping_rejects_invalid_shapes(tmp_path: Path) -> None:
-    valid = Builder().build(MANIFEST, llm=builder_llm(tmp_path)).as_dict()
+    valid = build(MANIFEST, llm=builder_llm(tmp_path)).as_dict()
     lineage = cast(list[dict[str, object]], valid["lineage"])
     assert Snapshot.from_mapping(valid, generated_verifiers(tmp_path)).id == valid["id"]
     invalid_cases = [
@@ -607,11 +608,11 @@ def test_builder_generation_error_paths(tmp_path: Path) -> None:
     backend = OR.CodexBackend()
 
     assert as_llm(backend) is backend
-    with pytest.raises(ManifestError, match="max_tries"):
-        Builder(max_tries=0)
+    with pytest.raises(ManifestError, match="max_repairs"):
+        build(MANIFEST, llm=backend, max_repairs=0)
     failed_events: list[tuple[str, Mapping[str, object]]] = []
     with pytest.raises(PackError, match="complete"):
-        Builder().build(
+        build(
             MANIFEST,
             llm=object(),
             event_sink=lambda step, data: failed_events.append((step, data)),
@@ -813,9 +814,10 @@ def test_builder_retries_admission_with_feedback_to_llm(tmp_path: Path) -> None:
         """,
     )
 
-    snapshot = Builder(max_tries=2).build(
+    snapshot = build(
         MANIFEST,
         llm=OR.CodexBackend(command=command, model="local", timeout=5),
+        max_repairs=2,
     )
 
     attempts = [
@@ -845,7 +847,7 @@ def test_builder_stops_feedback_after_max_tries(tmp_path: Path) -> None:
     )
 
     with pytest.raises(AdmissionError, match="after 1 tries"):
-        Builder(max_tries=1).build(
+        build(
             {
                 "world": {"goal": "path pack"},
                 "pack": {
@@ -854,6 +856,7 @@ def test_builder_stops_feedback_after_max_tries(tmp_path: Path) -> None:
                 },
             },
             llm=builder_llm(tmp_path),
+            max_repairs=1,
         )
 
 
@@ -887,7 +890,7 @@ def test_stable_json_is_sorted_and_public_api_exports(tmp_path: Path) -> None:
     assert OR.OpenRangeRun.__name__ == "OpenRangeRun"
     assert OR.RunConfig(Path("runs")).root == Path("runs")
     assert json.loads(
-        json.dumps(Builder().build(MANIFEST, llm=builder_llm(tmp_path)).as_dict()),
+        json.dumps(build(MANIFEST, llm=builder_llm(tmp_path)).as_dict()),
     )["id"]
 
 
@@ -964,7 +967,7 @@ def builder_llm(tmp_path: Path) -> OR.CodexBackend:
 
 
 def generated_verifiers(tmp_path: Path) -> Mapping[str, OR.Verifier]:
-    snapshot = Builder().build(MANIFEST, llm=builder_llm(tmp_path))
+    snapshot = build(MANIFEST, llm=builder_llm(tmp_path))
     return {
         verifier_id: OR.verifier_from_source(source)
         for verifier_id, source in snapshot.verifier_sources.items()

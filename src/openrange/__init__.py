@@ -7,8 +7,8 @@ from openrange.core import (
     AdmissionReport,
     AdmissionState,
     BuildContext,
-    Builder,
     BuildOutput,
+    BuildState,
     Entrypoint,
     GeneratedAdmission,
     GeneratedArtifacts,
@@ -32,6 +32,8 @@ from openrange.core import (
     VerifierResult,
     admission_state_from_source,
     admit,
+    build,
+    evolve,
     verifier_from_source,
 )
 from openrange.llm import (
@@ -61,7 +63,7 @@ __all__ = [
     "ActorTurn",
     "BuildContext",
     "BuildOutput",
-    "Builder",
+    "BuildState",
     "CODEX_DEFAULT_MODEL",
     "CodexBackend",
     "DashboardServerHandle",
@@ -101,5 +103,7 @@ __all__ = [
     "VerifierResult",
     "admission_state_from_source",
     "admit",
+    "build",
+    "evolve",
     "verifier_from_source",
 ]
