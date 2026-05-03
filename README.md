@@ -12,7 +12,7 @@ OpenRange is a domain-agnostic environment platform for training and evaluating 
 Join us every **Friday at 12:00 PM CT** for the Open Range Community Call.
 - 🎥 [Google Meet](https://meet.google.com/zuj-skfh-xjk)
 - 📱 Dial in: [(US) +1 443-671-4919](tel:+14436714919) · PIN: `320 286 452#` · [More numbers](https://tel.meet/zuj-skfh-xjk?pin=6302524387334)
-- 💬 [Join our Discord](https://discord.gg/NuBpuCSN)
+- 💬 [Join our Discord](https://discord.gg/KqDbvm9T5)
 
 ## How it works
 
