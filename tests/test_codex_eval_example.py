@@ -192,7 +192,7 @@ def test_codex_eval_main_writes_report_under_unique_run_root(
 
     assert run_root.parent == runs_dir
     assert output["reports"][0]["passed"] is True
-    assert output["reports"][0]["agent_output"] == "done"
+    assert output["reports"][0]["agent_summary"] == "done"
     assert json.loads((run_root / "report.json").read_text(encoding="utf-8")) == output
     assert not (run_root / "dashboard.json").exists()
 
@@ -243,7 +243,7 @@ def test_codex_eval_runs_full_snapshot_episode_pipeline(tmp_path: Path) -> None:
     assert report["snapshot_id"] == snapshot.id
     assert report["task_id"] == task.id
     assert report["passed"] is True
-    assert report["agent_output"] == "done"
+    assert report["agent_summary"] == "done"
     assert report["final_state"] == {
         "result": {"flag": "ORANGE{webapp_admin_flag}"},
         "world": {

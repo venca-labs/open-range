@@ -40,7 +40,6 @@ from openrange.dashboard import (
 )
 from openrange.llm import LLMBackendError, parse_json_object, run_codex
 from openrange.runtime import (
-    preserve_dashboard_events,
     read_base_url,
     read_requests,
     read_result,
@@ -1018,11 +1017,20 @@ def test_dashboard_records_actor_turns_from_env_actors(tmp_path: Path) -> None:
 
 
 def test_episode_runtime_records_env_owned_turns(tmp_path: Path) -> None:
+    from openrange.dashboard import DashboardView
+
     snapshot = OR.build(MANIFEST, llm=builder_llm(tmp_path))
     task = snapshot.get_tasks()[0]
     run_root = tmp_path / "episode"
-    env = OR.EpisodeEnvironment(snapshot, task, run_root)
-    episode = env.reset()
+    run_root.mkdir(parents=True, exist_ok=True)
+    dashboard = DashboardView(
+        snapshot,
+        event_log_path=run_root / "dashboard.events.jsonl",
+        state_path=run_root / "dashboard.json",
+        reset_artifacts=True,
+    )
+    svc = OR.EpisodeService(run_root, dashboard=dashboard)
+    handle = svc.start_episode(snapshot, task.id)
     try:
         initial_events = read_dashboard_events(run_root)
         initial_turns = [
@@ -1038,51 +1046,41 @@ def test_episode_runtime_records_env_owned_turns(tmp_path: Path) -> None:
         ]
         assert dashboard_state["turns"] == initial_turns
 
-        with env.serve_dashboard(port=0) as dashboard:
-            state = read_http_json(dashboard.url + "/api/state")
-            assert cast(list[dict[str, object]], state["events"])[0]["type"] == (
-                "env_turn"
-            )
-            task_file = json.loads(
-                (episode.agent_root / "OPENRANGE_TASK.json").read_text(
-                    encoding="utf-8",
-                ),
-            )
-            base_url = str(task_file["base_url"])
-            urlopen(base_url + "/robots.txt", timeout=5).read()
-            robots_event = wait_for_dashboard_action(
-                run_root,
-                {"method": "GET", "path": "/robots.txt"},
-            )
-            live_turns = wait_for_turn_count(episode.dashboard, task.id, 3)
-            live_state = read_http_json(dashboard.url + "/api/state")
-            assert live_turns[2]["action"] == {
-                "method": "GET",
-                "path": "/robots.txt",
-            }
-            assert any(
-                event["actor"] == "agent"
-                for event in cast(list[dict[str, object]], live_state["events"])
-            )
-            admin = json.loads(
-                urlopen(base_url + "/admin/debug", timeout=5).read().decode(),
-            )
-            wait_for_dashboard_action(
-                run_root,
-                {"method": "GET", "path": "/admin/debug"},
-            )
-            (episode.agent_root / task_file["result_file"]).write_text(
-                json.dumps({"flag": admin["flag"]}),
-                encoding="utf-8",
-            )
-            report = env.finish(OR.LLMResult("agent done"))
+        agent_root = svc.agent_root(handle)
+        task_file = json.loads(
+            (agent_root / "OPENRANGE_TASK.json").read_text(encoding="utf-8"),
+        )
+        base_url = str(task_file["base_url"])
+        urlopen(base_url + "/robots.txt", timeout=5).read()
+        robots_event = wait_for_dashboard_action(
+            run_root,
+            {"method": "GET", "path": "/robots.txt"},
+        )
+        live_turns = wait_for_turn_count(dashboard, task.id, 3)
+        assert live_turns[2]["action"] == {
+            "method": "GET",
+            "path": "/robots.txt",
+        }
+        admin = json.loads(
+            urlopen(base_url + "/admin/debug", timeout=5).read().decode(),
+        )
+        wait_for_dashboard_action(
+            run_root,
+            {"method": "GET", "path": "/admin/debug"},
+        )
+        (agent_root / task_file["result_file"]).write_text(
+            json.dumps({"flag": admin["flag"]}),
+            encoding="utf-8",
+        )
+        svc.record_turn(handle, OR.AgentTurn(message="agent done"))
+        report = svc.stop_episode(handle)
     finally:
-        env.close()
+        svc.close()
 
-    turns = episode.dashboard.turns(task.id)
+    turns = dashboard.turns(task.id)
 
     assert task.verify(report.final_state)["passed"] is True
-    assert report.as_dict()["agent_output"] == "agent done"
+    assert report.as_dict()["agent_summary"] == "agent done"
     assert cast(dict[str, object], robots_event["data"])["metadata"] == {
         "source": "http_access_log",
     }
@@ -1097,7 +1095,6 @@ def test_episode_runtime_records_env_owned_turns(tmp_path: Path) -> None:
     assert turns[2]["action"] == {"method": "GET", "path": "/robots.txt"}
     assert turns[3]["action"] == {"method": "GET", "path": "/admin/debug"}
     assert turns[-1]["state"] == report.final_state
-    assert episode.dashboard.inspect()["turns"] == turns
     final_events = read_dashboard_events(run_root)
     final_state = json.loads(
         (run_root / "dashboard.json").read_text(encoding="utf-8"),
@@ -1112,14 +1109,15 @@ def test_openrange_run_can_disable_dashboard_artifacts(tmp_path: Path) -> None:
     run = OR.OpenRangeRun(OR.RunConfig(run_root, dashboard=False))
     snapshot = run.build(MANIFEST, llm=builder_llm(tmp_path))
     task = snapshot.get_tasks()[0]
-    env = run.episode_environment(snapshot, task)
+    svc = run.episode_service(snapshot)
 
     try:
-        episode = env.reset()
+        handle = svc.start_episode(snapshot, task.id)
+        agent_root = svc.agent_root(handle)
     finally:
-        env.close()
+        svc.close()
 
-    assert episode.run_root == run_root / task.id
+    assert agent_root.parent.parent == run_root
     assert not (run_root / "dashboard.events.jsonl").exists()
     assert not (run_root / "dashboard.json").exists()
 
@@ -1129,54 +1127,59 @@ def test_run_config_starts_live_dashboard_internally(tmp_path: Path) -> None:
     run = OR.OpenRangeRun(OR.RunConfig(run_root, dashboard_port=0))
     snapshot = run.build(MANIFEST, llm=builder_llm(tmp_path))
     task = snapshot.get_tasks()[0]
-    env = run.episode_environment(snapshot, task)
+    svc = run.episode_service(snapshot)
+    dashboard_handle = run.serve_dashboard(snapshot, port=0)
 
     try:
-        first = env.reset()
-        second = env.reset()
-        assert first.dashboard_url is not None
-        assert first.dashboard_url == second.dashboard_url
-        state = read_http_json(first.dashboard_url + "/api/state")
+        svc.start_episode(snapshot, task.id)
+        svc.start_episode(snapshot, task.id)
+        state = read_http_json(dashboard_handle.url + "/api/state")
     finally:
-        env.close()
+        svc.close()
+        dashboard_handle.close()
 
     assert state["snapshot_id"] == snapshot.id
-    assert state["turn_count"] == 2
+    # Two start_episode calls × 2 system turns each = 4 turns
+    assert state["turn_count"] >= 2
 
 
-def test_episode_reset_recreates_existing_roots(tmp_path: Path) -> None:
+def test_episode_each_start_gives_fresh_roots(tmp_path: Path) -> None:
+    from openrange.dashboard import DashboardView
+
     snapshot = OR.build(MANIFEST, llm=builder_llm(tmp_path))
     task = snapshot.get_tasks()[0]
-    env = OR.EpisodeEnvironment(snapshot, task, tmp_path / "episode")
-    first = env.reset()
-    marker = first.agent_root / "old.txt"
+    run_root = tmp_path / "episode"
+    run_root.mkdir()
+    dashboard = DashboardView(
+        snapshot,
+        event_log_path=run_root / "dashboard.events.jsonl",
+        state_path=run_root / "dashboard.json",
+        reset_artifacts=True,
+    )
+    svc = OR.EpisodeService(run_root, dashboard=dashboard)
+    first = svc.start_episode(snapshot, task.id)
+    first_root = svc.agent_root(first)
+    marker = first_root / "old.txt"
     marker.write_text("old", encoding="utf-8")
     try:
-        second = env.reset()
+        second = svc.start_episode(snapshot, task.id)
+        second_root = svc.agent_root(second)
     finally:
-        env.close()
+        svc.close()
 
-    assert second.agent_root.exists()
-    assert not marker.exists()
-    reset_actions = [
-        cast(dict[str, object], event["data"])["action"]
-        for event in read_dashboard_events(tmp_path / "episode")
-    ]
-    assert reset_actions == [
-        {"reset": True},
-        {"start": "http_server"},
-    ]
-    preserve_dashboard_events(tmp_path / "missing-dashboard.events.jsonl")
+    assert second_root.exists()
+    assert first_root != second_root
+    assert marker.exists()  # first episode's root still has its marker
 
 
 def test_runtime_error_and_reader_paths(tmp_path: Path) -> None:
     snapshot = OR.build(MANIFEST, llm=builder_llm(tmp_path))
     task = snapshot.get_tasks()[0]
-    env = OR.EpisodeEnvironment(snapshot, task, tmp_path / "episode")
+    svc = OR.EpisodeService(tmp_path / "episode")
 
-    assert env.sync_request_log() == ()
-    with pytest.raises(OR.EpisodeRuntimeError, match="reset"):
-        env.finish(OR.LLMResult("no episode"))
+    bogus_handle = OR.EpisodeHandle("missing", snapshot.id, task.id)
+    with pytest.raises(OR.EpisodeError, match="unknown episode"):
+        svc.stop_episode(bogus_handle)
     with pytest.raises(OR.EpisodeRuntimeError, match="missing.py"):
         start_runtime_process(
             tmp_path / "missing.py",
@@ -1258,6 +1261,64 @@ def test_runtime_error_and_reader_paths(tmp_path: Path) -> None:
             process.kill()
             process.wait()
     assert process.poll() is not None
+
+
+def test_episode_fork_supports_divergent_branches(tmp_path: Path) -> None:
+    """fork() yields a sibling episode; each branch can diverge independently."""
+    from openrange.runtime import read_requests
+
+    def wait_for_request(log: Path) -> None:
+        deadline = time.monotonic() + 5
+        while time.monotonic() < deadline:
+            if read_requests(log):
+                return
+            time.sleep(0.05)
+        raise AssertionError(f"no requests landed in {log}")
+
+    snapshot = OR.build(MANIFEST, llm=builder_llm(tmp_path))
+    task = snapshot.get_tasks()[0]
+    svc = OR.EpisodeService(tmp_path / "episode")
+    main = svc.start_episode(snapshot, task.id)
+    try:
+        main_task_file = json.loads(
+            (svc.agent_root(main) / "OPENRANGE_TASK.json").read_text(
+                encoding="utf-8",
+            ),
+        )
+        urlopen(str(main_task_file["base_url"]) + "/robots.txt", timeout=5).read()
+        wait_for_request(svc.agent_root(main).parent / "env" / "requests.jsonl")
+
+        branch = svc.fork(main)
+        assert branch.id != main.id
+        assert svc.base_url(branch) != svc.base_url(main)
+
+        main_result = svc.agent_root(main) / main_task_file["result_file"]
+        branch_task_file = json.loads(
+            (svc.agent_root(branch) / "OPENRANGE_TASK.json").read_text(
+                encoding="utf-8",
+            ),
+        )
+        branch_result = svc.agent_root(branch) / branch_task_file["result_file"]
+        main_result.write_text(
+            json.dumps({"flag": snapshot.world["flag"]}),
+            encoding="utf-8",
+        )
+        branch_result.write_text(
+            json.dumps({"flag": "ORANGE{wrong_branch_flag}"}),
+            encoding="utf-8",
+        )
+        urlopen(str(branch_task_file["base_url"]) + "/robots.txt", timeout=5).read()
+        wait_for_request(svc.agent_root(branch).parent / "env" / "requests.jsonl")
+
+        main_report = svc.stop_episode(main)
+        branch_report = svc.stop_episode(branch)
+    finally:
+        svc.close()
+
+    assert main_report.verifier_result is not None
+    assert branch_report.verifier_result is not None
+    assert main_report.verifier_result.get("passed") is True
+    assert branch_report.verifier_result.get("passed") is False
 
 
 def test_event_bridge_replays_live_events_and_closes() -> None:

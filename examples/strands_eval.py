@@ -60,17 +60,20 @@ def run_task(
     harness: EpisodeHarness,
     run: OR.OpenRangeRun,
 ) -> dict[str, object]:
-    env = run.episode_environment(snapshot, task)
-    episode = env.reset()
+    svc = run.episode_service(snapshot)
+    handle = svc.start_episode(snapshot, task.id)
     try:
-        episode_report = env.finish(harness.run(task.instruction, episode.agent_root))
+        agent_result = harness.run(task.instruction, svc.agent_root(handle))
+        svc.record_turn(handle, OR.AgentTurn(message=agent_result.text))
+        episode_report = svc.stop_episode(handle)
     finally:
-        env.close()
-    verifier_result = task.verify(episode_report.final_state)
+        svc.close()
     return {
         **episode_report.as_dict(),
-        "passed": verifier_result.get("passed") is True,
-        "verifier_result": dict(verifier_result),
+        "passed": (
+            episode_report.verifier_result is not None
+            and episode_report.verifier_result.get("passed") is True
+        ),
     }
 
 

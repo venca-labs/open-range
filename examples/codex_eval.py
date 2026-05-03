@@ -45,22 +45,24 @@ def run_task(
     harness: CodexHarness,
     run: OR.OpenRangeRun | OR.RunConfig | str | Path,
 ) -> dict[str, object]:
-    env = (
-        run.episode_environment(snapshot, task)
-        if isinstance(run, OR.OpenRangeRun)
-        else OR.EpisodeEnvironment(snapshot, task, run)
-    )
-    episode = env.reset()
+    if isinstance(run, OR.OpenRangeRun):
+        svc = run.episode_service(snapshot)
+    else:
+        root = run.root if isinstance(run, OR.RunConfig) else Path(run)
+        svc = OR.EpisodeService(root)
+    handle = svc.start_episode(snapshot, task.id)
     try:
-        agent_result = harness.run(task.instruction, episode.agent_root)
-        episode_report = env.finish(agent_result)
+        agent_result = harness.run(task.instruction, svc.agent_root(handle))
+        svc.record_turn(handle, OR.AgentTurn(message=agent_result.text))
+        episode_report = svc.stop_episode(handle)
     finally:
-        env.close()
-    verifier_result = task.verify(episode_report.final_state)
+        svc.close()
     return {
         **episode_report.as_dict(),
-        "passed": verifier_result.get("passed") is True,
-        "verifier_result": dict(verifier_result),
+        "passed": (
+            episode_report.verifier_result is not None
+            and episode_report.verifier_result.get("passed") is True
+        ),
     }
 
 

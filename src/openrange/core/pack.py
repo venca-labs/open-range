@@ -254,6 +254,15 @@ class Pack(ABC):
     def generation_priors(self) -> Mapping[str, object]:
         return MappingProxyType({})
 
+    def runtime_backings(self) -> tuple[object, ...]:
+        """Per-pack runtime backings for artifact kinds the pack introduces.
+
+        Returns RuntimeBacking instances. Default: empty (rely on built-ins).
+        Typed as ``tuple[object, ...]`` to avoid a hard import cycle between
+        ``pack`` and ``runtime_backing``.
+        """
+        return ()
+
     def as_dict(self) -> dict[str, object]:
         return {
             "id": self.id,

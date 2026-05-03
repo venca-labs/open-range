@@ -41,3 +41,4 @@ snapshots/
 # Working / planning docs (kept local, not committed)
 docs/migration-plan.md
 docs/ontology/
+docs/runtime/

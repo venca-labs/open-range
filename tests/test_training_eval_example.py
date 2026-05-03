@@ -122,7 +122,7 @@ def test_training_eval_runs_full_snapshot_episode_pipeline(tmp_path: Path) -> No
     assert report["snapshot_id"] == snapshot.id
     assert report["task_id"] == task.id
     assert report["passed"] is True
-    assert report["agent_output"] == "done"
+    assert report["agent_summary"] == "done"
     assert report["verifier_result"] == {"passed": True, "score": 1.0}
     assert report["final_state"] == {
         "result": {"flag": "ORANGE{webapp_admin_flag}"},

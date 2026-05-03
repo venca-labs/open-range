@@ -14,6 +14,56 @@ from openrange.core.errors import ManifestError
 
 PackSourceKind = Literal["builtin", "path", "git", "container"]
 WorldMode = Literal["simulation", "emulation"]
+TickMode = Literal["auto", "manual"]
+
+
+@dataclass(frozen=True, slots=True)
+class TickConfig:
+    """How world time advances during episodes.
+
+    ``auto`` (default): a background loop calls ``tick`` at ``rate_hz``.
+    ``manual``: the world only ticks when the harness calls ``tick``
+    explicitly. Manual mode suits deterministic eval and training; auto
+    suits demos and packs whose NPCs / timers depend on wall-clock time.
+    """
+
+    mode: TickMode = "auto"
+    rate_hz: float = 1.0
+
+    @classmethod
+    def from_value(cls, value: object) -> TickConfig:
+        if value is None:
+            return cls()
+        if not isinstance(value, Mapping):
+            raise ManifestError("'runtime.tick' must be a mapping")
+        mode = value.get("mode", "auto")
+        if mode not in {"auto", "manual"}:
+            raise ManifestError("'runtime.tick.mode' must be 'auto' or 'manual'")
+        rate = value.get("rate_hz", 1.0)
+        if not isinstance(rate, int | float) or rate <= 0:
+            raise ManifestError("'runtime.tick.rate_hz' must be a positive number")
+        return cls(cast(TickMode, mode), float(rate))
+
+    def as_dict(self) -> dict[str, object]:
+        return {"mode": self.mode, "rate_hz": self.rate_hz}
+
+
+@dataclass(frozen=True, slots=True)
+class RuntimeConfig:
+    """Manifest-level runtime knobs."""
+
+    tick: TickConfig = field(default_factory=TickConfig)
+
+    @classmethod
+    def from_value(cls, value: object) -> RuntimeConfig:
+        if value is None:
+            return cls()
+        if not isinstance(value, Mapping):
+            raise ManifestError("'runtime' must be a mapping")
+        return cls(tick=TickConfig.from_value(value.get("tick")))
+
+    def as_dict(self) -> dict[str, object]:
+        return {"tick": self.tick.as_dict()}
 
 
 @dataclass(frozen=True, slots=True)
@@ -76,6 +126,7 @@ class Manifest:
     pack: PackRef
     mode: WorldMode = "simulation"
     npc: tuple[Mapping[str, object], ...] = ()
+    runtime: RuntimeConfig = field(default_factory=RuntimeConfig)
 
     @classmethod
     def load(cls, manifest: str | Path | Mapping[str, object] | Manifest) -> Manifest:
@@ -110,6 +161,7 @@ class Manifest:
             pack=PackRef.from_mapping(cast(Mapping[str, object], pack)),
             mode=cast(WorldMode, mode),
             npc=tuple(MappingProxyType(dict(item)) for item in npc),
+            runtime=RuntimeConfig.from_value(data.get("runtime")),
         )
 
     def as_dict(self) -> dict[str, object]:
@@ -118,4 +170,5 @@ class Manifest:
             "pack": self.pack.as_dict(),
             "mode": self.mode,
             "npc": [dict(item) for item in self.npc],
+            "runtime": self.runtime.as_dict(),
         }
