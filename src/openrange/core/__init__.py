@@ -1,6 +1,12 @@
 """OpenRange core public API."""
 
-from openrange.core.admission import AdmissionReport, admit
+from openrange.core.admission import (
+    AdmissionFailure,
+    AdmissionReport,
+    AdmissionResult,
+    BuildFailed,
+    admit,
+)
 from openrange.core.builder import (
     BuildContext,
     BuildState,
@@ -69,9 +75,12 @@ __all__ = [
     "PACKS",
     "ActorTurn",
     "AdmissionError",
+    "AdmissionFailure",
     "AdmissionReport",
+    "AdmissionResult",
     "AdmissionState",
     "BuildContext",
+    "BuildFailed",
     "BuildOutput",
     "BuildState",
     "Builder",

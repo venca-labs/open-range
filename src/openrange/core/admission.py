@@ -3,15 +3,59 @@
 from __future__ import annotations
 
 from collections.abc import Mapping
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from types import MappingProxyType
 from typing import TYPE_CHECKING, cast
 
-from openrange.core.errors import AdmissionError, StoreError
+from openrange.core.errors import AdmissionError, OpenRangeError, StoreError
 from openrange.core.pack import VerifierResult
 
 if TYPE_CHECKING:
     from openrange.core.builder import BuildState
+
+
+@dataclass(frozen=True, slots=True)
+class AdmissionFailure:
+    """One structured reason a build failed admission.
+
+    ``stage`` is one of: 'world', 'tasks', 'verifier'. ``task_id`` is set
+    when the failure is attributable to a specific task. ``details`` is a
+    free-form mapping for builders to inspect during repair.
+    """
+
+    reason: str
+    stage: str
+    task_id: str | None = None
+    details: Mapping[str, object] = field(default_factory=dict)
+
+
+@dataclass(frozen=True, slots=True)
+class AdmissionResult:
+    """The outcome of running admission against a BuildState.
+
+    ``accepted`` is True iff ``failures`` is empty. ``verifier_results``
+    surfaces per-task verifier output for the success path; populated as
+    soon as verifiers ran (even if some failed).
+    """
+
+    accepted: bool
+    failures: tuple[AdmissionFailure, ...] = ()
+    verifier_results: Mapping[str, VerifierResult] = field(default_factory=dict)
+    checks: tuple[str, ...] = ()
+
+
+class BuildFailed(OpenRangeError):
+    """Raised when admission fails after the repair budget is exhausted.
+
+    Carries the final ``AdmissionResult`` so callers can inspect the
+    structured failures that the builder could not repair.
+    """
+
+    def __init__(self, result: AdmissionResult, attempts: int) -> None:
+        self.result = result
+        self.attempts = attempts
+        reasons = "; ".join(f.reason for f in result.failures) or "no detail"
+        super().__init__(f"build failed admission after {attempts} attempts: {reasons}")
 
 
 @dataclass(frozen=True, slots=True)
@@ -63,26 +107,48 @@ class AdmissionReport:
         )
 
 
-def admit(state: BuildState) -> AdmissionReport:
-    errors: list[str] = []
+def admit(state: BuildState) -> AdmissionResult:
+    """Validate a BuildState and return a structured AdmissionResult.
+
+    Never raises for admission-level failures; instead populates
+    ``failures``. Reserves exceptions for shape errors that indicate the
+    pipeline is broken (not the world).
+    """
+    failures: list[AdmissionFailure] = []
     if state.world_graph is None or not state.world_graph.nodes:
-        errors.append("world is empty")
+        failures.append(AdmissionFailure("world is empty", stage="world"))
     if not state.tasks:
-        errors.append("no tasks generated")
-    if errors:
-        raise AdmissionError("; ".join(errors))
+        failures.append(AdmissionFailure("no tasks generated", stage="tasks"))
+    if failures:
+        return AdmissionResult(accepted=False, failures=tuple(failures))
     probe = state.admission_probe or {}
-    verifier_results = {
-        task.id: MappingProxyType(dict(task.verify(probe)))
-        for task in state.tasks
-    }
-    for task_id, result in verifier_results.items():
+    verifier_results: dict[str, VerifierResult] = {}
+    for task in state.tasks:
+        result = MappingProxyType(dict(task.verify(probe)))
+        verifier_results[task.id] = result
         if result.get("passed") is not True:
-            errors.append(f"task {task_id!r} verifier did not pass admission probe")
-    if errors:
-        raise AdmissionError("; ".join(errors))
+            failures.append(
+                AdmissionFailure(
+                    reason=f"task {task.id!r} verifier did not pass admission probe",
+                    stage="verifier",
+                    task_id=task.id,
+                    details=MappingProxyType(dict(result)),
+                ),
+            )
+    return AdmissionResult(
+        accepted=not failures,
+        failures=tuple(failures),
+        verifier_results=MappingProxyType(verifier_results),
+        checks=("world_present", "tasks_present", "verifier_probes"),
+    )
+
+
+def report_from_result(result: AdmissionResult) -> AdmissionReport:
+    """Project an accepted ``AdmissionResult`` into a snapshot ``AdmissionReport``."""
+    if not result.accepted:
+        raise AdmissionError("cannot build report from a non-accepted result")
     return AdmissionReport(
-        True,
-        ("world_present", "tasks_present", "verifier_probes"),
-        MappingProxyType(verifier_results),
+        passed=True,
+        checks=result.checks,
+        verifier_results=result.verifier_results,
     )

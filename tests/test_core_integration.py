@@ -10,7 +10,6 @@ import pytest
 
 import openrange as OR
 from openrange.core import (
-    AdmissionError,
     BuildContext,
     Manifest,
     ManifestError,
@@ -401,7 +400,7 @@ def test_pack_descriptor_validation(tmp_path: Path) -> None:
             CyberWebappOffensePack(pack_dir)
 
 
-def test_admission_rejects_empty_world_missing_tasks_and_failed_probe(
+def test_admit_returns_structured_failures(
     tmp_path: Path,
 ) -> None:
     from dataclasses import replace as _replace
@@ -418,37 +417,45 @@ def test_admission_rejects_empty_world_missing_tasks_and_failed_probe(
         nodes=(OR.Node("webapp", "webapp", dict(good.world)),),
     )
 
-    with pytest.raises(AdmissionError, match="world is empty"):
-        admit(
-            _replace(
-                base_state,
-                world_graph=OR.WorldGraph(),
-                tasks=good.tasks,
-                admission_probe={},
-            ),
-        )
-    with pytest.raises(AdmissionError, match="no tasks generated"):
-        admit(
-            _replace(
-                base_state,
-                world_graph=nonempty_graph,
-                tasks=(),
-                admission_probe={},
-            ),
-        )
-    with pytest.raises(AdmissionError, match="verifier did not pass"):
-        admit(
-            _replace(
-                base_state,
-                world_graph=nonempty_graph,
-                tasks=good.tasks,
-                admission_probe={
-                    "result": {"flag": "wrong"},
-                    "world": {"flag": "expected"},
-                    "requests": [],
-                },
-            ),
-        )
+    empty_world_result = admit(
+        _replace(
+            base_state,
+            world_graph=OR.WorldGraph(),
+            tasks=good.tasks,
+            admission_probe={},
+        ),
+    )
+    assert empty_world_result.accepted is False
+    assert any("world is empty" in f.reason for f in empty_world_result.failures)
+    assert all(f.stage == "world" for f in empty_world_result.failures)
+
+    no_tasks_result = admit(
+        _replace(
+            base_state,
+            world_graph=nonempty_graph,
+            tasks=(),
+            admission_probe={},
+        ),
+    )
+    assert no_tasks_result.accepted is False
+    assert any("no tasks generated" in f.reason for f in no_tasks_result.failures)
+
+    bad_verifier_result = admit(
+        _replace(
+            base_state,
+            world_graph=nonempty_graph,
+            tasks=good.tasks,
+            admission_probe={
+                "result": {"flag": "wrong"},
+                "world": {"flag": "expected"},
+                "requests": [],
+            },
+        ),
+    )
+    assert bad_verifier_result.accepted is False
+    assert all(f.stage == "verifier" for f in bad_verifier_result.failures)
+    assert all(f.task_id == good.tasks[0].id for f in bad_verifier_result.failures)
+    assert bad_verifier_result.failures[0].details
 
 
 def test_store_rejects_missing_or_invalid_snapshots(tmp_path: Path) -> None:
@@ -623,12 +630,19 @@ def test_builder_generation_error_paths(tmp_path: Path) -> None:
             )
         """,
     )
-    with pytest.raises(AdmissionError, match="verifier source"):
+    from openrange.core.admission import BuildFailed
+
+    with pytest.raises(BuildFailed) as exc_info:
         build(
             MANIFEST,
             llm=OR.CodexBackend(command=bad_verifier, model="local", timeout=5),
             max_repairs=1,
         )
+    assert exc_info.value.attempts == 1
+    assert any(
+        "verifier source" in failure.reason
+        for failure in exc_info.value.result.failures
+    )
 
 
 def test_builder_retries_admission_with_feedback_to_llm(tmp_path: Path) -> None:
@@ -723,7 +737,9 @@ def test_builder_stops_feedback_after_max_tries(tmp_path: Path) -> None:
         encoding="utf-8",
     )
 
-    with pytest.raises(AdmissionError, match="after 1 tries"):
+    from openrange.core.admission import BuildFailed
+
+    with pytest.raises(BuildFailed) as exc_info:
         build(
             {
                 "world": {"goal": "path pack"},
@@ -735,6 +751,8 @@ def test_builder_stops_feedback_after_max_tries(tmp_path: Path) -> None:
             llm=builder_llm(tmp_path),
             max_repairs=1,
         )
+    assert exc_info.value.attempts == 1
+    assert exc_info.value.result.failures
 
 
 def test_verifier_source_validation() -> None:
@@ -867,6 +885,64 @@ class _NoopBuilder:
     def repair(
         self,
         state: OR.BuildState,
-        failures: tuple[str, ...],
+        failures: tuple[Any, ...],
     ) -> OR.BuildState:
         return state
+
+
+def test_custom_builder_repair_receives_structured_failures(tmp_path: Path) -> None:
+    """Builder.repair receives tuple[AdmissionFailure, ...] when admit fails."""
+    from dataclasses import replace as _replace
+
+    from openrange.core.admission import AdmissionFailure, BuildFailed
+    from openrange.core.builder_protocol import Builder
+
+    good = build(MANIFEST, llm=builder_llm(tmp_path))
+    pack = OR.PACKS.resolve("cyber.webapp.offense")
+    captured_failures: list[tuple[AdmissionFailure, ...]] = []
+
+    class _NoTasksBuilder(Builder):
+        def generate_world_graph(self, state: OR.BuildState) -> OR.BuildState:
+            graph = OR.WorldGraph(
+                nodes=(OR.Node("webapp", "webapp", dict(good.world)),),
+            )
+            return _replace(state, world_graph=graph)
+
+        def generate_tasks(self, state: OR.BuildState) -> OR.BuildState:
+            # Forced failure: admit will reject for "no tasks generated".
+            return state
+
+        def generate_feasibility_checks(self, state: OR.BuildState) -> OR.BuildState:
+            return state
+
+        def generate_episode_checks(self, state: OR.BuildState) -> OR.BuildState:
+            return state
+
+        def repair(
+            self,
+            state: OR.BuildState,
+            failures: tuple[AdmissionFailure, ...],
+        ) -> OR.BuildState:
+            captured_failures.append(failures)
+            return state
+
+    class _CustomPack(type(pack)):  # type: ignore[misc]
+        def default_builder(self) -> type[Builder] | None:
+            return _NoTasksBuilder
+
+    custom_registry = OR.PackRegistry()
+    custom_registry.register(_CustomPack(pack.dir))
+
+    with pytest.raises(BuildFailed) as exc_info:
+        build(MANIFEST, llm=object(), registry=custom_registry, max_repairs=2)
+
+    assert exc_info.value.attempts == 2
+    assert len(captured_failures) >= 1
+    for failures in captured_failures:
+        assert failures
+        assert all(isinstance(f, AdmissionFailure) for f in failures)
+    assert any(
+        f.stage == "tasks" and "no tasks generated" in f.reason
+        for failures in captured_failures
+        for f in failures
+    )

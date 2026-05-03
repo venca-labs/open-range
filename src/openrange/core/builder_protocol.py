@@ -18,6 +18,7 @@ from abc import ABC, abstractmethod
 from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
+    from openrange.core.admission import AdmissionFailure
     from openrange.core.builder import BuildState
 
 
@@ -51,12 +52,18 @@ class Builder(ABC):
     @abstractmethod
     def generate_episode_checks(self, state: BuildState) -> BuildState: ...
 
-    def repair(self, state: BuildState, failures: tuple[str, ...]) -> BuildState:
+    def repair(
+        self,
+        state: BuildState,
+        failures: tuple[AdmissionFailure, ...],
+    ) -> BuildState:
         """Adjust state in response to admission failures and try again.
 
         Default: return state unchanged. Builders that can react to
         feedback (LLM-backed ones, autotopology mutators, etc.) override
         this to consume ``failures`` and produce a state with at least
-        one field re-generated.
+        one field re-generated. The orchestrator always re-runs the
+        pipeline after ``repair`` returns; updating ``state.context.feedback``
+        is one common repair tactic for LLM builders.
         """
         return state

@@ -8,7 +8,14 @@ from pathlib import Path
 from types import MappingProxyType
 from typing import TYPE_CHECKING, Any
 
-from openrange.core.admission import AdmissionReport, admit
+from openrange.core.admission import (
+    AdmissionFailure,
+    AdmissionReport,
+    AdmissionResult,
+    BuildFailed,
+    admit,
+    report_from_result,
+)
 from openrange.core.builder_protocol import Builder
 from openrange.core.errors import AdmissionError, ManifestError, PackError
 from openrange.core.graph import (
@@ -206,35 +213,62 @@ def _resolve_builder(pack: Pack, context: BuildContext) -> Builder:
 
 
 def _build_with_repair(state: BuildState, *, max_repairs: int) -> BuildState:
-    last_error = AdmissionError("builder did not run admission")
+    last_result = AdmissionResult(accepted=False)
     for attempt in range(1, max_repairs + 1):
         emit_build_event(state.context, "attempt_started", attempt=attempt)
         try:
             attempt_state = _generate_pipeline(state)
-            attempt_state = _admit_state(attempt_state, attempt=attempt)
-            return attempt_state
+            attempt_state = _run_admission_probe(attempt_state)
+            emit_build_event(state.context, "admission_started", attempt=attempt)
+            result = admit(attempt_state)
         except AdmissionError as exc:
-            last_error = exc
-            emit_build_event(
-                state.context,
-                "admission_failed",
-                attempt=attempt,
-                error=str(exc),
-            )
-            failures = (str(exc),)
-            state = state.builder.repair(state, failures)
-            state = replace(
-                state,
-                context=replace(
-                    state.context,
-                    feedback=(
-                        *state.context.feedback,
-                        admission_feedback(attempt, exc),
-                    ),
+            attempt_state = state
+            result = AdmissionResult(
+                accepted=False,
+                failures=(
+                    AdmissionFailure(reason=str(exc), stage="generation"),
                 ),
             )
-    message = f"builder failed admission after {max_repairs} tries: {last_error}"
-    raise AdmissionError(message) from last_error
+        last_result = result
+        if result.accepted:
+            emit_build_event(
+                state.context,
+                "admission_passed",
+                attempt=attempt,
+                checks=list(result.checks),
+            )
+            return replace(
+                attempt_state,
+                admission=report_from_result(result),
+            )
+        emit_build_event(
+            state.context,
+            "admission_failed",
+            attempt=attempt,
+            failures=[
+                {
+                    "reason": failure.reason,
+                    "stage": failure.stage,
+                    "task_id": failure.task_id,
+                }
+                for failure in result.failures
+            ],
+        )
+        state = state.builder.repair(attempt_state, result.failures)
+        state = replace(
+            state,
+            context=replace(
+                state.context,
+                feedback=(
+                    *state.context.feedback,
+                    *(
+                        admission_feedback(attempt, failure)
+                        for failure in result.failures
+                    ),
+                ),
+            ),
+        )
+    raise BuildFailed(last_result, attempts=max_repairs)
 
 
 def _generate_pipeline(state: BuildState) -> BuildState:
@@ -279,20 +313,6 @@ def _attach_verifiers(state: BuildState) -> BuildState:
     return replace(state, tasks=tuple(bound))
 
 
-def _admit_state(state: BuildState, *, attempt: int) -> BuildState:
-    """Run the admission probe (if the builder needs one) and admit."""
-    state = _run_admission_probe(state)
-    emit_build_event(state.context, "admission_started", attempt=attempt)
-    report = admit(state)
-    emit_build_event(
-        state.context,
-        "admission_passed",
-        attempt=attempt,
-        checks=list(report.checks),
-    )
-    return replace(state, admission=report)
-
-
 def _run_admission_probe(state: BuildState) -> BuildState:
     """Execute the feasibility checks against the realized world.
 
@@ -314,8 +334,8 @@ def _run_admission_probe(state: BuildState) -> BuildState:
     return state
 
 
-def admission_feedback(attempt: int, error: AdmissionError) -> str:
-    return f"attempt {attempt} failed admission: {error}"
+def admission_feedback(attempt: int, failure: AdmissionFailure) -> str:
+    return f"attempt {attempt} failed admission ({failure.stage}): {failure.reason}"
 
 
 def emit_build_event(
