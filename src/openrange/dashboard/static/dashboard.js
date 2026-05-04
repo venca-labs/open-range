@@ -112,7 +112,7 @@ const sim = {
   deskPositions: [],
   characters: {},
   effects: [],
-  pendingReplies: [],
+  pendingDialogue: [],
   selectedActorId: "",
 };
 
@@ -677,33 +677,52 @@ function applySimulationEvent(event) {
     if (!targetDesk) return;
     character.target = neighborOffset(targetDesk, actorId);
     const now = sim.clock?.getElapsedTime() || 0;
-    // Tight visit: walks at 8 units/s land within 1-2s, brief chat,
-    // then walk back. Total round-trip ~6-8s so multiple visits
-    // overlap across the floor without each one feeling slow.
-    character.returnHomeAt = now + 4 + Math.random() * 2;
-    scheduleColleagueReply(targetDesk, now + 1.5 + Math.random() * 1);
+    character.returnHomeAt = now + 5.5 + Math.random() * 2;
+    scheduleConversation(character, targetDesk, now);
   }
 }
 
-const _COLLEAGUE_REPLIES = [
-  "yeah", "totally", "huh", "right", "no way", "fair", "got it",
-  "okay", "hmm", "sure", "later", "noted",
+// Coherent opener + reply pairs. The visitor speaks the opener once
+// they arrive at the colleague's desk; the host responds a beat
+// later with one of the matching replies. Keeps the chatter feeling
+// like an actual workplace exchange instead of disconnected one-
+// liners. Add more entries to grow the diversity — each new opener
+// is a one-line edit.
+const EXCHANGES = [
+  { opener: "deploy went out?", replies: ["yeah, just now", "still rolling", "blocked on review"] },
+  { opener: "coffee?", replies: ["please", "in five", "you read my mind"] },
+  { opener: "got a sec?", replies: ["sure, what's up?", "give me two", "yeah, hit me"] },
+  { opener: "build is red on main", replies: ["which test?", "i'll take a look", "ugh, again"] },
+  { opener: "did you see the slack thread?", replies: ["yeah, weird right?", "no, link me", "haven't caught up"] },
+  { opener: "lunch in 20?", replies: ["i'm in", "swamped, next time", "i'll meet you there"] },
+  { opener: "merge conflict on auth", replies: ["i'll rebase", "yours wins", "let's pair on it"] },
+  { opener: "rolled back the migration", replies: ["good call", "what broke?", "was it the index?"] },
+  { opener: "incident channel is quiet", replies: ["finally", "calm before the storm", "knock on wood"] },
+  { opener: "this query is slow", replies: ["explain analyze", "missing index?", "send me the plan"] },
+  { opener: "found a flaky test", replies: ["which one?", "rerun and ignore", "file a ticket"] },
+  { opener: "anyone seen the wifi go down?", replies: ["yeah just now", "mine's fine", "switching to hotspot"] },
+  { opener: "wfh tomorrow", replies: ["enjoy", "same", "send me your draft first"] },
+  { opener: "standup in five", replies: ["on my way", "i'll be late", "skip me, i'll post async"] },
+  { opener: "shipped the patch", replies: ["nice", "test in staging?", "thanks for the quick turn"] },
+  { opener: "i need another reviewer", replies: ["link me", "what's the size?", "i can take it"] },
 ];
 
-function scheduleColleagueReply(targetDesk, atTime) {
-  // Find which NPC lives at the target desk and queue a one-line
-  // reply on the animation timeline. Cheap timer — checks each
-  // tick against ``sim.clock.getElapsedTime()``.
+function scheduleConversation(visitor, targetDesk, now) {
   const host = Object.values(sim.characters).find(
-    (character) => character.homeDesk === targetDesk,
+    (c) => c.homeDesk === targetDesk,
   );
   if (!host) return;
-  const reply = _COLLEAGUE_REPLIES[
-    Math.floor(Math.random() * _COLLEAGUE_REPLIES.length)
+  const exchange = EXCHANGES[Math.floor(Math.random() * EXCHANGES.length)];
+  const reply = exchange.replies[
+    Math.floor(Math.random() * exchange.replies.length)
   ];
-  if (!sim.pendingReplies) sim.pendingReplies = [];
-  sim.pendingReplies.push({ host, reply, atTime });
+  if (!sim.pendingDialogue) sim.pendingDialogue = [];
+  // Visitor opens once they've arrived at the host's desk (~1.6s
+  // walk at 8 units/s); host replies a beat after that.
+  sim.pendingDialogue.push({ character: visitor, text: exchange.opener, atTime: now + 1.6 });
+  sim.pendingDialogue.push({ character: host, text: reply, atTime: now + 3.2 + Math.random() * 0.6 });
 }
+
 
 function pickColleagueDesk(homeDesk) {
   const others = sim.deskPositions.filter((desk) => desk !== homeDesk);
@@ -873,12 +892,14 @@ function animateSimulation() {
     }
   });
 
-  if (sim.pendingReplies && sim.pendingReplies.length) {
-    sim.pendingReplies = sim.pendingReplies.filter((reply) => {
-      if (elapsed < reply.atTime) return true;
-      if (sim.characters[reply.host.group?.userData?.actorId] === reply.host
-          || Object.values(sim.characters).includes(reply.host)) {
-        spawnSpeechBubble(reply.host, reply.reply);
+  if (sim.pendingDialogue && sim.pendingDialogue.length) {
+    sim.pendingDialogue = sim.pendingDialogue.filter((line) => {
+      if (elapsed < line.atTime) return true;
+      // Only fire the bubble if the character is still in the scene
+      // — they may have been disposed by a topology rebuild between
+      // queueing and firing.
+      if (Object.values(sim.characters).includes(line.character)) {
+        spawnSpeechBubble(line.character, line.text);
       }
       return false;
     });

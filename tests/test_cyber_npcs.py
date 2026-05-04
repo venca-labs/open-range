@@ -249,23 +249,19 @@ def test_office_chatter_factory_rejects_bad_config() -> None:
         oc_factory({})
     with pytest.raises(ValueError, match="cadence_ticks"):
         oc_factory({"name": "x", "cadence_ticks": "fast"})
-    with pytest.raises(ValueError, match="lines"):
-        oc_factory({"name": "x", "lines": "not-a-list"})
     with pytest.raises(ValueError, match="walk_probability"):
         oc_factory({"name": "x", "walk_probability": "high"})
 
 
-def test_office_chatter_speaks_via_record_action() -> None:
-    """A speech-only chatter publishes its line through record_action."""
+def test_office_chatter_emits_walks_via_record_action() -> None:
+    """Walks-only backend: every cadence tick emits a move event.
+
+    Speech is dashboard-driven (visitor opener + host reply on
+    arrival); the chatter itself does not emit ``speak`` events.
+    """
     from cyber_webapp.npcs.office_chatter import OfficeChatter
 
-    npc = OfficeChatter(
-        name="Alice",
-        cadence_ticks=1,
-        lines=("morning",),
-        walk_probability=0.0,  # always speak
-        seed=1,
-    )
+    npc = OfficeChatter(name="Alice", cadence_ticks=1, walk_probability=1.0, seed=1)
     recorded: list[dict[str, Any]] = []
 
     def record(
@@ -277,19 +273,15 @@ def test_office_chatter_speaks_via_record_action() -> None:
         recorded.append({"action": dict(action), "target": target})
 
     npc.start({"record_action": record})
-    # start() publishes a presence event; cadence-driven speech follows.
     assert recorded[0]["action"] == {"present": True}
     npc.step({})
     npc.step({})
-    npc.step({})
-    speech = [e for e in recorded if e["action"] != {"present": True}]
-    assert len(speech) == 3
-    assert all(entry["action"] == {"speak": "morning"} for entry in speech)
-    assert all(entry["target"] is None for entry in speech)
+    walks = [e for e in recorded if e["action"] != {"present": True}]
+    assert len(walks) == 2
+    assert all(e["action"] == {"move": "wandering"} for e in walks)
 
 
-def test_office_chatter_walks_to_known_target() -> None:
-    """When walk_probability is 1.0 and a home is set, every tick is a walk."""
+def test_office_chatter_passes_home_as_target() -> None:
     from cyber_webapp.npcs.office_chatter import OfficeChatter
 
     npc = OfficeChatter(
@@ -311,10 +303,8 @@ def test_office_chatter_walks_to_known_target() -> None:
 
     npc.start({"record_action": record})
     npc.step({})
-    npc.step({})
     walks = [e for e in recorded if e["action"] != {"present": True}]
-    assert all(entry["action"] == {"move": "wandering"} for entry in walks)
-    assert all(entry["target"] == "svc-web" for entry in walks)
+    assert walks[0]["target"] == "svc-web"
 
 
 def test_office_chatter_obeys_cadence() -> None:
@@ -323,8 +313,7 @@ def test_office_chatter_obeys_cadence() -> None:
     npc = OfficeChatter(
         name="Carol",
         cadence_ticks=3,
-        lines=("hi",),
-        walk_probability=0.0,
+        walk_probability=1.0,
         seed=1,
     )
     calls: list[dict[str, Any]] = []
@@ -338,15 +327,37 @@ def test_office_chatter_obeys_cadence() -> None:
         calls.append(dict(action))
 
     npc.start({"record_action": record})
-    # Drop the start-time presence event; only step-driven actions
-    # should be cadence-shaped. Initial cooldown is staggered (random
-    # in [0, cadence_ticks)) so test against the expected count
-    # within a 30-tick window: cadence=3 → 10 actions in 30 ticks
-    # regardless of where the stagger lands.
+    # Drop the start-time presence event; cadence-driven walks
+    # follow. Initial cooldown is staggered (random in
+    # [0, cadence_ticks)) so test against the expected count: with
+    # cadence=3 the chatter walks 10 times in any 30-tick window.
     calls.clear()
     for _ in range(30):
         npc.step({})
     assert len(calls) == 10
+    assert all(c == {"move": "wandering"} for c in calls)
+
+
+def test_office_chatter_walk_probability_zero_emits_nothing() -> None:
+    """walk_probability=0 means cadence ticks pass silently."""
+    from cyber_webapp.npcs.office_chatter import OfficeChatter
+
+    npc = OfficeChatter(name="Eve", cadence_ticks=1, walk_probability=0.0, seed=1)
+    calls: list[dict[str, Any]] = []
+
+    def record(
+        action: dict[str, Any],
+        *,
+        target: str | None = None,
+        observation: object = None,
+    ) -> None:
+        calls.append(dict(action))
+
+    npc.start({"record_action": record})
+    pre = len(calls)  # presence event
+    for _ in range(10):
+        npc.step({})
+    assert len(calls) == pre  # no further events
 
 
 def test_office_chatter_silent_without_record_action() -> None:
