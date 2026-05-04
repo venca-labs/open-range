@@ -8,7 +8,6 @@ from pathlib import Path
 from typing import cast
 
 from openrange.core.errors import StoreError
-from openrange.core.pack import Pack
 from openrange.core.snapshot import Snapshot
 
 
@@ -25,8 +24,7 @@ class SnapshotStore:
         )
         return path
 
-    def load(self, snapshot_id: str, pack: Pack | None = None) -> Snapshot:
-        _ = pack
+    def load(self, snapshot_id: str) -> Snapshot:
         path = self.root / f"{snapshot_id}.json"
         try:
             data = json.loads(path.read_text(encoding="utf-8"))

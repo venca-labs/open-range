@@ -1,0 +1,29 @@
+"""Rendered broken-authorization handler.
+
+Template parameters:
+  trust_header   — HTTP header name the handler trusts for role assertion
+  expected_value — header value that grants admin access
+  leak_field     — field of the response body that exposes the secret
+
+The bug: the handler trusts a client-controlled header to decide
+authorization. Forging ``{trust_header}: {expected_value}`` from any
+caller yields admin behavior. In multi-service worlds this typically
+chains from SSRF: a vuln on a public service fetches an internal
+endpoint and forges this header.
+"""
+import json
+
+
+def handle(query, state):
+    # In real HTTP this would come from request headers; the test harness
+    # passes header values via query for parity with the SQLi/SSRF templates.
+    header_values = query.get({{ trust_header | tojson }}, [""])
+    role = header_values[0] if header_values else ""
+    if role != {{ expected_value | tojson }}:
+        return 403, {}, b"forbidden"
+    secret = state.get("secrets", {}).get({{ leak_field | tojson }}, "")
+    return (
+        200,
+        {"Content-Type": "application/json"},
+        json.dumps({{ "{" }}{{ leak_field | tojson }}: secret{{ "}" }}).encode(),
+    )

@@ -4,21 +4,24 @@ from __future__ import annotations
 
 import json
 from collections.abc import Mapping
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from hashlib import sha256
 from types import MappingProxyType
-from typing import cast
+from typing import TYPE_CHECKING, cast
 
 from openrange.core.admission import AdmissionReport
-from openrange.core.errors import StoreError
+from openrange.core.errors import AdmissionError, StoreError
+from openrange.core.graph import CheckScript, RuntimeBundle, WorldGraph
 from openrange.core.manifest import Manifest
 from openrange.core.pack import (
-    BuildOutput,
     Entrypoint,
     Task,
     Verifier,
     verifier_from_source,
 )
+
+if TYPE_CHECKING:
+    from openrange.core.builder import BuildState
 
 
 @dataclass(frozen=True, slots=True)
@@ -82,6 +85,15 @@ class LineageNode:
 
 @dataclass(frozen=True, slots=True)
 class Snapshot:
+    """Admitted, frozen world.
+
+    Stores both the canonical pipeline shape (``world_graph``, ``runtime``,
+    ``feasibility_checks``, ``episode_checks``, ``admission_probe``) and
+    the legacy projection (``world``, ``artifacts``, ``verifier_sources``,
+    ``generated``) used by older snapshot consumers. The legacy fields
+    are derived from the canonical ones at freeze time.
+    """
+
     id: str
     manifest: Manifest
     world: Mapping[str, object]
@@ -91,6 +103,12 @@ class Snapshot:
     artifacts: Mapping[str, str]
     admission: AdmissionReport
     lineage: tuple[LineageNode, ...]
+    # Canonical pipeline shape (Phase audit-fix #4):
+    world_graph: WorldGraph = field(default_factory=WorldGraph)
+    runtime: RuntimeBundle = field(default_factory=RuntimeBundle)
+    feasibility_checks: tuple[CheckScript, ...] = ()
+    episode_checks: tuple[CheckScript, ...] = ()
+    admission_probe: Mapping[str, object] = field(default_factory=dict)
 
     def get_tasks(self) -> tuple[Task, ...]:
         return self.tasks
@@ -100,6 +118,17 @@ class Snapshot:
             if task.id == task_id:
                 return task
         raise KeyError(f"unknown task {task_id!r}")
+
+    def verifier(self, task_id: str) -> Verifier:
+        """Resolve the verifier callable for a task from its stored source."""
+        task = self.task(task_id)
+        try:
+            source = self.verifier_sources[task.verifier_id]
+        except KeyError as exc:
+            raise StoreError(
+                f"task {task_id!r} references unknown verifier {task.verifier_id!r}",
+            ) from exc
+        return verifier_from_source(source)
 
     def as_dict(self) -> dict[str, object]:
         return {
@@ -112,14 +141,15 @@ class Snapshot:
             "artifacts": dict(self.artifacts),
             "admission": self.admission.as_dict(),
             "lineage": [node.as_dict() for node in self.lineage],
+            "world_graph": self.world_graph.as_dict(),
+            "runtime": self.runtime.as_dict(),
+            "feasibility_checks": [c.as_dict() for c in self.feasibility_checks],
+            "episode_checks": [c.as_dict() for c in self.episode_checks],
+            "admission_probe": dict(self.admission_probe),
         }
 
     @classmethod
-    def from_mapping(
-        cls,
-        data: Mapping[str, object],
-        verifiers: Mapping[str, Verifier] | None = None,
-    ) -> Snapshot:
+    def from_mapping(cls, data: Mapping[str, object]) -> Snapshot:
         snapshot_id = data.get("id")
         manifest = data.get("manifest")
         world = data.get("world")
@@ -148,14 +178,26 @@ class Snapshot:
         parsed_verifier_sources = {
             str(key): str(value) for key, value in verifier_sources.items()
         }
-        loaded_verifiers = {
-            verifier_id: verifier_from_source(source)
-            for verifier_id, source in parsed_verifier_sources.items()
-        }
-        if verifiers is not None:
-            loaded_verifiers.update(verifiers)
-        parsed_tasks = tuple(task_from_mapping(row, loaded_verifiers) for row in tasks)
+        parsed_tasks = tuple(task_from_mapping(row) for row in tasks)
         parsed_artifacts = {str(key): str(value) for key, value in artifacts.items()}
+        # New canonical fields — present on snapshots written after the
+        # audit-fix; defaulted to empty for older snapshots so loading
+        # legacy JSON keeps working.
+        graph_data = data.get("world_graph", {})
+        runtime_data = data.get("runtime", {})
+        feasibility_data = data.get("feasibility_checks", [])
+        episode_data = data.get("episode_checks", [])
+        probe_data = data.get("admission_probe", {})
+        if not isinstance(graph_data, Mapping):
+            raise StoreError("stored world_graph is invalid")
+        if not isinstance(runtime_data, Mapping):
+            raise StoreError("stored runtime is invalid")
+        if not isinstance(feasibility_data, list):
+            raise StoreError("stored feasibility_checks is invalid")
+        if not isinstance(episode_data, list):
+            raise StoreError("stored episode_checks is invalid")
+        if not isinstance(probe_data, Mapping):
+            raise StoreError("stored admission_probe is invalid")
         return cls(
             snapshot_id,
             Manifest.from_mapping(cast(Mapping[str, object], manifest)),
@@ -169,10 +211,24 @@ class Snapshot:
                 LineageNode.from_mapping(cast(Mapping[str, object], row))
                 for row in lineage
             ),
+            world_graph=WorldGraph.from_mapping(graph_data),
+            runtime=RuntimeBundle.from_mapping(runtime_data),
+            feasibility_checks=tuple(
+                CheckScript.from_mapping(c) for c in feasibility_data
+            ),
+            episode_checks=tuple(
+                CheckScript.from_mapping(c) for c in episode_data
+            ),
+            admission_probe=MappingProxyType(dict(probe_data)),
         )
 
 
-def task_from_mapping(data: object, verifiers: Mapping[str, Verifier]) -> Task:
+def task_from_mapping(data: object) -> Task:
+    """Deserialize a Task from its stored mapping form.
+
+    Verifier resolution is the caller's responsibility (look up the
+    source by ``verifier_id`` in the snapshot's ``verifier_sources``).
+    """
     if not isinstance(data, Mapping):
         raise StoreError("stored task is invalid")
     task_id = data.get("id")
@@ -185,10 +241,6 @@ def task_from_mapping(data: object, verifiers: Mapping[str, Verifier]) -> Task:
         raise StoreError("stored task entrypoints/verifier are invalid")
     if not all(isinstance(item, Mapping) for item in entrypoints):
         raise StoreError("stored entrypoint row is invalid")
-    try:
-        verifier = verifiers[verifier_id]
-    except KeyError as exc:
-        raise StoreError(f"unknown stored verifier {verifier_id!r}") from exc
     return Task(
         task_id,
         instruction,
@@ -197,23 +249,27 @@ def task_from_mapping(data: object, verifiers: Mapping[str, Verifier]) -> Task:
             for item in entrypoints
         ),
         verifier_id,
-        verifier,
     )
 
 
 def snapshot_hash(
     manifest: Manifest,
-    build: BuildOutput,
+    *,
+    world: Mapping[str, object],
+    tasks: tuple[Task, ...],
+    verifier_sources: Mapping[str, str],
+    generated: Mapping[str, object],
+    artifacts: Mapping[str, str],
     pack_version: str,
     parent_id: str | None,
 ) -> str:
     payload = {
         "manifest": manifest.as_dict(),
-        "world": build.world,
-        "tasks": [task.as_dict() for task in build.tasks],
-        "verifier_sources": build.verifier_sources,
-        "generated": build.generated.as_dict(),
-        "artifacts": build.artifacts,
+        "world": world,
+        "tasks": [task.as_dict() for task in tasks],
+        "verifier_sources": verifier_sources,
+        "generated": generated,
+        "artifacts": artifacts,
         "pack_version": pack_version,
         "parent_id": parent_id,
     }
@@ -230,3 +286,111 @@ def json_safe(value: object) -> object:
     if isinstance(value, tuple | list):
         return [json_safe(item) for item in value]
     return value
+
+
+def freeze(state: BuildState) -> Snapshot:
+    """Freeze a fully-admitted BuildState into a Snapshot."""
+    if (
+        state.world_graph is None
+        or state.runtime is None
+        or state.admission is None
+    ):
+        raise AdmissionError("cannot freeze snapshot before admission")
+    parent_id = None if state.context.previous is None else state.context.previous.id
+    world_dict = _world_dict_from_state(state)
+    artifacts = state.runtime.files()
+    verifier_sources = MappingProxyType(
+        {check.id: check.source for check in state.episode_checks},
+    )
+    generated = _generated_view(state, world_dict, artifacts)
+    summary = state.summary or f"Built {state.pack.id} world from pack source"
+    touched = state.touched_files or tuple(sorted(artifacts))
+    snapshot_id = snapshot_hash(
+        state.manifest,
+        world=world_dict,
+        tasks=state.tasks,
+        verifier_sources=verifier_sources,
+        generated=generated,
+        artifacts=artifacts,
+        pack_version=state.pack.version,
+        parent_id=parent_id,
+    )
+    lineage = LineageNode(
+        snapshot_id,
+        parent_id,
+        state.manifest.as_dict(),
+        state.pack.as_dict(),
+        state.context.prompt,
+        summary,
+        touched,
+        state.context.curriculum,
+    )
+    previous_lineage = (
+        () if state.context.previous is None else state.context.previous.lineage
+    )
+    return Snapshot(
+        snapshot_id,
+        state.manifest,
+        MappingProxyType(dict(world_dict)),
+        state.tasks,
+        verifier_sources,
+        MappingProxyType(generated),
+        artifacts,
+        state.admission,
+        (*previous_lineage, lineage),
+        world_graph=state.world_graph,
+        runtime=state.runtime,
+        feasibility_checks=state.feasibility_checks,
+        episode_checks=state.episode_checks,
+        admission_probe=MappingProxyType(dict(state.admission_probe or {})),
+    )
+
+
+def _world_dict_from_state(state: BuildState) -> Mapping[str, object]:
+    if state.world_graph is None:
+        return {}
+    return MappingProxyType(dict(state.pack.project_world(state.world_graph)))
+
+
+def _generated_view(
+    state: BuildState,
+    world: Mapping[str, object],
+    artifacts: Mapping[str, str],
+) -> Mapping[str, object]:
+    """Build the legacy GeneratedArtifacts shape from new state fields."""
+    pack_runtime: Mapping[str, object] = {}
+    if state.runtime is not None and state.pack.dir is not None:
+        try:
+            descriptor = json.loads(
+                (state.pack.dir / "pack.json").read_text(encoding="utf-8"),
+            )
+            if isinstance(descriptor, Mapping):
+                rt = descriptor.get("runtime", {})
+                if isinstance(rt, Mapping):
+                    pack_runtime = MappingProxyType(dict(rt))
+        except OSError:
+            pack_runtime = MappingProxyType({})
+    verifiers = [
+        {"id": check.id, "task_id": check.task_id, "source": check.source}
+        for check in state.episode_checks
+    ]
+    admission_rows: list[Mapping[str, object]] = []
+    if state.admission_probe is not None:
+        for check in state.feasibility_checks:
+            admission_rows.append(
+                {
+                    "task_id": check.task_id,
+                    "source": check.source,
+                    "final_state": dict(state.admission_probe),
+                },
+            )
+    return {
+        "world": {
+            "world": dict(world),
+            "artifacts": dict(artifacts),
+            "runtime": dict(pack_runtime),
+        },
+        "tasks": [task.as_dict() for task in state.tasks],
+        "verifiers": verifiers,
+        "admission": admission_rows,
+    }
