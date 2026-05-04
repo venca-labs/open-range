@@ -1,4 +1,5 @@
 # OpenRange
+![OpenRange visual](assets/open-range-visual.png)
 
 [![License](https://img.shields.io/github/license/vecna-labs/open-range?style=flat-square)](LICENSE)
 [![CI](https://img.shields.io/github/actions/workflow/status/vecna-labs/open-range/ci.yml?branch=main&style=flat-square)](https://github.com/vecna-labs/open-range/actions/workflows/ci.yml)
