@@ -11,6 +11,7 @@ import time
 from collections.abc import Iterator
 from pathlib import Path
 from typing import Protocol, cast
+from urllib.error import HTTPError
 from urllib.request import Request, urlopen
 
 import pytest
@@ -327,6 +328,68 @@ def test_dashboard_http_server_can_start_without_snapshot() -> None:
             "snapshot_id": None,
             "topology": topology,
         }
+
+
+def test_dashboard_http_server_serves_static_assets_and_routes(
+    tmp_path: Path,
+) -> None:
+    snapshot = OR.build(MANIFEST)
+    view = DashboardView(snapshot)
+    view.record_event(
+        "agent_step",
+        actor="red",
+        target="webapp",
+        data={"action": "browse"},
+    )
+
+    with running_dashboard(view) as base_url:
+        with urlopen(base_url + "/", timeout=5) as response:
+            html = response.read().decode()
+        with urlopen(base_url + "/static/dashboard.css", timeout=5) as response:
+            css = response.read().decode()
+        with urlopen(base_url + "/static/dashboard.js", timeout=5) as response:
+            dashboard_js = response.read().decode()
+
+        briefing = read_http_json(base_url + "/api/briefing")
+        topology = read_http_json(base_url + "/api/topology?ignored=1")
+        lineage = read_http_json(base_url + "/api/lineage")
+        state = read_http_json(base_url + "/api/state")
+        narration = read_http_json(base_url + "/api/narrate")
+        play = read_http_json(base_url + "/api/episode/play", method="POST")
+
+        assert "OpenRange Dashboard" in html
+        assert 'id="sim-canvas"' in html
+        assert "/static/dashboard.css" in html
+        assert "/static/dashboard.js" in html
+        assert "Live Event Feed" in html
+        assert "Episode Narrator" in html
+        assert "sim-actor-panel" in html
+        assert "sim-uptime-gauge" in html
+        assert "Tasks" in html
+        assert "Admission" in html
+        assert "Lineage" in html
+        assert "Artifacts" in html
+        assert "THREE.WebGLRenderer" in dashboard_js
+        assert ".sim-actor-panel" in css
+        assert briefing["snapshot_id"] == snapshot.id
+        assert topology["snapshot_id"] == snapshot.id
+        assert lineage["admission"] == snapshot.admission.as_dict()
+        assert cast(list[dict[str, object]], state["events"])[0]["data"] == {
+            "action": "browse",
+        }
+        assert narration == {"narration": "red agent_step webapp"}
+        assert play == {"status": "playing"}
+
+        for request in (
+            Request(base_url + "/missing"),
+            Request(base_url + "/static/missing.css"),
+            Request(base_url + "/static/../events.py"),
+            Request(base_url + "/api/episode/missing", method="POST"),
+        ):
+            with pytest.raises(HTTPError) as error:
+                urlopen(request, timeout=5).read()
+            assert error.value.code == 404
+            assert json.loads(error.value.read().decode()) == {"error": "not found"}
 
 
 def test_dashboard_http_server_streams_events_and_narration(
