@@ -1,27 +1,18 @@
-"""Rendered SQL injection handler.
-
-Template parameters:
-  target_param   — query parameter that flows unescaped into SQL
-  table          — table the vulnerable query reads from
-  leak_column    — column an attacker can leak via UNION SELECT
-
-The bug: the handler interpolates ``query[target_param]`` into the SQL
-string with an f-string instead of using a parameterized query. A
-crafted ``target_param`` with ``' UNION SELECT ... -- `` exfiltrates
-arbitrary columns. Realistic shape; matches the existing cyber pack's
-``/search`` endpoint behavior.
-"""
+"""Lookup handler for the records table — query parameter flows into SQL."""
 import json
 
 
 def handle(query, state):
     values = query.get({{ target_param | tojson }}, [""])
     user_input = values[0] if values else ""
-    # VULN: f-string concat — every CTF SQLi 101.
     sql = (
         f"SELECT key, {{ leak_column | tojson | replace('\"', '') }} "
         f"FROM {{ table | tojson | replace('\"', '') }} "
         f"WHERE key = '{user_input}'"
     )
-    rows = state["data_store"].execute(sql)
-    return 200, {"Content-Type": "application/json"}, json.dumps({"rows": rows}).encode()
+    cursor = state["db"].cursor()
+    try:
+        rows = [dict(row) for row in cursor.execute(sql).fetchall()]
+        return 200, {"Content-Type": "application/json"}, json.dumps({"rows": rows}).encode()
+    except Exception as exc:
+        return 500, {"Content-Type": "application/json"}, json.dumps({"error": str(exc)}).encode()

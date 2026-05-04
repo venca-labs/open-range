@@ -72,14 +72,10 @@ def build_handlers_and_routes(
         if vuln_id is not None and vuln_id in vulns_by_id:
             vuln_node = vulns_by_id[vuln_id]
             body = _render_vuln_body(vuln_node)
-            docstring = (
-                f"Endpoint {service_name}{path} — vulnerable "
-                f"({vuln_node.attrs.get('kind')!r})."
-            )
         else:
             kind = str(service.attrs.get("kind", ""))
             body = _default_handler_body(service_name, path, kind)
-            docstring = f"Endpoint {service_name}{path} — default behavior."
+        docstring = f"Endpoint {service_name}{path}."
         handlers.append(
             {"name": handler_name, "body": body, "docstring": docstring},
         )
@@ -180,10 +176,23 @@ def _default_handler_body(service_name: str, path: str, kind: str) -> str:
             'json.dumps(payload).encode()\n'
         )
     elif kind == "db":
-        table = path.strip("/").replace("/", "_") or "default"
         body = (
-            'payload = {"rows": [], "count": 0, '
-            f'"table": "{service_name}_{table}"}}\n'
+            'schema = state["schema"]\n'
+            'table = schema["table"]\n'
+            'key_col = schema["key_column"]\n'
+            'value_col = schema["value_column"]\n'
+            'requested = (query.get("key", [""]) or [""])[0]\n'
+            'cursor = state["db"].cursor()\n'
+            'if requested:\n'
+            '    sql = f"SELECT {key_col}, {value_col} FROM {table} WHERE '
+            '{key_col} = ?"\n'
+            '    rows = [\n'
+            '        dict(r) for r in cursor.execute(sql, (requested,)).fetchall()\n'
+            '    ]\n'
+            'else:\n'
+            '    sql = f"SELECT {key_col} FROM {table} ORDER BY {key_col}"\n'
+            '    rows = [{key_col: r[0]} for r in cursor.execute(sql).fetchall()]\n'
+            'payload = {"rows": rows, "count": len(rows)}\n'
             'return 200, {"Content-Type": "application/json"}, '
             'json.dumps(payload).encode()\n'
         )

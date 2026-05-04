@@ -114,20 +114,32 @@ class CodexHarness:
     Each call spawns a fresh ``codex`` subprocess with ``cwd`` set to
     the episode's agent root. Codex reads the task instruction from
     stdin and acts on the workspace.
+
+    Sandbox defaults to ``workspace-write`` so the agent can only
+    read/write inside its own workspace — it cannot ``cat`` the
+    rendered ``app.py`` from the env tree to skip recon. Network
+    egress is explicitly re-enabled via ``sandbox_workspace_write.
+    network_access=true`` so the agent can still hit the HTTP server.
     """
 
     command: str | Path = "codex"
     model: str = OR.CODEX_DEFAULT_MODEL
-    sandbox: str = "danger-full-access"
+    sandbox: str = "workspace-write"
     timeout: float = 300.0
 
     def run(self, prompt: str, cwd: Path) -> OR.LLMResult:
+        config_overrides: tuple[str, ...] = ()
+        if self.sandbox == "workspace-write":
+            config_overrides = (
+                "sandbox_workspace_write.network_access=true",
+            )
         return OR.CodexBackend(
             command=self.command,
             model=self.model,
             cwd=cwd,
             sandbox=self.sandbox,
             timeout=self.timeout,
+            config_overrides=config_overrides,
         ).complete(OR.LLMRequest(prompt))
 
 
@@ -144,7 +156,7 @@ def _parse_args() -> argparse.Namespace:
     parser.add_argument("--model", default=OR.CODEX_DEFAULT_MODEL)
     parser.add_argument(
         "--agent-sandbox", "--codex-sandbox",
-        dest="agent_sandbox", default="danger-full-access",
+        dest="agent_sandbox", default="workspace-write",
     )
     parser.add_argument("--builder-timeout", type=float, default=300.0)
     parser.add_argument("--agent-timeout", type=float, default=300.0)
