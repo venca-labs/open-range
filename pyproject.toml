@@ -23,12 +23,9 @@ strands = [
 [project.scripts]
 openrange = "openrange.__main__:main"
 
-[project.entry-points."openrange.packs"]
-"cyber.webapp.offense.v1" = "openrange.packs:CyberWebappOffenseV1Pack"
-
-[project.entry-points."openrange.npcs"]
-"cyber.browsing_user" = "openrange.packs.cyber_webapp_offense_v1.npcs.browsing_user:factory"
-"cyber.admin_audit" = "openrange.packs.cyber_webapp_offense_v1.npcs.admin_audit:factory"
+# Built-in packs live in their own workspace members under packs/ — they
+# register themselves via openrange.packs / openrange.npcs entry points
+# in their own pyproject.toml. Core has none.
 
 [dependency-groups]
 dev = [
@@ -36,7 +33,14 @@ dev = [
     "mypy>=1.19",
     "pytest>=9.0",
     "ruff>=0.15.6",
+    "openrange-cyber-webapp",
 ]
+
+[tool.uv.workspace]
+members = ["packs/cyber_webapp"]
+
+[tool.uv.sources]
+openrange-cyber-webapp = { workspace = true }
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/openrange"]
@@ -50,7 +54,7 @@ select = ["E", "F", "I", "B", "UP", "SIM"]
 
 [tool.mypy]
 python_version = "3.14"
-mypy_path = "src"
+mypy_path = ["src", "packs/cyber_webapp"]
 strict = true
 warn_unreachable = true
 
@@ -63,7 +67,7 @@ testpaths = ["tests"]
 
 [tool.coverage.run]
 branch = true
-source = ["openrange"]
+source = ["openrange", "cyber_webapp"]
 omit = [
     "src/openrange/__main__.py",
 ]

@@ -32,7 +32,7 @@ import openrange as OR
 
 MANIFEST: dict[str, object] = {
     "world": {"goal": "find the admin flag in a vulnerable webapp"},
-    "pack": {"id": "cyber.webapp.offense.v1", "source": {"kind": "builtin"}},
+    "pack": {"id": "cyber.webapp", "source": {"kind": "builtin"}},
 }
 
 

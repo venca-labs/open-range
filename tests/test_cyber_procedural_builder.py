@@ -15,15 +15,16 @@ from __future__ import annotations
 
 import random
 
+from cyber_webapp.builder import ProceduralBuilder
+from cyber_webapp.ontology import ONTOLOGY
+from cyber_webapp.priors import PRIORS
+from cyber_webapp.sampling import sample_graph
+
 import openrange as OR
 from openrange.core.builder import build, evolve
-from openrange.packs.cyber_webapp_offense_v1.builder import ProceduralBuilder
-from openrange.packs.cyber_webapp_offense_v1.ontology import ONTOLOGY
-from openrange.packs.cyber_webapp_offense_v1.priors import PRIORS
-from openrange.packs.cyber_webapp_offense_v1.sampling import sample_graph
 
 V1_MANIFEST = {
-    "pack": {"id": "cyber.webapp.offense.v1", "source": {"kind": "builtin"}},
+    "pack": {"id": "cyber.webapp", "source": {"kind": "builtin"}},
     "mode": "simulation",
     "world": {},
 }
@@ -64,7 +65,7 @@ def test_sample_graph_has_required_node_types() -> None:
 
 
 def test_v1_pack_builds_without_llm() -> None:
-    from openrange.packs.cyber_webapp_offense_v1.sampling import (
+    from cyber_webapp.sampling import (
         TASK_TARGETS,
         TASK_VERBS,
     )
@@ -111,7 +112,7 @@ def test_v1_seeded_builds_are_reproducible() -> None:
     """Seeded curriculum pins the rng; same seed → same world."""
     from openrange.core.builder import BuildContext
 
-    pack = OR.PACKS.resolve("cyber.webapp.offense.v1")
+    pack = OR.PACKS.resolve("cyber.webapp")
     builder_a = pack.default_builder(BuildContext(curriculum={"seed": 7}))
     builder_b = pack.default_builder(BuildContext(curriculum={"seed": 7}))
     assert isinstance(builder_a, ProceduralBuilder)
@@ -120,14 +121,14 @@ def test_v1_seeded_builds_are_reproducible() -> None:
 
 
 def test_v1_pack_is_registered() -> None:
-    assert "cyber.webapp.offense.v1" in OR.PACKS.ids()
-    pack = OR.PACKS.resolve("cyber.webapp.offense.v1")
+    assert "cyber.webapp" in OR.PACKS.ids()
+    pack = OR.PACKS.resolve("cyber.webapp")
     assert pack.ontology is ONTOLOGY
     assert pack.generation_priors() is PRIORS
 
 
 def test_v1_default_builder_seed_propagates_from_curriculum() -> None:
-    pack = OR.PACKS.resolve("cyber.webapp.offense.v1")
+    pack = OR.PACKS.resolve("cyber.webapp")
     from openrange.core.builder import BuildContext
 
     ctx_default = BuildContext()

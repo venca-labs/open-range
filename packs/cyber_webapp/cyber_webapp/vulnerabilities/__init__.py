@@ -2,7 +2,7 @@
 
 A ``Vulnerability`` is a code-template + dependency metadata. It tells
 the realizer how to inject the bug into a target service (the ``template``
-field is a Jinja2 template path under ``cyber_vulnerabilities/templates/``)
+field is a Jinja2 template path under ``vulnerabilities/templates/``)
 and tells the procedural builder how vulns combine (``requires`` /
 ``enables`` dependency edges).
 

@@ -3,8 +3,8 @@
 NPCs are registered as entry points in the ``openrange.npcs`` group
 via pyproject.toml (referencing the per-NPC module's ``factory``).
 Imports of the NPC classes themselves go via the leaf modules
-(``cyber_webapp_offense_v1.npcs.admin_audit``,
-``cyber_webapp_offense_v1.npcs.browsing_user``).
+(``cyber_webapp.npcs.admin_audit``,
+``cyber_webapp.npcs.browsing_user``).
 """
 
 from __future__ import annotations

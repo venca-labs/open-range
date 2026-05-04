@@ -18,12 +18,12 @@ import ast
 import textwrap
 from collections.abc import Mapping
 
-from openrange.core.errors import PackError
-from openrange.core.graph import Node, WorldGraph
-from openrange.packs.cyber_vulnerabilities import (
+from cyber_webapp.vulnerabilities import (
     CATALOG as VULN_CATALOG,
 )
-from openrange.packs.cyber_vulnerabilities import render_vulnerability
+from cyber_webapp.vulnerabilities import render_vulnerability
+from openrange.core.errors import PackError
+from openrange.core.graph import Node, WorldGraph
 
 
 def build_handlers_and_routes(

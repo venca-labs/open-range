@@ -6,8 +6,7 @@ with an example world that passes and one that fails.
 
 from __future__ import annotations
 
-from openrange.core.graph import Edge, Node, WorldGraph
-from openrange.packs.cyber_webapp_offense_v1.ontology import (
+from cyber_webapp.ontology import (
     EDGE_TYPES,
     NODE_TYPES,
     ONTOLOGY,
@@ -15,6 +14,8 @@ from openrange.packs.cyber_webapp_offense_v1.ontology import (
     OraclePathExistsConstraint,
     SecretReachableConstraint,
 )
+
+from openrange.core.graph import Edge, Node, WorldGraph
 
 
 def _node(id_: str, type_: str, **attrs: object) -> Node:

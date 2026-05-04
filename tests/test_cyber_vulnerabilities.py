@@ -14,8 +14,7 @@ from pathlib import Path
 from typing import Any
 
 import pytest
-
-from openrange.packs.cyber_vulnerabilities import (
+from cyber_webapp.vulnerabilities import (
     BROKEN_AUTHZ,
     CATALOG,
     SQL_INJECTION,

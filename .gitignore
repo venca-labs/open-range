@@ -14,7 +14,6 @@
 !.env.example
 
 # Python
-.python-version
 __pycache__/
 *.py[cod]
 .pytest_cache/

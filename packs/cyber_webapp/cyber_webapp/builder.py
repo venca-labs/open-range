@@ -25,6 +25,26 @@ from collections.abc import Mapping
 from dataclasses import replace
 from typing import TYPE_CHECKING, cast
 
+from cyber_webapp.checks import (
+    VERIFIER_SOURCE,
+    flag_from_graph,
+    render_feasibility_source,
+)
+from cyber_webapp.llm_generation import (
+    LLMGenerationError,
+    generate_task_instruction,
+    generate_verifier_source,
+)
+from cyber_webapp.mutation import (
+    apply_curriculum,
+    coerce_string_list,
+)
+from cyber_webapp.priors import PRIORS
+from cyber_webapp.sampling import (
+    TASK_TARGETS,
+    TASK_VERBS,
+    sample_graph,
+)
 from openrange.core.builder_protocol import Builder
 from openrange.core.errors import AdmissionError, PackError
 from openrange.core.graph import CheckScript, WorldGraph
@@ -33,26 +53,6 @@ from openrange.core.pack import (
     Task,
     admission_state_from_source,
     verifier_from_source,
-)
-from openrange.packs.cyber_webapp_offense_v1.checks import (
-    VERIFIER_SOURCE,
-    flag_from_graph,
-    render_feasibility_source,
-)
-from openrange.packs.cyber_webapp_offense_v1.llm_generation import (
-    LLMGenerationError,
-    generate_task_instruction,
-    generate_verifier_source,
-)
-from openrange.packs.cyber_webapp_offense_v1.mutation import (
-    apply_curriculum,
-    coerce_string_list,
-)
-from openrange.packs.cyber_webapp_offense_v1.priors import PRIORS
-from openrange.packs.cyber_webapp_offense_v1.sampling import (
-    TASK_TARGETS,
-    TASK_VERBS,
-    sample_graph,
 )
 
 if TYPE_CHECKING:

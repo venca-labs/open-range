@@ -13,9 +13,9 @@ import random
 from collections.abc import Callable, Mapping, Sequence
 from types import MappingProxyType
 
+from cyber_webapp.vulnerabilities import CATALOG as VULN_CATALOG
 from openrange.core.errors import PackError
 from openrange.core.graph import Edge, Node, WorldGraph
-from openrange.packs.cyber_vulnerabilities import CATALOG as VULN_CATALOG
 
 _NOUNS: tuple[str, ...] = (
     "atlas", "beacon", "cinder", "drift", "echo", "falcon",

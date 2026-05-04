@@ -20,9 +20,9 @@ import random
 from collections.abc import Mapping
 from types import MappingProxyType
 
+from cyber_webapp.sampling import default_vuln_params
+from cyber_webapp.vulnerabilities import CATALOG as VULN_CATALOG
 from openrange.core.graph import Edge, Node, WorldGraph
-from openrange.packs.cyber_vulnerabilities import CATALOG as VULN_CATALOG
-from openrange.packs.cyber_webapp_offense_v1.sampling import default_vuln_params
 
 
 def coerce_string_list(value: object) -> list[str]:

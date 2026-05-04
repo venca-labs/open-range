@@ -1,4 +1,4 @@
-"""v1 cyber webapp offense pack — procedural builder + codegen realize.
+"""Cyber webapp pack — procedural builder + codegen realize.
 
 This package IS the pack. It owns:
   - ``ontology.py`` — typed graph language (10 node types, 12 edge
@@ -12,10 +12,11 @@ This package IS the pack. It owns:
   - ``codegen/`` — ``realize_graph(graph, manifest)`` that turns a
     world graph into a runnable ``app.py`` + ``Entrypoint`` for the
     built-in HTTP runtime backing
+  - ``vulnerabilities/`` — shared vuln catalog used by codegen
 
 The pack class itself is small — ontology / priors / realize / default
 builder are wired here and exported via the ``openrange.packs``
-entry-point group declared in pyproject.toml.
+entry-point group declared in this package's pyproject.toml.
 """
 
 from __future__ import annotations
@@ -25,30 +26,28 @@ from pathlib import Path
 from types import MappingProxyType
 from typing import TYPE_CHECKING
 
+from cyber_webapp.ontology import ONTOLOGY
+from cyber_webapp.priors import PRIORS
 from openrange.core.builder_protocol import Builder
 from openrange.core.graph import RuntimeBundle, WorldGraph, WorldSchema
 from openrange.core.manifest import Manifest
 from openrange.core.pack import Pack
-from openrange.packs.cyber_webapp_offense_v1.ontology import ONTOLOGY
-from openrange.packs.cyber_webapp_offense_v1.priors import PRIORS
 
 if TYPE_CHECKING:
     from openrange.core.builder import BuildContext
 
 
-class CyberWebappOffenseV1Pack(Pack):
-    """v1 cyber webapp offense pack — procedural + codegen.
+class CyberWebappPack(Pack):
+    """Cyber webapp pack — procedural + codegen.
 
     Ships no on-disk source; everything is generated at build time
     from the graph. ``dir`` is therefore ``None``.
     """
 
-    id = "cyber.webapp.offense.v1"
+    id = "cyber.webapp"
     version = "v1"
 
     def __init__(self, dir: Path | None = None) -> None:
-        # v1 pack has no filesystem-backed source; ``dir`` is accepted
-        # to keep the path-pack constructor convention but is ignored.
         del dir
         self.dir = None
 
@@ -57,7 +56,7 @@ class CyberWebappOffenseV1Pack(Pack):
         return ONTOLOGY
 
     def default_builder(self, context: BuildContext) -> Builder | None:
-        from openrange.packs.cyber_webapp_offense_v1.builder import ProceduralBuilder
+        from cyber_webapp.builder import ProceduralBuilder
 
         seed = 0
         if context.curriculum is not None:
@@ -67,7 +66,7 @@ class CyberWebappOffenseV1Pack(Pack):
         return ProceduralBuilder(seed=seed)
 
     def realize(self, graph: WorldGraph, manifest: Manifest) -> RuntimeBundle:
-        from openrange.packs.cyber_webapp_offense_v1.codegen import realize_graph
+        from cyber_webapp.codegen import realize_graph
 
         return realize_graph(graph, manifest)
 
@@ -75,11 +74,11 @@ class CyberWebappOffenseV1Pack(Pack):
         return PRIORS
 
     def project_world(self, graph: WorldGraph) -> Mapping[str, object]:
-        """Project the v1 graph back to a flat world dict.
+        """Project the graph back to a flat world dict.
 
         Surfaces the flag value so verifiers can compare against the
         agent's submitted result. Other multi-node attrs are
-        intentionally omitted — the v1 verifier only cares about the
+        intentionally omitted — the verifier only cares about the
         flag; richer projections (service map, account index) come
         when verifiers need them.
         """
@@ -91,4 +90,4 @@ class CyberWebappOffenseV1Pack(Pack):
         return MappingProxyType({})
 
 
-__all__ = ["CyberWebappOffenseV1Pack"]
+__all__ = ["CyberWebappPack"]

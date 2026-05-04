@@ -18,7 +18,7 @@ from openrange.core.builder import build
 from openrange.core.episode import EpisodeService
 
 V1_MANIFEST = {
-    "pack": {"id": "cyber.webapp.offense.v1", "source": {"kind": "builtin"}},
+    "pack": {"id": "cyber.webapp", "source": {"kind": "builtin"}},
     "mode": "simulation",
     "world": {},
     "runtime": {"tick": {"mode": "manual"}},

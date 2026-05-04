@@ -37,7 +37,7 @@ from openrange.core import (
 
 V1_MANIFEST: dict[str, object] = {
     "world": {"goal": "find the admin flag"},
-    "pack": {"id": "cyber.webapp.offense.v1", "source": {"kind": "builtin"}},
+    "pack": {"id": "cyber.webapp", "source": {"kind": "builtin"}},
 }
 
 
@@ -53,7 +53,7 @@ def test_manifest_loads_yaml_and_rejects_invalid_shapes(tmp_path: Path) -> None:
 world:
   goal: exploit webapp
 pack:
-  id: cyber.webapp.offense.v1
+  id: cyber.webapp
 mode: emulation
 npc:
   - id: helper
@@ -67,7 +67,7 @@ npc:
     assert manifest.mode == "emulation"
     assert manifest.npc == ({"id": "helper"},)
     assert manifest.as_dict()["pack"] == {
-        "id": "cyber.webapp.offense.v1",
+        "id": "cyber.webapp",
         "source": {"kind": "builtin"},
         "options": {},
     }
@@ -77,21 +77,21 @@ npc:
     bad_inputs = [
         bad_yaml,
         {},
-        {"world": [], "pack": {"id": "cyber.webapp.offense.v1"}},
+        {"world": [], "pack": {"id": "cyber.webapp"}},
         {"world": {}, "pack": []},
         {"world": {}, "pack": {"id": ""}},
-        {"world": {}, "pack": {"id": "cyber.webapp.offense.v1", "source": []}},
+        {"world": {}, "pack": {"id": "cyber.webapp", "source": []}},
         {
             "world": {},
-            "pack": {"id": "cyber.webapp.offense.v1", "source": {"kind": "bad"}},
+            "pack": {"id": "cyber.webapp", "source": {"kind": "bad"}},
         },
         {
             "world": {},
-            "pack": {"id": "cyber.webapp.offense.v1", "source": {"uri": 3}},
+            "pack": {"id": "cyber.webapp", "source": {"uri": 3}},
         },
-        {"world": {}, "pack": {"id": "cyber.webapp.offense.v1", "options": []}},
-        {"world": {}, "pack": {"id": "cyber.webapp.offense.v1"}, "mode": "fast"},
-        {"world": {}, "pack": {"id": "cyber.webapp.offense.v1"}, "npc": [1]},
+        {"world": {}, "pack": {"id": "cyber.webapp", "options": []}},
+        {"world": {}, "pack": {"id": "cyber.webapp"}, "mode": "fast"},
+        {"world": {}, "pack": {"id": "cyber.webapp"}, "npc": [1]},
     ]
     for bad in bad_inputs:
         with pytest.raises(ManifestError):
@@ -107,7 +107,7 @@ def test_pack_source_ref_round_trip() -> None:
     source = PackSource("git", "https://example.test/pack.git")
     ref = PackRef.from_mapping(
         {
-            "id": "cyber.webapp.offense.v1",
+            "id": "cyber.webapp",
             "source": source.as_dict(),
             "options": {"flavor": "small"},
         },
@@ -119,8 +119,8 @@ def test_pack_source_ref_round_trip() -> None:
 
 
 def test_v1_pack_resolves_from_global_registry() -> None:
-    pack = OR.PACKS.resolve("cyber.webapp.offense.v1")
-    assert pack.id == "cyber.webapp.offense.v1"
+    pack = OR.PACKS.resolve("cyber.webapp")
+    assert pack.id == "cyber.webapp"
     assert pack.version
 
 
@@ -264,7 +264,7 @@ def test_verifier_source_validation() -> None:
 
 def test_build_admits_v1_snapshot_with_lineage() -> None:
     snapshot = build(V1_MANIFEST)
-    assert snapshot.manifest.pack.id == "cyber.webapp.offense.v1"
+    assert snapshot.manifest.pack.id == "cyber.webapp"
     assert snapshot.admission.passed is True
     assert len(snapshot.lineage) == 1
     assert snapshot.lineage[0].parent_id is None
@@ -314,7 +314,7 @@ class _NoopBuilder:
 
 def test_admit_returns_structured_failures() -> None:
     good = build(V1_MANIFEST)
-    pack = OR.PACKS.resolve("cyber.webapp.offense.v1")
+    pack = OR.PACKS.resolve("cyber.webapp")
     base_state = OR.BuildState(
         manifest=good.manifest,
         pack=pack,
@@ -607,7 +607,7 @@ def test_stable_json_is_sorted() -> None:
 
 def test_public_api_exports_smoke() -> None:
     """Top-level ``openrange`` package surfaces the names users actually use."""
-    assert OR.PACKS.resolve("cyber.webapp.offense.v1").id == "cyber.webapp.offense.v1"
+    assert OR.PACKS.resolve("cyber.webapp").id == "cyber.webapp"
     assert OR.ActorTurn("task", "actor", "agent", "target", {}).actor_kind == "agent"
     assert OR.OpenRangeRun.__name__ == "OpenRangeRun"
     assert OR.RunConfig(Path("runs")).root == Path("runs")

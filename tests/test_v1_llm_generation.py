@@ -11,21 +11,21 @@ import textwrap
 from pathlib import Path
 
 import pytest
+from cyber_webapp.llm_generation import (
+    LLMGenerationError,
+    generate_task_instruction,
+    generate_verifier_source,
+)
 
 import openrange as OR
 from openrange.core.builder import build
 from openrange.core.errors import StoreError
 from openrange.core.graph import Edge, Node, WorldGraph
 from openrange.core.pack import Task
-from openrange.packs.cyber_webapp_offense_v1.llm_generation import (
-    LLMGenerationError,
-    generate_task_instruction,
-    generate_verifier_source,
-)
 
 V1_MANIFEST: dict[str, object] = {
     "world": {"goal": "find the admin flag"},
-    "pack": {"id": "cyber.webapp.offense.v1", "source": {"kind": "builtin"}},
+    "pack": {"id": "cyber.webapp", "source": {"kind": "builtin"}},
 }
 
 

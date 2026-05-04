@@ -11,17 +11,16 @@ from __future__ import annotations
 from typing import Any
 
 import pytest
-
-from openrange.packs.cyber_webapp_offense_v1.npcs.admin_audit import (
+from cyber_webapp.npcs.admin_audit import (
     AdminAudit,
 )
-from openrange.packs.cyber_webapp_offense_v1.npcs.admin_audit import (
+from cyber_webapp.npcs.admin_audit import (
     factory as admin_audit_factory,
 )
-from openrange.packs.cyber_webapp_offense_v1.npcs.browsing_user import (
+from cyber_webapp.npcs.browsing_user import (
     BrowsingUser,
 )
-from openrange.packs.cyber_webapp_offense_v1.npcs.browsing_user import (
+from cyber_webapp.npcs.browsing_user import (
     factory as browsing_user_factory,
 )
 

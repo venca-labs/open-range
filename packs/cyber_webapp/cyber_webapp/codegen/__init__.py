@@ -30,14 +30,14 @@ from types import MappingProxyType
 
 from jinja2 import Environment, FileSystemLoader, StrictUndefined, select_autoescape
 
-from openrange.core.graph import RuntimeArtifact, RuntimeBundle, WorldGraph
-from openrange.core.manifest import Manifest
-from openrange.packs.cyber_webapp_offense_v1.codegen.discovery import build_discovery
-from openrange.packs.cyber_webapp_offense_v1.codegen.entrypoint import http_entrypoint
-from openrange.packs.cyber_webapp_offense_v1.codegen.handlers import (
+from cyber_webapp.codegen.discovery import build_discovery
+from cyber_webapp.codegen.entrypoint import http_entrypoint
+from cyber_webapp.codegen.handlers import (
     build_handlers_and_routes,
 )
-from openrange.packs.cyber_webapp_offense_v1.codegen.seeding import project_seed
+from cyber_webapp.codegen.seeding import project_seed
+from openrange.core.graph import RuntimeArtifact, RuntimeBundle, WorldGraph
+from openrange.core.manifest import Manifest
 
 _TEMPLATES_DIR = Path(__file__).parent / "templates"
 

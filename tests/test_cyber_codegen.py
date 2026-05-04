@@ -23,16 +23,16 @@ import urllib.request
 from pathlib import Path
 
 import pytest
+from cyber_webapp.codegen import realize_graph
+from cyber_webapp.priors import PRIORS
+from cyber_webapp.sampling import sample_graph
 
 from openrange.core.builder import build
 from openrange.core.graph import Edge, Node, WorldGraph
 from openrange.core.manifest import Manifest
-from openrange.packs.cyber_webapp_offense_v1.codegen import realize_graph
-from openrange.packs.cyber_webapp_offense_v1.priors import PRIORS
-from openrange.packs.cyber_webapp_offense_v1.sampling import sample_graph
 
 V1_MANIFEST = {
-    "pack": {"id": "cyber.webapp.offense.v1", "source": {"kind": "builtin"}},
+    "pack": {"id": "cyber.webapp", "source": {"kind": "builtin"}},
     "mode": "simulation",
     "world": {},
 }

@@ -88,7 +88,7 @@ run = OR.OpenRangeRun(OR.RunConfig("or-runs/dev-run", dashboard=True))
 snapshot = run.build(
     {
         "world": {"goal": "find the admin flag in a vulnerable webapp"},
-        "pack": {"id": "cyber.webapp.offense.v1", "source": {"kind": "builtin"}},
+        "pack": {"id": "cyber.webapp", "source": {"kind": "builtin"}},
     },
     llm=OR.CodexBackend(),  # optional — enriches task instruction + verifier
 )
@@ -97,7 +97,7 @@ for task in snapshot.get_tasks():
     print(task.id, task.instruction)
 ```
 
-The built-in `cyber.webapp.offense.v1` pack procedurally samples a multi-service webapp world (graph topology, vulnerabilities, accounts, secrets), AST-splices vulnerability templates into the realized service code, and ships with NPCs that generate background traffic alongside the agent. Pass an LLM and the build also produces a graph-aware task instruction and a per-task verifier; without one, it falls back to deterministic templates.
+The built-in `cyber.webapp` pack procedurally samples a multi-service webapp world (graph topology, vulnerabilities, accounts, secrets), AST-splices vulnerability templates into the realized service code, and ships with NPCs that generate background traffic alongside the agent. Pass an LLM and the build also produces a graph-aware task instruction and a per-task verifier; without one, it falls back to deterministic templates.
 
 ## Run an eval
 
@@ -157,6 +157,7 @@ CONTRIBUTING.md   contribution workflow and local setup
 Start with:
 
 - [OpenRange overview](docs/start_here.md)
+- [Roadmap](ROADMAP.md) — direction, what we're working on, where contributors can help
 - [API lifecycle](docs/api.md)
 - [Dashboard](docs/dashboard.md)
 - [Contributing](CONTRIBUTING.md)

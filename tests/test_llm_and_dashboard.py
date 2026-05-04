@@ -39,7 +39,7 @@ from openrange.llm import LLMBackendError, parse_json_object, run_codex
 
 MANIFEST = {
     "world": {"goal": "find the admin flag", "title": "Ops Portal"},
-    "pack": {"id": "cyber.webapp.offense.v1"},
+    "pack": {"id": "cyber.webapp"},
 }
 
 
@@ -434,7 +434,7 @@ def test_dashboard_artifact_log_writes_builder_steps(tmp_path: Path) -> None:
 
     first = log.record_builder_step(
         "build_started",
-        {"pack_id": "cyber.webapp.offense.v1"},
+        {"pack_id": "cyber.webapp"},
     )
     with event_log.open("a", encoding="utf-8") as handle:
         handle.write("not-json\n")
@@ -464,7 +464,7 @@ def test_dashboard_artifact_log_writes_builder_steps(tmp_path: Path) -> None:
         "builder_finished",
     ]
     assert state["builder"]["steps"] == [
-        {"pack_id": "cyber.webapp.offense.v1", "step": "build_started"},
+        {"pack_id": "cyber.webapp", "step": "build_started"},
         {"step": "builder_finished"},
     ]
     assert state["topology"] == {}
