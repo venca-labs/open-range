@@ -84,7 +84,7 @@ def auto_evolve(
     llm: LLMBackend | None = None,
     event_sink: BuildEventSink | None = None,
     registry: PackRegistry | None = None,
-) -> Snapshot:
+) -> Snapshot | None:
     """Pick a mutation based on agent performance and apply it.
 
     Asks the snapshot's pack to enumerate available mutations given the
@@ -92,28 +92,29 @@ def auto_evolve(
     to choose a direction, picks the highest-relevance mutation in that
     direction, and forwards to ``evolve()``.
 
-    Returns the parent snapshot unchanged when there's no signal to act
-    on (no reports, no mutations, no direction, no candidate matching
-    direction, or zero-relevance best candidate).
+    Returns ``None`` when there's no signal to act on (no reports, no
+    mutations, no direction, no candidate matching direction, or zero-
+    relevance best candidate). Callers loop until ``None`` to walk the
+    curriculum naturally.
     """
     from openrange.core.builder import _resolve_registry, evolve, resolve_pack
 
     if not reports:
-        return snapshot
+        return None
     registry = _resolve_registry(registry)
     pack = resolve_pack(snapshot.manifest, registry)
     options = pack.available_mutations(snapshot, reports, llm=llm)
     if not options:
-        return snapshot
+        return None
     direction = policy(reports)
     if direction is None:
-        return snapshot
+        return None
     candidates = [o for o in options if o.direction == direction]
     if not candidates:
-        return snapshot
+        return None
     chosen = max(candidates, key=lambda o: o.relevance)
     if chosen.relevance <= 0.0:
-        return snapshot
+        return None
     return evolve(
         snapshot,
         chosen.directive,

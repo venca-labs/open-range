@@ -87,14 +87,14 @@ class _FakeSnapshot:
     world_graph = None
 
 
-def test_auto_evolve_no_reports_returns_parent() -> None:
+def test_auto_evolve_no_reports_returns_none() -> None:
     snap = _FakeSnapshot()
     result = auto_evolve(cast(object, snap))  # type: ignore[arg-type]
-    assert result is snap
+    assert result is None
 
 
-def test_auto_evolve_no_options_returns_parent(monkeypatch) -> None:  # type: ignore[no-untyped-def]
-    """When the pack returns no mutations, parent passes through."""
+def test_auto_evolve_no_options_returns_none(monkeypatch) -> None:  # type: ignore[no-untyped-def]
+    """When the pack returns no mutations, None signals no-op."""
     snap = _FakeSnapshot()
     captured: dict[str, object] = {}
 
@@ -117,11 +117,11 @@ def test_auto_evolve_no_options_returns_parent(monkeypatch) -> None:  # type: ig
         cast(object, snap),  # type: ignore[arg-type]
         _report(True),
     )
-    assert result is snap
+    assert result is None
     assert captured.get("called") is True
 
 
-def test_auto_evolve_no_matching_direction_returns_parent(monkeypatch) -> None:  # type: ignore[no-untyped-def]
+def test_auto_evolve_no_matching_direction_returns_none(monkeypatch) -> None:  # type: ignore[no-untyped-def]
     """Pack offers only soften options but agent passed (harden direction)."""
     snap = _FakeSnapshot()
     options = (
@@ -145,10 +145,10 @@ def test_auto_evolve_no_matching_direction_returns_parent(monkeypatch) -> None: 
         lambda *_args, **_kw: _StubPack(),
     )
     result = auto_evolve(cast(object, snap), _report(True))  # type: ignore[arg-type]
-    assert result is snap
+    assert result is None
 
 
-def test_auto_evolve_zero_relevance_returns_parent(monkeypatch) -> None:  # type: ignore[no-untyped-def]
+def test_auto_evolve_zero_relevance_returns_none(monkeypatch) -> None:  # type: ignore[no-untyped-def]
     snap = _FakeSnapshot()
     options = (
         Mutation(
@@ -167,7 +167,7 @@ def test_auto_evolve_zero_relevance_returns_parent(monkeypatch) -> None:  # type
         lambda *a, **kw: _StubPack(),
     )
     result = auto_evolve(cast(object, snap), _report(True))  # type: ignore[arg-type]
-    assert result is snap
+    assert result is None
 
 
 def test_auto_evolve_picks_highest_relevance_in_direction(monkeypatch) -> None:  # type: ignore[no-untyped-def]

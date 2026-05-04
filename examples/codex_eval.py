@@ -76,19 +76,17 @@ def main() -> None:
     )
     steps: list[dict[str, object]] = []
     for step_num in range(1, args.max_steps + 1):
-        last_report: OR.EpisodeReport | None = None
-        for task in snapshot.get_tasks():
-            last_report = _run_task(snapshot, task, harness, run)
-            steps.append(_step_record(step_num, snapshot, last_report))
-
-        if step_num == args.max_steps or last_report is None:
+        report = _run_task(snapshot, snapshot.get_tasks()[0], harness, run)
+        steps.append(
+            {
+                "step": step_num,
+                "snapshot_id": snapshot.id,
+                "report": report.as_dict(),
+            }
+        )
+        evolved = OR.auto_evolve(snapshot, report, llm=builder_llm)
+        if evolved is None:
             break
-        evolved = OR.auto_evolve(snapshot, last_report, llm=builder_llm)
-        if evolved.id == snapshot.id:
-            print(f"step {step_num}: auto_evolve found no relevant mutation; stopping")
-            break
-        directive = dict(evolved.lineage[-1].curriculum or {})
-        print(f"step {step_num} -> {step_num + 1}: auto_evolve chose {directive}")
         snapshot = evolved
 
     # 5. Report — single JSON document covering all steps + lineage.
@@ -131,23 +129,6 @@ def _run_task(
         return svc.stop_episode(handle)
     finally:
         svc.close()
-
-
-def _step_record(
-    step_num: int,
-    snapshot: OR.Snapshot,
-    report: OR.EpisodeReport,
-) -> dict[str, object]:
-    passed = (
-        report.verifier_result is not None
-        and report.verifier_result.get("passed") is True
-    )
-    return {
-        "step": step_num,
-        "snapshot_id": snapshot.id,
-        "passed": passed,
-        "report": report.as_dict(),
-    }
 
 
 @dataclass(frozen=True, slots=True)
