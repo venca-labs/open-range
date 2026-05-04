@@ -240,6 +240,19 @@ def _add_vulns_by_kind(
         existing_kinds_by_target.add(
             (str(source_node.attrs.get("kind")), edge.target),
         )
+    # Resolve the oracle path so the new vuln lands somewhere that
+    # actually satisfies ``OraclePathExistsConstraint``: any random
+    # endpoint won't do, since the constraint requires the vuln to
+    # affect a service / endpoint on the path from agent to flag.
+    oracle_endpoint_ids, oracle_service_ids = _oracle_path_targets(nodes, edges)
+    endpoints_oracle_first = sorted(
+        endpoints,
+        key=lambda n: 0 if n.id in oracle_endpoint_ids else 1,
+    )
+    services_oracle_first = sorted(
+        services,
+        key=lambda n: 0 if n.id in oracle_service_ids else 1,
+    )
     new_nodes = list(nodes)
     new_edges = list(edges)
     for kind in kinds:
@@ -249,9 +262,9 @@ def _add_vulns_by_kind(
         target_kinds = catalog_entry.target_kinds
         candidate_targets: list[Node]
         if "endpoint" in target_kinds:
-            candidate_targets = endpoints
+            candidate_targets = endpoints_oracle_first
         elif "service" in target_kinds:
-            candidate_targets = services
+            candidate_targets = services_oracle_first
         else:
             continue
         target = next(
@@ -294,3 +307,41 @@ def _add_vulns_by_kind(
         )
         existing_kinds_by_target.add((kind, target.id))
     return new_nodes, new_edges
+
+
+def _oracle_path_targets(
+    nodes: list[Node],
+    edges: list[Edge],
+) -> tuple[set[str], set[str]]:
+    """Walk the flag→service→endpoint chain so ``add`` can target it.
+
+    Returns ``(oracle_endpoint_ids, oracle_service_ids)`` — every
+    endpoint and service on the path from a flag-kind secret back to
+    an exposed surface. Empty sets when the graph has no flag (the
+    add caller will fall through to plain ordering).
+    """
+    nodes_by_id = {n.id: n for n in nodes}
+    flag_secret_ids = {
+        n.id for n in nodes if n.type == "secret" and n.attrs.get("kind") == "flag"
+    }
+    if not flag_secret_ids:
+        return set(), set()
+    holding_record_ids: set[str] = set()
+    for e in edges:
+        if e.relation == "holds" and e.target in flag_secret_ids:
+            holding_record_ids.add(e.source)
+    holding_store_ids: set[str] = set()
+    for e in edges:
+        if e.relation == "contains" and e.target in holding_record_ids:
+            holding_store_ids.add(e.source)
+    backing_service_ids: set[str] = set()
+    for e in edges:
+        if e.relation == "backed_by" and e.target in holding_store_ids:
+            backing_service_ids.add(e.source)
+    oracle_endpoint_ids: set[str] = set()
+    for e in edges:
+        if e.relation == "exposes" and e.source in backing_service_ids:
+            target = nodes_by_id.get(e.target)
+            if target is not None and target.type == "endpoint":
+                oracle_endpoint_ids.add(e.target)
+    return oracle_endpoint_ids, backing_service_ids

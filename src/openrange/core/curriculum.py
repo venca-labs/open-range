@@ -87,16 +87,22 @@ def auto_evolve(
 ) -> Snapshot | None:
     """Pick a mutation based on agent performance and apply it.
 
-    Asks the snapshot's pack to enumerate available mutations given the
-    reports (LLM enrichment if ``llm`` is supplied), applies ``policy``
-    to choose a direction, picks the highest-relevance mutation in that
-    direction, and forwards to ``evolve()``.
+    Asks the snapshot's pack to enumerate mutations given the reports
+    (LLM enrichment if ``llm`` is supplied), applies ``policy`` to
+    choose a direction, walks candidates in that direction by
+    descending relevance, and forwards to ``evolve()``. If a
+    candidate fails admission (``BuildFailed`` — e.g. a mutation that
+    breaks an ontology constraint), ``auto_evolve`` surfaces the skip
+    via ``event_sink`` and tries the next candidate before giving up.
+    A whole-eval crash from one bad mutation tag is far worse than
+    silently moving on to the next-best move.
 
     Returns ``None`` when there's no signal to act on (no reports, no
-    mutations, no direction, no candidate matching direction, or zero-
-    relevance best candidate). Callers loop until ``None`` to walk the
-    curriculum naturally.
+    mutations, no direction, no candidate in that direction with
+    positive relevance, or every candidate fails admission). Callers
+    loop until ``None`` to walk the curriculum naturally.
     """
+    from openrange.core.admission import BuildFailed
     from openrange.core.builder import _resolve_registry, evolve, resolve_pack
 
     if not reports:
@@ -109,36 +115,51 @@ def auto_evolve(
     direction = policy(reports)
     if direction is None:
         return None
-    candidates = [o for o in options if o.direction == direction]
+    candidates = sorted(
+        (o for o in options if o.direction == direction and o.relevance > 0.0),
+        key=lambda o: o.relevance,
+        reverse=True,
+    )
     if not candidates:
         return None
-    chosen = max(candidates, key=lambda o: o.relevance)
-    if chosen.relevance <= 0.0:
-        return None
-    # Surface the chosen mutation so the dashboard lineage view gets
-    # the full story — direction + note + parent snapshot — rather
-    # than two snapshots back-to-back with no narrative connection.
-    # Fires before ``evolve()`` so it lands even if the subsequent
-    # build raises.
-    if event_sink is not None:
-        event_sink(
-            "auto_evolve_chosen",
-            {
-                "parent_snapshot_id": snapshot.id,
-                "direction": chosen.direction,
-                "relevance": chosen.relevance,
-                "note": chosen.note,
-                "directive": dict(chosen.directive),
-                "candidates_considered": len(candidates),
-            },
-        )
-    return evolve(
-        snapshot,
-        chosen.directive,
-        llm=llm,
-        event_sink=event_sink,
-        registry=registry,
-    )
+    for chosen in candidates:
+        # Surface the chosen mutation so the dashboard lineage view
+        # gets the full story — direction + note + parent snapshot —
+        # rather than seeing two snapshots back-to-back with no
+        # narrative connection. Fires before ``evolve()`` so it lands
+        # even if the subsequent build raises.
+        if event_sink is not None:
+            event_sink(
+                "auto_evolve_chosen",
+                {
+                    "parent_snapshot_id": snapshot.id,
+                    "direction": chosen.direction,
+                    "relevance": chosen.relevance,
+                    "note": chosen.note,
+                    "directive": dict(chosen.directive),
+                    "candidates_considered": len(candidates),
+                },
+            )
+        try:
+            return evolve(
+                snapshot,
+                chosen.directive,
+                llm=llm,
+                event_sink=event_sink,
+                registry=registry,
+            )
+        except BuildFailed as exc:
+            if event_sink is not None:
+                event_sink(
+                    "auto_evolve_skipped",
+                    {
+                        "parent_snapshot_id": snapshot.id,
+                        "directive": dict(chosen.directive),
+                        "reason": f"build admission failed: {exc}",
+                    },
+                )
+            continue
+    return None
 
 
 __all__ = [
