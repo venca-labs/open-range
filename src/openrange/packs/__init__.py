@@ -18,7 +18,7 @@ from openrange.core.graph import (
     WorldSchema,
 )
 from openrange.core.manifest import Manifest
-from openrange.core.pack import PACKS, Entrypoint, Pack
+from openrange.core.pack import Entrypoint, Pack
 
 if TYPE_CHECKING:
     from openrange.core.builder import BuildContext
@@ -54,8 +54,10 @@ class CyberWebappOffensePack(Pack):
     """
 
     id = "cyber.webapp.offense"
+    DEFAULT_DIR: Path = Path(__file__).parent / "cyber_webapp_offense"
 
-    def __init__(self, dir: Path) -> None:
+    def __init__(self, dir: Path | None = None) -> None:
+        dir = self.DEFAULT_DIR if dir is None else dir
         self.dir = dir
         descriptor_path = dir / "pack.json"
         descriptor = json.loads(descriptor_path.read_text(encoding="utf-8"))
@@ -156,10 +158,7 @@ def _read_pack_files(pack_dir: Path) -> dict[str, str]:
     return files
 
 
-def register_builtin_pack(pack: Pack) -> None:
-    PACKS.register(pack)
-
-
-register_builtin_pack(
-    CyberWebappOffensePack(Path(__file__).parent / "cyber_webapp_offense"),
-)
+# Cyber pack is now discovered via the ``openrange.packs`` entry-point
+# group declared in pyproject.toml. The PackRegistry calls
+# ``CyberWebappOffensePack()`` (parameterless default ctor) on first
+# access.

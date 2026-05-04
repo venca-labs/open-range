@@ -853,6 +853,126 @@ def builder_llm(tmp_path: Path) -> OR.CodexBackend:
     return OR.CodexBackend(command=command, model="local", timeout=5)
 
 
+def test_pack_registry_discovers_via_entry_points(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    """A fake pack registered via entry point is discovered by PackRegistry."""
+    from openrange.core.pack import PACK_ENTRY_POINT_GROUP, PackRegistry
+
+    pack_dir = tmp_path / "external_pack"
+    pack = OR.PACKS.resolve("cyber.webapp.offense")
+    copy_pack(pack.dir, pack_dir)
+    descriptor = json.loads((pack_dir / "pack.json").read_text(encoding="utf-8"))
+    descriptor["id"] = "external.test_pack"
+    (pack_dir / "pack.json").write_text(json.dumps(descriptor), encoding="utf-8")
+
+    from openrange.packs import CyberWebappOffensePack
+
+    class ExternalPack(CyberWebappOffensePack):
+        id = "external.test_pack"
+        DEFAULT_DIR = pack_dir
+
+    fake_ep = type(
+        "FakeEntryPoint",
+        (),
+        {
+            "name": "external.test_pack",
+            "value": "test:ExternalPack",
+            "load": lambda self: ExternalPack,
+        },
+    )()
+
+    def fake_entry_points(*, group: str) -> list[object]:
+        if group == PACK_ENTRY_POINT_GROUP:
+            return [fake_ep]
+        return []
+
+    monkeypatch.setattr(
+        "importlib.metadata.entry_points",
+        fake_entry_points,
+    )
+
+    registry = PackRegistry()
+    assert registry.ids() == ()
+    registry.discover()
+    assert "external.test_pack" in registry.ids()
+    discovered = registry.resolve("external.test_pack")
+    assert discovered.id == "external.test_pack"
+    assert isinstance(discovered, ExternalPack)
+
+
+def test_builder_registry_discovers_via_entry_points(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A fake builder registered via entry point is discoverable + usable."""
+
+    from openrange.core.builder_protocol import (
+        BUILDER_ENTRY_POINT_GROUP,
+        Builder,
+        BuilderRegistry,
+    )
+
+    construction_log: list[str] = []
+
+    class _ExternalBuilder(Builder):
+        def generate_world_graph(self, state: OR.BuildState) -> OR.BuildState:
+            return state
+
+        def generate_tasks(self, state: OR.BuildState) -> OR.BuildState:
+            return state
+
+        def generate_feasibility_checks(
+            self,
+            state: OR.BuildState,
+        ) -> OR.BuildState:
+            return state
+
+        def generate_episode_checks(self, state: OR.BuildState) -> OR.BuildState:
+            return state
+
+    def factory(context: OR.BuildContext) -> Builder:
+        construction_log.append(f"prompt={context.prompt!r}")
+        return _ExternalBuilder()
+
+    fake_ep = type(
+        "FakeEntryPoint",
+        (),
+        {
+            "name": "external.builder",
+            "value": "test:factory",
+            "load": lambda self: factory,
+        },
+    )()
+
+    def fake_entry_points(*, group: str) -> list[object]:
+        if group == BUILDER_ENTRY_POINT_GROUP:
+            return [fake_ep]
+        return []
+
+    monkeypatch.setattr(
+        "importlib.metadata.entry_points",
+        fake_entry_points,
+    )
+
+    registry = BuilderRegistry()
+    assert registry.ids() == ()
+    registry.discover()
+    assert "external.builder" in registry.ids()
+
+    pack = OR.PACKS.resolve("cyber.webapp.offense")
+    state = OR.BuildState(
+        manifest=Manifest.load(MANIFEST),
+        pack=pack,
+        builder=_ExternalBuilder(),
+        context=BuildContext(prompt="hello"),
+    )
+    _ = state  # silence unused
+    builder = registry.resolve("external.builder", BuildContext(prompt="hello"))
+    assert isinstance(builder, _ExternalBuilder)
+    assert construction_log == ["prompt='hello'"]
+
+
 class _NoopBuilder:
     """Builder stub used by tests that exercise admit() in isolation."""
 

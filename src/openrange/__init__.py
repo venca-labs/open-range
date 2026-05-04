@@ -1,6 +1,7 @@
 """OpenRange public API."""
 
 from openrange.core import (
+    BUILDERS,
     PACKS,
     ActorTurn,
     AdmissionError,
@@ -10,6 +11,8 @@ from openrange.core import (
     AdmissionState,
     BuildContext,
     Builder,
+    BuilderError,
+    BuilderRegistry,
     BuildFailed,
     BuildState,
     CheckScript,
@@ -83,10 +86,13 @@ __all__ = [
     "AdmissionResult",
     "AdmissionState",
     "ActorTurn",
+    "BUILDERS",
     "BuildContext",
     "BuildFailed",
     "BuildState",
     "Builder",
+    "BuilderError",
+    "BuilderRegistry",
     "CODEX_DEFAULT_MODEL",
     "CheckScript",
     "CodexBackend",

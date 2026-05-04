@@ -1,4 +1,4 @@
-"""Builder contract.
+"""Builder contract and registry.
 
 A Builder generates the concrete content of one world: the typed graph
 that conforms to a pack's ontology, the tasks an agent can attempt, and
@@ -15,16 +15,34 @@ Construction is the Builder's choice — Core does not impose an
 ``__init__`` signature. The pack's ``default_builder(context)`` factory
 constructs the builder however it likes, reading whatever it needs from
 the BuildContext (LLM, prompt, curriculum, ...).
+
+The ``BuilderRegistry`` discovers external builders via Python entry
+points in the ``openrange.builders`` group. Manifests can opt into a
+custom builder via ``manifest.builder = "<id>"``; the orchestrator
+resolves it through the registry, taking precedence over the pack's
+default builder.
 """
 
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
+from collections.abc import Callable
 from typing import TYPE_CHECKING
+
+from openrange.core.errors import OpenRangeError
 
 if TYPE_CHECKING:
     from openrange.core.admission import AdmissionFailure
-    from openrange.core.builder import BuildState
+    from openrange.core.builder import BuildContext, BuildState
+
+
+BUILDER_ENTRY_POINT_GROUP = "openrange.builders"
+
+BuilderFactory = Callable[["BuildContext"], "Builder"]
+
+
+class BuilderError(OpenRangeError):
+    """Raised when a builder cannot be resolved or constructed."""
 
 
 class Builder(ABC):
@@ -65,3 +83,66 @@ class Builder(ABC):
         is one common repair tactic for LLM builders.
         """
         return state
+
+
+class BuilderRegistry:
+    """Registry of Builder factories by id.
+
+    Builders are registered explicitly via ``register()`` or, on the
+    global ``BUILDERS`` instance, discovered via Python entry points in
+    the ``openrange.builders`` group. Entry-point values must resolve
+    to a callable ``(BuildContext) -> Builder``.
+
+    ``autodiscover=False`` (the default) gives a clean slate suitable
+    for tests. The global ``BUILDERS = BuilderRegistry(autodiscover=True)``
+    pulls in installed builders on first access.
+    """
+
+    def __init__(self, *, autodiscover: bool = False) -> None:
+        self._factories: dict[str, BuilderFactory] = {}
+        self._autodiscover = autodiscover
+        self._discovered = False
+
+    def register(self, builder_id: str, factory: BuilderFactory) -> None:
+        self._factories[builder_id] = factory
+
+    def resolve(self, builder_id: str, context: BuildContext) -> Builder:
+        self._ensure_discovered()
+        try:
+            factory = self._factories[builder_id]
+        except KeyError as exc:
+            raise BuilderError(f"unknown builder {builder_id!r}") from exc
+        return factory(context)
+
+    def ids(self) -> tuple[str, ...]:
+        self._ensure_discovered()
+        return tuple(sorted(self._factories))
+
+    def discover(self) -> None:
+        self._ensure_discovered(force=True)
+
+    def _ensure_discovered(self, *, force: bool = False) -> None:
+        if not self._autodiscover and not force:
+            return
+        if self._discovered and not force:
+            return
+        self._discovered = True
+        from importlib.metadata import entry_points
+
+        for entry_point in entry_points(group=BUILDER_ENTRY_POINT_GROUP):
+            if entry_point.name in self._factories and not force:
+                continue
+            try:
+                factory = entry_point.load()
+            except Exception as exc:  # noqa: BLE001
+                raise BuilderError(
+                    f"failed to load builder entry point {entry_point.name!r}: {exc}",
+                ) from exc
+            if not callable(factory):
+                raise BuilderError(
+                    f"entry point {entry_point.name!r} did not yield a callable",
+                )
+            self._factories[entry_point.name] = factory
+
+
+BUILDERS = BuilderRegistry(autodiscover=True)

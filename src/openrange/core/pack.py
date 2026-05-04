@@ -170,21 +170,83 @@ class Pack(ABC):
         }
 
 
+PACK_ENTRY_POINT_GROUP = "openrange.packs"
+
+
 class PackRegistry:
-    def __init__(self) -> None:
+    """Registry of Pack instances by id.
+
+    Packs can be registered explicitly via ``register()`` or, on the
+    global ``PACKS`` instance, discovered via Python entry points in
+    the ``openrange.packs`` group. Entry-point values must resolve to a
+    callable returning a Pack instance (typically the Pack class itself
+    with a parameterless default constructor).
+
+    ``autodiscover=False`` (the default) gives a clean slate suitable
+    for tests. The global ``PACKS = PackRegistry(autodiscover=True)``
+    pulls in installed packs on first access.
+    """
+
+    def __init__(self, *, autodiscover: bool = False) -> None:
         self._packs: dict[str, Pack] = {}
+        self._autodiscover = autodiscover
+        self._discovered = False
 
     def register(self, pack: Pack) -> None:
         self._packs[pack.id] = pack
 
     def resolve(self, pack_id: str) -> Pack:
+        self._ensure_discovered()
         try:
             return self._packs[pack_id]
         except KeyError as exc:
             raise PackError(f"unknown pack {pack_id!r}") from exc
 
+    def resolve_class(self, pack_id: str) -> type[Pack]:
+        """Return the Pack subclass for ``pack_id``.
+
+        Used by path-loaded packs to construct an instance pointing at a
+        custom directory. Raises ``PackError`` if no pack is registered
+        for that id.
+        """
+        return type(self.resolve(pack_id))
+
     def ids(self) -> tuple[str, ...]:
+        self._ensure_discovered()
         return tuple(sorted(self._packs))
 
+    def discover(self) -> None:
+        """Force entry-point discovery (idempotent on the same registry)."""
+        self._ensure_discovered(force=True)
 
-PACKS = PackRegistry()
+    def _ensure_discovered(self, *, force: bool = False) -> None:
+        if not self._autodiscover and not force:
+            return
+        if self._discovered and not force:
+            return
+        self._discovered = True
+        from importlib.metadata import entry_points
+
+        for entry_point in entry_points(group=PACK_ENTRY_POINT_GROUP):
+            if entry_point.name in self._packs and not force:
+                continue
+            try:
+                factory = entry_point.load()
+            except Exception as exc:  # noqa: BLE001
+                raise PackError(
+                    f"failed to load pack entry point {entry_point.name!r}: {exc}",
+                ) from exc
+            pack = factory() if callable(factory) else factory
+            if not isinstance(pack, Pack):
+                raise PackError(
+                    f"entry point {entry_point.name!r} did not return a Pack",
+                )
+            if pack.id != entry_point.name:
+                raise PackError(
+                    f"entry point name {entry_point.name!r} does not match "
+                    f"pack.id {pack.id!r}",
+                )
+            self._packs[pack.id] = pack
+
+
+PACKS = PackRegistry(autodiscover=True)

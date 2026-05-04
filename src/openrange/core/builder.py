@@ -16,7 +16,7 @@ from openrange.core.admission import (
     admit,
     report_from_result,
 )
-from openrange.core.builder_protocol import Builder
+from openrange.core.builder_protocol import BUILDERS, Builder
 from openrange.core.errors import AdmissionError, ManifestError, PackError
 from openrange.core.graph import (
     CheckScript,
@@ -142,7 +142,7 @@ def _orchestrate(
             pack_version=pack.version,
             pack_dir=str(pack.dir),
         )
-        builder = _resolve_builder(pack, context)
+        builder = _resolve_builder(pack, manifest, context)
         state = BuildState(
             manifest=manifest,
             pack=pack,
@@ -170,11 +170,7 @@ def _orchestrate(
 
 
 def _resolve_registry(registry: PackRegistry | None) -> PackRegistry:
-    if registry is None:
-        import openrange.packs as _packs  # noqa: F401
-
-        return PACKS
-    return registry
+    return registry if registry is not None else PACKS
 
 
 def resolve_pack(manifest: Manifest, registry: PackRegistry) -> Pack:
@@ -185,29 +181,34 @@ def resolve_pack(manifest: Manifest, registry: PackRegistry) -> Pack:
         if source.uri is None:
             raise PackError("'pack.source.uri' is required for path packs")
         path = Path(source.uri).expanduser().resolve()
-        return _instantiate_path_pack(manifest.pack.id, path)
+        pack_cls = registry.resolve_class(manifest.pack.id)
+        # The Pack ABC's signature doesn't accept args; subclasses
+        # conventionally accept ``dir: Path | None`` for path-loading.
+        pack = pack_cls(path)  # type: ignore[call-arg]
+        if pack.id != manifest.pack.id:
+            raise PackError("manifest pack id does not match pack source")
+        return pack
     raise PackError(f"unsupported pack source {source.kind!r}")
 
 
-def _instantiate_path_pack(pack_id: str, path: Path) -> Pack:
-    """Resolve a path-loaded pack to its concrete Pack subclass.
+def _resolve_builder(
+    pack: Pack,
+    manifest: Manifest,
+    context: BuildContext,
+) -> Builder:
+    """Resolve the Builder for a build.
 
-    Phase 7 replaces this lookup with an entry-point-based plugin registry.
+    Precedence: ``manifest.builder`` (a registered BuilderRegistry id) wins
+    over the pack's default. This lets a user override a pack's default
+    builder without subclassing.
     """
-    if pack_id == "cyber.webapp.offense":
-        from openrange.packs import CyberWebappOffensePack
-
-        pack = CyberWebappOffensePack(path)
-        if pack.id != pack_id:
-            raise PackError("manifest pack id does not match pack source")
-        return pack
-    raise PackError(f"unsupported pack id for path source: {pack_id!r}")
-
-
-def _resolve_builder(pack: Pack, context: BuildContext) -> Builder:
+    if manifest.builder is not None:
+        return BUILDERS.resolve(manifest.builder, context)
     builder = pack.default_builder(context)
     if builder is None:
-        raise PackError(f"pack {pack.id!r} has no default builder")
+        raise PackError(
+            f"pack {pack.id!r} has no default builder and manifest.builder is unset",
+        )
     return builder
 
 

@@ -15,7 +15,12 @@ from openrange.core.builder import (
     build,
     evolve,
 )
-from openrange.core.builder_protocol import Builder
+from openrange.core.builder_protocol import (
+    BUILDERS,
+    Builder,
+    BuilderError,
+    BuilderRegistry,
+)
 from openrange.core.errors import (
     AdmissionError,
     ManifestError,
@@ -75,10 +80,13 @@ __all__ = [
     "AdmissionReport",
     "AdmissionResult",
     "AdmissionState",
+    "BUILDERS",
     "BuildContext",
     "BuildFailed",
     "BuildState",
     "Builder",
+    "BuilderError",
+    "BuilderRegistry",
     "CheckScript",
     "Edge",
     "EdgeType",

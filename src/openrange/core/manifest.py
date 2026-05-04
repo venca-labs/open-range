@@ -124,6 +124,7 @@ class PackRef:
 class Manifest:
     world: Mapping[str, object]
     pack: PackRef
+    builder: str | None = None
     mode: WorldMode = "simulation"
     npc: tuple[Mapping[str, object], ...] = ()
     runtime: RuntimeConfig = field(default_factory=RuntimeConfig)
@@ -156,19 +157,26 @@ class Manifest:
             isinstance(item, Mapping) for item in npc
         ):
             raise ManifestError("'npc' must be a list of mappings")
+        builder = data.get("builder")
+        if builder is not None and (not isinstance(builder, str) or not builder):
+            raise ManifestError("'builder' must be a non-empty string when present")
         return cls(
             world=MappingProxyType(dict(world)),
             pack=PackRef.from_mapping(cast(Mapping[str, object], pack)),
+            builder=builder,
             mode=cast(WorldMode, mode),
             npc=tuple(MappingProxyType(dict(item)) for item in npc),
             runtime=RuntimeConfig.from_value(data.get("runtime")),
         )
 
     def as_dict(self) -> dict[str, object]:
-        return {
+        result: dict[str, object] = {
             "world": dict(self.world),
             "pack": self.pack.as_dict(),
             "mode": self.mode,
             "npc": [dict(item) for item in self.npc],
             "runtime": self.runtime.as_dict(),
         }
+        if self.builder is not None:
+            result["builder"] = self.builder
+        return result
