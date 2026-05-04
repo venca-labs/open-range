@@ -166,7 +166,8 @@ def test_sql_injection_actually_exfiltrates() -> None:
     db.row_factory = sqlite3.Row
     db.execute("CREATE TABLE rows (key TEXT PRIMARY KEY, secret_col TEXT)")
     db.execute(
-        "INSERT INTO rows (key, secret_col) VALUES (?, ?)", ("public", "ok"),
+        "INSERT INTO rows (key, secret_col) VALUES (?, ?)",
+        ("public", "ok"),
     )
     db.execute(
         "INSERT INTO rows (key, secret_col) VALUES (?, ?)",

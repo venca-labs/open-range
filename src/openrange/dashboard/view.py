@@ -46,9 +46,7 @@ class DashboardView:
         self.bridge = bridge or EventBridge()
         self._running = False
         self._lock = threading.Lock()
-        self._event_log_path = (
-            None if event_log_path is None else Path(event_log_path)
-        )
+        self._event_log_path = None if event_log_path is None else Path(event_log_path)
         self._state_path = None if state_path is None else Path(state_path)
         self._stored_dashboard = (
             {}

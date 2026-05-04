@@ -263,8 +263,7 @@ class PackRegistry:
                 )
             if pack.id != name:
                 raise PackError(
-                    f"entry point name {name!r} does not match "
-                    f"pack.id {pack.id!r}",
+                    f"entry point name {name!r} does not match pack.id {pack.id!r}",
                 )
             self._packs[pack.id] = pack
 

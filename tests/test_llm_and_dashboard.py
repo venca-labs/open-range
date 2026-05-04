@@ -106,9 +106,11 @@ def wait_for_turn_count(
 def read_dashboard_events(run_root: Path) -> list[dict[str, object]]:
     return [
         json.loads(line)
-        for line in (run_root / "dashboard.events.jsonl").read_text(
+        for line in (run_root / "dashboard.events.jsonl")
+        .read_text(
             encoding="utf-8",
-        ).splitlines()
+        )
+        .splitlines()
     ]
 
 
@@ -876,5 +878,3 @@ def test_event_bridge_replays_live_events_and_closes() -> None:
     bridge.close()
     with pytest.raises(StopIteration):
         next(sync_stream)
-
-
