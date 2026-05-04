@@ -53,9 +53,7 @@ def test_v1_snapshot_checks_round_trip() -> None:
     assert len(rebuilt.feasibility_checks) == len(snapshot.feasibility_checks)
     assert len(rebuilt.episode_checks) == len(snapshot.episode_checks)
     # The verifier source must round-trip exactly so admission can re-run.
-    assert (
-        rebuilt.episode_checks[0].source == snapshot.episode_checks[0].source
-    )
+    assert rebuilt.episode_checks[0].source == snapshot.episode_checks[0].source
 
 
 def test_v1_snapshot_runtime_artifacts_preserved() -> None:

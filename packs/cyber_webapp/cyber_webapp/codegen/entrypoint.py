@@ -10,8 +10,7 @@ from __future__ import annotations
 
 from types import MappingProxyType
 
-from openrange.core.manifest import Manifest
-from openrange.core.pack import Entrypoint
+from openrange import Entrypoint, Manifest
 
 
 def http_entrypoint(manifest: Manifest) -> Entrypoint:

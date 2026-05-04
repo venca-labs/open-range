@@ -23,12 +23,10 @@ from typing import TYPE_CHECKING
 
 from cyber_webapp.sampling import default_vuln_params
 from cyber_webapp.vulnerabilities import CATALOG as VULN_CATALOG
-from openrange.core.curriculum import Mutation
-from openrange.core.graph import Edge, Node, WorldGraph
+from openrange import Edge, Mutation, Node, WorldGraph
 
 if TYPE_CHECKING:
-    from openrange.core.episode import EpisodeReport
-    from openrange.core.snapshot import Snapshot
+    from openrange import EpisodeReport, Snapshot
 
 # Tiny baseline so a "harden" pick is always available even when the agent
 # passed without our path-hit heuristic detecting the exploit.

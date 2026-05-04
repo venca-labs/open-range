@@ -9,7 +9,7 @@ endpoints are public.
 
 from __future__ import annotations
 
-from openrange.core.graph import Node, WorldGraph
+from openrange import Node, WorldGraph
 
 
 def build_discovery(graph: WorldGraph) -> dict[str, object]:
@@ -30,7 +30,8 @@ def build_discovery(graph: WorldGraph) -> dict[str, object]:
         if edge.source in endpoints_by_service:
             endpoint = next(
                 (
-                    n for n in graph.nodes
+                    n
+                    for n in graph.nodes
                     if n.type == "endpoint" and n.id == edge.target
                 ),
                 None,

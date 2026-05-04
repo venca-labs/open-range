@@ -216,9 +216,7 @@ class Snapshot:
             feasibility_checks=tuple(
                 CheckScript.from_mapping(c) for c in feasibility_data
             ),
-            episode_checks=tuple(
-                CheckScript.from_mapping(c) for c in episode_data
-            ),
+            episode_checks=tuple(CheckScript.from_mapping(c) for c in episode_data),
             admission_probe=MappingProxyType(dict(probe_data)),
         )
 
@@ -290,11 +288,7 @@ def json_safe(value: object) -> object:
 
 def freeze(state: BuildState) -> Snapshot:
     """Freeze a fully-admitted BuildState into a Snapshot."""
-    if (
-        state.world_graph is None
-        or state.runtime is None
-        or state.admission is None
-    ):
+    if state.world_graph is None or state.runtime is None or state.admission is None:
         raise AdmissionError("cannot freeze snapshot before admission")
     parent_id = None if state.context.previous is None else state.context.previous.id
     world_dict = _world_dict_from_state(state)

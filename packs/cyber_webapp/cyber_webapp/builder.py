@@ -45,18 +45,20 @@ from cyber_webapp.sampling import (
     TASK_VERBS,
     sample_graph,
 )
-from openrange.core.builder_protocol import Builder
-from openrange.core.errors import AdmissionError, PackError
-from openrange.core.graph import CheckScript, WorldGraph
-from openrange.core.pack import (
+from openrange import (
+    AdmissionError,
+    Builder,
+    CheckScript,
     Entrypoint,
+    PackError,
     Task,
+    WorldGraph,
     admission_state_from_source,
     verifier_from_source,
 )
 
 if TYPE_CHECKING:
-    from openrange.core.builder import BuildState
+    from openrange import BuildState
 
 
 _DEFAULT_TASK_INSTRUCTION = (

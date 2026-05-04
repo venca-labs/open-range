@@ -28,8 +28,22 @@ const model = {
   narration: { narration: "No episode activity yet." },
 };
 
+const runState = {
+  activeRun: null,
+  runs: [],
+  events: null,
+  narration: null,
+  followLatest: true,
+};
+
+function withRun(path) {
+  if (!runState.activeRun) return path;
+  const sep = path.includes("?") ? "&" : "?";
+  return `${path}${sep}run=${encodeURIComponent(runState.activeRun)}`;
+}
+
 async function json(path, options) {
-  const response = await fetch(path, options);
+  const response = await fetch(withRun(path), options);
   return response.json();
 }
 
@@ -1077,10 +1091,141 @@ document.querySelectorAll("button[data-action]").forEach((button) => {
     await refresh();
   });
 });
-const events = new EventSource("/api/events/stream");
-events.addEventListener("agent_step", refresh);
-events.addEventListener("env_turn", refresh);
-events.addEventListener("note", refresh);
-const narration = new EventSource("/api/narrate/stream");
-narration.addEventListener("narration", refresh);
-refresh();
+
+function closeStreams() {
+  if (runState.events) {
+    runState.events.close();
+    runState.events = null;
+  }
+  if (runState.narration) {
+    runState.narration.close();
+    runState.narration = null;
+  }
+}
+
+function openStreams() {
+  closeStreams();
+  if (!runState.activeRun) return;
+  runState.events = new EventSource(withRun("/api/events/stream"));
+  runState.events.addEventListener("agent_step", refresh);
+  runState.events.addEventListener("env_turn", refresh);
+  runState.events.addEventListener("note", refresh);
+  runState.narration = new EventSource(withRun("/api/narrate/stream"));
+  runState.narration.addEventListener("narration", refresh);
+}
+
+function applyRunsToPicker(runs, defaultId) {
+  const list = document.getElementById("sim-runs-list");
+  const counter = document.getElementById("sim-runs-count");
+  if (!list) return;
+  if (counter) {
+    counter.textContent = runs.length
+      ? `${runs.length}${runState.followLatest ? " · following latest" : ""}`
+      : "0";
+  }
+  const previous = runState.activeRun;
+  if (!runs.length) {
+    list.innerHTML = '<li class="sim-runs-empty">No runs found</li>';
+    runState.activeRun = null;
+    closeStreams();
+    return;
+  }
+  const newest = defaultId || runs[0].id;
+  let target;
+  if (runState.followLatest) {
+    target = newest;
+  } else if (previous && runs.some((r) => r.id === previous)) {
+    target = previous;
+  } else {
+    target = newest;
+  }
+  list.innerHTML = "";
+  for (const run of runs) {
+    const item = document.createElement("li");
+    item.className = "sim-run-item" + (run.id === target ? " is-active" : "");
+    item.dataset.runId = run.id;
+    const ts = run.modified ? new Date(run.modified * 1000) : null;
+    item.innerHTML = `
+      <span class="sim-run-id">${escapeHtml(run.id)}</span>
+      <span class="sim-run-meta">${escapeHtml(ts ? ts.toLocaleString() : "")}</span>
+    `;
+    item.addEventListener("click", () => selectRun(run.id, /* fromUser */ true));
+    list.appendChild(item);
+  }
+  if (target !== runState.activeRun) {
+    runState.activeRun = target;
+    openStreams();
+    refresh();
+  }
+}
+
+function selectRun(runId, fromUser) {
+  if (!runId || runId === runState.activeRun) return;
+  if (fromUser) {
+    const followToggle = document.getElementById("sim-run-follow");
+    if (followToggle && followToggle.checked) {
+      followToggle.checked = false;
+      runState.followLatest = false;
+    }
+  }
+  runState.activeRun = runId;
+  document.querySelectorAll(".sim-run-item").forEach((el) => {
+    el.classList.toggle("is-active", el.dataset.runId === runId);
+  });
+  const counter = document.getElementById("sim-runs-count");
+  if (counter && runState.runs.length) {
+    counter.textContent = `${runState.runs.length}${
+      runState.followLatest ? " · following latest" : ""
+    }`;
+  }
+  openStreams();
+  refresh();
+}
+
+function setRunsDrawerOpen(open) {
+  const drawer = document.getElementById("sim-runs-drawer");
+  const toggle = document.getElementById("sim-runs-toggle");
+  if (!drawer || !toggle) return;
+  drawer.classList.toggle("is-open", open);
+  drawer.setAttribute("aria-hidden", open ? "false" : "true");
+  toggle.setAttribute("aria-expanded", open ? "true" : "false");
+}
+
+async function refreshRuns() {
+  try {
+    const payload = await fetch("/api/runs").then((r) => r.json());
+    runState.runs = payload.runs || [];
+    applyRunsToPicker(runState.runs, payload.default || null);
+  } catch (err) {
+    console.warn("failed to list runs", err);
+  }
+}
+
+document.getElementById("sim-run-follow").addEventListener("change", async (e) => {
+  runState.followLatest = e.target.checked;
+  if (runState.followLatest) {
+    await refreshRuns();
+  } else {
+    applyRunsToPicker(runState.runs, null);
+  }
+});
+
+document.getElementById("sim-runs-toggle").addEventListener("click", () => {
+  const drawer = document.getElementById("sim-runs-drawer");
+  const open = drawer && !drawer.classList.contains("is-open");
+  setRunsDrawerOpen(open);
+});
+
+document.addEventListener("keydown", (e) => {
+  if (e.key === "Escape") {
+    setRunsDrawerOpen(false);
+  }
+});
+
+(async () => {
+  await refreshRuns();
+  await refresh();
+  setInterval(async () => {
+    await refreshRuns();
+  }, 5000);
+})();

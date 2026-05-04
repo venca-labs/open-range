@@ -1,4 +1,17 @@
-"""Snapshot topology normalization and world redaction."""
+"""Snapshot topology normalization and world redaction.
+
+The dashboard owns the topology view shape (services / edges / zones /
+users / green_personas). Three sources feed it, in priority order:
+
+1. An embedded ``topology.json`` artifact shipped by the pack.
+2. ``snapshot.world["topology"]`` or top-level ``world["services"]`` etc.
+3. A graph-aware fallback that projects ``snapshot.world_graph`` —
+   nodes typed ``service`` become services, ``account`` become users,
+   ``host.zone`` attributes become zones, ``backed_by`` edges between
+   services become edges, vulnerabilities annotate the services they
+   affect. Pack-agnostic: any v1-shaped ontology gets a render for
+   free without the pack having to know the dashboard's view shape.
+"""
 
 from __future__ import annotations
 
@@ -7,6 +20,7 @@ from collections.abc import Mapping, Sequence
 from typing import cast
 
 from openrange.core import Snapshot
+from openrange.core.graph import WorldGraph
 from openrange.core.snapshot import json_safe
 
 
@@ -93,7 +107,114 @@ def embedded_topology(snapshot: Snapshot) -> dict[str, object]:
         value = snapshot.world.get(key)
         if value is not None:
             raw[key] = value
+
+    if not raw.get("services"):
+        graph_view = topology_from_world_graph(snapshot.world_graph)
+        for key, value in graph_view.items():
+            raw.setdefault(key, value)
     return raw
+
+
+def topology_from_world_graph(graph: WorldGraph) -> dict[str, object]:
+    """Project a world graph into the dashboard's topology view shape.
+
+    Pack-agnostic. Reads only standard v1 ontology node/edge types
+    (``service`` / ``host`` / ``endpoint`` / ``vulnerability`` /
+    ``account``). Returns an empty view when the graph carries none of
+    them — non-cyber packs that don't fit this shape can either ship
+    their own ``topology.json`` artifact or surface ``world.topology``.
+    """
+    if not graph.nodes:
+        return {}
+    services = _services_from_graph(graph)
+    if not services:
+        return {}
+    return {
+        "services": services,
+        "edges": _edges_from_graph(graph),
+        "zones": sorted({str(s["zone"]) for s in services if s.get("zone")}),
+        "users": _users_from_graph(graph),
+    }
+
+
+def _services_from_graph(graph: WorldGraph) -> list[dict[str, object]]:
+    host_zone = {
+        n.id: str(n.attrs.get("zone", "")) for n in graph.nodes if n.type == "host"
+    }
+    service_host: dict[str, str] = {}
+    endpoints_by_service: dict[str, list[str]] = {}
+    for edge in graph.edges:
+        if edge.relation == "runs_on":
+            service_host[edge.source] = edge.target
+        elif edge.relation == "exposes":
+            endpoints_by_service.setdefault(edge.source, []).append(edge.target)
+    endpoint_path = {
+        n.id: str(n.attrs.get("path", "")) for n in graph.nodes if n.type == "endpoint"
+    }
+    vuln_kind = {
+        n.id: str(n.attrs.get("kind", ""))
+        for n in graph.nodes
+        if n.type == "vulnerability"
+    }
+    vuln_target: dict[str, str] = {}
+    for edge in graph.edges:
+        if edge.relation == "affects":
+            vuln_target[edge.source] = edge.target
+
+    services: list[dict[str, object]] = []
+    for node in graph.nodes:
+        if node.type != "service":
+            continue
+        endpoints = endpoints_by_service.get(node.id, [])
+        zone = host_zone.get(service_host.get(node.id, ""), "")
+        vulns = sorted(
+            {
+                vuln_kind[vid]
+                for vid, target in vuln_target.items()
+                if target == node.id or target in endpoints
+                if vid in vuln_kind
+            },
+        )
+        services.append(
+            {
+                "id": str(node.attrs.get("name", node.id)),
+                "kind": str(node.attrs.get("kind", "")),
+                "zone": zone or "default",
+                "exposure": str(node.attrs.get("exposure", "")),
+                "ports": [],
+                "paths": sorted(endpoint_path.get(ep, "") for ep in endpoints),
+                "vulns": vulns,
+            },
+        )
+    return services
+
+
+def _edges_from_graph(graph: WorldGraph) -> list[dict[str, object]]:
+    service_name = {
+        n.id: str(n.attrs.get("name", n.id)) for n in graph.nodes if n.type == "service"
+    }
+    edges: list[dict[str, object]] = []
+    for edge in graph.edges:
+        if edge.relation != "backed_by":
+            continue
+        source = service_name.get(edge.source)
+        if source is None:
+            continue
+        edges.append(
+            {"source": source, "target": str(edge.target), "relation": "backed_by"},
+        )
+    return edges
+
+
+def _users_from_graph(graph: WorldGraph) -> list[dict[str, object]]:
+    return [
+        {
+            "id": str(n.attrs.get("username", n.id)),
+            "role": str(n.attrs.get("role", "user")),
+        }
+        for n in graph.nodes
+        if n.type == "account"
+    ]
 
 
 def normalized_rows(value: object) -> list[dict[str, object]]:

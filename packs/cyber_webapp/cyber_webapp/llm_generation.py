@@ -30,15 +30,16 @@ import json
 from collections.abc import Mapping, Sequence
 from typing import TYPE_CHECKING, Any
 
-from openrange.core.curriculum import Mutation
-from openrange.core.errors import OpenRangeError, StoreError
-from openrange.core.graph import WorldGraph
-from openrange.core.pack import verifier_from_source
+from openrange import (
+    Mutation,
+    OpenRangeError,
+    StoreError,
+    WorldGraph,
+    verifier_from_source,
+)
 
 if TYPE_CHECKING:
-    from openrange.core.episode import EpisodeReport
-    from openrange.core.pack import Task
-    from openrange.llm import LLMBackend
+    from openrange import EpisodeReport, LLMBackend, Task
 
 
 class LLMGenerationError(OpenRangeError):

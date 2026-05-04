@@ -149,17 +149,13 @@ def test_v1_default_builder_seed_propagates_from_curriculum() -> None:
 def test_evolve_patches_named_vulns() -> None:
     s1 = build(V1_MANIFEST)
     kinds_before = [
-        n.attrs["kind"]
-        for n in s1.world_graph.nodes
-        if n.type == "vulnerability"
+        n.attrs["kind"] for n in s1.world_graph.nodes if n.type == "vulnerability"
     ]
     assert kinds_before, "fresh build should place at least one vuln"
     target_kind = kinds_before[0]
     s2 = evolve(s1, curriculum={"patch": [target_kind]})
     kinds_after = [
-        n.attrs["kind"]
-        for n in s2.world_graph.nodes
-        if n.type == "vulnerability"
+        n.attrs["kind"] for n in s2.world_graph.nodes if n.type == "vulnerability"
     ]
     assert target_kind not in kinds_after
 
@@ -173,16 +169,10 @@ def test_evolve_patch_all_yields_hardened_world() -> None:
     """
     s1 = build(V1_MANIFEST)
     kinds = list(
-        {
-            n.attrs["kind"]
-            for n in s1.world_graph.nodes
-            if n.type == "vulnerability"
-        },
+        {n.attrs["kind"] for n in s1.world_graph.nodes if n.type == "vulnerability"},
     )
     s_hardened = evolve(s1, curriculum={"patch": kinds})
-    remaining = [
-        n for n in s_hardened.world_graph.nodes if n.type == "vulnerability"
-    ]
+    remaining = [n for n in s_hardened.world_graph.nodes if n.type == "vulnerability"]
     assert remaining == []
     # World still admits.
     assert s_hardened.admission.passed
@@ -194,11 +184,7 @@ def test_evolve_patch_preserves_non_vuln_topology() -> None:
     services_before = sorted(n.id for n in s1.world_graph.nodes if n.type == "service")
     accounts_before = sorted(n.id for n in s1.world_graph.nodes if n.type == "account")
 
-    kinds = [
-        n.attrs["kind"]
-        for n in s1.world_graph.nodes
-        if n.type == "vulnerability"
-    ]
+    kinds = [n.attrs["kind"] for n in s1.world_graph.nodes if n.type == "vulnerability"]
     s2 = evolve(s1, curriculum={"patch": kinds[:1]})
     services_after = sorted(n.id for n in s2.world_graph.nodes if n.type == "service")
     accounts_after = sorted(n.id for n in s2.world_graph.nodes if n.type == "account")
@@ -216,9 +202,7 @@ def test_evolve_adds_new_vulns() -> None:
     s1 = build(V1_MANIFEST)
     s2 = evolve(s1, curriculum={"add": ["sql_injection"]})
     kinds_after = [
-        n.attrs["kind"]
-        for n in s2.world_graph.nodes
-        if n.type == "vulnerability"
+        n.attrs["kind"] for n in s2.world_graph.nodes if n.type == "vulnerability"
     ]
     assert "sql_injection" in kinds_after
 
@@ -245,11 +229,7 @@ def test_curriculum_walk_progressively_hardens_world() -> None:
     """
     s1 = build(V1_MANIFEST)
     initial_kinds = list(
-        {
-            n.attrs["kind"]
-            for n in s1.world_graph.nodes
-            if n.type == "vulnerability"
-        },
+        {n.attrs["kind"] for n in s1.world_graph.nodes if n.type == "vulnerability"},
     )
     current = s1
     for kind in initial_kinds:
@@ -260,7 +240,5 @@ def test_curriculum_walk_progressively_hardens_world() -> None:
             if n.type == "vulnerability"
         }
         assert kind not in remaining_kinds
-    final_vulns = [
-        n for n in current.world_graph.nodes if n.type == "vulnerability"
-    ]
+    final_vulns = [n for n in current.world_graph.nodes if n.type == "vulnerability"]
     assert final_vulns == []

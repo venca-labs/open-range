@@ -65,6 +65,12 @@ def main() -> None:
         )
     )
     snapshot = run.build(MANIFEST, llm=builder_llm)
+    if not args.no_dashboard:
+        print(
+            f"dashboard: run `uv run python -m openrange dashboard` "
+            f"(watching {args.runs_dir})",
+            flush=True,
+        )
 
     # 2 + 3 (+ 4). Run + Verify per task; between steps, auto_evolve
     # picks the next world based on the last report's pass/fail.
