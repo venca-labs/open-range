@@ -90,6 +90,18 @@ class OpenRangeRun:
         self.config = (
             config if isinstance(config, RunConfig) else RunConfig(Path(config))
         )
+        # Validate mutual exclusivity up front rather than waiting for
+        # ``episode_service()`` to surface the conflict — the operator
+        # gets a clear error at the point of misconfiguration instead
+        # of midway through a run.
+        if (
+            self.config.npc_agent_backend is not None
+            and self.config.npc_llm_model is not None
+        ):
+            raise ValueError(
+                "RunConfig: pass either 'npc_agent_backend' or "
+                "'npc_llm_model', not both",
+            )
         self.root = self.config.root
         self.root.mkdir(parents=True, exist_ok=True)
         self._dashboard = (

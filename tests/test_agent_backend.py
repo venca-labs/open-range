@@ -92,10 +92,16 @@ class _FakeLLMBackend:
     def __init__(self) -> None:
         self.requests: list[LLMRequest] = []
         self.canned = LLMResult("ok")
+        self.preflight_calls = 0
 
     def complete(self, request: LLMRequest) -> LLMResult:
         self.requests.append(request)
         return self.canned
+
+    def preflight(self) -> None:
+        # Default protocol no-op; tests that want a failure raise from
+        # a one-off override (see ``test_codex_backend_preflight_*``).
+        self.preflight_calls += 1
 
 
 def test_codex_backend_rejects_tools() -> None:
@@ -127,10 +133,25 @@ def test_codex_backend_rejects_both_backend_and_model_args() -> None:
         CodexAgentBackend(backend=_FakeLLMBackend(), model="some-model")
 
 
-def test_codex_backend_preflight_skips_check_for_custom_llm_backend() -> None:
-    """A caller-supplied LLMBackend bypasses the codex CLI check."""
-    backend = CodexAgentBackend(backend=_FakeLLMBackend())
-    backend.preflight()  # must not raise
+def test_codex_backend_preflight_delegates_to_custom_llm_backend() -> None:
+    """A caller-supplied LLMBackend gets its own preflight called."""
+    fake = _FakeLLMBackend()
+    backend = CodexAgentBackend(backend=fake)
+    backend.preflight()
+    assert fake.preflight_calls == 1
+
+
+def test_codex_backend_preflight_surfaces_custom_llm_backend_failures() -> None:
+    """A failing custom backend preflight raises AgentBackendError."""
+    from openrange.llm import LLMBackendError
+
+    class _BadBackend(_FakeLLMBackend):
+        def preflight(self) -> None:
+            raise LLMBackendError("custom probe failed")
+
+    backend = CodexAgentBackend(backend=_BadBackend())
+    with pytest.raises(AgentBackendError, match="custom probe failed"):
+        backend.preflight()
 
 
 def test_codex_backend_preflight_errors_if_codex_cli_missing(

@@ -74,16 +74,26 @@ main {
   color: #f8fafc;
   pointer-events: auto;
 }
+/* Reserve a left-corner slot for the runs toggle by parameterizing
+   its footprint here. Both the toggle and the title read from the
+   same vars so changing the button width re-flows the title in one
+   place. */
+:root {
+  --sim-title-offset: 1.2rem;
+  --sim-toggle-width: 5.6rem;
+  --sim-title-left: calc(var(--sim-title-offset) + var(--sim-toggle-width));
+}
 .sim-title {
-  top: 1.2rem;
-  left: 1.2rem;
-  width: min(32rem, calc(100% - 2.4rem));
+  top: var(--sim-title-offset);
+  left: var(--sim-title-left);
+  width: min(32rem, calc(100% - var(--sim-title-left) - var(--sim-title-offset)));
   padding: .9rem 1rem;
 }
 .sim-runs-toggle {
   position: absolute;
-  top: 1.2rem;
-  left: 1.2rem;
+  top: var(--sim-title-offset);
+  left: var(--sim-title-offset);
+  width: var(--sim-toggle-width);
   z-index: 7;
   font-family: inherit;
   font-size: .72rem;
@@ -95,13 +105,6 @@ main {
   border: 3px solid var(--sim-line);
   box-shadow: 5px 5px 0 rgba(0, 0, 0, .72);
   cursor: pointer;
-  /* keeps the title's left edge clear of the button */
-}
-/* Override the earlier .sim-title rule so the button has its corner;
-   later rule wins via cascade order. */
-.sim-title {
-  left: 6.8rem;
-  width: min(32rem, calc(100% - 8rem));
 }
 .sim-runs-toggle:hover {
   background: rgba(0, 0, 0, .55);

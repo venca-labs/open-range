@@ -118,11 +118,15 @@ def embedded_topology(snapshot: Snapshot) -> dict[str, object]:
 def topology_from_world_graph(graph: WorldGraph) -> dict[str, object]:
     """Project a world graph into the dashboard's topology view shape.
 
-    Pack-agnostic. Reads only standard v1 ontology node/edge types
-    (``service`` / ``host`` / ``endpoint`` / ``vulnerability`` /
-    ``account``). Returns an empty view when the graph carries none of
-    them — non-cyber packs that don't fit this shape can either ship
-    their own ``topology.json`` artifact or surface ``world.topology``.
+    Coupled to the cyber-pack ontology by node / edge type names —
+    ``service``, ``host``, ``endpoint``, ``vulnerability``, ``account``,
+    and the relations ``runs_on`` / ``exposes`` / ``affects`` /
+    ``backed_by``. Any pack that reuses those names gets a render for
+    free; packs with a different ontology should either ship their
+    own ``topology.json`` artifact or populate ``world.topology``
+    directly (both override this fallback in ``embedded_topology``).
+    Returns an empty dict when no service nodes are present so the
+    fallback chain stays a clean no-op.
     """
     if not graph.nodes:
         return {}

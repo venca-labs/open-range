@@ -81,8 +81,10 @@ class NPC(ABC):
     can't happen in ``__init__``.
 
     Set ``requires_llm = True`` (class attribute) to opt into LLM
-    access — the episode runtime then includes an ``llm`` key in the
-    ``context`` mapping passed to ``start()``. NPCs that don't opt in
+    access — the episode runtime then includes an ``agent_backend``
+    key in the ``context`` mapping passed to ``start()`` (an
+    :class:`~openrange.agent_backend.AgentBackend`, or ``None`` if
+    the runtime wasn't configured with one). NPCs that don't opt in
     pay nothing; the runtime never builds or charges for a model on
     their behalf.
 
@@ -264,7 +266,14 @@ class AgentNPC(NPC):
             return
 
     def _mark_broken(self, reason: str, *, exc: BaseException | None = None) -> None:
-        """Set the broken sentinel + log one WARNING with the traceback."""
+        """Set the broken sentinel + log one WARNING.
+
+        When ``exc`` is supplied the traceback is included; for
+        broken-by-config cases (no ``exc``) the message stands alone
+        rather than asking ``logging`` to introspect ``sys.exc_info``
+        outside any ``except`` block (which would either grab an
+        unrelated in-flight exception or print ``NoneType: None``).
+        """
         if self._broken:
             return
         self._broken = True
@@ -274,7 +283,7 @@ class AgentNPC(NPC):
             "the rest of the episode runs without it",
             type(self).__name__,
             reason,
-            exc_info=exc if exc is not None else True,
+            exc_info=exc,
         )
 
     def stop(self) -> None:

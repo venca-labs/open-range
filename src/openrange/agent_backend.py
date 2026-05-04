@@ -40,6 +40,7 @@ from openrange.llm import (
     CODEX_DEFAULT_MODEL,
     CodexBackend,
     LLMBackend,
+    LLMBackendError,
     LLMRequest,
 )
 
@@ -171,20 +172,16 @@ class CodexAgentBackend:
         )
 
     def preflight(self) -> None:
-        # If we own a CodexBackend (the common case), check the binary
-        # is on PATH so the failure surfaces at start, not on the first
-        # acting tick. For caller-supplied custom LLMBackends, trust
-        # the caller — we don't know how to probe arbitrary backends.
-        if not isinstance(self._backend, CodexBackend):
-            return
-        import shutil
-
-        command = str(self._backend.command)
-        if shutil.which(command) is None:
+        # Delegate to the wrapped LLMBackend's own preflight — every
+        # LLMBackend declares one (default no-op), so custom backends
+        # can self-describe their checks instead of getting silently
+        # skipped here.
+        try:
+            self._backend.preflight()
+        except LLMBackendError as exc:
             raise AgentBackendError(
-                f"CodexAgentBackend: codex CLI not found on PATH ({command!r}). "
-                "Install codex or pass a custom LLMBackend.",
-            )
+                f"CodexAgentBackend: backend preflight failed: {exc}",
+            ) from exc
 
     def build_agent(
         self,

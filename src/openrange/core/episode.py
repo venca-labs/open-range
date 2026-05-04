@@ -577,8 +577,11 @@ class EpisodeService:
         )
 
     def _start_npcs(self, running: _RunningEpisode) -> None:
-        # Construction errors propagate — a bad manifest is a config
-        # error, not something to silently swallow at episode start.
+        # Manifest-shape errors (unknown type, malformed config) still
+        # propagate from ``resolve_manifest_npcs`` — those are config
+        # mistakes the operator needs to fix. Per-NPC SDK / preflight
+        # failures are caught inside the NPC and surfaced via
+        # ``broken_reason`` (recorded below as a dashboard event).
         npcs = resolve_manifest_npcs(running.snapshot.manifest.npc)
         if not npcs:
             return

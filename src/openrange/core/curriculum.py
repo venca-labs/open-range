@@ -115,6 +115,23 @@ def auto_evolve(
     chosen = max(candidates, key=lambda o: o.relevance)
     if chosen.relevance <= 0.0:
         return None
+    # Surface the chosen mutation so the dashboard lineage view gets
+    # the full story — direction + note + parent snapshot — rather
+    # than two snapshots back-to-back with no narrative connection.
+    # Fires before ``evolve()`` so it lands even if the subsequent
+    # build raises.
+    if event_sink is not None:
+        event_sink(
+            "auto_evolve_chosen",
+            {
+                "parent_snapshot_id": snapshot.id,
+                "direction": chosen.direction,
+                "relevance": chosen.relevance,
+                "note": chosen.note,
+                "directive": dict(chosen.directive),
+                "candidates_considered": len(candidates),
+            },
+        )
     return evolve(
         snapshot,
         chosen.directive,
