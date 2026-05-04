@@ -1099,9 +1099,12 @@ function renderSimulationChrome() {
   const taskCount = (model.topology.tasks || []).length;
   const hasSnapshot = Boolean(model.topology.snapshot_id);
   const health = model.state.health || {};
-  document.getElementById("sim-subtitle").textContent = hasSnapshot
+  const subtitleEl = document.getElementById("sim-subtitle");
+  const baseSubtitle = hasSnapshot
     ? `${model.briefing.title || "Admitted world"} - ${plural(taskCount, "task")}`
     : "Waiting for an admitted snapshot";
+  subtitleEl.dataset.base = baseSubtitle;
+  subtitleEl.textContent = baseSubtitle;
   document.getElementById("sim-status").textContent = status.replaceAll("_", " ");
   document.getElementById("sim-clock").textContent =
     String(eventCount).padStart(2, "0");
@@ -1452,20 +1455,50 @@ document.addEventListener("keydown", (e) => {
   }
 });
 
+async function safeRefresh() {
+  try {
+    await refresh();
+    runState.lastRefreshAt = Date.now();
+  } catch (err) {
+    console.warn("refresh failed", err);
+  }
+}
+
+async function safeRefreshRuns() {
+  try {
+    await refreshRuns();
+  } catch (err) {
+    console.warn("refreshRuns failed", err);
+  }
+}
+
+function tickFreshnessIndicator() {
+  const subtitle = document.getElementById("sim-subtitle");
+  if (!subtitle || !runState.lastRefreshAt) return;
+  const ageSec = Math.floor((Date.now() - runState.lastRefreshAt) / 1000);
+  const base = subtitle.dataset.base || subtitle.textContent || "";
+  if (!subtitle.dataset.base) subtitle.dataset.base = base;
+  // Append a small live indicator. Stays under the user's notice
+  // when fresh; obvious when stale.
+  const stale = ageSec > 5;
+  subtitle.textContent = stale
+    ? `${subtitle.dataset.base} · last update ${ageSec}s ago`
+    : subtitle.dataset.base;
+}
+
 (async () => {
-  await refreshRuns();
-  await refresh();
+  await safeRefreshRuns();
+  await safeRefresh();
   // Re-discover runs every 5s so a fresh run dir created by the
   // writer mid-session shows up.
-  setInterval(async () => {
-    await refreshRuns();
-  }, 5000);
-  // Polling refresh as a fallback for the SSE stream. SSE is the
-  // primary live-update path; the poll catches up the UI if the
-  // SSE connection ever drops silently (browser-side
-  // disconnects, intermediary timeouts, etc.) — without it the SPA
-  // can land on a snapshot that's older than the on-disk state.
-  setInterval(async () => {
-    if (runState.activeRun) await refresh();
-  }, 2000);
+  setInterval(safeRefreshRuns, 5000);
+  // Polling refresh — primary live-update path. SSE is a secondary
+  // optimization that delivers events between polls; if it breaks
+  // for any reason (browser disconnect, intermediary timeout,
+  // proxy quirks) the 1s poll keeps the UI accurate.
+  setInterval(() => {
+    if (runState.activeRun) safeRefresh();
+  }, 1000);
+  // Update the freshness indicator each second.
+  setInterval(tickFreshnessIndicator, 1000);
 })();
