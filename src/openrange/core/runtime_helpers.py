@@ -16,6 +16,8 @@ finalization hook so non-HTTP packs can pick their own conventions.
 from __future__ import annotations
 
 import json
+import os
+import signal
 import subprocess
 import sys
 from collections.abc import Callable, Mapping
@@ -48,7 +50,16 @@ def start_runtime_process(
     world: Mapping[str, object],
     request_log: Path,
 ) -> subprocess.Popen[str]:
-    """Spawn a Python subprocess for the entrypoint's runtime artifact."""
+    """Spawn a Python subprocess for the entrypoint's runtime artifact.
+
+    Uses ``start_new_session=True`` so the runtime ends up in its own
+    process group — without it, Ctrl+C in the harness terminal sends
+    SIGINT to every child too. Some of those children (uvicorn,
+    HTTPServer) handle SIGINT via graceful-shutdown paths that race
+    with the parent's cleanup and leak the process when reparented to
+    PID 1. Owning a fresh group lets ``stop_process`` deterministically
+    SIGTERM the whole tree on shutdown.
+    """
     if not app_path.exists():
         raise EpisodeRuntimeError(f"runtime artifact is missing: {app_path.name}")
     return subprocess.Popen(
@@ -60,6 +71,7 @@ def start_runtime_process(
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,
         text=True,
+        start_new_session=True,
     )
 
 
@@ -197,11 +209,46 @@ def cast_final_state(value: object) -> Mapping[str, Mapping[str, object]]:
 
 
 def stop_process(process: subprocess.Popen[str] | None) -> None:
+    """Terminate a runtime subprocess and (if owned) its whole group.
+
+    Subprocesses launched via :func:`start_runtime_process` are placed
+    in their own session/group so we can SIGTERM the entire tree —
+    that catches uvicorn workers, request threads, or anything spawned
+    downstream. We only group-kill when the subprocess's pgid actually
+    differs from ours; otherwise (e.g. a bare ``Popen`` for testing)
+    killing the group would also kill the caller. SIGKILL escalates
+    after 2s if the process is still alive. ``ProcessLookupError``
+    races with normal shutdown — swallow it.
+    """
     if process is None or process.poll() is not None:
         return
-    process.terminate()
+    own_group = False
+    pgid: int | None = None
+    try:
+        pgid = os.getpgid(process.pid)
+        own_group = pgid != os.getpgid(0)
+    except ProcessLookupError, OSError:
+        pgid = None
+    try:
+        if own_group and pgid is not None:
+            os.killpg(pgid, signal.SIGTERM)
+        else:
+            process.terminate()
+    except ProcessLookupError, OSError:
+        return
+    try:
+        process.wait(timeout=2)
+        return
+    except subprocess.TimeoutExpired:
+        pass
+    try:
+        if own_group and pgid is not None:
+            os.killpg(pgid, signal.SIGKILL)
+        else:
+            process.kill()
+    except ProcessLookupError, OSError:
+        return
     try:
         process.wait(timeout=2)
     except subprocess.TimeoutExpired:
-        process.kill()
-        process.wait()
+        return

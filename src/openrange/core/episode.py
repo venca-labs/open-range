@@ -9,10 +9,12 @@ agent action; ``record_turn`` is observational only. ``tick`` and
 
 from __future__ import annotations
 
+import atexit
 import shutil
 import tempfile
 import threading
 import uuid
+import weakref
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -205,6 +207,13 @@ class EpisodeService:
         else:
             self.npc_agent_backend = None
         self._episodes: dict[str, _RunningEpisode] = {}
+        # Last-chance cleanup hook. Even if the eval crashes, gets
+        # SIGINT during cleanup, or otherwise dies before
+        # ``close()`` runs, ``atexit`` walks any still-running
+        # subprocesses and terminates their groups so we don't leak
+        # uvicorn / app.py descendants reparented to PID 1.
+        _self_ref = weakref.ref(self)
+        atexit.register(_atexit_kill_episodes, _self_ref)
 
     # -- lifecycle ----------------------------------------------------------
 
@@ -701,6 +710,26 @@ class EpisodeService:
                 backing.stop(running.running_artifact)
                 running.running_artifact = None
         self._episodes.clear()
+
+
+def _atexit_kill_episodes(service_ref: weakref.ref[EpisodeService]) -> None:
+    """Backstop for ``EpisodeService``: kill any still-running episode
+    subprocesses on interpreter shutdown. Quiet — if the service has
+    been garbage-collected or already closed there is nothing to do.
+    """
+    service = service_ref()
+    if service is None:
+        return
+    for running in list(service._episodes.values()):
+        artifact = running.running_artifact
+        if artifact is None:
+            continue
+        try:
+            backing = RUNTIME_BACKINGS.require(artifact.kind)
+            backing.stop(artifact)
+        except Exception:  # noqa: BLE001 — best-effort
+            continue
+        running.running_artifact = None
 
 
 def _auto_tick_loop(
