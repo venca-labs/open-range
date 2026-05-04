@@ -103,6 +103,17 @@ class Snapshot:
                 return task
         raise KeyError(f"unknown task {task_id!r}")
 
+    def verifier(self, task_id: str) -> Verifier:
+        """Resolve the verifier callable for a task from its stored source."""
+        task = self.task(task_id)
+        try:
+            source = self.verifier_sources[task.verifier_id]
+        except KeyError as exc:
+            raise StoreError(
+                f"task {task_id!r} references unknown verifier {task.verifier_id!r}",
+            ) from exc
+        return verifier_from_source(source)
+
     def as_dict(self) -> dict[str, object]:
         return {
             "id": self.id,
@@ -117,11 +128,7 @@ class Snapshot:
         }
 
     @classmethod
-    def from_mapping(
-        cls,
-        data: Mapping[str, object],
-        verifiers: Mapping[str, Verifier] | None = None,
-    ) -> Snapshot:
+    def from_mapping(cls, data: Mapping[str, object]) -> Snapshot:
         snapshot_id = data.get("id")
         manifest = data.get("manifest")
         world = data.get("world")
@@ -150,13 +157,7 @@ class Snapshot:
         parsed_verifier_sources = {
             str(key): str(value) for key, value in verifier_sources.items()
         }
-        loaded_verifiers = {
-            verifier_id: verifier_from_source(source)
-            for verifier_id, source in parsed_verifier_sources.items()
-        }
-        if verifiers is not None:
-            loaded_verifiers.update(verifiers)
-        parsed_tasks = tuple(task_from_mapping(row, loaded_verifiers) for row in tasks)
+        parsed_tasks = tuple(task_from_mapping(row) for row in tasks)
         parsed_artifacts = {str(key): str(value) for key, value in artifacts.items()}
         return cls(
             snapshot_id,
@@ -174,7 +175,12 @@ class Snapshot:
         )
 
 
-def task_from_mapping(data: object, verifiers: Mapping[str, Verifier]) -> Task:
+def task_from_mapping(data: object) -> Task:
+    """Deserialize a Task from its stored mapping form.
+
+    Verifier resolution is the caller's responsibility (look up the
+    source by ``verifier_id`` in the snapshot's ``verifier_sources``).
+    """
     if not isinstance(data, Mapping):
         raise StoreError("stored task is invalid")
     task_id = data.get("id")
@@ -187,10 +193,6 @@ def task_from_mapping(data: object, verifiers: Mapping[str, Verifier]) -> Task:
         raise StoreError("stored task entrypoints/verifier are invalid")
     if not all(isinstance(item, Mapping) for item in entrypoints):
         raise StoreError("stored entrypoint row is invalid")
-    try:
-        verifier = verifiers[verifier_id]
-    except KeyError as exc:
-        raise StoreError(f"unknown stored verifier {verifier_id!r}") from exc
     return Task(
         task_id,
         instruction,
@@ -199,7 +201,6 @@ def task_from_mapping(data: object, verifiers: Mapping[str, Verifier]) -> Task:
             for item in entrypoints
         ),
         verifier_id,
-        verifier,
     )
 
 

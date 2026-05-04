@@ -87,11 +87,18 @@ class Entrypoint:
 
 @dataclass(frozen=True, slots=True)
 class Task:
+    """Pure-data description of one task an agent can attempt.
+
+    The verifier callable is not stored here — it's resolved from the
+    snapshot's ``verifier_sources`` by ``verifier_id`` when needed. This
+    keeps Task serializable and lets multiple tasks reference the same
+    verifier source without duplication.
+    """
+
     id: str
     instruction: str
     entrypoints: tuple[Entrypoint, ...]
     verifier_id: str
-    verify: Verifier
 
     @property
     def interface(self) -> tuple[Entrypoint, ...]:
@@ -104,110 +111,6 @@ class Task:
             "entrypoints": [entrypoint.as_dict() for entrypoint in self.entrypoints],
             "verifier_id": self.verifier_id,
         }
-
-
-@dataclass(frozen=True, slots=True)
-class GeneratedWorld:
-    world: Mapping[str, object]
-    artifacts: Mapping[str, str]
-    runtime: Mapping[str, object]
-
-    def as_dict(self) -> dict[str, object]:
-        return {
-            "world": dict(self.world),
-            "artifacts": dict(self.artifacts),
-            "runtime": dict(self.runtime),
-        }
-
-
-@dataclass(frozen=True, slots=True)
-class GeneratedTask:
-    id: str
-    instruction: str
-    entrypoints: tuple[Entrypoint, ...]
-    verifier_id: str
-
-    def as_task(self, verifier: Verifier) -> Task:
-        return Task(
-            self.id,
-            self.instruction,
-            self.entrypoints,
-            self.verifier_id,
-            verifier,
-        )
-
-    def as_dict(self) -> dict[str, object]:
-        return {
-            "id": self.id,
-            "instruction": self.instruction,
-            "entrypoints": [entrypoint.as_dict() for entrypoint in self.entrypoints],
-            "verifier_id": self.verifier_id,
-        }
-
-
-@dataclass(frozen=True, slots=True)
-class GeneratedVerifier:
-    id: str
-    task_id: str
-    source: str
-
-    def as_dict(self) -> dict[str, object]:
-        return {
-            "id": self.id,
-            "task_id": self.task_id,
-            "source": self.source,
-        }
-
-
-@dataclass(frozen=True, slots=True)
-class GeneratedAdmission:
-    task_id: str
-    source: str
-    final_state: Mapping[str, object]
-
-    def as_dict(self) -> dict[str, object]:
-        return {
-            "task_id": self.task_id,
-            "source": self.source,
-            "final_state": dict(self.final_state),
-        }
-
-
-@dataclass(frozen=True, slots=True)
-class GeneratedArtifacts:
-    world: GeneratedWorld
-    tasks: tuple[GeneratedTask, ...]
-    verifiers: tuple[GeneratedVerifier, ...]
-    admission: tuple[GeneratedAdmission, ...]
-
-    def as_dict(self) -> dict[str, object]:
-        return {
-            "world": self.world.as_dict(),
-            "tasks": [task.as_dict() for task in self.tasks],
-            "verifiers": [verifier.as_dict() for verifier in self.verifiers],
-            "admission": [admission.as_dict() for admission in self.admission],
-        }
-
-    def verifier_sources(self) -> Mapping[str, str]:
-        return MappingProxyType(
-            {verifier.id: verifier.source for verifier in self.verifiers},
-        )
-
-
-def empty_generated_artifacts() -> GeneratedArtifacts:
-    return GeneratedArtifacts(GeneratedWorld({}, {}, {}), (), (), ())
-
-
-@dataclass(frozen=True, slots=True)
-class BuildOutput:
-    world: Mapping[str, object]
-    tasks: tuple[Task, ...]
-    verifier_sources: Mapping[str, str]
-    admission_probe: Mapping[str, object]
-    generated: GeneratedArtifacts = field(default_factory=empty_generated_artifacts)
-    artifacts: Mapping[str, str] = field(default_factory=dict)
-    touched_files: tuple[str, ...] = ()
-    summary: str = ""
 
 
 class Pack(ABC):

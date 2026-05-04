@@ -95,7 +95,6 @@ class CyberOffenseBuilder(Builder):
             ),
             entrypoints=(entrypoint,),
             verifier_id=CYBER_VERIFIER_ID,
-            verify=_placeholder_verifier(),  # replaced after episode_checks generated
         )
         emit_build_event(
             state.context,
@@ -202,13 +201,6 @@ def _generate_verification_sources(
     # state.admission_probe via the orchestrator (which calls
     # _run_admission_probe below before admit()).
     return verifier_source, admission_source
-
-
-def _placeholder_verifier() -> Any:
-    def _placeholder(state: Mapping[str, object]) -> Mapping[str, object]:
-        raise PackError("verifier not loaded yet")
-
-    return _placeholder
 
 
 def _builder_request(

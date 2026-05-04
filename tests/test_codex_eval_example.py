@@ -260,7 +260,7 @@ def test_codex_eval_runs_full_snapshot_episode_pipeline(tmp_path: Path) -> None:
             {"method": "GET", "path": "/admin/debug", "status": 200},
         ],
     }
-    assert task.verify(report["final_state"])["passed"] is True
+    assert snapshot.verifier(task.id)(report["final_state"])["passed"] is True
     assert (agent_root / "seen_prompt.txt").read_text(
         encoding="utf-8",
     ) == task.instruction

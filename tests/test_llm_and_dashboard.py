@@ -1079,7 +1079,7 @@ def test_episode_runtime_records_env_owned_turns(tmp_path: Path) -> None:
 
     turns = dashboard.turns(task.id)
 
-    assert task.verify(report.final_state)["passed"] is True
+    assert snapshot.verifier(task.id)(report.final_state)["passed"] is True
     assert report.as_dict()["agent_summary"] == "agent done"
     assert cast(dict[str, object], robots_event["data"])["metadata"] == {
         "source": "http_access_log",
@@ -1261,6 +1261,129 @@ def test_runtime_error_and_reader_paths(tmp_path: Path) -> None:
             process.kill()
             process.wait()
     assert process.poll() is not None
+
+
+def test_multi_task_snapshot_episodes_each_task_independently(
+    tmp_path: Path,
+) -> None:
+    """Custom builder produces 2 tasks; each can be episoded independently."""
+    from dataclasses import replace as _replace
+
+    import openrange.packs as _packs  # noqa: F401  ensure registry populated
+    from openrange.core.builder_protocol import Builder
+    from openrange.runtime import read_requests
+
+    cyber_pack = OR.PACKS.resolve("cyber.webapp.offense")
+
+    VERIFIER_A = (
+        "def verify(state):\n"
+        "    return {'passed': True, 'score': 1.0, 'task_label': 'A'}\n"
+    )
+    VERIFIER_B = (
+        "def verify(state):\n"
+        "    return {'passed': True, 'score': 1.0, 'task_label': 'B'}\n"
+    )
+    PROBE_SOURCE = (
+        "def admission_state(interface):\n"
+        "    return {'result': {'flag': 'x'}, 'world': {}, 'requests': []}\n"
+    )
+
+    class _TwoTaskBuilder(Builder):
+        def generate_world_graph(self, state: OR.BuildState) -> OR.BuildState:
+            seed = OR.build(MANIFEST, llm=builder_llm(tmp_path)).world
+            graph = OR.WorldGraph(
+                nodes=(OR.Node("webapp", "webapp", dict(seed)),),
+            )
+            return _replace(state, world_graph=graph)
+
+        def generate_tasks(self, state: OR.BuildState) -> OR.BuildState:
+            assert state.runtime is not None
+            entrypoint = state.runtime.entrypoints[0]
+            task_a = OR.Task(
+                id="task_a",
+                instruction="task A",
+                entrypoints=(entrypoint,),
+                verifier_id="verifier_a",
+            )
+            task_b = OR.Task(
+                id="task_b",
+                instruction="task B",
+                entrypoints=(entrypoint,),
+                verifier_id="verifier_b",
+            )
+            return _replace(state, tasks=(task_a, task_b))
+
+        def generate_feasibility_checks(
+            self,
+            state: OR.BuildState,
+        ) -> OR.BuildState:
+            check = OR.CheckScript(
+                id="probe",
+                task_id="task_a",
+                kind="feasibility",
+                source=PROBE_SOURCE,
+            )
+            return _replace(state, feasibility_checks=(check,))
+
+        def generate_episode_checks(self, state: OR.BuildState) -> OR.BuildState:
+            checks = (
+                OR.CheckScript(
+                    id="verifier_a",
+                    task_id="task_a",
+                    kind="episode",
+                    source=VERIFIER_A,
+                ),
+                OR.CheckScript(
+                    id="verifier_b",
+                    task_id="task_b",
+                    kind="episode",
+                    source=VERIFIER_B,
+                ),
+            )
+            return _replace(state, episode_checks=checks)
+
+    class _MultiTaskPack(type(cyber_pack)):  # type: ignore[misc]
+        def default_builder(
+            self,
+            context: OR.BuildContext,
+        ) -> Builder | None:
+            del context
+            return _TwoTaskBuilder()
+
+    registry = OR.PackRegistry()
+    registry.register(_MultiTaskPack(cyber_pack.dir))
+
+    snapshot = OR.build(MANIFEST, llm=object(), registry=registry)
+    assert {task.id for task in snapshot.tasks} == {"task_a", "task_b"}
+
+    svc = OR.EpisodeService(tmp_path / "episodes")
+    try:
+        for task in snapshot.tasks:
+            handle = svc.start_episode(snapshot, task.id)
+            task_file = json.loads(
+                (svc.agent_root(handle) / "OPENRANGE_TASK.json").read_text(
+                    encoding="utf-8",
+                ),
+            )
+            urlopen(
+                str(task_file["base_url"]) + "/robots.txt", timeout=5,
+            ).read()
+            (svc.agent_root(handle) / task_file["result_file"]).write_text(
+                json.dumps({"flag": "x"}),
+                encoding="utf-8",
+            )
+            # Wait for request to land in log so validate_public_interface sees it.
+            log = svc.agent_root(handle).parent / "env" / "requests.jsonl"
+            deadline = time.monotonic() + 5
+            while time.monotonic() < deadline and not read_requests(log):
+                time.sleep(0.05)
+            report = svc.stop_episode(handle)
+            assert report.task_id == task.id
+            assert report.verifier_result is not None
+            label = report.verifier_result["task_label"]
+            assert label == ("A" if task.id == "task_a" else "B")
+    finally:
+        svc.close()
 
 
 def test_episode_fork_supports_divergent_branches(tmp_path: Path) -> None:

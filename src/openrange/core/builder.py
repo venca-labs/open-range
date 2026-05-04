@@ -29,7 +29,6 @@ from openrange.core.pack import (
     Pack,
     PackRegistry,
     Task,
-    verifier_from_source,
 )
 from openrange.core.snapshot import Snapshot, freeze
 
@@ -277,7 +276,6 @@ def _generate_pipeline(state: BuildState) -> BuildState:
     state = state.builder.generate_tasks(state)
     state = state.builder.generate_feasibility_checks(state)
     state = state.builder.generate_episode_checks(state)
-    state = _attach_verifiers(state)
     return state
 
 
@@ -286,31 +284,6 @@ def _realize(state: BuildState) -> BuildState:
         raise PackError("world_graph must be set before realize")
     bundle = state.pack.realize(state.world_graph, state.manifest)
     return replace(state, runtime=bundle)
-
-
-def _attach_verifiers(state: BuildState) -> BuildState:
-    """Bind episode-check verifier callables to their Task objects."""
-    if not state.tasks or not state.episode_checks:
-        return state
-    by_id = {check.id: check for check in state.episode_checks}
-    bound: list[Task] = []
-    for task in state.tasks:
-        check = by_id.get(task.verifier_id)
-        if check is None:
-            raise PackError(
-                f"task {task.id!r} has no episode check {task.verifier_id!r}",
-            )
-        verifier = verifier_from_source(check.source)
-        bound.append(
-            Task(
-                id=task.id,
-                instruction=task.instruction,
-                entrypoints=task.entrypoints,
-                verifier_id=task.verifier_id,
-                verify=verifier,
-            ),
-        )
-    return replace(state, tasks=tuple(bound))
 
 
 def _run_admission_probe(state: BuildState) -> BuildState:

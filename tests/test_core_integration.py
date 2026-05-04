@@ -138,10 +138,11 @@ def test_builder_admits_snapshot_task_verifier_artifacts_and_lineage(
         "world": dict(snapshot.world),
         "requests": [],
     }
-    assert task.verify(generated_final_state)["passed"]
+    verifier = snapshot.verifier(task.id)
+    assert verifier(generated_final_state)["passed"]
     assert task.interface == task.entrypoints
     assert (
-        task.verify(
+        verifier(
             {
                 "result": {"flag": "ORANGE{webapp_admin_flag}"},
                 "world": {"flag": "ORANGE{webapp_admin_flag}"},
@@ -151,7 +152,7 @@ def test_builder_admits_snapshot_task_verifier_artifacts_and_lineage(
         is True
     )
     assert (
-        task.verify(
+        verifier(
             {
                 "result": {"flag": "wrong"},
                 "world": {"flag": "ORANGE{webapp_admin_flag}"},
@@ -230,7 +231,7 @@ def test_snapshot_store_round_trips_admitted_snapshot(tmp_path: Path) -> None:
     store = SnapshotStore(tmp_path)
 
     path = store.save(snapshot)
-    loaded = store.load(snapshot.id, OR.PACKS.resolve("cyber.webapp.offense"))
+    loaded = store.load(snapshot.id)
 
     assert path == tmp_path / f"{snapshot.id}.json"
     assert loaded.id == snapshot.id
@@ -238,7 +239,7 @@ def test_snapshot_store_round_trips_admitted_snapshot(tmp_path: Path) -> None:
     assert loaded.generated == snapshot.generated
     assert loaded.artifacts == snapshot.artifacts
     assert (
-        loaded.tasks[0].verify(
+        loaded.verifier(loaded.tasks[0].id)(
             {
                 "result": {"flag": "ORANGE{webapp_admin_flag}"},
                 "world": {"flag": "ORANGE{webapp_admin_flag}"},
@@ -440,11 +441,19 @@ def test_admit_returns_structured_failures(
     assert no_tasks_result.accepted is False
     assert any("no tasks generated" in f.reason for f in no_tasks_result.failures)
 
+    # Provide the matching episode-check source so admit can resolve the verifier.
+    episode_check = OR.CheckScript(
+        id=good.tasks[0].verifier_id,
+        task_id=good.tasks[0].id,
+        kind="episode",
+        source=good.verifier_sources[good.tasks[0].verifier_id],
+    )
     bad_verifier_result = admit(
         _replace(
             base_state,
             world_graph=nonempty_graph,
             tasks=good.tasks,
+            episode_checks=(episode_check,),
             admission_probe={
                 "result": {"flag": "wrong"},
                 "world": {"flag": "expected"},
@@ -460,26 +469,25 @@ def test_admit_returns_structured_failures(
 
 def test_store_rejects_missing_or_invalid_snapshots(tmp_path: Path) -> None:
     store = SnapshotStore(tmp_path)
-    pack = OR.PACKS.resolve("cyber.webapp.offense")
 
     with pytest.raises(StoreError, match="not found"):
-        store.load("missing", pack)
+        store.load("missing")
 
     bad_path = tmp_path / "bad.json"
     bad_path.write_text("{", encoding="utf-8")
     with pytest.raises(StoreError, match="not valid JSON"):
-        store.load("bad", pack)
+        store.load("bad")
 
     non_mapping = tmp_path / "list.json"
     non_mapping.write_text("[]", encoding="utf-8")
     with pytest.raises(StoreError, match="must be a mapping"):
-        store.load("list", pack)
+        store.load("list")
 
 
 def test_snapshot_from_mapping_rejects_invalid_shapes(tmp_path: Path) -> None:
     valid = build(MANIFEST, llm=builder_llm(tmp_path)).as_dict()
     lineage = cast(list[dict[str, object]], valid["lineage"])
-    assert Snapshot.from_mapping(valid, generated_verifiers(tmp_path)).id == valid["id"]
+    assert Snapshot.from_mapping(valid).id == valid["id"]
     invalid_cases = [
         {"id": 1},
         {**valid, "manifest": []},
@@ -500,17 +508,6 @@ def test_snapshot_from_mapping_rejects_invalid_shapes(tmp_path: Path) -> None:
                     "instruction": "do",
                     "entrypoints": {},
                     "verifier_id": "admin_flag_found",
-                },
-            ],
-        },
-        {
-            **valid,
-            "tasks": [
-                {
-                    "id": "task",
-                    "instruction": "do",
-                    "entrypoints": [],
-                    "verifier_id": "missing",
                 },
             ],
         },
@@ -546,9 +543,9 @@ def test_snapshot_from_mapping_rejects_invalid_shapes(tmp_path: Path) -> None:
 
 
 def test_task_and_entrypoint_from_mapping_validation(tmp_path: Path) -> None:
-    verifiers = generated_verifiers(tmp_path)
+    del tmp_path
     with pytest.raises(StoreError, match="stored task"):
-        task_from_mapping([], verifiers)
+        task_from_mapping([])
     with pytest.raises(StoreError, match="stored entrypoint"):
         task_from_mapping(
             {
@@ -557,7 +554,6 @@ def test_task_and_entrypoint_from_mapping_validation(tmp_path: Path) -> None:
                 "entrypoints": [1],
                 "verifier_id": "admin_flag_found",
             },
-            verifiers,
         )
     with pytest.raises(StoreError, match="stored entrypoint"):
         task_from_mapping(
@@ -567,7 +563,6 @@ def test_task_and_entrypoint_from_mapping_validation(tmp_path: Path) -> None:
                 "entrypoints": [{"kind": 1}],
                 "verifier_id": "admin_flag_found",
             },
-            verifiers,
         )
     with pytest.raises(StoreError, match="metadata"):
         task_from_mapping(
@@ -579,7 +574,6 @@ def test_task_and_entrypoint_from_mapping_validation(tmp_path: Path) -> None:
                 ],
                 "verifier_id": "admin_flag_found",
             },
-            verifiers,
         )
 
 
@@ -857,14 +851,6 @@ def builder_llm(tmp_path: Path) -> OR.CodexBackend:
         """,
     )
     return OR.CodexBackend(command=command, model="local", timeout=5)
-
-
-def generated_verifiers(tmp_path: Path) -> Mapping[str, OR.Verifier]:
-    snapshot = build(MANIFEST, llm=builder_llm(tmp_path))
-    return {
-        verifier_id: OR.verifier_from_source(source)
-        for verifier_id, source in snapshot.verifier_sources.items()
-    }
 
 
 class _NoopBuilder:

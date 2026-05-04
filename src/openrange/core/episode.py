@@ -293,7 +293,8 @@ class EpisodeService:
             requests,
         )
         running.final_state = final_state
-        verifier_result = MappingProxyType(dict(running.task.verify(final_state)))
+        verifier = running.snapshot.verifier(running.task.id)
+        verifier_result = MappingProxyType(dict(verifier(final_state)))
         running.verifier_result = verifier_result
         self._record_system(running, {"finish": True}, state=final_state)
         return EpisodeReport(

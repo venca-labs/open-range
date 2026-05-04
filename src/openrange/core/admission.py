@@ -8,7 +8,7 @@ from types import MappingProxyType
 from typing import TYPE_CHECKING, Literal, cast
 
 from openrange.core.errors import AdmissionError, OpenRangeError, StoreError
-from openrange.core.pack import VerifierResult
+from openrange.core.pack import VerifierResult, verifier_from_source
 
 if TYPE_CHECKING:
     from openrange.core.builder import BuildState
@@ -125,9 +125,22 @@ def admit(state: BuildState) -> AdmissionResult:
     if failures:
         return AdmissionResult(accepted=False, failures=tuple(failures))
     probe = state.admission_probe or {}
+    checks_by_id = {check.id: check for check in state.episode_checks}
     verifier_results: dict[str, VerifierResult] = {}
     for task in state.tasks:
-        result = MappingProxyType(dict(task.verify(probe)))
+        check = checks_by_id.get(task.verifier_id)
+        if check is None:
+            failures.append(
+                AdmissionFailure(
+                    reason=f"task {task.id!r} references unknown verifier "
+                    f"{task.verifier_id!r}",
+                    stage="verifier",
+                    task_id=task.id,
+                ),
+            )
+            continue
+        verifier = verifier_from_source(check.source)
+        result = MappingProxyType(dict(verifier(probe)))
         verifier_results[task.id] = result
         if result.get("passed") is not True:
             failures.append(
