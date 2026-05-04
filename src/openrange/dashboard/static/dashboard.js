@@ -677,8 +677,11 @@ function applySimulationEvent(event) {
     if (!targetDesk) return;
     character.target = neighborOffset(targetDesk, actorId);
     const now = sim.clock?.getElapsedTime() || 0;
-    character.returnHomeAt = now + 9 + Math.random() * 4;
-    scheduleColleagueReply(targetDesk, now + 2.5 + Math.random() * 1.5);
+    // Tight visit: walks at 8 units/s land within 1-2s, brief chat,
+    // then walk back. Total round-trip ~6-8s so multiple visits
+    // overlap across the floor without each one feeling slow.
+    character.returnHomeAt = now + 4 + Math.random() * 2;
+    scheduleColleagueReply(targetDesk, now + 1.5 + Math.random() * 1);
   }
 }
 
@@ -843,11 +846,14 @@ function animateSimulation() {
       const dz = character.target.z - pos.z;
       const distance = Math.sqrt(dx * dx + dz * dz);
       if (distance > .24) {
-        pos.x += (dx / distance) * dt * 4.2;
-        pos.z += (dz / distance) * dt * 4.2;
+        // Sped-up walking — 8 units/s feels right for a "scurry across
+        // the office to chat" demo where chatter cadence is also fast.
+        pos.x += (dx / distance) * dt * 8.0;
+        pos.z += (dz / distance) * dt * 8.0;
         character.group.rotation.y = Math.atan2(dx, dz);
+        // Legs swing faster too (phase already advances at dt*7).
         character.legs.forEach((leg, index) => {
-          leg.rotation.x = Math.sin(character.phase + index * Math.PI) * .5;
+          leg.rotation.x = Math.sin(character.phase + index * Math.PI) * .65;
         });
       } else {
         character.target = null;

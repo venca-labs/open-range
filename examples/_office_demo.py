@@ -74,18 +74,19 @@ def office_chatter_entries() -> list[dict[str, object]]:
     same conversational rhythm — useful for matching screen
     recordings across re-runs.
     """
-    # Cadence at 1.5Hz auto tick: 9 ticks ≈ 6s per NPC, staggered by
-    # seed so they don't fire in lock-step. Across 6 NPCs that's an
-    # event every ~1s on the floor. ~30% of acts are walks, giving
-    # one drive-by chat every ~3s globally — visible but not spam.
+    # Cadence at 1.5Hz auto tick: 6 ticks ≈ 4s per NPC, staggered by
+    # seed. Across 6 NPCs that's an event every ~0.7s on the floor.
+    # Half of acts are walks (probability 0.5) so each chatter
+    # initiates a drive-by visit every ~8s on average — frequent
+    # enough that the office feels alive without flooding the feed.
     return [
         {
             "type": "cyber.office_chatter",
             "config": {
                 "name": name,
                 "lines": list(lines),
-                "cadence_ticks": 9,
-                "walk_probability": 0.3,
+                "cadence_ticks": 6,
+                "walk_probability": 0.5,
                 "seed": idx + 1,
             },
         }
