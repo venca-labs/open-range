@@ -251,13 +251,30 @@ def test_office_chatter_factory_rejects_bad_config() -> None:
         oc_factory({"name": "x", "cadence_ticks": "fast"})
     with pytest.raises(ValueError, match="walk_probability"):
         oc_factory({"name": "x", "walk_probability": "high"})
+    with pytest.raises(ValueError, match="colleagues"):
+        oc_factory({"name": "x", "colleagues": "Bob"})
+
+
+def test_office_chatter_factory_reads_colleagues() -> None:
+    from cyber_webapp.npcs.office_chatter import OfficeChatter
+    from cyber_webapp.npcs.office_chatter import factory as oc_factory
+
+    npc = oc_factory({"name": "Alice", "colleagues": ["Bob", "Carol"]})
+    assert isinstance(npc, OfficeChatter)
+    assert npc._colleagues == ("Bob", "Carol")
 
 
 def test_office_chatter_emits_walks_via_record_action() -> None:
     """Each cadence tick emits a move event carrying an opener and reply."""
     from cyber_webapp.npcs.office_chatter import OfficeChatter
 
-    npc = OfficeChatter(name="Alice", cadence_ticks=1, walk_probability=1.0, seed=1)
+    npc = OfficeChatter(
+        name="Alice",
+        colleagues=("Bob", "Carol"),
+        cadence_ticks=1,
+        walk_probability=1.0,
+        seed=1,
+    )
     recorded: list[dict[str, Any]] = []
 
     def record(
@@ -269,17 +286,54 @@ def test_office_chatter_emits_walks_via_record_action() -> None:
         recorded.append({"action": dict(action), "target": target})
 
     npc.start({"record_action": record})
-    assert recorded[0]["action"] == {"present": True}
+    presence = recorded[0]["action"]
+    assert presence["present"] is True
+    assert isinstance(presence["home_index"], int)
     npc.step({})
     npc.step({})
     walks = [e for e in recorded if e["action"].get("move")]
     assert len(walks) == 2
     for entry in walks:
         assert entry["action"]["move"] == "wandering"
+        assert isinstance(entry["action"]["home_index"], int)
+        assert entry["action"]["target_name"] in {"Bob", "Carol"}
         assert isinstance(entry["action"]["opener"], str)
         assert isinstance(entry["action"]["reply"], str)
         assert entry["action"]["opener"]
         assert entry["action"]["reply"]
+
+
+def test_office_chatter_omits_target_name_when_no_colleagues() -> None:
+    """Without colleagues, walks still emit but carry no target_name."""
+    from cyber_webapp.npcs.office_chatter import OfficeChatter
+
+    npc = OfficeChatter(name="Solo", cadence_ticks=1, walk_probability=1.0, seed=1)
+    recorded: list[dict[str, Any]] = []
+
+    def record(
+        action: dict[str, Any],
+        *,
+        target: str | None = None,
+        observation: object = None,
+    ) -> None:
+        recorded.append(dict(action))
+
+    npc.start({"record_action": record})
+    npc.step({})
+    walks = [a for a in recorded if a.get("move")]
+    assert walks
+    assert "target_name" not in walks[0]
+
+
+def test_office_chatter_home_index_is_stable_per_name() -> None:
+    """Same name → same home_index across processes (SHA1, not built-in hash)."""
+    from cyber_webapp.npcs.office_chatter import OfficeChatter
+
+    a = OfficeChatter(name="Alice")
+    b = OfficeChatter(name="Alice")
+    c = OfficeChatter(name="Bob")
+    assert a._home_index == b._home_index
+    assert a._home_index != c._home_index
 
 
 def test_office_chatter_passes_home_as_target() -> None:
@@ -304,7 +358,7 @@ def test_office_chatter_passes_home_as_target() -> None:
 
     npc.start({"record_action": record})
     npc.step({})
-    walks = [e for e in recorded if e["action"] != {"present": True}]
+    walks = [e for e in recorded if e["action"].get("move")]
     assert walks[0]["target"] == "svc-web"
 
 

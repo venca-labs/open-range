@@ -366,15 +366,9 @@ function addOfficeDesks() {
   });
 }
 
-function homeDeskFor(actorId) {
-  // Stable per-name hash → desk index. Same name always maps to the
-  // same desk so a re-run of the eval re-plays the same seating.
-  if (!sim.deskPositions.length) return null;
-  let hash = 0;
-  for (let i = 0; i < actorId.length; i += 1) {
-    hash = (hash * 31 + actorId.charCodeAt(i)) >>> 0;
-  }
-  return sim.deskPositions[hash % sim.deskPositions.length];
+function deskAtIndex(homeIndex) {
+  if (!sim.deskPositions.length || typeof homeIndex !== "number") return null;
+  return sim.deskPositions[homeIndex % sim.deskPositions.length];
 }
 
 function disposeObject(object) {
@@ -410,18 +404,11 @@ function rebuildSimulationWorld() {
   // accent rings sit on top of the floor grid.
   addOfficeDesks();
 
-  actorDefinitions().forEach((actor) => {
-    // Only NPCs get rendered as people. The agent (red) and runtime
-    // (blue) actors live in the request log + service ring flashes —
-    // they are not bodies in the office. Keeping them out keeps the
-    // floor a clean office scene.
-    if (actor.role !== "npc") return;
-    const home = homeDeskFor(actor.id);
-    if (home) {
-      addCharacter(actor.id, actor.role, home.x, home.z + 1.0);
-      sim.characters[actor.id].homeDesk = home;
-    }
-  });
+  // NPC bodies aren't pre-spawned here — chatters ship a `present`
+  // event in `start()` carrying their `home_index`, and that event
+  // drives both placement and identity. The agent (red) and runtime
+  // (blue) actors stay out of the office entirely; they live in the
+  // request log + service ring flashes.
 }
 
 function stationPosition(station, index, stations) {
@@ -639,7 +626,7 @@ function applySimulationEvent(event) {
   }
 
   if (!sim.characters[actorId]) {
-    const home = homeDeskFor(actorId);
+    const home = deskAtIndex(action.home_index);
     if (home) {
       addCharacter(actorId, role, home.x, home.z + 1.0);
       sim.characters[actorId].homeDesk = home;
@@ -660,23 +647,19 @@ function applySimulationEvent(event) {
     return;
   }
 
-  if (character.homeDesk && action.move) {
-    const targetDesk = pickColleagueDesk(character.homeDesk);
-    if (!targetDesk) return;
-    character.target = neighborOffset(targetDesk, actorId);
+  if (action.move) {
+    const host = sim.characters[action.target_name];
+    if (!host || !host.homeDesk) return;
+    character.target = neighborOffset(host.homeDesk, actorId);
     const now = sim.clock?.getElapsedTime() || 0;
     character.returnHomeAt = now + 5.5 + Math.random() * 2;
     if (typeof action.opener === "string" && typeof action.reply === "string") {
-      scheduleConversation(character, targetDesk, action.opener, action.reply, now);
+      scheduleConversation(character, host, action.opener, action.reply, now);
     }
   }
 }
 
-function scheduleConversation(visitor, targetDesk, opener, reply, now) {
-  const host = Object.values(sim.characters).find(
-    (c) => c.homeDesk === targetDesk,
-  );
-  if (!host) return;
+function scheduleConversation(visitor, host, opener, reply, now) {
   if (!sim.pendingDialogue) sim.pendingDialogue = [];
   // Walks at 8 units/s land in ~1.6s, so the visitor's opener fires
   // right when they arrive; the host replies a beat after.
@@ -686,13 +669,6 @@ function scheduleConversation(visitor, targetDesk, opener, reply, now) {
     text: reply,
     atTime: now + 3.2 + Math.random() * 0.6,
   });
-}
-
-
-function pickColleagueDesk(homeDesk) {
-  const others = sim.deskPositions.filter((desk) => desk !== homeDesk);
-  if (!others.length) return null;
-  return others[Math.floor(Math.random() * others.length)];
 }
 
 function neighborOffset(target, actorId) {

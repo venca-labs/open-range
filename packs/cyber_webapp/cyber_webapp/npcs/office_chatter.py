@@ -1,30 +1,41 @@
 """``cyber.office_chatter`` — a person walking around the office.
 
-Scripted, no LLM. Each acting tick the chatter walks toward a
-colleague, and the move event carries an ``opener`` line plus a
-``reply`` line drawn from a paired-exchange pool. The dashboard
-animates the walk and pops both bubbles at the appropriate beat;
-all dialogue content lives in the pack, so the renderer stays
-generic.
+Scripted, no LLM. The chatter owns every "what NPCs do" decision
+itself and ships them on its events: which desk slot it lives at
+(``home_index``), which colleague it's visiting on a given walk
+(``target_name``), and the opener-and-reply pair the two will
+exchange. The dashboard reads those fields straight from the event
+data and renders — it doesn't invent identity-to-position mappings
+or pick who visits whom.
 
 Config:
-    name: str (required)           — display name + dashboard actor_id
-    cadence_ticks: int = 6         — act every Nth tick
-    home: str | None = None        — optional service id for the
-                                     move event's target field
-    walk_probability: float = 1.0  — chance an acting tick walks
-                                     (otherwise the chatter is idle
-                                     for that window)
-    seed: int | None = None        — deterministic randomness
+    name: str (required)             — display name + actor_id
+    colleagues: list[str] = ()       — names of other chatters this
+                                       NPC can visit; required for
+                                       walks to land on a real host
+    cadence_ticks: int = 6           — act every Nth tick
+    home: str | None = None          — optional service-id ``target``
+                                       on the move event
+    walk_probability: float = 1.0    — chance an acting tick walks
+    seed: int | None = None          — deterministic randomness
 """
 
 from __future__ import annotations
 
+import hashlib
 import random
-from collections.abc import Mapping
+from collections.abc import Iterable, Mapping
 from typing import Any
 
 from openrange import NPC
+
+
+def _stable_home_index(name: str) -> int:
+    # SHA1 because Python's built-in ``hash`` is randomized per
+    # process; we need the same chatter to land on the same slot
+    # across runs so screen recordings reproduce.
+    return int(hashlib.sha1(name.encode()).hexdigest()[:8], 16)
+
 
 EXCHANGES: tuple[tuple[str, tuple[str, ...]], ...] = (
     ("deploy went out?", ("yeah, just now", "still rolling", "blocked on review")),
@@ -60,6 +71,7 @@ class OfficeChatter(NPC):
         self,
         *,
         name: str,
+        colleagues: Iterable[str] = (),
         cadence_ticks: int = 6,
         home: str | None = None,
         walk_probability: float = 1.0,
@@ -72,10 +84,12 @@ class OfficeChatter(NPC):
         if not 0.0 <= walk_probability <= 1.0:
             raise ValueError("walk_probability must be in [0.0, 1.0]")
         self._actor_id = name
+        self._colleagues = tuple(c for c in colleagues if c and c != name)
         self._cadence_ticks = cadence_ticks
         self._home = home
         self._walk_probability = walk_probability
         self._rng = random.Random(seed)
+        self._home_index = _stable_home_index(name)
         # Stagger the first action across a roomful of chatters so they
         # don't all fire on tick 0. Same seed gives the same offset so
         # demo recordings reproduce.
@@ -85,7 +99,7 @@ class OfficeChatter(NPC):
     def start(self, context: Mapping[str, Any]) -> None:
         self._record = context.get("record_action")
         if self._record is not None:
-            self._record({"present": True})
+            self._record({"present": True, "home_index": self._home_index})
 
     def step(self, interface: Mapping[str, Any]) -> None:
         del interface
@@ -100,9 +114,12 @@ class OfficeChatter(NPC):
         opener, replies = self._rng.choice(EXCHANGES)
         action: dict[str, object] = {
             "move": "wandering",
+            "home_index": self._home_index,
             "opener": opener,
             "reply": self._rng.choice(replies),
         }
+        if self._colleagues:
+            action["target_name"] = self._rng.choice(self._colleagues)
         if self._home is not None:
             self._record(action, target=self._home)
         else:
@@ -111,12 +128,16 @@ class OfficeChatter(NPC):
 
 def factory(config: Mapping[str, object]) -> NPC:
     name_raw = config.get("name")
+    colleagues_raw = config.get("colleagues", ())
     cadence_raw = config.get("cadence_ticks", 6)
     home_raw = config.get("home")
     walk_p_raw = config.get("walk_probability", 1.0)
     seed_raw = config.get("seed")
     if not isinstance(name_raw, str) or not name_raw:
         raise ValueError("name must be a non-empty string")
+    if not isinstance(colleagues_raw, list | tuple):
+        raise ValueError("colleagues must be a list of names")
+    colleagues: tuple[str, ...] = tuple(str(c) for c in colleagues_raw)
     if not isinstance(cadence_raw, int):
         raise ValueError("cadence_ticks must be an int")
     if home_raw is not None and not isinstance(home_raw, str):
@@ -127,6 +148,7 @@ def factory(config: Mapping[str, object]) -> NPC:
         raise ValueError("seed must be an int or unset")
     return OfficeChatter(
         name=name_raw,
+        colleagues=colleagues,
         cadence_ticks=cadence_raw,
         home=home_raw,
         walk_probability=float(walk_p_raw),

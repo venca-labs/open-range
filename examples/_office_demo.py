@@ -23,17 +23,17 @@ def office_chatter_entries() -> list[dict[str, object]]:
     """Spawn one office chatter per staff name with staggered seeds.
 
     Cadence at 1.5Hz auto tick: 8 ticks ≈ 5s per NPC. Each chatter
-    walks at every cadence boundary; on arrival the dashboard
-    orchestrates a coherent opener-and-reply exchange with the
-    visited colleague (see ``EXCHANGES`` in ``dashboard.js``). With
-    6 chatters that's a visit every ~0.8s globally — busy but not
-    spammy.
+    walks at every cadence boundary and picks a colleague to visit;
+    the dashboard reads ``target_name`` off the event and renders a
+    walk + opener/reply exchange. With 6 chatters that's a visit
+    every ~0.8s globally — busy but not spammy.
     """
     return [
         {
             "type": "cyber.office_chatter",
             "config": {
                 "name": name,
+                "colleagues": [n for n in OFFICE_STAFF if n != name],
                 "cadence_ticks": 8,
                 "walk_probability": 1.0,
                 "seed": idx + 1,
