@@ -63,27 +63,14 @@ _INSTRUCTION_SYSTEM = (
 
 
 def generate_task_instruction(graph: WorldGraph, llm: LLMBackend) -> str:
-    from openrange.llm import LLMError, LLMRequest
-
-    request = LLMRequest(
-        prompt=json.dumps({"world": _summarize_graph(graph)}, sort_keys=True),
+    parsed = _ask_llm(
+        llm,
         system=_INSTRUCTION_SYSTEM,
-        json_schema={
-            "type": "object",
-            "additionalProperties": False,
-            "required": ["instruction"],
-            "properties": {"instruction": {"type": "string"}},
-        },
+        prompt={"world": _summarize_graph(graph)},
+        required_field="instruction",
     )
-    try:
-        result = llm.complete(request)
-    except LLMError as exc:
-        raise LLMGenerationError(f"LLM call failed: {exc}") from exc
-    parsed = result.parsed_json
-    if not isinstance(parsed, Mapping):
-        raise LLMGenerationError("LLM did not return a JSON object")
-    instruction = parsed.get("instruction")
-    if not isinstance(instruction, str) or not instruction.strip():
+    instruction = parsed["instruction"]
+    if not instruction.strip():
         raise LLMGenerationError("LLM did not return a usable instruction")
     return instruction.strip()
 
@@ -115,22 +102,47 @@ def generate_verifier_source(
     task: Task,
     llm: LLMBackend,
 ) -> str:
+    parsed = _ask_llm(
+        llm,
+        system=_VERIFIER_SYSTEM,
+        prompt={
+            "world": _summarize_graph(graph),
+            "task": {"id": task.id, "instruction": task.instruction},
+        },
+        required_field="verifier_source",
+    )
+    source = parsed["verifier_source"]
+    if not source.strip():
+        raise LLMGenerationError("LLM did not return verifier_source")
+    try:
+        verifier_from_source(source)
+    except StoreError as exc:
+        raise LLMGenerationError(
+            f"LLM verifier source is invalid: {exc}",
+        ) from exc
+    return source
+
+
+def _ask_llm(
+    llm: LLMBackend,
+    *,
+    system: str,
+    prompt: Mapping[str, object],
+    required_field: str,
+) -> Mapping[str, str]:
+    """Single-field JSON request: send ``prompt`` JSON, expect a JSON object
+    with ``required_field`` as a non-empty string. Returns the parsed dict
+    (with the field guaranteed to be a string)."""
     from openrange.llm import LLMError, LLMRequest
 
     request = LLMRequest(
-        prompt=json.dumps(
-            {
-                "world": _summarize_graph(graph),
-                "task": {"id": task.id, "instruction": task.instruction},
-            },
-            sort_keys=True,
-        ),
-        system=_VERIFIER_SYSTEM,
+        prompt=json.dumps(prompt, sort_keys=True),
+        system=system,
         json_schema={
             "type": "object",
             "additionalProperties": False,
-            "required": ["verifier_source"],
-            "properties": {"verifier_source": {"type": "string"}},
+            "required": [required_field],
+            "properties": {required_field: {"type": "string"}},
         },
     )
     try:
@@ -140,16 +152,12 @@ def generate_verifier_source(
     parsed = result.parsed_json
     if not isinstance(parsed, Mapping):
         raise LLMGenerationError("LLM did not return a JSON object")
-    source = parsed.get("verifier_source")
-    if not isinstance(source, str) or not source.strip():
-        raise LLMGenerationError("LLM did not return verifier_source")
-    try:
-        verifier_from_source(source)
-    except StoreError as exc:
+    value = parsed.get(required_field)
+    if not isinstance(value, str):
         raise LLMGenerationError(
-            f"LLM verifier source is invalid: {exc}",
-        ) from exc
-    return source
+            f"LLM did not return {required_field!r} as a string",
+        )
+    return {required_field: value}
 
 
 # ---------------------------------------------------------------------------

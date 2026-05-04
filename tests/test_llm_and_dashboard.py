@@ -16,6 +16,13 @@ from urllib.request import Request, urlopen
 import pytest
 
 import openrange as OR
+from openrange.core.runtime_helpers import (
+    read_base_url,
+    read_requests,
+    read_result,
+    start_runtime_process,
+    stop_process,
+)
 from openrange.dashboard import (
     DashboardArtifactLog,
     DashboardEvent,
@@ -28,13 +35,6 @@ from openrange.dashboard import (
     read_dashboard_events as read_dashboard_artifact_events,
 )
 from openrange.llm import LLMBackendError, parse_json_object, run_codex
-from openrange.runtime import (
-    read_base_url,
-    read_requests,
-    read_result,
-    start_runtime_process,
-    stop_process,
-)
 
 MANIFEST = {
     "world": {"goal": "find the admin flag", "title": "Ops Portal"},
@@ -54,55 +54,6 @@ def executable(tmp_path: Path, name: str, body: str) -> Path:
     )
     path.chmod(0o755)
     return path
-
-
-def builder_llm(tmp_path: Path) -> OR.CodexBackend:
-    command = executable(
-        tmp_path,
-        "builder_backend.py",
-        """
-        import json
-        import sys
-        from pathlib import Path
-
-        output_path = Path(sys.argv[sys.argv.index("--output-last-message") + 1])
-        prompt = json.loads(sys.stdin.read().split("\\n\\n", 1)[1])
-        if "task" in prompt:
-            output = {
-                "verifier_source": (
-                    "def verify(state):\\n"
-                    "    result = state.get('result', {})\\n"
-                    "    world = state.get('world', {})\\n"
-                    "    passed = result.get('flag') == world.get('flag')\\n"
-                    "    passed = passed and world.get('flag') != ''\\n"
-                    "    return {'passed': passed, "
-                    "'score': 1.0 if passed else 0.0}\\n"
-                ),
-                "admission_source": (
-                    "def admission_state(interface):\\n"
-                    "    robots = interface['http_get']("
-                    "'/robots.txt').decode()\\n"
-                    "    path = ''\\n"
-                    "    for line in robots.splitlines():\\n"
-                    "        if line.startswith('Disallow:'):\\n"
-                    "            path = line.split(':', 1)[1].strip()\\n"
-                    "    data = interface['http_get_json'](path)\\n"
-                    "    return {'result': {'flag': data['flag']}, "
-                    "'requests': []}\\n"
-                ),
-            }
-        else:
-            manifest = prompt["manifest"]
-            world = manifest["world"]
-            output = {
-                "service": world.get("service", "webapp"),
-                "title": world.get("title", "OpenRange Web Portal"),
-                "flag": world.get("flag", "ORANGE{webapp_admin_flag}"),
-            }
-        output_path.write_text(json.dumps(output), encoding="utf-8")
-        """,
-    )
-    return OR.CodexBackend(command=command, model="local", timeout=5)
 
 
 @contextlib.contextmanager
@@ -381,7 +332,7 @@ def test_dashboard_http_server_can_start_without_snapshot() -> None:
 def test_dashboard_http_server_streams_events_and_narration(
     tmp_path: Path,
 ) -> None:
-    snapshot = OR.build(MANIFEST, llm=builder_llm(tmp_path))
+    snapshot = OR.build(MANIFEST)
     view = DashboardView(snapshot)
     first = view.record_event("agent_step", actor="red", target="webapp")
 
@@ -584,7 +535,7 @@ def test_dashboard_view_can_open_persisted_run_artifacts(
 
 
 def test_dashboard_records_actor_turns_from_env_actors(tmp_path: Path) -> None:
-    snapshot = OR.build(MANIFEST, llm=builder_llm(tmp_path))
+    snapshot = OR.build(MANIFEST)
     view = DashboardView(snapshot)
     agent_turn = OR.ActorTurn(
         task_id="find_admin_flag",
@@ -676,7 +627,7 @@ def test_dashboard_records_actor_turns_from_env_actors(tmp_path: Path) -> None:
 def test_openrange_run_can_disable_dashboard_artifacts(tmp_path: Path) -> None:
     run_root = tmp_path / "run"
     run = OR.OpenRangeRun(OR.RunConfig(run_root, dashboard=False))
-    snapshot = run.build(MANIFEST, llm=builder_llm(tmp_path))
+    snapshot = run.build(MANIFEST)
     task = snapshot.get_tasks()[0]
     svc = run.episode_service(snapshot)
 
@@ -694,7 +645,7 @@ def test_openrange_run_can_disable_dashboard_artifacts(tmp_path: Path) -> None:
 def test_run_config_starts_live_dashboard_internally(tmp_path: Path) -> None:
     run_root = tmp_path / "run"
     run = OR.OpenRangeRun(OR.RunConfig(run_root, dashboard_port=0))
-    snapshot = run.build(MANIFEST, llm=builder_llm(tmp_path))
+    snapshot = run.build(MANIFEST)
     task = snapshot.get_tasks()[0]
     svc = run.episode_service(snapshot)
     dashboard_handle = run.serve_dashboard(snapshot, port=0)
@@ -715,7 +666,7 @@ def test_run_config_starts_live_dashboard_internally(tmp_path: Path) -> None:
 def test_episode_each_start_gives_fresh_roots(tmp_path: Path) -> None:
     from openrange.dashboard import DashboardView
 
-    snapshot = OR.build(MANIFEST, llm=builder_llm(tmp_path))
+    snapshot = OR.build(MANIFEST)
     task = snapshot.get_tasks()[0]
     run_root = tmp_path / "episode"
     run_root.mkdir()
@@ -742,7 +693,7 @@ def test_episode_each_start_gives_fresh_roots(tmp_path: Path) -> None:
 
 
 def test_runtime_error_and_reader_paths(tmp_path: Path) -> None:
-    snapshot = OR.build(MANIFEST, llm=builder_llm(tmp_path))
+    snapshot = OR.build(MANIFEST)
     task = snapshot.get_tasks()[0]
     svc = OR.EpisodeService(tmp_path / "episode")
 

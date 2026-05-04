@@ -15,12 +15,19 @@ from __future__ import annotations
 import json
 from collections.abc import Mapping
 from typing import TYPE_CHECKING, Any, cast
+from urllib.request import urlopen
 
 from openrange.core.runtime_backing import (
     RUNTIME_BACKINGS,
     BackingContext,
     RunningArtifact,
     RuntimeBacking,
+)
+from openrange.core.runtime_helpers import (
+    materialize_artifacts,
+    read_base_url,
+    start_runtime_process,
+    stop_process,
 )
 
 if TYPE_CHECKING:
@@ -50,12 +57,6 @@ class HTTPBacking(RuntimeBacking):
         world: Mapping[str, Any],
         ctx: BackingContext,
     ) -> RunningArtifact:
-        from openrange.core.runtime_helpers import (
-            materialize_artifacts,
-            read_base_url,
-            start_runtime_process,
-        )
-
         app_root = ctx.workdir / "pack"
         materialize_artifacts(artifacts, app_root)
         request_log = ctx.workdir / str(entrypoint.metadata["request_log"])
@@ -78,13 +79,9 @@ class HTTPBacking(RuntimeBacking):
         )
 
     def stop(self, instance: RunningArtifact) -> None:
-        from openrange.core.runtime_helpers import stop_process
-
         stop_process(cast("subprocess.Popen[str]", instance.handle))
 
     def interface(self, instance: RunningArtifact) -> Mapping[str, Any]:
-        from urllib.request import urlopen
-
         base_url = str(instance.metadata["base_url"])
 
         def http_get(path: object) -> bytes:

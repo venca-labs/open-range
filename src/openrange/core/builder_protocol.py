@@ -127,22 +127,20 @@ class BuilderRegistry:
         if self._discovered and not force:
             return
         self._discovered = True
-        from importlib.metadata import entry_points
+        from openrange.core._registry import iter_entry_points
 
-        for entry_point in entry_points(group=BUILDER_ENTRY_POINT_GROUP):
-            if entry_point.name in self._factories and not force:
+        for name, value in iter_entry_points(
+            BUILDER_ENTRY_POINT_GROUP,
+            error_cls=BuilderError,
+            kind="builder",
+        ):
+            if name in self._factories and not force:
                 continue
-            try:
-                factory = entry_point.load()
-            except Exception as exc:  # noqa: BLE001
+            if not callable(value):
                 raise BuilderError(
-                    f"failed to load builder entry point {entry_point.name!r}: {exc}",
-                ) from exc
-            if not callable(factory):
-                raise BuilderError(
-                    f"entry point {entry_point.name!r} did not yield a callable",
+                    f"entry point {name!r} did not yield a callable",
                 )
-            self._factories[entry_point.name] = factory
+            self._factories[name] = value
 
 
 BUILDERS = BuilderRegistry(autodiscover=True)

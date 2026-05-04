@@ -39,7 +39,7 @@ from openrange.packs.cyber_webapp_offense_v1.codegen.handlers import (
 )
 from openrange.packs.cyber_webapp_offense_v1.codegen.seeding import project_seed
 
-CODEGEN_TEMPLATES_DIR = Path(__file__).parent / "templates"
+_TEMPLATES_DIR = Path(__file__).parent / "templates"
 
 
 def realize_graph(graph: WorldGraph, manifest: Manifest) -> RuntimeBundle:
@@ -77,11 +77,8 @@ def realize_graph(graph: WorldGraph, manifest: Manifest) -> RuntimeBundle:
 
 def _jinja_env() -> Environment:
     return Environment(
-        loader=FileSystemLoader(str(CODEGEN_TEMPLATES_DIR)),
+        loader=FileSystemLoader(str(_TEMPLATES_DIR)),
         undefined=StrictUndefined,
         autoescape=select_autoescape(disabled_extensions=("py",), default=False),
         keep_trailing_newline=True,
     )
-
-
-__all__ = ["CODEGEN_TEMPLATES_DIR", "realize_graph"]

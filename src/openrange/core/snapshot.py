@@ -347,12 +347,6 @@ def freeze(state: BuildState) -> Snapshot:
 
 
 def _world_dict_from_state(state: BuildState) -> Mapping[str, object]:
-    """Project the world graph back to a flat dict for snapshot.world.
-
-    Delegates to ``pack.project_world`` so multi-node-type packs (cyber
-    v1 surfacing the flag) get their pack-defined projection rather
-    than the v0 default of "first node attrs".
-    """
     if state.world_graph is None:
         return {}
     return MappingProxyType(dict(state.pack.project_world(state.world_graph)))

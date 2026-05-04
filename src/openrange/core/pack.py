@@ -247,25 +247,23 @@ class PackRegistry:
         if self._discovered and not force:
             return
         self._discovered = True
-        from importlib.metadata import entry_points
+        from openrange.core._registry import iter_entry_points
 
-        for entry_point in entry_points(group=PACK_ENTRY_POINT_GROUP):
-            if entry_point.name in self._packs and not force:
+        for name, value in iter_entry_points(
+            PACK_ENTRY_POINT_GROUP,
+            error_cls=PackError,
+            kind="pack",
+        ):
+            if name in self._packs and not force:
                 continue
-            try:
-                factory = entry_point.load()
-            except Exception as exc:  # noqa: BLE001
-                raise PackError(
-                    f"failed to load pack entry point {entry_point.name!r}: {exc}",
-                ) from exc
-            pack = factory() if callable(factory) else factory
+            pack = value() if callable(value) else value
             if not isinstance(pack, Pack):
                 raise PackError(
-                    f"entry point {entry_point.name!r} did not return a Pack",
+                    f"entry point {name!r} did not return a Pack",
                 )
-            if pack.id != entry_point.name:
+            if pack.id != name:
                 raise PackError(
-                    f"entry point name {entry_point.name!r} does not match "
+                    f"entry point name {name!r} does not match "
                     f"pack.id {pack.id!r}",
                 )
             self._packs[pack.id] = pack

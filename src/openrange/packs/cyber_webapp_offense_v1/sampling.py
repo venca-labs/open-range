@@ -230,13 +230,9 @@ def _sample_accounts(
     rng: random.Random,
     priors: Mapping[str, object],
 ) -> tuple[list[Node], list[Node], list[Edge]]:
-    """Sample accounts + credentials.
-
-    Each account gets exactly one credential via ``has_credential``.
-    ``can_access`` edges are deferred to a later phase — placement
-    needs to know which endpoints exist before wiring access. v1 just
-    surfaces accounts/credentials so the codegen can seed login data.
-    """
+    # ``can_access`` edges are deferred — placement needs to know which
+    # endpoints exist before wiring access. Today we only surface
+    # accounts/credentials so the codegen can seed login data.
     count = sample_int(rng, priors, "account_count")
     accounts: list[Node] = []
     credentials: list[Node] = []

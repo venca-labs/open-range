@@ -21,7 +21,17 @@ from typing import TYPE_CHECKING, Any, Literal
 from openrange.core.errors import OpenRangeError
 from openrange.core.npc import NPC, resolve_manifest_npcs
 from openrange.core.pack import Entrypoint, Task
-from openrange.core.runtime_backing import RUNTIME_BACKINGS, RunningArtifact
+from openrange.core.runtime_backing import (
+    RUNTIME_BACKINGS,
+    BackingContext,
+    RunningArtifact,
+)
+from openrange.core.runtime_helpers import (
+    final_state_from_episode,
+    read_requests,
+    validate_public_interface_interaction,
+    write_task_file,
+)
 from openrange.core.turn import ActorTurn
 
 if TYPE_CHECKING:
@@ -186,9 +196,6 @@ class EpisodeService:
         snapshot: Snapshot,
         task_id: str | None = None,
     ) -> EpisodeHandle:
-        from openrange.core.runtime_backing import RUNTIME_BACKINGS, BackingContext
-        from openrange.core.runtime_helpers import write_task_file
-
         task = (
             snapshot.task(task_id) if task_id is not None else snapshot.get_tasks()[0]
         )
@@ -252,12 +259,6 @@ class EpisodeService:
         return handle
 
     def stop_episode(self, episode: EpisodeHandle) -> EpisodeReport:
-        from openrange.core.runtime_helpers import (
-            final_state_from_episode,
-            read_requests,
-            validate_public_interface_interaction,
-        )
-
         running = self._require(episode)
         self._stop_auto_tick(running)
         self._stop_npcs(running)
@@ -478,8 +479,6 @@ class EpisodeService:
         self,
         running: _RunningEpisode,
     ) -> tuple[Mapping[str, Any], ...]:
-        from openrange.core.runtime_helpers import read_requests
-
         if running.request_log is None:
             return ()
         with running.request_lock:

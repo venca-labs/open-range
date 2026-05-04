@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import tempfile
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass, field, replace
 from pathlib import Path
@@ -30,6 +31,7 @@ from openrange.core.pack import (
     PackRegistry,
     Task,
 )
+from openrange.core.runtime_backing import RUNTIME_BACKINGS, BackingContext
 from openrange.core.snapshot import Snapshot, freeze
 
 if TYPE_CHECKING:
@@ -194,12 +196,8 @@ def _resolve_builder(
     manifest: Manifest,
     context: BuildContext,
 ) -> Builder:
-    """Resolve the Builder for a build.
-
-    Precedence: ``manifest.builder`` (a registered BuilderRegistry id) wins
-    over the pack's default. This lets a user override a pack's default
-    builder without subclassing.
-    """
+    # Precedence: ``manifest.builder`` (BuilderRegistry id) overrides the
+    # pack's default builder.
     if manifest.builder is not None:
         return BUILDERS.resolve(manifest.builder, context)
     builder = pack.default_builder(context)
@@ -294,10 +292,6 @@ def _run_admission_probe(state: BuildState) -> BuildState:
     """
     if not state.feasibility_checks or state.runtime is None or not state.tasks:
         return state
-    import tempfile
-
-    from openrange.core.runtime_backing import RUNTIME_BACKINGS, BackingContext
-
     task = state.tasks[0]
     feasibility = state.feasibility_checks[0]
     entrypoint = task.entrypoints[0]
