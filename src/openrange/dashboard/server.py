@@ -138,13 +138,9 @@ class DashboardRequestHandler(BaseHTTPRequestHandler):
             view = server.view
             if view is None:
                 return {"runs": [], "default": None}
-            # Single-run mode: synthesize one entry. Prefer the live
-            # snapshot id when the writer is in-process; otherwise
-            # read it from the stored dashboard.json so the SPA gets
-            # a non-null ``default`` and ``openStreams`` actually
-            # opens the SSE connection. Falling back on a literal
-            # "single" id keeps the SPA functional even when no
-            # snapshot has landed yet.
+            # Single-run mode synthesizes a non-null id so the SPA
+            # picks a default run and opens its SSE stream — without
+            # a default the runs picker stalls in "no runs found".
             run_id: str
             if view.snapshot is not None:
                 run_id = view.snapshot.id

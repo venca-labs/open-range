@@ -254,11 +254,7 @@ def test_office_chatter_factory_rejects_bad_config() -> None:
 
 
 def test_office_chatter_emits_walks_via_record_action() -> None:
-    """Walks-only backend: every cadence tick emits a move event.
-
-    Speech is dashboard-driven (visitor opener + host reply on
-    arrival); the chatter itself does not emit ``speak`` events.
-    """
+    """Each cadence tick emits a move event carrying an opener and reply."""
     from cyber_webapp.npcs.office_chatter import OfficeChatter
 
     npc = OfficeChatter(name="Alice", cadence_ticks=1, walk_probability=1.0, seed=1)
@@ -276,9 +272,14 @@ def test_office_chatter_emits_walks_via_record_action() -> None:
     assert recorded[0]["action"] == {"present": True}
     npc.step({})
     npc.step({})
-    walks = [e for e in recorded if e["action"] != {"present": True}]
+    walks = [e for e in recorded if e["action"].get("move")]
     assert len(walks) == 2
-    assert all(e["action"] == {"move": "wandering"} for e in walks)
+    for entry in walks:
+        assert entry["action"]["move"] == "wandering"
+        assert isinstance(entry["action"]["opener"], str)
+        assert isinstance(entry["action"]["reply"], str)
+        assert entry["action"]["opener"]
+        assert entry["action"]["reply"]
 
 
 def test_office_chatter_passes_home_as_target() -> None:
@@ -328,14 +329,12 @@ def test_office_chatter_obeys_cadence() -> None:
 
     npc.start({"record_action": record})
     # Drop the start-time presence event; cadence-driven walks
-    # follow. Initial cooldown is staggered (random in
-    # [0, cadence_ticks)) so test against the expected count: with
-    # cadence=3 the chatter walks 10 times in any 30-tick window.
+    # follow. Initial cooldown is staggered so we just count.
     calls.clear()
     for _ in range(30):
         npc.step({})
     assert len(calls) == 10
-    assert all(c == {"move": "wandering"} for c in calls)
+    assert all(c.get("move") == "wandering" for c in calls)
 
 
 def test_office_chatter_walk_probability_zero_emits_nothing() -> None:

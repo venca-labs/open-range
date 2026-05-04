@@ -284,18 +284,13 @@ class AgentNPC(NPC):
             return
 
     def _mark_broken(self, reason: str, *, exc: BaseException | None = None) -> None:
-        """Set the broken sentinel + log one WARNING.
-
-        When ``exc`` is supplied the traceback is included; for
-        broken-by-config cases (no ``exc``) the message stands alone
-        rather than asking ``logging`` to introspect ``sys.exc_info``
-        outside any ``except`` block (which would either grab an
-        unrelated in-flight exception or print ``NoneType: None``).
-        """
         if self._broken:
             return
         self._broken = True
         self.broken_reason = reason
+        # exc_info=exc (not =True) — for broken-by-config cases there
+        # is no in-flight exception, and ``=True`` would grab whatever
+        # ``sys.exc_info`` returns from an unrelated traceback.
         _log.warning(
             "NPC %s is permanently broken (%s); "
             "the rest of the episode runs without it",
@@ -313,30 +308,16 @@ class AgentNPC(NPC):
     def _build_tools(
         self,
         interface: Mapping[str, Any],
-    ) -> Sequence[Callable[..., Any]]:
-        """Return tool callables bound over ``interface``.
-
-        Subclasses typically wrap interface methods (``http_get``,
-        ``http_get_json``, ...) with ``@strands.tool`` decorators so
-        the agent loop can call them. The base class does not import
-        strands itself — keep the decoration in the subclass.
-        """
+    ) -> Sequence[Callable[..., Any]]: ...
 
     def _user_prompt(self, interface: Mapping[str, Any]) -> str:
-        """The prompt handed to the agent on each acting tick."""
         del interface
         return (
             "Take one realistic action consistent with your role. "
             "Use the available tools. Keep it short."
         )
 
-    # -- overridable seams (tests inject fakes here) ----------------------
-
     def _build_agent(self, tools: Sequence[Callable[..., Any]]) -> Any:
-        """Construct the agent session via the configured backend.
-
-        Override in tests to bypass the backend entirely.
-        """
         backend = self._backend_override or self._runtime_backend
         if backend is None:
             raise AgentBackendError(
@@ -348,7 +329,6 @@ class AgentNPC(NPC):
         )
 
     def _invoke_agent(self, prompt: str) -> None:
-        """Run one agent turn with ``prompt``. Override for testing."""
         if self._agent is None:
             return
         self._agent(prompt)

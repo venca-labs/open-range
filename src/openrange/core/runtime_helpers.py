@@ -52,13 +52,11 @@ def start_runtime_process(
 ) -> subprocess.Popen[str]:
     """Spawn a Python subprocess for the entrypoint's runtime artifact.
 
-    Uses ``start_new_session=True`` so the runtime ends up in its own
-    process group — without it, Ctrl+C in the harness terminal sends
-    SIGINT to every child too. Some of those children (uvicorn,
-    HTTPServer) handle SIGINT via graceful-shutdown paths that race
-    with the parent's cleanup and leak the process when reparented to
-    PID 1. Owning a fresh group lets ``stop_process`` deterministically
-    SIGTERM the whole tree on shutdown.
+    Owns its own process group via ``start_new_session=True`` so
+    ``stop_process`` can SIGTERM the whole tree (uvicorn workers,
+    request threads, anything spawned downstream) without affecting
+    the harness, and so a Ctrl+C on the harness terminal doesn't
+    race-clean the runtime via the shared foreground group.
     """
     if not app_path.exists():
         raise EpisodeRuntimeError(f"runtime artifact is missing: {app_path.name}")
@@ -209,16 +207,11 @@ def cast_final_state(value: object) -> Mapping[str, Mapping[str, object]]:
 
 
 def stop_process(process: subprocess.Popen[str] | None) -> None:
-    """Terminate a runtime subprocess and (if owned) its whole group.
-
-    Subprocesses launched via :func:`start_runtime_process` are placed
-    in their own session/group so we can SIGTERM the entire tree —
-    that catches uvicorn workers, request threads, or anything spawned
-    downstream. We only group-kill when the subprocess's pgid actually
-    differs from ours; otherwise (e.g. a bare ``Popen`` for testing)
-    killing the group would also kill the caller. SIGKILL escalates
-    after 2s if the process is still alive. ``ProcessLookupError``
-    races with normal shutdown — swallow it.
+    """Terminate a runtime subprocess; if it owns its own process
+    group, terminate the whole group so descendants don't outlive
+    it. Falls back to ``process.terminate()`` for bare ``Popen``
+    instances that share the caller's pgid — group-killing those
+    would terminate the caller. SIGKILL after 2s if still alive.
     """
     if process is None or process.poll() is not None:
         return

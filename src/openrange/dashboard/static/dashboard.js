@@ -220,12 +220,9 @@ function actorDefinitions() {
 }
 
 function simulationFingerprint() {
-  // Fingerprint stability matters: any change here triggers a full
-  // world rebuild that disposes characters mid-walk. Limit it to
-  // *topology-derived* identity (stations + personas declared by
-  // the snapshot) — event-derived actors (chatters firing speech)
-  // are added incrementally by ``applySimulationEvent`` and don't
-  // need to bounce the scene.
+  // Topology-only — a fingerprint change rebuilds the scene and
+  // disposes characters mid-walk, so event-derived actors must NOT
+  // be part of it. They get added incrementally by ``applySimulationEvent``.
   const stationIds = stationDefinitions().map((station) => station.id).join("|");
   const personas = (model.topology.green_personas || []).length
     ? model.topology.green_personas
@@ -654,73 +651,41 @@ function applySimulationEvent(event) {
   if (!character) return;
 
   // Presence events spawn the character (handled above) and do
-  // nothing else — no bubble, no walk. Lets chatters show up at
-  // their desks the instant their NPC.start fires, before any
-  // cadence-driven action.
+  // nothing else — they exist so chatters show up at their desks
+  // before their first cadence-driven act.
   if (action.present) return;
 
-  // Speech events: pop a fading bubble over the character and stop —
-  // don't yank them across the floor toward an unrelated target.
   if (typeof action.speak === "string" && action.speak.length > 0) {
     spawnSpeechBubble(character, action.speak);
     return;
   }
 
-  // "move" event: walk to a colleague's desk for a chat, then return
-  // home a longer beat later. Desks only — services are off limits,
-  // the agent owns those. While the visitor is at the host's desk,
-  // schedule a brief reply bubble from the host so the exchange
-  // reads as a real two-way conversation rather than one NPC
-  // talking at a desk.
   if (character.homeDesk && action.move) {
     const targetDesk = pickColleagueDesk(character.homeDesk);
     if (!targetDesk) return;
     character.target = neighborOffset(targetDesk, actorId);
     const now = sim.clock?.getElapsedTime() || 0;
     character.returnHomeAt = now + 5.5 + Math.random() * 2;
-    scheduleConversation(character, targetDesk, now);
+    if (typeof action.opener === "string" && typeof action.reply === "string") {
+      scheduleConversation(character, targetDesk, action.opener, action.reply, now);
+    }
   }
 }
 
-// Coherent opener + reply pairs. The visitor speaks the opener once
-// they arrive at the colleague's desk; the host responds a beat
-// later with one of the matching replies. Keeps the chatter feeling
-// like an actual workplace exchange instead of disconnected one-
-// liners. Add more entries to grow the diversity — each new opener
-// is a one-line edit.
-const EXCHANGES = [
-  { opener: "deploy went out?", replies: ["yeah, just now", "still rolling", "blocked on review"] },
-  { opener: "coffee?", replies: ["please", "in five", "you read my mind"] },
-  { opener: "got a sec?", replies: ["sure, what's up?", "give me two", "yeah, hit me"] },
-  { opener: "build is red on main", replies: ["which test?", "i'll take a look", "ugh, again"] },
-  { opener: "did you see the slack thread?", replies: ["yeah, weird right?", "no, link me", "haven't caught up"] },
-  { opener: "lunch in 20?", replies: ["i'm in", "swamped, next time", "i'll meet you there"] },
-  { opener: "merge conflict on auth", replies: ["i'll rebase", "yours wins", "let's pair on it"] },
-  { opener: "rolled back the migration", replies: ["good call", "what broke?", "was it the index?"] },
-  { opener: "incident channel is quiet", replies: ["finally", "calm before the storm", "knock on wood"] },
-  { opener: "this query is slow", replies: ["explain analyze", "missing index?", "send me the plan"] },
-  { opener: "found a flaky test", replies: ["which one?", "rerun and ignore", "file a ticket"] },
-  { opener: "anyone seen the wifi go down?", replies: ["yeah just now", "mine's fine", "switching to hotspot"] },
-  { opener: "wfh tomorrow", replies: ["enjoy", "same", "send me your draft first"] },
-  { opener: "standup in five", replies: ["on my way", "i'll be late", "skip me, i'll post async"] },
-  { opener: "shipped the patch", replies: ["nice", "test in staging?", "thanks for the quick turn"] },
-  { opener: "i need another reviewer", replies: ["link me", "what's the size?", "i can take it"] },
-];
-
-function scheduleConversation(visitor, targetDesk, now) {
+function scheduleConversation(visitor, targetDesk, opener, reply, now) {
   const host = Object.values(sim.characters).find(
     (c) => c.homeDesk === targetDesk,
   );
   if (!host) return;
-  const exchange = EXCHANGES[Math.floor(Math.random() * EXCHANGES.length)];
-  const reply = exchange.replies[
-    Math.floor(Math.random() * exchange.replies.length)
-  ];
   if (!sim.pendingDialogue) sim.pendingDialogue = [];
-  // Visitor opens once they've arrived at the host's desk (~1.6s
-  // walk at 8 units/s); host replies a beat after that.
-  sim.pendingDialogue.push({ character: visitor, text: exchange.opener, atTime: now + 1.6 });
-  sim.pendingDialogue.push({ character: host, text: reply, atTime: now + 3.2 + Math.random() * 0.6 });
+  // Walks at 8 units/s land in ~1.6s, so the visitor's opener fires
+  // right when they arrive; the host replies a beat after.
+  sim.pendingDialogue.push({ character: visitor, text: opener, atTime: now + 1.6 });
+  sim.pendingDialogue.push({
+    character: host,
+    text: reply,
+    atTime: now + 3.2 + Math.random() * 0.6,
+  });
 }
 
 
@@ -865,12 +830,9 @@ function animateSimulation() {
       const dz = character.target.z - pos.z;
       const distance = Math.sqrt(dx * dx + dz * dz);
       if (distance > .24) {
-        // Sped-up walking — 8 units/s feels right for a "scurry across
-        // the office to chat" demo where chatter cadence is also fast.
         pos.x += (dx / distance) * dt * 8.0;
         pos.z += (dz / distance) * dt * 8.0;
         character.group.rotation.y = Math.atan2(dx, dz);
-        // Legs swing faster too (phase already advances at dt*7).
         character.legs.forEach((leg, index) => {
           leg.rotation.x = Math.sin(character.phase + index * Math.PI) * .65;
         });
@@ -1338,10 +1300,9 @@ function closeStreams() {
   }
 }
 
-// Coalesce rapid-fire SSE events (the backlog burst on reconnect can
-// be 200 events in one frame) into a single refresh per ~150ms. The
-// model is fetched whole anyway — there's no value in hammering the
-// API once per event.
+// Coalesce SSE bursts: ``subscribe_sync`` can yield 200+ backlog
+// events in one frame, and the API fetch is whole-state anyway, so
+// one refresh per 150ms is enough.
 let _refreshScheduled = false;
 function scheduleRefresh() {
   if (_refreshScheduled) return;
@@ -1356,14 +1317,12 @@ function openStreams() {
   closeStreams();
   if (!runState.activeRun) return;
   runState.events = new EventSource(withRun("/api/events/stream"));
-  runState.events.addEventListener("agent_step", scheduleRefresh);
-  runState.events.addEventListener("env_turn", scheduleRefresh);
-  runState.events.addEventListener("note", scheduleRefresh);
-  // Also catch builder_step — without this the SPA stalls in the
-  // "no admitted world" empty state right after the build finishes
-  // and before the first env_turn fires, since nothing else triggers
-  // a topology re-fetch in that window.
-  runState.events.addEventListener("builder_step", scheduleRefresh);
+  // builder_step is included so the SPA refetches topology the
+  // moment the build lands — the empty-state placeholder hands off
+  // to the live world without waiting for the first env_turn.
+  for (const eventType of ["agent_step", "env_turn", "note", "builder_step"]) {
+    runState.events.addEventListener(eventType, scheduleRefresh);
+  }
   runState.narration = new EventSource(withRun("/api/narrate/stream"));
   runState.narration.addEventListener("narration", scheduleRefresh);
 }
@@ -1497,12 +1456,10 @@ function tickFreshnessIndicator() {
   const subtitle = document.getElementById("sim-subtitle");
   if (!subtitle || !runState.lastRefreshAt) return;
   const ageSec = Math.floor((Date.now() - runState.lastRefreshAt) / 1000);
-  const base = subtitle.dataset.base || subtitle.textContent || "";
-  if (!subtitle.dataset.base) subtitle.dataset.base = base;
-  // Append a small live indicator. Stays under the user's notice
-  // when fresh; obvious when stale.
-  const stale = ageSec > 5;
-  subtitle.textContent = stale
+  if (!subtitle.dataset.base) {
+    subtitle.dataset.base = subtitle.textContent || "";
+  }
+  subtitle.textContent = ageSec > 5
     ? `${subtitle.dataset.base} · last update ${ageSec}s ago`
     : subtitle.dataset.base;
 }
@@ -1510,16 +1467,13 @@ function tickFreshnessIndicator() {
 (async () => {
   await safeRefreshRuns();
   await safeRefresh();
-  // Re-discover runs every 5s so a fresh run dir created by the
-  // writer mid-session shows up.
   setInterval(safeRefreshRuns, 5000);
-  // Polling refresh — primary live-update path. SSE is a secondary
-  // optimization that delivers events between polls; if it breaks
-  // for any reason (browser disconnect, intermediary timeout,
-  // proxy quirks) the 1s poll keeps the UI accurate.
+  // 1s polling is the primary live-update path; SSE is a secondary
+  // optimization that fills in events between polls. If SSE drops
+  // silently (browser quirk, proxy timeout, idle close) the poll
+  // keeps the UI accurate.
   setInterval(() => {
     if (runState.activeRun) safeRefresh();
   }, 1000);
-  // Update the freshness indicator each second.
   setInterval(tickFreshnessIndicator, 1000);
 })();

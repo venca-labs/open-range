@@ -1,27 +1,21 @@
 """``cyber.office_chatter`` — a person walking around the office.
 
-Scripted, no LLM required. The backend is intentionally minimal: each
-chatter only emits *walk* events (``record_action({"move":
-"wandering"})``). The dashboard owns the dialogue: when a visitor
-arrives at a colleague's desk, the JS picks a coherent
-opener-and-reply exchange from its global pool and animates the
-two-way conversation. Keeping dialogue choreography on the JS side
-lets the office hum with sensible back-and-forth without any
-backend coordination between chatters.
+Scripted, no LLM. Each acting tick the chatter walks toward a
+colleague, and the move event carries an ``opener`` line plus a
+``reply`` line drawn from a paired-exchange pool. The dashboard
+animates the walk and pops both bubbles at the appropriate beat;
+all dialogue content lives in the pack, so the renderer stays
+generic.
 
 Config:
     name: str (required)           — display name + dashboard actor_id
-    cadence_ticks: int = 6         — act every Nth tick (walk attempt)
+    cadence_ticks: int = 6         — act every Nth tick
     home: str | None = None        — optional service id for the
-                                     ``move`` event's target field;
-                                     advisory — the dashboard picks
-                                     the destination desk itself.
-    walk_probability: float = 1.0  — chance an acting tick triggers a
-                                     walk (otherwise the chatter just
-                                     stands at the desk for that
-                                     window).
-    seed: int | None = None        — deterministic randomness for
-                                     reproducible gif demos
+                                     move event's target field
+    walk_probability: float = 1.0  — chance an acting tick walks
+                                     (otherwise the chatter is idle
+                                     for that window)
+    seed: int | None = None        — deterministic randomness
 """
 
 from __future__ import annotations
@@ -32,11 +26,36 @@ from typing import Any
 
 from openrange import NPC
 
+EXCHANGES: tuple[tuple[str, tuple[str, ...]], ...] = (
+    ("deploy went out?", ("yeah, just now", "still rolling", "blocked on review")),
+    ("coffee?", ("please", "in five", "you read my mind")),
+    ("got a sec?", ("sure, what's up?", "give me two", "yeah, hit me")),
+    ("build is red on main", ("which test?", "i'll take a look", "ugh, again")),
+    (
+        "did you see the slack thread?",
+        ("yeah, weird right?", "no, link me", "haven't caught up"),
+    ),
+    ("lunch in 20?", ("i'm in", "swamped, next time", "i'll meet you there")),
+    ("merge conflict on auth", ("i'll rebase", "yours wins", "let's pair on it")),
+    ("rolled back the migration", ("good call", "what broke?", "was it the index?")),
+    (
+        "incident channel is quiet",
+        ("finally", "calm before the storm", "knock on wood"),
+    ),
+    ("this query is slow", ("explain analyze", "missing index?", "send me the plan")),
+    ("found a flaky test", ("which one?", "rerun and ignore", "file a ticket")),
+    (
+        "anyone seen the wifi go down?",
+        ("yeah just now", "mine's fine", "switching to hotspot"),
+    ),
+    ("wfh tomorrow", ("enjoy", "same", "send me your draft first")),
+    ("standup in five", ("on my way", "i'll be late", "skip me, i'll post async")),
+    ("shipped the patch", ("nice", "test in staging?", "thanks for the quick turn")),
+    ("i need another reviewer", ("link me", "what's the size?", "i can take it")),
+)
+
 
 class OfficeChatter(NPC):
-    """A scripted office NPC. Walks to colleagues. The dashboard
-    handles speech; this class never emits ``speak`` events itself."""
-
     def __init__(
         self,
         *,
@@ -57,18 +76,14 @@ class OfficeChatter(NPC):
         self._home = home
         self._walk_probability = walk_probability
         self._rng = random.Random(seed)
-        # Stagger the very first action so a roomful of chatters
-        # constructed at the same instant doesn't fire in lock-step
-        # on tick 0. Each NPC's initial cooldown is a different
-        # offset within ``[0, cadence_ticks)``; same seed gives the
-        # same offset across re-runs so the gif stays reproducible.
+        # Stagger the first action across a roomful of chatters so they
+        # don't all fire on tick 0. Same seed gives the same offset so
+        # demo recordings reproduce.
         self._cooldown = self._rng.randrange(cadence_ticks) if cadence_ticks > 1 else 0
         self._record: Any = None
 
     def start(self, context: Mapping[str, Any]) -> None:
         self._record = context.get("record_action")
-        # Announce presence so the dashboard can spawn this chatter
-        # at their home desk *before* their first cadence-driven act.
         if self._record is not None:
             self._record({"present": True})
 
@@ -80,11 +95,18 @@ class OfficeChatter(NPC):
         self._cooldown = self._cadence_ticks - 1
         if self._record is None:
             return
-        if self._rng.random() < self._walk_probability:
-            if self._home is not None:
-                self._record({"move": "wandering"}, target=self._home)
-            else:
-                self._record({"move": "wandering"})
+        if self._rng.random() >= self._walk_probability:
+            return
+        opener, replies = self._rng.choice(EXCHANGES)
+        action: dict[str, object] = {
+            "move": "wandering",
+            "opener": opener,
+            "reply": self._rng.choice(replies),
+        }
+        if self._home is not None:
+            self._record(action, target=self._home)
+        else:
+            self._record(action)
 
 
 def factory(config: Mapping[str, object]) -> NPC:
