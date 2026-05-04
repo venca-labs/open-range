@@ -153,59 +153,38 @@ def test_strict_undefined_catches_missing_param() -> None:
 # ---------------------------------------------------------------------------
 
 
-class _FakeStore:
-    """Minimal data-store double that recognizes UNION SELECT exfiltration."""
-
-    def __init__(
-        self,
-        rows: dict[str, dict[str, str]],
-        leakable: dict[str, str],
-    ) -> None:
-        self.rows = rows  # {key -> {column -> value}}
-        self.leakable = leakable  # column -> leaked value (when UNION SELECT lands)
-
-    def execute(self, sql: str) -> list[dict[str, str]]:
-        # Crude SQL parser: detect a UNION SELECT against our leak target,
-        # otherwise return rows matching the WHERE key='...' literal.
-        if "UNION SELECT" in sql.upper():
-            for column, value in self.leakable.items():
-                if column.lower() in sql.lower():
-                    return [{"key": "leaked", column: value}]
-            return []
-        # Look for WHERE key='X'
-        import re
-        match = re.search(r"WHERE\s+key\s*=\s*'([^']*)'", sql)
-        if not match:
-            return []
-        key = match.group(1)
-        row = self.rows.get(key)
-        if row is None:
-            return []
-        return [{"key": key, **row}]
-
-
 def test_sql_injection_actually_exfiltrates() -> None:
+    import sqlite3
+
     src = render_vulnerability(
         SQL_INJECTION,
         {"target_param": "q", "table": "rows", "leak_column": "secret_col"},
     )
     handle = _exec_handler(src)
-    store = _FakeStore(
-        rows={"public": {"value": "ok"}},
-        leakable={"secret_col": "ORANGE{exfiltrated}"},
+
+    db = sqlite3.connect(":memory:", check_same_thread=False)
+    db.row_factory = sqlite3.Row
+    db.execute("CREATE TABLE rows (key TEXT PRIMARY KEY, secret_col TEXT)")
+    db.execute(
+        "INSERT INTO rows (key, secret_col) VALUES (?, ?)", ("public", "ok"),
     )
-    state = {"data_store": store}
+    db.execute(
+        "INSERT INTO rows (key, secret_col) VALUES (?, ?)",
+        ("admin", "EXFIL_TOKEN_42"),
+    )
+    db.commit()
+    state = {"db": db}
 
     # Benign request: returns the public row.
     status, _, body = handle({"q": ["public"]}, state)
     assert status == 200
     assert b"ok" in body
 
-    # Malicious request: UNION SELECT exfiltrates the secret column.
-    payload = "' UNION SELECT secret_col -- "
+    # Malicious request: UNION SELECT exfiltrates every secret_col value.
+    payload = "' UNION SELECT key, secret_col FROM rows -- "
     status, _, body = handle({"q": [payload]}, state)
     assert status == 200
-    assert b"ORANGE{exfiltrated}" in body, body
+    assert b"EXFIL_TOKEN_42" in body, body
 
 
 def test_ssrf_actually_fetches_internal(tmp_path: Path) -> None:

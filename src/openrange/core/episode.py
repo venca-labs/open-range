@@ -10,6 +10,7 @@ agent action; ``record_turn`` is observational only. ``tick`` and
 from __future__ import annotations
 
 import shutil
+import tempfile
 import threading
 import uuid
 from collections.abc import Mapping
@@ -213,10 +214,16 @@ class EpisodeService:
             if not candidate.exists()
             else self.run_root / f"{task.id}-{episode_id}"
         )
-        env_root = episode_root / "env"
         agent_root = episode_root / "agent"
-        env_root.mkdir(parents=True)
-        agent_root.mkdir()
+        agent_root.mkdir(parents=True)
+        # env_root holds the materialized world (rendered app source,
+        # SQLite seed, request log). Place it OUTSIDE the run root so an
+        # agent confined to its workspace cannot reach the rendered
+        # source files via ``../env``. The dashboard records the env
+        # path in events so a human can find it for inspection.
+        env_root = Path(
+            tempfile.mkdtemp(prefix=f"openrange-env-{episode_id}-"),
+        )
 
         running_artifact = backing.start(
             entrypoint,
@@ -284,6 +291,11 @@ class EpisodeService:
         verifier_result = MappingProxyType(dict(verifier(final_state)))
         running.verifier_result = verifier_result
         self._record_system(running, {"finish": True}, state=final_state)
+        # Now that the agent process is gone, snapshot the env tree into
+        # the run root for human inspection. The runtime already deleted
+        # ``seed.json`` at startup, so this copy contains rendered
+        # source + request log only — no in-flight secrets.
+        self._snapshot_env_to_run_root(running)
         return EpisodeReport(
             snapshot_id=running.snapshot.id,
             task_id=running.task.id,
@@ -291,6 +303,21 @@ class EpisodeService:
             verifier_result=verifier_result,
             agent_summary=running.agent_summary,
         )
+
+    def _snapshot_env_to_run_root(self, running: _RunningEpisode) -> None:
+        if not running.env_root.exists():
+            return
+        destination = running.run_root / "env"
+        if destination.exists():
+            shutil.rmtree(destination)
+        try:
+            shutil.copytree(running.env_root, destination)
+        except OSError:
+            return
+        try:
+            shutil.rmtree(running.env_root)
+        except OSError:
+            return
 
     def check_episode(self, episode: EpisodeHandle) -> EpisodeReport:
         """Idempotent: returns the report from a stopped episode."""

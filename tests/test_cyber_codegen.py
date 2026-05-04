@@ -105,6 +105,15 @@ def _wait_for_port(port: int, timeout: float = 3.0) -> None:
     raise TimeoutError(f"port {port} did not open")
 
 
+def _materialize(files: dict[str, str], dest: Path) -> Path:
+    """Write every bundle file under ``dest`` and return the app.py path."""
+    for relative, content in files.items():
+        target = dest / relative
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_text(content, encoding="utf-8")
+    return dest / "app.py"
+
+
 def _spawn_app(app_py: Path, log_path: Path) -> tuple[subprocess.Popen[str], int]:
     process = subprocess.Popen(
         [sys.executable, str(app_py), "--port", "0", "--log", str(log_path)],
@@ -125,8 +134,7 @@ def _spawn_app(app_py: Path, log_path: Path) -> tuple[subprocess.Popen[str], int
 def test_realized_app_serves_root_route(tmp_path: Path) -> None:
     snapshot = build(V1_MANIFEST)
     files = dict(snapshot.runtime.files())
-    app_py = tmp_path / "app.py"
-    app_py.write_text(files["app.py"], encoding="utf-8")
+    app_py = _materialize(files, tmp_path)
     log_path = tmp_path / "requests.jsonl"
     process, port = _spawn_app(app_py, log_path)
     try:
@@ -143,8 +151,7 @@ def test_realized_app_serves_root_route(tmp_path: Path) -> None:
 def test_realized_app_404s_unknown_route(tmp_path: Path) -> None:
     snapshot = build(V1_MANIFEST)
     files = dict(snapshot.runtime.files())
-    app_py = tmp_path / "app.py"
-    app_py.write_text(files["app.py"], encoding="utf-8")
+    app_py = _materialize(files, tmp_path)
     log_path = tmp_path / "requests.jsonl"
     process, port = _spawn_app(app_py, log_path)
     try:
@@ -224,8 +231,7 @@ def test_realized_sql_injection_exfiltrates_flag(tmp_path: Path) -> None:
     manifest = Manifest.load(V1_MANIFEST)
     graph = _build_with_specific_vuln("sql_injection")
     bundle = realize_graph(graph, manifest)
-    app_py = tmp_path / "app.py"
-    app_py.write_text(dict(bundle.files())["app.py"], encoding="utf-8")
+    app_py = _materialize(dict(bundle.files()), tmp_path)
     log_path = tmp_path / "requests.jsonl"
     process, port = _spawn_app(app_py, log_path)
     try:
@@ -237,10 +243,11 @@ def test_realized_sql_injection_exfiltrates_flag(tmp_path: Path) -> None:
             payload = json.loads(response.read().decode())
         assert "rows" in payload
 
-        # malicious UNION SELECT: leaks the flag via the value column.
+        # malicious UNION SELECT against real sqlite: dump every row's value
+        # column. Two-column SELECT to match the base query's column count.
         from urllib.parse import quote
 
-        evil = quote("' UNION SELECT value -- ")
+        evil = quote("' UNION SELECT key, value FROM records -- ")
         with urllib.request.urlopen(
             f"http://127.0.0.1:{port}/search?q={evil}", timeout=2,
         ) as response:
@@ -257,8 +264,7 @@ def test_realized_broken_authz_grants_admin_with_forged_header(tmp_path: Path) -
     manifest = Manifest.load(V1_MANIFEST)
     graph = _build_with_specific_vuln("broken_authz")
     bundle = realize_graph(graph, manifest)
-    app_py = tmp_path / "app.py"
-    app_py.write_text(dict(bundle.files())["app.py"], encoding="utf-8")
+    app_py = _materialize(dict(bundle.files()), tmp_path)
     log_path = tmp_path / "requests.jsonl"
     process, port = _spawn_app(app_py, log_path)
     try:
@@ -308,18 +314,20 @@ def test_patched_vuln_removed_from_generated_app() -> None:
     s2 = evolve(s1, curriculum={"patch": list(kinds_before)})
     src_after = dict(s2.runtime.files())["app.py"]
     # All vuln handlers gone; only default handlers remain. The SQLi
-    # template's distinctive marker is the SQL string interpolation;
-    # SSRF's is `urlopen(`; broken_authz's is the trust_header check.
-    # None of those should appear in handler bodies after patching.
-    assert "state['data_store'].execute(sql)" not in src_after
+    # template's distinctive marker is unparameterized f-string
+    # interpolation of user input into SQL — default db handlers use
+    # ``?`` parameter binding. SSRF's marker is ``_ALLOWLIST``;
+    # broken_authz's is reading from ``state["secrets"]``.
+    assert "'{user_input}'" not in src_after, src_after
     assert "_ALLOWLIST" not in src_after
+    assert 'state.get("secrets"' not in src_after
     # Default handlers vary per service kind; the per-kind markers tell
     # us at least one default body landed.
     default_markers = (
-        '"items": []',         # api default
-        '"rows": []',          # db default
-        '"session": None',     # auth default
-        "<h1>",                # web default (HTML)
-        '"status": "ok"',      # generic fallback
+        '"items": []',          # api default
+        '"count": len(rows)',   # db default (parameterized SELECT)
+        '"session": None',      # auth default
+        "<h1>",                 # web default (HTML)
+        '"status": "ok"',       # generic fallback
     )
     assert any(m in src_after for m in default_markers), src_after

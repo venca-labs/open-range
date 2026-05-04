@@ -1,14 +1,17 @@
-"""Generated multi-service cyber webapp runtime.
+"""Generated multi-service webapp runtime.
 
-This file is produced by ``cyber_webapp.codegen`` from a WorldGraph
-+ manifest. It is *not* the canonical pack source — editing it by
-hand will be overwritten on the next build.
+Produced by ``cyber_webapp.codegen`` from a WorldGraph + manifest. Hand
+edits will be overwritten by the next build. The flag value is NOT in
+this file; ``seed.json`` is loaded into an in-memory SQLite database at
+startup, then deleted from disk before the server begins accepting
+requests.
 """
 from __future__ import annotations
 
 import argparse
 import json
 import re
+import sqlite3
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.error import URLError
@@ -17,53 +20,42 @@ from urllib.request import urlopen
 
 
 # ---------------------------------------------------------------------------
-# Seed state — baked at codegen time
+# Bootstrap — load seed.json into in-memory SQLite, then unlink the seed.
 # ---------------------------------------------------------------------------
 
-_FLAG = {{ flag | tojson }}
-_ACCOUNTS = {{ accounts | tojson }}
-_SECRETS = {{ secrets | tojson }}
-_RECORDS = {{ records | tojson }}
 
+def _load_seed_and_init_state(seed_path: Path) -> dict:
+    raw = seed_path.read_text(encoding="utf-8")
+    seed_path.unlink()
+    payload = json.loads(raw)
+    schema = payload["schema"]
+    table = schema["table"]
+    key_col = schema["key_column"]
+    value_col = schema["value_column"]
 
-class _DataStore:
-    """Crude SQL-aware key-value store.
+    db = sqlite3.connect(":memory:", check_same_thread=False)
+    db.row_factory = sqlite3.Row
+    cursor = db.cursor()
+    cursor.execute(
+        f"CREATE TABLE {table} ({key_col} TEXT PRIMARY KEY, {value_col} TEXT)",
+    )
+    for record_key, fields in payload["records"].items():
+        cursor.execute(
+            f"INSERT INTO {table} ({key_col}, {value_col}) VALUES (?, ?)",
+            (record_key, fields.get(value_col, "")),
+        )
+    db.commit()
 
-    ``execute(sql)`` recognizes UNION SELECT exfiltration (the SQLi
-    template's exploit form) and returns the leaked secret. Otherwise
-    it parses ``WHERE key = '<value>'`` and returns matching rows.
-    """
-
-    def __init__(self, rows):
-        self.rows = rows
-
-    def execute(self, sql):
-        if "UNION SELECT" in sql.upper():
-            for key, row in self.rows.items():
-                for column, value in row.items():
-                    if column.lower() in sql.lower():
-                        return [{"key": "leaked", column: value}]
-            return []
-        match = re.search(r"WHERE\s+key\s*=\s*'([^']*)'", sql)
-        if not match:
-            return []
-        key = match.group(1)
-        row = self.rows.get(key)
-        if row is None:
-            return []
-        return [{"key": key, **row}]
-
-
-_STATE = {
-    "data_store": _DataStore(_RECORDS),
-    "secrets": {**_SECRETS, "value": _FLAG, "flag": _FLAG},
-    "accounts": _ACCOUNTS,
-}
+    return {
+        "db": db,
+        "secrets": payload["secrets"],
+        "accounts": payload["accounts"],
+        "schema": schema,
+    }
 
 
 # ---------------------------------------------------------------------------
-# Endpoint handlers — one per (service, endpoint). Vulnerable endpoints have
-# the rendered vuln template inlined here.
+# Endpoint handlers — one per (service, endpoint).
 # ---------------------------------------------------------------------------
 
 {% for handler in handlers %}
@@ -83,11 +75,20 @@ _DISCOVERY = {{ discovery | tojson }}
 def _index(query, state):
     """Public landing page — always available so probes have a route."""
     del query, state
-    return 200, {"Content-Type": "text/html"}, b"<h1>OpenRange</h1>"
+    return 200, {"Content-Type": "text/html"}, _index_html()
+
+
+def _index_html() -> bytes:
+    title = _DISCOVERY.get("title", "Service")
+    body = (
+        f"<!doctype html><html><head><title>{title}</title></head>"
+        f"<body><h1>{title}</h1><p>OK</p></body></html>"
+    )
+    return body.encode()
 
 
 def _openapi(query, state):
-    """Discovery endpoint — agents and admin NPCs enumerate here."""
+    """Public OpenAPI-ish discovery endpoint."""
     del query, state
     return (
         200,
@@ -101,7 +102,6 @@ ROUTES = {
     {{ route.path | tojson }}: {{ route.handler }},
 {% endfor %}
 }
-# Ensure `/` and `/openapi.json` are always reachable.
 ROUTES.setdefault("/", _index)
 ROUTES.setdefault("/openapi.json", _openapi)
 
@@ -117,7 +117,7 @@ class Handler(BaseHTTPRequestHandler):
             self.respond_simple(404, "text/plain", b"not found\n")
             return
         try:
-            status, headers, body = handler(query, _STATE)
+            status, headers, body = handler(query, self.server.state)
         except Exception as exc:  # noqa: BLE001
             self.respond_simple(500, "text/plain", str(exc).encode())
             return
@@ -141,9 +141,10 @@ class Handler(BaseHTTPRequestHandler):
 
 
 class WebappServer(ThreadingHTTPServer):
-    def __init__(self, address, *, log_path):
+    def __init__(self, address, *, log_path, state):
         super().__init__(address, Handler)
         self.log_path = log_path
+        self.state = state
 
     def log_access(self, method, path, status):
         row = {"method": method, "path": path, "status": status}
@@ -156,12 +157,15 @@ def main():
     parser.add_argument("--host", default="127.0.0.1")
     parser.add_argument("--port", type=int, default=0)
     parser.add_argument("--log", type=Path, required=True)
+    parser.add_argument("--seed", type=Path, default=Path(__file__).parent / "seed.json")
     args = parser.parse_args()
 
     args.log.parent.mkdir(parents=True, exist_ok=True)
     args.log.write_text("", encoding="utf-8")
 
-    server = WebappServer((args.host, args.port), log_path=args.log)
+    state = _load_seed_and_init_state(args.seed)
+
+    server = WebappServer((args.host, args.port), log_path=args.log, state=state)
     host, port = server.server_address[0], server.server_address[1]
     print(json.dumps({"host": host, "port": port}), flush=True)
     server.serve_forever()

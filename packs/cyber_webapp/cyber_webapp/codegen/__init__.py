@@ -25,6 +25,7 @@ real.
 
 from __future__ import annotations
 
+import json
 from pathlib import Path
 from types import MappingProxyType
 
@@ -43,11 +44,12 @@ _TEMPLATES_DIR = Path(__file__).parent / "templates"
 
 
 def realize_graph(graph: WorldGraph, manifest: Manifest) -> RuntimeBundle:
-    """Render ``graph`` into a single-file RuntimeBundle for HTTPBacking.
+    """Render ``graph`` into a multi-file RuntimeBundle for HTTPBacking.
 
-    The bundle has one ``RuntimeArtifact`` of kind ``"file"`` with path
-    ``"app.py"`` and one ``Entrypoint`` of kind ``"http"`` targeting
-    the public web service.
+    The bundle ships ``app.py`` (executable; no secrets) plus
+    ``seed.json`` (accounts/secrets/records + SQL schema). At startup
+    ``app.py`` reads the seed into an in-memory SQLite db and unlinks
+    the file, so the agent never sees the secret on disk.
     """
     seed = project_seed(graph)
     handlers, routes = build_handlers_and_routes(graph)
@@ -55,22 +57,32 @@ def realize_graph(graph: WorldGraph, manifest: Manifest) -> RuntimeBundle:
 
     template = _jinja_env().get_template("app.py.j2")
     source = template.render(
-        flag=seed["flag"],
-        accounts=seed["accounts"],
-        secrets=seed["secrets"],
-        records=seed["records"],
         handlers=handlers,
         routes=routes,
         discovery=discovery,
     )
 
-    artifact = RuntimeArtifact(
-        id="app.py",
-        kind="file",
-        metadata=MappingProxyType({"path": "app.py", "content": source}),
-    )
+    seed_payload = {
+        "accounts": dict(seed["accounts"]),
+        "secrets": dict(seed["secrets"]),
+        "records": {k: dict(v) for k, v in seed["records"].items()},
+        "schema": dict(seed["schema"]),
+    }
+    seed_json = json.dumps(seed_payload, sort_keys=True, indent=2)
+
     return RuntimeBundle(
-        artifacts=(artifact,),
+        artifacts=(
+            RuntimeArtifact(
+                id="app.py",
+                kind="file",
+                metadata=MappingProxyType({"path": "app.py", "content": source}),
+            ),
+            RuntimeArtifact(
+                id="seed.json",
+                kind="file",
+                metadata=MappingProxyType({"path": "seed.json", "content": seed_json}),
+            ),
+        ),
         entrypoints=(http_entrypoint(manifest),),
     )
 

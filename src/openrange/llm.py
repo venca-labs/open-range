@@ -68,6 +68,12 @@ class CodexBackend:
     cwd: Path | None = None
     timeout: float = 120.0
     sandbox: str = "read-only"
+    # Extra ``-c key=value`` args passed straight through to ``codex
+    # exec``. The agent harness uses this to enable network egress when
+    # running under ``workspace-write`` (``sandbox_workspace_write.
+    # network_access=true``) without losing the read-restriction the
+    # workspace sandbox provides.
+    config_overrides: tuple[str, ...] = ()
 
     def complete(self, request: LLMRequest) -> LLMResult:
         with tempfile.TemporaryDirectory() as tmp:
@@ -85,6 +91,8 @@ class CodexBackend:
                 self.sandbox,
                 "--skip-git-repo-check",
             ]
+            for override in self.config_overrides:
+                command.extend(("-c", override))
             if request.json_schema is not None:
                 schema_path.write_text(
                     json.dumps(request.json_schema),
