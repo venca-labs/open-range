@@ -80,6 +80,135 @@ main {
   width: min(32rem, calc(100% - 2.4rem));
   padding: .9rem 1rem;
 }
+.sim-runs-toggle {
+  position: absolute;
+  top: 1.2rem;
+  left: 1.2rem;
+  z-index: 7;
+  font-family: inherit;
+  font-size: .72rem;
+  font-weight: 800;
+  letter-spacing: .12em;
+  padding: .55rem .9rem;
+  background: var(--sim-panel);
+  color: #f8fafc;
+  border: 3px solid var(--sim-line);
+  box-shadow: 5px 5px 0 rgba(0, 0, 0, .72);
+  cursor: pointer;
+  /* keeps the title's left edge clear of the button */
+}
+/* Override the earlier .sim-title rule so the button has its corner;
+   later rule wins via cascade order. */
+.sim-title {
+  left: 6.8rem;
+  width: min(32rem, calc(100% - 8rem));
+}
+.sim-runs-toggle:hover {
+  background: rgba(0, 0, 0, .55);
+}
+.sim-runs-toggle[aria-expanded="true"] {
+  background: var(--sim-accent, #f97316);
+  color: #0b0f17;
+}
+.sim-runs-drawer {
+  top: 0;
+  left: 0;
+  bottom: 0;
+  width: min(22rem, 92vw);
+  background: var(--sim-panel);
+  border-right: 3px solid var(--sim-line);
+  box-shadow: 8px 0 0 rgba(0, 0, 0, .55);
+  color: #f8fafc;
+  pointer-events: auto;
+  z-index: 6;
+  padding: 4.4rem 1rem 1rem;
+  display: flex;
+  flex-direction: column;
+  gap: .65rem;
+  transform: translateX(-105%);
+  transition: transform .22s ease-in-out;
+  overflow: hidden;
+}
+.sim-runs-drawer.is-open {
+  transform: translateX(0);
+}
+.sim-runs-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: .5rem;
+}
+.sim-runs-count {
+  font-size: .7rem;
+  letter-spacing: .04em;
+  opacity: .72;
+  text-transform: uppercase;
+}
+.sim-run-follow {
+  display: flex;
+  align-items: center;
+  gap: .4rem;
+  font-size: .72rem;
+  text-transform: uppercase;
+  letter-spacing: .04em;
+  cursor: pointer;
+  user-select: none;
+  padding: .3rem 0;
+  border-bottom: 1px dashed rgba(255, 255, 255, .18);
+}
+.sim-run-follow input {
+  accent-color: var(--sim-accent, #f97316);
+  cursor: pointer;
+}
+.sim-runs-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  overflow-y: auto;
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: .35rem;
+}
+.sim-runs-list .sim-runs-empty {
+  padding: 1rem .25rem;
+  font-size: .75rem;
+  opacity: .7;
+  text-align: center;
+}
+.sim-run-item {
+  padding: .55rem .65rem;
+  border: 2px solid rgba(255, 255, 255, .15);
+  background: rgba(0, 0, 0, .25);
+  cursor: pointer;
+  display: flex;
+  flex-direction: column;
+  gap: .15rem;
+  transition: background .12s ease, border-color .12s ease;
+}
+.sim-run-item:hover {
+  background: rgba(0, 0, 0, .45);
+  border-color: rgba(255, 255, 255, .35);
+}
+.sim-run-item.is-active {
+  background: var(--sim-accent, #f97316);
+  color: #0b0f17;
+  border-color: var(--sim-accent, #f97316);
+}
+.sim-run-item .sim-run-id {
+  font-weight: 700;
+  font-size: .78rem;
+  word-break: break-all;
+}
+.sim-run-item .sim-run-meta {
+  font-size: .68rem;
+  letter-spacing: .04em;
+  text-transform: uppercase;
+  opacity: .8;
+}
+.sim-run-item.is-active .sim-run-meta {
+  opacity: .9;
+}
 .sim-title h1 {
   margin: 0;
   font-size: clamp(1.15rem, 2.4vw, 2.1rem);

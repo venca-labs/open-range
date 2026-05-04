@@ -1,4 +1,11 @@
-"""HTTP server that exposes a DashboardView and serves the SPA frontend."""
+"""HTTP server that exposes a runs-aware dashboard and serves the SPA frontend.
+
+The server holds a ``RunsRegistry`` and resolves ``DashboardView`` per
+request via the ``?run=<id>`` query param (falling back to the
+registry's newest run). Single-run mode is supported for embedded use
+(``OpenRangeRun.serve_dashboard()``) — pass a single ``view`` and no
+registry.
+"""
 
 from __future__ import annotations
 
@@ -8,8 +15,9 @@ from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from typing import cast
-from urllib.parse import urlsplit
+from urllib.parse import parse_qs, urlsplit
 
+from openrange.dashboard.runs import RunsRegistry
 from openrange.dashboard.view import DashboardView
 
 STATIC_ROOT = Path(__file__).parent / "static"
@@ -22,39 +30,70 @@ STATIC_CONTENT_TYPES: Mapping[str, str] = {
 
 
 class DashboardHTTPServer(ThreadingHTTPServer):
+    """Serves the dashboard SPA + JSON / SSE endpoints.
+
+    Multi-run mode: pass ``runs`` (a ``RunsRegistry``).
+    Single-run mode: pass ``view`` (a ``DashboardView``); the SPA still
+    works but ``/api/runs`` returns one synthetic entry for it.
+    """
+
     def __init__(
         self,
         server_address: tuple[str, int],
-        view: DashboardView,
+        view: DashboardView | None = None,
+        *,
+        runs: RunsRegistry | None = None,
     ) -> None:
+        if view is None and runs is None:
+            raise ValueError("DashboardHTTPServer needs `view` or `runs`")
         self.view = view
+        self.runs = runs
         super().__init__(server_address, DashboardRequestHandler)
+
+    def view_for(self, run_id: str | None) -> DashboardView | None:
+        if self.runs is None:
+            return self.view
+        if run_id is None:
+            run_id = self.runs.default_run_id()
+        if run_id is None:
+            return None
+        return self.runs.view_for(run_id)
 
 
 class DashboardRequestHandler(BaseHTTPRequestHandler):
     def do_GET(self) -> None:
-        path = urlsplit(self.path).path
+        parsed = urlsplit(self.path)
+        path = parsed.path
         if path == "/":
             self._write_static("index.html")
             return
         if path.startswith("/static/"):
             self._write_static(path[len("/static/") :])
             return
+        if path == "/api/runs":
+            self._write_json(self._runs_payload())
+            return
+        view = self._resolve_view(parsed.query)
+        if view is None:
+            self._write_json(
+                {"error": "no runs available; runs-dir is empty"},
+                HTTPStatus.NOT_FOUND,
+            )
+            return
         if path == "/api/events/stream":
-            self._stream_events()
+            self._stream_events(view)
             return
         if path == "/api/narrate/stream":
-            self._stream_narration()
+            self._stream_narration(view)
             return
-
         routes = {
-            "/api/briefing": self.view.briefing,
-            "/api/actors": self.view.actors,
-            "/api/topology": self.view.topology,
-            "/api/lineage": self.view.lineage,
-            "/api/state": self.view.state,
-            "/api/inspect": self.view.inspect,
-            "/api/narrate": self.view.narration,
+            "/api/briefing": view.briefing,
+            "/api/actors": view.actors,
+            "/api/topology": view.topology,
+            "/api/lineage": view.lineage,
+            "/api/state": view.state,
+            "/api/inspect": view.inspect,
+            "/api/narrate": view.narration,
         }
         route = routes.get(path)
         if route is None:
@@ -63,21 +102,53 @@ class DashboardRequestHandler(BaseHTTPRequestHandler):
         self._write_json(route())
 
     def do_POST(self) -> None:
-        path = urlsplit(self.path).path
+        parsed = urlsplit(self.path)
+        view = self._resolve_view(parsed.query)
+        if view is None:
+            self._write_json(
+                {"error": "no runs available; runs-dir is empty"},
+                HTTPStatus.NOT_FOUND,
+            )
+            return
         routes = {
-            "/api/episode/reset": self.view.reset,
-            "/api/episode/play": self.view.play,
-            "/api/episode/pause": self.view.pause,
+            "/api/episode/reset": view.reset,
+            "/api/episode/play": view.play,
+            "/api/episode/pause": view.pause,
         }
-        route = routes.get(path)
+        route = routes.get(parsed.path)
         if route is None:
             self._write_json({"error": "not found"}, HTTPStatus.NOT_FOUND)
             return
         self._write_json(route())
 
     @property
-    def view(self) -> DashboardView:
-        return cast(DashboardHTTPServer, self.server).view
+    def dashboard_server(self) -> DashboardHTTPServer:
+        return cast(DashboardHTTPServer, self.server)
+
+    def _resolve_view(self, query: str) -> DashboardView | None:
+        params = parse_qs(query)
+        run_id = (params.get("run") or [None])[0]
+        return self.dashboard_server.view_for(run_id)
+
+    def _runs_payload(self) -> dict[str, object]:
+        server = self.dashboard_server
+        registry = server.runs
+        if registry is None:
+            view = server.view
+            if view is None or view.snapshot is None:
+                return {"runs": [], "default": None}
+            return {
+                "runs": [
+                    {
+                        "id": view.snapshot.id,
+                        "path": "<embedded>",
+                        "modified": 0.0,
+                    },
+                ],
+                "default": view.snapshot.id,
+            }
+        runs = [record.as_dict() for record in registry.list_runs()]
+        return {"runs": runs, "default": registry.default_run_id()}
 
     def _write_static(self, relative: str) -> None:
         target = (STATIC_ROOT / relative).resolve()
@@ -109,16 +180,16 @@ class DashboardRequestHandler(BaseHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(body)
 
-    def _stream_events(self) -> None:
+    def _stream_events(self, view: DashboardView) -> None:
         self._write_sse_headers()
-        for event in self.view.bridge.subscribe_sync():
+        for event in view.bridge.subscribe_sync():
             self._write_sse(event.as_dict(), event=event.type, event_id=event.id)
 
-    def _stream_narration(self) -> None:
+    def _stream_narration(self, view: DashboardView) -> None:
         self._write_sse_headers()
-        for event in self.view.bridge.subscribe_sync():
+        for event in view.bridge.subscribe_sync():
             self._write_sse(
-                self.view.narration(),
+                view.narration(),
                 event="narration",
                 event_id=event.id,
             )

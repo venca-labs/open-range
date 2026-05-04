@@ -10,6 +10,7 @@ from openrange.dashboard.events import (
     read_dashboard_state,
     write_dashboard_state,
 )
+from openrange.dashboard.runs import RunRecord, RunsRegistry, discover_runs
 from openrange.dashboard.server import DashboardHTTPServer, DashboardRequestHandler
 from openrange.dashboard.summaries import (
     activity_summary,
@@ -31,6 +32,9 @@ __all__ = [
     "DashboardRequestHandler",
     "DashboardView",
     "EventBridge",
+    "RunRecord",
+    "RunsRegistry",
+    "discover_runs",
     "activity_summary",
     "actor_summaries",
     "dashboard_event_from_mapping",

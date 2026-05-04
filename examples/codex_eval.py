@@ -50,12 +50,22 @@ def main() -> None:
             dashboard_port=args.dashboard_port,
         ),
     )
-    builder_llm = None if args.no_builder_llm else OR.CodexBackend(
-        command=args.codex_command,
-        model=args.model,
-        timeout=args.builder_timeout,
+    builder_llm = (
+        None
+        if args.no_builder_llm
+        else OR.CodexBackend(
+            command=args.codex_command,
+            model=args.model,
+            timeout=args.builder_timeout,
+        )
     )
     snapshot = run.build(MANIFEST, llm=builder_llm)
+    if not args.no_dashboard:
+        print(
+            f"dashboard: run `uv run python -m openrange dashboard` "
+            f"(watching {args.runs_dir})",
+            flush=True,
+        )
 
     # 2 + 3. Run + Verify, once per task in the snapshot.
     harness = CodexHarness(
@@ -130,9 +140,7 @@ class CodexHarness:
     def run(self, prompt: str, cwd: Path) -> OR.LLMResult:
         config_overrides: tuple[str, ...] = ()
         if self.sandbox == "workspace-write":
-            config_overrides = (
-                "sandbox_workspace_write.network_access=true",
-            )
+            config_overrides = ("sandbox_workspace_write.network_access=true",)
         return OR.CodexBackend(
             command=self.command,
             model=self.model,
@@ -155,13 +163,16 @@ def _parse_args() -> argparse.Namespace:
     parser.add_argument("--codex-command", type=Path, default=Path("codex"))
     parser.add_argument("--model", default=OR.CODEX_DEFAULT_MODEL)
     parser.add_argument(
-        "--agent-sandbox", "--codex-sandbox",
-        dest="agent_sandbox", default="workspace-write",
+        "--agent-sandbox",
+        "--codex-sandbox",
+        dest="agent_sandbox",
+        default="workspace-write",
     )
     parser.add_argument("--builder-timeout", type=float, default=300.0)
     parser.add_argument("--agent-timeout", type=float, default=300.0)
     parser.add_argument(
-        "--no-builder-llm", action="store_true",
+        "--no-builder-llm",
+        action="store_true",
         help="Skip Codex enrichment at build — use procedural defaults.",
     )
     parser.add_argument("--dashboard-host", default="127.0.0.1")
