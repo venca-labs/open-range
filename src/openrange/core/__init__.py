@@ -21,6 +21,13 @@ from openrange.core.builder_protocol import (
     BuilderError,
     BuilderRegistry,
 )
+from openrange.core.curriculum import (
+    CurriculumPolicy,
+    Direction,
+    Mutation,
+    auto_evolve,
+    direction_from_reports,
+)
 from openrange.core.errors import (
     AdmissionError,
     ManifestError,
@@ -80,6 +87,8 @@ __all__ = [
     "BuilderError",
     "BuilderRegistry",
     "CheckScript",
+    "CurriculumPolicy",
+    "Direction",
     "Edge",
     "EdgeType",
     "Entrypoint",
@@ -87,6 +96,7 @@ __all__ = [
     "LineageNode",
     "Manifest",
     "ManifestError",
+    "Mutation",
     "Node",
     "NodeType",
     "OpenRangeError",
@@ -107,7 +117,9 @@ __all__ = [
     "WorldSchema",
     "admission_state_from_source",
     "admit",
+    "auto_evolve",
     "build",
+    "direction_from_reports",
     "evolve",
     "stable_json",
     "task_from_mapping",
