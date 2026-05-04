@@ -1,4 +1,7 @@
 # OpenRange
+
+<div align="center">
+
 ![OpenRange visual](assets/open-range-visual.png)
 
 [![License](https://img.shields.io/github/license/vecna-labs/open-range?style=flat-square)](LICENSE)
@@ -8,6 +11,8 @@
 [![Stars](https://img.shields.io/github/stars/vecna-labs/open-range?style=flat-square)](https://github.com/vecna-labs/open-range/stargazers)
 [![Forks](https://img.shields.io/github/forks/vecna-labs/open-range?style=flat-square)](https://github.com/vecna-labs/open-range/forks)
 [![Contributors](https://img.shields.io/github/contributors/vecna-labs/open-range?style=flat-square)](https://github.com/vecna-labs/open-range/graphs/contributors)
+
+</div>
 
 OpenRange is a domain-agnostic environment platform for training and evaluating agents. Give it a manifest and a pack; it builds a runnable world, verifies that tasks are actually solvable in the generated environment, freezes the result as a snapshot, and hands your agent harness a stable episode to run against.
 
