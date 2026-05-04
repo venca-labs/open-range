@@ -135,7 +135,8 @@ class StrandsAgentBackend:
         }
         if self._model is not None:
             kwargs["model"] = self._model
-        return Agent(**kwargs)
+        agent: AgentSession = Agent(**kwargs)
+        return agent
 
 
 class CodexAgentBackend:
