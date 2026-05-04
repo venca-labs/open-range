@@ -14,17 +14,14 @@ from collections.abc import Callable, Mapping, Sequence
 from types import MappingProxyType
 
 from cyber_webapp.vulnerabilities import CATALOG as VULN_CATALOG
-from openrange.core.errors import PackError
-from openrange.core.graph import Edge, Node, WorldGraph
+from openrange import Edge, Node, PackError, WorldGraph
 
 # Secret formats — modeled on real production credentials so the
 # agent can't pattern-match a CTF-style ``ctf{...}`` / ``FLAG[...]``
 # wrapper. The string is what production code stores; the task calls
 # it "the admin secret". Verifier just compares for equality.
 _HEX_ALPHABET = "0123456789abcdef"
-_BASE62 = (
-    "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789"
-)
+_BASE62 = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789"
 
 
 def _hex(rng: random.Random, length: int) -> str:
@@ -43,12 +40,13 @@ _SECRET_TEMPLATES: tuple[Callable[[random.Random], str], ...] = (
     # AWS-style access key id
     lambda rng: f"AKIA{_b62(rng, 16).upper()}",
     # Slack bot token
-    lambda rng: f"xoxb-{rng.randrange(10**11, 10**12)}-"
-    f"{rng.randrange(10**11, 10**12)}-{_b62(rng, 24)}",
+    lambda rng: (
+        f"xoxb-{rng.randrange(10**11, 10**12)}-"
+        f"{rng.randrange(10**11, 10**12)}-{_b62(rng, 24)}"
+    ),
     # Generic UUID-shaped opaque token
     lambda rng: (
-        f"{_hex(rng, 8)}-{_hex(rng, 4)}-{_hex(rng, 4)}-"
-        f"{_hex(rng, 4)}-{_hex(rng, 12)}"
+        f"{_hex(rng, 8)}-{_hex(rng, 4)}-{_hex(rng, 4)}-{_hex(rng, 4)}-{_hex(rng, 12)}"
     ),
     # Hex API token
     lambda rng: _hex(rng, 40),
@@ -64,23 +62,56 @@ def generate_flag(rng: random.Random) -> str:
 ENDPOINT_PATHS_BY_KIND: Mapping[str, tuple[str, ...]] = MappingProxyType(
     {
         "web": (
-            "/", "/search", "/dashboard", "/profile", "/settings",
-            "/account", "/inbox", "/reports", "/help", "/feed",
-            "/notifications", "/portal",
+            "/",
+            "/search",
+            "/dashboard",
+            "/profile",
+            "/settings",
+            "/account",
+            "/inbox",
+            "/reports",
+            "/help",
+            "/feed",
+            "/notifications",
+            "/portal",
         ),
         "api": (
-            "/api/items", "/api/orders", "/api/notes", "/api/health",
-            "/api/users", "/api/products", "/api/invoices", "/api/sessions",
-            "/api/audit", "/api/metrics", "/api/jobs", "/api/webhooks",
+            "/api/items",
+            "/api/orders",
+            "/api/notes",
+            "/api/health",
+            "/api/users",
+            "/api/products",
+            "/api/invoices",
+            "/api/sessions",
+            "/api/audit",
+            "/api/metrics",
+            "/api/jobs",
+            "/api/webhooks",
         ),
         "auth": (
-            "/login", "/token", "/users", "/me", "/logout",
-            "/refresh", "/sessions", "/idp/authorize", "/idp/callback",
+            "/login",
+            "/token",
+            "/users",
+            "/me",
+            "/logout",
+            "/refresh",
+            "/sessions",
+            "/idp/authorize",
+            "/idp/callback",
             "/whoami",
         ),
         "db": (
-            "/records", "/query", "/stats", "/snapshot", "/replicate",
-            "/health", "/migrate", "/backup", "/index", "/tables",
+            "/records",
+            "/query",
+            "/stats",
+            "/snapshot",
+            "/replicate",
+            "/health",
+            "/migrate",
+            "/backup",
+            "/index",
+            "/tables",
         ),
     },
 )
@@ -89,9 +120,16 @@ ENDPOINT_PATHS_BY_KIND: Mapping[str, tuple[str, ...]] = MappingProxyType(
 # Record key pool — the data-store entry that holds the flag. Was
 # hardcoded "admin_flag"; sampling makes the internal name unpredictable.
 _RECORD_KEYS: tuple[str, ...] = (
-    "admin_flag", "secret_key", "master_token", "vault_key",
-    "api_secret", "root_credential", "bootstrap_token", "ops_seal",
-    "support_override", "release_token",
+    "admin_flag",
+    "secret_key",
+    "master_token",
+    "vault_key",
+    "api_secret",
+    "root_credential",
+    "bootstrap_token",
+    "ops_seal",
+    "support_override",
+    "release_token",
 )
 
 
@@ -134,25 +172,51 @@ _HOST_ENVS: tuple[str, ...] = ("prod", "stg", "infra")
 
 _SQLI_PARAMS: tuple[str, ...] = ("q", "query", "search", "term", "filter", "ref")
 _SQLI_TABLES: tuple[str, ...] = (
-    "records", "rows", "items", "data", "entries", "documents",
+    "records",
+    "rows",
+    "items",
+    "data",
+    "entries",
+    "documents",
 )
 _SQLI_COLUMNS: tuple[str, ...] = (
-    "value", "secret", "data", "content", "payload", "body",
+    "value",
+    "secret",
+    "data",
+    "content",
+    "payload",
+    "body",
 )
 
 _BROKEN_AUTHZ_HEADERS: tuple[str, ...] = (
-    "X-User-Role", "X-Auth-Role", "X-Internal-Role",
-    "X-Privilege", "X-Service-Role",
+    "X-User-Role",
+    "X-Auth-Role",
+    "X-Internal-Role",
+    "X-Privilege",
+    "X-Service-Role",
 )
 _BROKEN_AUTHZ_VALUES: tuple[str, ...] = (
-    "admin", "root", "superuser", "operator", "service-admin",
+    "admin",
+    "root",
+    "superuser",
+    "operator",
+    "service-admin",
 )
 _BROKEN_AUTHZ_FIELDS: tuple[str, ...] = (
-    "value", "data", "secret", "content", "result",
+    "value",
+    "data",
+    "secret",
+    "content",
+    "result",
 )
 
 _SSRF_PARAMS: tuple[str, ...] = (
-    "url", "target", "endpoint", "callback", "redirect", "ref",
+    "url",
+    "target",
+    "endpoint",
+    "callback",
+    "redirect",
+    "ref",
 )
 _SSRF_PATTERNS: tuple[str, ...] = (
     r"^https?://internal\.",
@@ -169,11 +233,20 @@ _SSRF_PATTERNS: tuple[str, ...] = (
 # ---------------------------------------------------------------------------
 
 TASK_VERBS: tuple[str, ...] = (
-    "exfiltrate", "retrieve", "recover", "extract", "obtain", "uncover",
+    "exfiltrate",
+    "retrieve",
+    "recover",
+    "extract",
+    "obtain",
+    "uncover",
 )
 TASK_TARGETS: tuple[str, ...] = (
-    "admin_secret", "admin_flag", "ops_token", "vault_key",
-    "release_credential", "support_override",
+    "admin_secret",
+    "admin_flag",
+    "ops_token",
+    "vault_key",
+    "release_credential",
+    "support_override",
 )
 
 
@@ -299,7 +372,11 @@ def sample_graph(rng: random.Random, priors: Mapping[str, object]) -> WorldGraph
 
     deepest_service_id = f"svc_{deepest['name']}"
     vuln_nodes, vuln_edges = _sample_vulnerabilities(
-        rng, priors, nodes, edges, oracle_service_id=deepest_service_id,
+        rng,
+        priors,
+        nodes,
+        edges,
+        oracle_service_id=deepest_service_id,
     )
     nodes.extend(vuln_nodes)
     edges.extend(vuln_edges)
@@ -307,7 +384,8 @@ def sample_graph(rng: random.Random, priors: Mapping[str, object]) -> WorldGraph
 
 
 def _sample_services(
-    rng: random.Random, priors: Mapping[str, object],
+    rng: random.Random,
+    priors: Mapping[str, object],
 ) -> list[dict[str, str]]:
     count = sample_int(rng, priors, "service_count")
     kinds_pool = weighted_pool(priors, "service_kinds", exclude=("web",))

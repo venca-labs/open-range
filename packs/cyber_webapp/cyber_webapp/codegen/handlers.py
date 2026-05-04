@@ -22,8 +22,7 @@ from cyber_webapp.vulnerabilities import (
     CATALOG as VULN_CATALOG,
 )
 from cyber_webapp.vulnerabilities import render_vulnerability
-from openrange.core.errors import PackError
-from openrange.core.graph import Node, WorldGraph
+from openrange import Node, PackError, WorldGraph
 
 
 def build_handlers_and_routes(
@@ -173,7 +172,7 @@ def _default_handler_body(service_name: str, path: str, kind: str) -> str:
             f'payload = {{"items": [], "next_cursor": None, '
             f'"resource": "{path}"}}\n'
             'return 200, {"Content-Type": "application/json"}, '
-            'json.dumps(payload).encode()\n'
+            "json.dumps(payload).encode()\n"
         )
     elif kind == "db":
         body = (
@@ -183,24 +182,24 @@ def _default_handler_body(service_name: str, path: str, kind: str) -> str:
             'value_col = schema["value_column"]\n'
             'requested = (query.get("key", [""]) or [""])[0]\n'
             'cursor = state["db"].cursor()\n'
-            'if requested:\n'
+            "if requested:\n"
             '    sql = f"SELECT {key_col}, {value_col} FROM {table} WHERE '
             '{key_col} = ?"\n'
-            '    rows = [\n'
-            '        dict(r) for r in cursor.execute(sql, (requested,)).fetchall()\n'
-            '    ]\n'
-            'else:\n'
+            "    rows = [\n"
+            "        dict(r) for r in cursor.execute(sql, (requested,)).fetchall()\n"
+            "    ]\n"
+            "else:\n"
             '    sql = f"SELECT {key_col} FROM {table} ORDER BY {key_col}"\n'
-            '    rows = [{key_col: r[0]} for r in cursor.execute(sql).fetchall()]\n'
+            "    rows = [{key_col: r[0]} for r in cursor.execute(sql).fetchall()]\n"
             'payload = {"rows": rows, "count": len(rows)}\n'
             'return 200, {"Content-Type": "application/json"}, '
-            'json.dumps(payload).encode()\n'
+            "json.dumps(payload).encode()\n"
         )
     elif kind == "auth":
         body = (
             'payload = {"session": None, "authenticated": False}\n'
             'return 401, {"Content-Type": "application/json"}, '
-            'json.dumps(payload).encode()\n'
+            "json.dumps(payload).encode()\n"
         )
     elif kind == "web":
         body = (
@@ -213,7 +212,7 @@ def _default_handler_body(service_name: str, path: str, kind: str) -> str:
             f'payload = {{"service": "{service_name}", '
             f'"path": "{path}", "status": "ok"}}\n'
             'return 200, {"Content-Type": "application/json"}, '
-            'json.dumps(payload).encode()\n'
+            "json.dumps(payload).encode()\n"
         )
     return textwrap.indent(body, "    ")
 

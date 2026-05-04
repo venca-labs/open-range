@@ -30,13 +30,10 @@ import json
 from collections.abc import Mapping
 from typing import TYPE_CHECKING
 
-from openrange.core.errors import OpenRangeError, StoreError
-from openrange.core.graph import WorldGraph
-from openrange.core.pack import verifier_from_source
+from openrange import OpenRangeError, StoreError, WorldGraph, verifier_from_source
 
 if TYPE_CHECKING:
-    from openrange.core.pack import Task
-    from openrange.llm import LLMBackend
+    from openrange import LLMBackend, Task
 
 
 class LLMGenerationError(OpenRangeError):
@@ -59,7 +56,7 @@ _INSTRUCTION_SYSTEM = (
     "Do NOT name the vulnerability class, the vulnerable service, the "
     "vulnerable endpoint, the discovery endpoint, or any other recon "
     "shortcut. The agent must discover the attack surface itself. "
-    "Return only JSON: {\"instruction\": \"...\"}."
+    'Return only JSON: {"instruction": "..."}.'
 )
 
 
@@ -94,7 +91,7 @@ _VERIFIER_SYSTEM = (
     "isinstance(), len() on dicts; use ``is None``, ``==``, ``in``. "
     "Never raise — always return a result dict. "
     "Pass requires submitted flag is non-empty AND equals world flag. "
-    "Return only JSON: {\"verifier_source\": \"def verify(state):\\n    ...\"}."
+    'Return only JSON: {"verifier_source": "def verify(state):\\n    ..."}.'
 )
 
 

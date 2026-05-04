@@ -37,8 +37,7 @@ from cyber_webapp.codegen.handlers import (
     build_handlers_and_routes,
 )
 from cyber_webapp.codegen.seeding import project_seed
-from openrange.core.graph import RuntimeArtifact, RuntimeBundle, WorldGraph
-from openrange.core.manifest import Manifest
+from openrange import Manifest, RuntimeArtifact, RuntimeBundle, WorldGraph
 
 _TEMPLATES_DIR = Path(__file__).parent / "templates"
 

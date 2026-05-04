@@ -15,7 +15,7 @@ from __future__ import annotations
 from collections.abc import Mapping
 from dataclasses import dataclass
 
-from openrange.core.graph import (
+from openrange import (
     EdgeType,
     GraphConstraint,
     NodeType,
@@ -187,11 +187,7 @@ class SecretReachableConstraint(GraphConstraint):
     """
 
     def validate(self, graph: WorldGraph) -> list[ValidationError]:
-        held_secrets = {
-            edge.target
-            for edge in graph.edges
-            if edge.relation == "holds"
-        }
+        held_secrets = {edge.target for edge in graph.edges if edge.relation == "holds"}
         errors: list[ValidationError] = []
         for node in graph.nodes:
             if node.type == "secret" and node.id not in held_secrets:

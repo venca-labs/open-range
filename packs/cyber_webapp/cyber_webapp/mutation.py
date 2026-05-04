@@ -22,7 +22,7 @@ from types import MappingProxyType
 
 from cyber_webapp.sampling import default_vuln_params
 from cyber_webapp.vulnerabilities import CATALOG as VULN_CATALOG
-from openrange.core.graph import Edge, Node, WorldGraph
+from openrange import Edge, Node, WorldGraph
 
 
 def coerce_string_list(value: object) -> list[str]:
@@ -113,7 +113,8 @@ def _add_vulns_by_kind(
             continue
         target = next(
             (
-                t for t in candidate_targets
+                t
+                for t in candidate_targets
                 if (kind, t.id) not in existing_kinds_by_target
             ),
             None,

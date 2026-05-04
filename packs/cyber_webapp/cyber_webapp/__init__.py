@@ -28,13 +28,10 @@ from typing import TYPE_CHECKING
 
 from cyber_webapp.ontology import ONTOLOGY
 from cyber_webapp.priors import PRIORS
-from openrange.core.builder_protocol import Builder
-from openrange.core.graph import RuntimeBundle, WorldGraph, WorldSchema
-from openrange.core.manifest import Manifest
-from openrange.core.pack import Pack
+from openrange import Builder, Manifest, Pack, RuntimeBundle, WorldGraph, WorldSchema
 
 if TYPE_CHECKING:
-    from openrange.core.builder import BuildContext
+    from openrange import BuildContext
 
 
 class CyberWebappPack(Pack):
