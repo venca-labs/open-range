@@ -116,6 +116,7 @@ def write_task_file(
         json.dumps(
             {
                 "task_id": task.id,
+                "instruction": task.instruction,
                 "base_url": base_url,
                 "result_schema": entrypoint.metadata.get("result_schema", {}),
                 "result_file": result_file,

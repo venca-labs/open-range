@@ -77,7 +77,8 @@ def build_handlers_and_routes(
                 f"({vuln_node.attrs.get('kind')!r})."
             )
         else:
-            body = _default_handler_body(service_name, path)
+            kind = str(service.attrs.get("kind", ""))
+            body = _default_handler_body(service_name, path, kind)
             docstring = f"Endpoint {service_name}{path} — default behavior."
         handlers.append(
             {"name": handler_name, "body": body, "docstring": docstring},
@@ -92,7 +93,7 @@ def _render_vuln_body(vuln_node: Node) -> str:
     kind = str(vuln_node.attrs.get("kind", ""))
     catalog_entry = VULN_CATALOG.get(kind)
     if catalog_entry is None:
-        return _default_handler_body("", "/")
+        return _default_handler_body("", "/", "")
     params = vuln_node.attrs.get("params", {})
     if not isinstance(params, Mapping):
         params = {}
@@ -159,13 +160,52 @@ def _extract_handle_body(rendered: str) -> str:
     return textwrap.indent(rendered_body, "    ") + "\n"
 
 
-def _default_handler_body(service_name: str, path: str) -> str:
-    body = (
-        f'payload = {{"service": "{service_name}", "path": "{path}", '
-        f'"status": "ok"}}\n'
-        'return 200, {"Content-Type": "application/json"}, '
-        'json.dumps(payload).encode()\n'
-    )
+def _default_handler_body(service_name: str, path: str, kind: str) -> str:
+    """Generate a kind-specific body for non-vulnerable endpoints.
+
+    Avoids the signal leak from a single boring JSON shape across every
+    default route — agents would otherwise distinguish vulnerable from
+    non-vulnerable endpoints purely by response shape. Per service kind:
+      - api: paginated empty list ``{"items": [], "next_cursor": null}``
+      - db: row count ``{"rows": [], "count": 0}``
+      - auth: ``{"session": null}`` with 401
+      - web: small HTML status snippet
+      - other: short JSON status
+    """
+    if kind == "api":
+        body = (
+            f'payload = {{"items": [], "next_cursor": None, '
+            f'"resource": "{path}"}}\n'
+            'return 200, {"Content-Type": "application/json"}, '
+            'json.dumps(payload).encode()\n'
+        )
+    elif kind == "db":
+        table = path.strip("/").replace("/", "_") or "default"
+        body = (
+            'payload = {"rows": [], "count": 0, '
+            f'"table": "{service_name}_{table}"}}\n'
+            'return 200, {"Content-Type": "application/json"}, '
+            'json.dumps(payload).encode()\n'
+        )
+    elif kind == "auth":
+        body = (
+            'payload = {"session": None, "authenticated": False}\n'
+            'return 401, {"Content-Type": "application/json"}, '
+            'json.dumps(payload).encode()\n'
+        )
+    elif kind == "web":
+        body = (
+            f'html = b"<h1>{service_name}</h1>'
+            f'<p>route: {path}</p>"\n'
+            'return 200, {"Content-Type": "text/html"}, html\n'
+        )
+    else:
+        body = (
+            f'payload = {{"service": "{service_name}", '
+            f'"path": "{path}", "status": "ok"}}\n'
+            'return 200, {"Content-Type": "application/json"}, '
+            'json.dumps(payload).encode()\n'
+        )
     return textwrap.indent(body, "    ")
 
 

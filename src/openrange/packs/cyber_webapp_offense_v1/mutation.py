@@ -81,7 +81,6 @@ def _add_vulns_by_kind(
     *,
     rng: random.Random,
 ) -> tuple[list[Node], list[Edge]]:
-    del rng  # available for future random placement; deterministic in v1
     endpoints = [n for n in nodes if n.type == "endpoint"]
     services = [n for n in nodes if n.type == "service"]
     if not endpoints and not services:
@@ -134,7 +133,7 @@ def _add_vulns_by_kind(
                     {
                         "kind": kind,
                         "family": catalog_entry.family,
-                        "params": default_vuln_params(kind, target),
+                        "params": default_vuln_params(kind, target, rng),
                     },
                 ),
             ),

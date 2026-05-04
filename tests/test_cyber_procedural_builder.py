@@ -64,9 +64,18 @@ def test_sample_graph_has_required_node_types() -> None:
 
 
 def test_v1_pack_builds_without_llm() -> None:
+    from openrange.packs.cyber_webapp_offense_v1.sampling import (
+        TASK_TARGETS,
+        TASK_VERBS,
+    )
+
     snapshot = build(V1_MANIFEST)
     assert snapshot.admission.passed
-    assert any(t.id == "find_admin_flag" for t in snapshot.tasks)
+    # task_id is derived per build from verb_target pools.
+    task = snapshot.tasks[0]
+    verb, _, target = task.id.partition("_")
+    assert verb in TASK_VERBS
+    assert target in TASK_TARGETS
     assert snapshot.world_graph is not None
     flag_secrets = [
         n

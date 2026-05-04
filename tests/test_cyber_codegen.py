@@ -313,5 +313,13 @@ def test_patched_vuln_removed_from_generated_app() -> None:
     # None of those should appear in handler bodies after patching.
     assert "state['data_store'].execute(sql)" not in src_after
     assert "_ALLOWLIST" not in src_after
-    # Default handler's distinctive marker: the JSON status payload.
-    assert '"status": "ok"' in src_after
+    # Default handlers vary per service kind; the per-kind markers tell
+    # us at least one default body landed.
+    default_markers = (
+        '"items": []',         # api default
+        '"rows": []',          # db default
+        '"session": None',     # auth default
+        "<h1>",                # web default (HTML)
+        '"status": "ok"',      # generic fallback
+    )
+    assert any(m in src_after for m in default_markers), src_after

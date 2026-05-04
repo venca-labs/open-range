@@ -63,7 +63,22 @@ def build_discovery(graph: WorldGraph) -> dict[str, object]:
         )
 
     return {
-        "title": "openrange-cyber-webapp-offense-v1",
-        "scope": "loopback training target",
+        "title": _discovery_title(graph),
         "services": services_payload,
     }
+
+
+def _discovery_title(graph: WorldGraph) -> str:
+    """Read the per-build display title from the network node's attrs.
+
+    The sampler stashes a ``display_title`` on the main network node so
+    the discovery payload doesn't telegraph the scenario name. Falls
+    back to a generic string if the graph wasn't built by the v1
+    sampler (e.g. tests assembling minimal graphs).
+    """
+    for node in graph.nodes:
+        if node.type == "network":
+            title = node.attrs.get("display_title")
+            if isinstance(title, str) and title:
+                return title
+    return "Internal Services"
