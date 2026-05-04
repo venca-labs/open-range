@@ -12,10 +12,16 @@ from typing import TYPE_CHECKING, cast
 from openrange.core.errors import PackError, StoreError
 
 if TYPE_CHECKING:
+    from collections.abc import Sequence
+
     from openrange.core.builder import BuildContext
     from openrange.core.builder_protocol import Builder
+    from openrange.core.curriculum import Mutation
+    from openrange.core.episode import EpisodeReport
     from openrange.core.graph import RuntimeBundle, WorldGraph, WorldSchema
     from openrange.core.manifest import Manifest
+    from openrange.core.snapshot import Snapshot
+    from openrange.llm import LLMBackend
 
 VerifierResult = Mapping[str, object]
 Verifier = Callable[[Mapping[str, object]], VerifierResult]
@@ -173,6 +179,30 @@ class Pack(ABC):
         """
         return ()
 
+    def available_mutations(
+        self,
+        snapshot: Snapshot,
+        reports: Sequence[EpisodeReport],
+        *,
+        llm: LLMBackend | None = None,
+    ) -> tuple[Mutation, ...]:
+        """Enumerate evolution moves available from this snapshot.
+
+        Each returned ``Mutation`` carries a directive (the dict
+        ``evolve()`` consumes), a direction tag (harden / soften /
+        diversify), a relevance score (0..1) reflecting how well the
+        move responds to the recent reports, and an optional note.
+
+        ``llm`` is offered so packs can run a semantic enrichment pass
+        (e.g. re-score relevance from request payloads, not just paths)
+        when an LLM is configured. Packs that don't use LLMs ignore it.
+
+        Default returns ``()`` — packs without auto-curriculum support
+        opt out of ``auto_evolve()`` cleanly.
+        """
+        del snapshot, reports, llm
+        return ()
+
     def project_world(self, graph: WorldGraph) -> Mapping[str, object]:
         """Project the graph back to the flat ``world`` dict the runtime expects.
 
@@ -263,8 +293,7 @@ class PackRegistry:
                 )
             if pack.id != name:
                 raise PackError(
-                    f"entry point name {name!r} does not match "
-                    f"pack.id {pack.id!r}",
+                    f"entry point name {name!r} does not match pack.id {pack.id!r}",
                 )
             self._packs[pack.id] = pack
 

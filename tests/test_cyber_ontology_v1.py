@@ -38,19 +38,40 @@ def _minimal_valid_world() -> WorldGraph:
     """
     return WorldGraph(
         nodes=(
-            _node("web", "service", name="web", kind="web", language="python",
-                  exposure="public"),
-            _node("ep_search", "endpoint", path="/search", method="GET",
-                  auth_required=False, behavior_ref="handlers.search"),
+            _node(
+                "web",
+                "service",
+                name="web",
+                kind="web",
+                language="python",
+                exposure="public",
+            ),
+            _node(
+                "ep_search",
+                "endpoint",
+                path="/search",
+                method="GET",
+                auth_required=False,
+                behavior_ref="handlers.search",
+            ),
             _node("db", "data_store", name="appdb", kind="sql", engine="sqlite"),
-            _node("flag_row", "record", key="rows/admin",
-                  fields={"value": "{flag}"}),
-            _node("flag", "secret", kind="flag", value_ref="flag-1",
-                  description="admin flag"),
+            _node("flag_row", "record", key="rows/admin", fields={"value": "{flag}"}),
+            _node(
+                "flag",
+                "secret",
+                kind="flag",
+                value_ref="flag-1",
+                description="admin flag",
+            ),
             _node("user_a", "account", username="alice", role="user", active=True),
             _node("cred_a", "credential", kind="password", value_ref="alice-pw"),
-            _node("vuln_sqli", "vulnerability", kind="sql_injection",
-                  family="code_web", params={"target_param": "q"}),
+            _node(
+                "vuln_sqli",
+                "vulnerability",
+                kind="sql_injection",
+                family="code_web",
+                params={"target_param": "q"},
+            ),
         ),
         edges=(
             _edge("web", "exposes", "ep_search"),
@@ -89,8 +110,11 @@ def test_orphan_host_allowed() -> None:
     graph = WorldGraph(
         nodes=(
             _node(
-                "scratch_host", "host",
-                hostname="dev", os="linux", zone="management",
+                "scratch_host",
+                "host",
+                hostname="dev",
+                os="linux",
+                zone="management",
             ),
         ),
     )
@@ -101,8 +125,9 @@ def test_orphan_host_allowed() -> None:
 def test_unheld_secret_rejected() -> None:
     graph = WorldGraph(
         nodes=(
-            _node("dangling", "secret", kind="flag", value_ref="x",
-                  description="unheld"),
+            _node(
+                "dangling", "secret", kind="flag", value_ref="x", description="unheld"
+            ),
         ),
     )
     errors = SecretReachableConstraint().validate(graph)
@@ -120,13 +145,25 @@ def test_oracle_path_no_vulnerability_rejected() -> None:
     """Flag exists, record exists, store exists, service exists — but no vuln."""
     graph = WorldGraph(
         nodes=(
-            _node("svc", "service", name="web", kind="web", language="python",
-                  exposure="public"),
+            _node(
+                "svc",
+                "service",
+                name="web",
+                kind="web",
+                language="python",
+                exposure="public",
+            ),
             _node("ds", "data_store", name="db", kind="sql", engine="sqlite"),
             _node("rec", "record", key="row", fields={}),
             _node("flag", "secret", kind="flag", value_ref="x", description="f"),
-            _node("ep", "endpoint", path="/", method="GET", auth_required=False,
-                  behavior_ref="x"),
+            _node(
+                "ep",
+                "endpoint",
+                path="/",
+                method="GET",
+                auth_required=False,
+                behavior_ref="x",
+            ),
         ),
         edges=(
             _edge("svc", "backed_by", "ds", mode="read"),
@@ -153,17 +190,24 @@ def test_oracle_path_disconnected_store_rejected() -> None:
         ),
     )
     errors = OraclePathExistsConstraint().validate(graph)
-    assert any(
-        "no service backing" in e.message
-        for e in errors
-    ), [e.message for e in errors]
+    assert any("no service backing" in e.message for e in errors), [
+        e.message for e in errors
+    ]
 
 
 def test_schema_node_and_edge_types_complete() -> None:
     """Sanity: all expected node and edge types are declared."""
     expected_nodes = {
-        "host", "service", "endpoint", "account", "credential",
-        "secret", "vulnerability", "network", "data_store", "record",
+        "host",
+        "service",
+        "endpoint",
+        "account",
+        "credential",
+        "secret",
+        "vulnerability",
+        "network",
+        "data_store",
+        "record",
     }
     declared = {nt.name for nt in NODE_TYPES}
     assert declared == expected_nodes
@@ -183,8 +227,7 @@ def test_schema_node_and_edge_types_complete() -> None:
         ("credential", "derives", "secret"),
     }
     declared_edges = {
-        (et.source_type, et.relation, et.target_type)
-        for et in EDGE_TYPES
+        (et.source_type, et.relation, et.target_type) for et in EDGE_TYPES
     }
     assert declared_edges == expected_edges
 
@@ -204,32 +247,69 @@ def test_realistic_two_service_chain_passes() -> None:
     graph = WorldGraph(
         nodes=(
             # Two services on different hosts, on a shared internal network.
-            _node("web", "service", name="web", kind="web", language="python",
-                  exposure="public"),
-            _node("admin", "service", name="admin", kind="api", language="python",
-                  exposure="internal"),
-            _node("net_int", "network", name="internal", isolation="bridge",
-                  zone="corp"),
+            _node(
+                "web",
+                "service",
+                name="web",
+                kind="web",
+                language="python",
+                exposure="public",
+            ),
+            _node(
+                "admin",
+                "service",
+                name="admin",
+                kind="api",
+                language="python",
+                exposure="internal",
+            ),
+            _node(
+                "net_int", "network", name="internal", isolation="bridge", zone="corp"
+            ),
             _node("host_dmz", "host", hostname="dmz-01", os="linux", zone="dmz"),
             _node("host_corp", "host", hostname="corp-01", os="linux", zone="corp"),
             # Endpoints
-            _node("ep_fetch", "endpoint", path="/fetch", method="GET",
-                  auth_required=False, behavior_ref="handlers.fetch"),
-            _node("ep_admin_secret", "endpoint", path="/admin/secret", method="GET",
-                  auth_required=True, behavior_ref="handlers.admin_secret"),
+            _node(
+                "ep_fetch",
+                "endpoint",
+                path="/fetch",
+                method="GET",
+                auth_required=False,
+                behavior_ref="handlers.fetch",
+            ),
+            _node(
+                "ep_admin_secret",
+                "endpoint",
+                path="/admin/secret",
+                method="GET",
+                auth_required=True,
+                behavior_ref="handlers.admin_secret",
+            ),
             # Data + flag
-            _node("admin_db", "data_store", name="admin_db", kind="kv",
-                  engine="redis"),
-            _node("flag_rec", "record", key="config/master",
-                  fields={"flag": "{flag}"}),
-            _node("flag", "secret", kind="flag", value_ref="flag-2",
-                  description="master api key"),
+            _node("admin_db", "data_store", name="admin_db", kind="kv", engine="redis"),
+            _node("flag_rec", "record", key="config/master", fields={"flag": "{flag}"}),
+            _node(
+                "flag",
+                "secret",
+                kind="flag",
+                value_ref="flag-2",
+                description="master api key",
+            ),
             # Vuln chain: SSRF on web enables admin endpoint hit
-            _node("vuln_ssrf", "vulnerability", kind="ssrf", family="code_web",
-                  params={"target_param": "url"}),
-            _node("vuln_authz", "vulnerability", kind="broken_authz",
-                  family="code_web",
-                  params={"trust_header": "X-Internal-Origin"}),
+            _node(
+                "vuln_ssrf",
+                "vulnerability",
+                kind="ssrf",
+                family="code_web",
+                params={"target_param": "url"},
+            ),
+            _node(
+                "vuln_authz",
+                "vulnerability",
+                kind="broken_authz",
+                family="code_web",
+                params={"trust_header": "X-Internal-Origin"},
+            ),
         ),
         edges=(
             _edge("web", "exposes", "ep_fetch"),
@@ -242,8 +322,12 @@ def test_realistic_two_service_chain_passes() -> None:
             _edge("web", "connected_to", "net_int"),
             _edge("admin", "connected_to", "net_int"),
             _edge("vuln_ssrf", "affects", "ep_fetch", injection_site="param.url"),
-            _edge("vuln_authz", "affects", "ep_admin_secret",
-                  injection_site="header.X-Internal-Origin"),
+            _edge(
+                "vuln_authz",
+                "affects",
+                "ep_admin_secret",
+                injection_site="header.X-Internal-Origin",
+            ),
             _edge("vuln_ssrf", "enables", "vuln_authz"),
         ),
     )

@@ -28,8 +28,22 @@ const model = {
   narration: { narration: "No episode activity yet." },
 };
 
+const runState = {
+  activeRun: null,
+  runs: [],
+  events: null,
+  narration: null,
+  followLatest: true,
+};
+
+function withRun(path) {
+  if (!runState.activeRun) return path;
+  const sep = path.includes("?") ? "&" : "?";
+  return `${path}${sep}run=${encodeURIComponent(runState.activeRun)}`;
+}
+
 async function json(path, options) {
-  const response = await fetch(path, options);
+  const response = await fetch(withRun(path), options);
   return response.json();
 }
 
@@ -95,8 +109,10 @@ const sim = {
   worldGroup: null,
   clock: null,
   servicePositions: {},
+  deskPositions: [],
   characters: {},
   effects: [],
+  pendingDialogue: [],
   selectedActorId: "",
 };
 
@@ -204,11 +220,18 @@ function actorDefinitions() {
 }
 
 function simulationFingerprint() {
+  // Topology-only — a fingerprint change rebuilds the scene and
+  // disposes characters mid-walk, so event-derived actors must NOT
+  // be part of it. They get added incrementally by ``applySimulationEvent``.
   const stationIds = stationDefinitions().map((station) => station.id).join("|");
-  const actorIds = actorDefinitions().map((actor) => (
-    `${actor.id}:${actor.role}`
-  )).join("|");
-  return `${model.topology.snapshot_id || "empty"}:${stationIds}:${actorIds}`;
+  const personas = (model.topology.green_personas || []).length
+    ? model.topology.green_personas
+    : model.topology.users || [];
+  const personaIds = personas
+    .map((persona) => persona.id || persona.email || "")
+    .filter(Boolean)
+    .join("|");
+  return `${model.topology.snapshot_id || "empty"}:${stationIds}:${personaIds}`;
 }
 
 function initSimulation() {
@@ -316,8 +339,36 @@ function clearSimulationWorld() {
     sim.worldGroup.remove(child);
   }
   sim.servicePositions = {};
+  sim.deskPositions = [];
   sim.characters = {};
   sim.effects = [];
+}
+
+// Office-staff desks. Independent of cyber services — services are
+// the agent's attack surface; desks are where the chatter NPCs live
+// their day. Two rows of four desks running along the south side of
+// the floor, away from the service rack on the north/center.
+const DESK_GRID_OFFSETS = [
+  [-9, 8], [-3, 8], [3, 8], [9, 8],
+  [-9, 13], [-3, 13], [3, 13], [9, 13],
+];
+
+function addOfficeDesks() {
+  DESK_GRID_OFFSETS.forEach(([x, z], index) => {
+    const station = {
+      id: `desk-${index}`,
+      label: "", // unlabeled — desks are scenery, not nav targets
+      kind: "desk",
+      zone: "office",
+    };
+    addStation(station, x, z, index + 100); // offset accent palette so desks look uniform
+    sim.deskPositions.push(sim.servicePositions[station.id]);
+  });
+}
+
+function deskAtIndex(homeIndex) {
+  if (!sim.deskPositions.length || typeof homeIndex !== "number") return null;
+  return sim.deskPositions[homeIndex % sim.deskPositions.length];
 }
 
 function disposeObject(object) {
@@ -348,18 +399,16 @@ function rebuildSimulationWorld() {
     addStation(station, pos.x, pos.z, index);
   });
 
-  actorDefinitions().forEach((actor, index) => {
-    const profile = actorProfile(actor.id);
-    const home = profile ? sim.servicePositions[profile.home_host] : null;
-    const side = actor.role === "agent" ? -1 : actor.role === "system" ? 1 : 0;
-    const x = home
-      ? home.x + (index % 3 - 1) * 1.7
-      : side ? side * 18 : -8 + index * 3.2;
-    const z = home
-      ? home.z + 2 + Math.floor(index / 3) * .7
-      : side ? 13 - index * 2.4 : 12;
-    addCharacter(actor.id, actor.role, x, z);
-  });
+  // Office desks live independently of the cyber services. NPCs sit
+  // at desks; the agent attacks services. Render desks last so their
+  // accent rings sit on top of the floor grid.
+  addOfficeDesks();
+
+  // NPC bodies aren't pre-spawned here — chatters ship a `present`
+  // event in `start()` carrying their `home_index`, and that event
+  // drives both placement and identity. The agent (red) and runtime
+  // (blue) actors stay out of the office entirely; they live in the
+  // request log + service ring flashes.
 }
 
 function stationPosition(station, index, stations) {
@@ -452,13 +501,9 @@ function addStation(station, x, z, index) {
   ring.position.y = .04;
   group.add(ring);
 
-  const label = makeLabelSprite(
-    station.label.toUpperCase(),
-    "#dbeafe",
-    "rgba(15, 23, 42, .72)",
-  );
-  label.position.set(0, .08, 1.45);
-  group.add(label);
+  // Stations (services + desks) render unlabeled. The office is
+  // visual scenery; if a viewer needs to know which station is what,
+  // they'll click on the actor or read the live event feed.
 
   sim.worldGroup.add(group);
   sim.servicePositions[station.id] = { x, z, ring, accent };
@@ -517,7 +562,8 @@ function addCharacter(id, role, x, z) {
     indicator,
     target: null,
     phase: Math.random() * 4,
-    nextIdleAt: role === "npc" ? Math.random() * 4 : null,
+    homeDesk: null,
+    returnHomeAt: null,
   };
 }
 
@@ -564,23 +610,139 @@ function applySimulationEvent(event) {
   const role = simulationRole(event);
   const data = eventData(event);
   const actorId = data.actor_id || event.actor || role;
+  const action = (data.action && typeof data.action === "object") ? data.action : {};
+
+  // Non-NPC events (agent HTTP traffic, system/runtime events) don't
+  // render as bodies in the office. Flash the target service's ring
+  // so the viewer sees activity on the rack, and that's it — no
+  // walking figure crashing the office scene.
+  if (role !== "npc") {
+    const target = sim.servicePositions[event.target]
+      || sim.servicePositions[data.target];
+    if (target?.ring) {
+      target.ring.material.color.setHex(roleColor(role));
+    }
+    return;
+  }
+
   if (!sim.characters[actorId]) {
-    addCharacter(actorId, role, role === "agent" ? -18 : 18, 10);
+    const home = deskAtIndex(action.home_index);
+    if (home) {
+      addCharacter(actorId, role, home.x, home.z + 1.0);
+      sim.characters[actorId].homeDesk = home;
+    } else {
+      addCharacter(actorId, role, 18, 10);
+    }
   }
   const character = sim.characters[actorId];
-  const target = sim.servicePositions[event.target]
-    || sim.servicePositions[data.target]
-    || Object.values(sim.servicePositions)[0];
-  if (!target || !character) return;
+  if (!character) return;
 
+  // Presence events spawn the character (handled above) and do
+  // nothing else — they exist so chatters show up at their desks
+  // before their first cadence-driven act.
+  if (action.present) return;
+
+  if (typeof action.speak === "string" && action.speak.length > 0) {
+    spawnSpeechBubble(character, action.speak);
+    return;
+  }
+
+  if (action.move) {
+    const host = sim.characters[action.target_name];
+    if (!host || !host.homeDesk) return;
+    character.target = neighborOffset(host.homeDesk, actorId);
+    const now = sim.clock?.getElapsedTime() || 0;
+    character.returnHomeAt = now + 5.5 + Math.random() * 2;
+    if (typeof action.opener === "string" && typeof action.reply === "string") {
+      scheduleConversation(character, host, action.opener, action.reply, now);
+    }
+  }
+}
+
+function scheduleConversation(visitor, host, opener, reply, now) {
+  if (!sim.pendingDialogue) sim.pendingDialogue = [];
+  // Walks at 8 units/s land in ~1.6s, so the visitor's opener fires
+  // right when they arrive; the host replies a beat after.
+  sim.pendingDialogue.push({ character: visitor, text: opener, atTime: now + 1.6 });
+  sim.pendingDialogue.push({
+    character: host,
+    text: reply,
+    atTime: now + 3.2 + Math.random() * 0.6,
+  });
+}
+
+function neighborOffset(target, actorId) {
   const offset = actorId.split("").reduce((sum, char) => sum + char.charCodeAt(0), 0);
   const angle = (offset % 8) * Math.PI / 4;
-  character.target = {
-    x: target.x + Math.cos(angle) * 1.75,
-    z: target.z + Math.sin(angle) * 1.75,
+  return {
+    x: target.x + Math.cos(angle) * 1.5,
+    z: target.z + Math.sin(angle) * 1.5,
   };
-  spawnPulse(character.group.position, target, role);
-  if (target.ring) target.ring.material.color.setHex(roleColor(role));
+}
+
+function spawnSpeechBubble(character, text) {
+  // One bubble per character at a time — replace any prior one so a
+  // fast-talking NPC doesn't stack five bubbles vertically.
+  if (character.bubble) {
+    character.group.remove(character.bubble);
+    disposeObject(character.bubble);
+    character.bubble = null;
+  }
+  const sprite = makeBubbleSprite(shortText(text, 56));
+  sprite.position.set(0, 3.05, 0);
+  character.group.add(sprite);
+  character.bubble = sprite;
+  character.bubbleLife = 4.0;
+}
+
+function makeBubbleSprite(text) {
+  const canvas = document.createElement("canvas");
+  const ctx = canvas.getContext("2d");
+  canvas.width = 512;
+  canvas.height = 128;
+  ctx.clearRect(0, 0, canvas.width, canvas.height);
+  // Rounded-rect bubble.
+  const radius = 28;
+  const padding = 18;
+  const x = padding;
+  const y = padding;
+  const w = canvas.width - padding * 2;
+  const h = canvas.height - padding * 2 - 14;
+  ctx.fillStyle = "rgba(255, 255, 255, .94)";
+  ctx.strokeStyle = "rgba(15, 23, 42, .85)";
+  ctx.lineWidth = 4;
+  ctx.beginPath();
+  ctx.moveTo(x + radius, y);
+  ctx.lineTo(x + w - radius, y);
+  ctx.quadraticCurveTo(x + w, y, x + w, y + radius);
+  ctx.lineTo(x + w, y + h - radius);
+  ctx.quadraticCurveTo(x + w, y + h, x + w - radius, y + h);
+  // Tail.
+  ctx.lineTo(canvas.width / 2 + 16, y + h);
+  ctx.lineTo(canvas.width / 2, y + h + 18);
+  ctx.lineTo(canvas.width / 2 - 16, y + h);
+  ctx.lineTo(x + radius, y + h);
+  ctx.quadraticCurveTo(x, y + h, x, y + h - radius);
+  ctx.lineTo(x, y + radius);
+  ctx.quadraticCurveTo(x, y, x + radius, y);
+  ctx.closePath();
+  ctx.fill();
+  ctx.stroke();
+  ctx.fillStyle = "#0f172a";
+  ctx.font = "700 30px Nunito, system-ui, sans-serif";
+  ctx.textAlign = "center";
+  ctx.textBaseline = "middle";
+  ctx.fillText(text, canvas.width / 2, padding + h / 2 - 4);
+  const texture = new THREE.CanvasTexture(canvas);
+  texture.minFilter = THREE.LinearFilter;
+  const material = new THREE.SpriteMaterial({
+    map: texture,
+    transparent: true,
+    depthTest: false,
+  });
+  const sprite = new THREE.Sprite(material);
+  sprite.scale.set(4.4, 1.1, 1);
+  return sprite;
 }
 
 function spawnPulse(from, to, role) {
@@ -625,39 +787,61 @@ function animateSimulation() {
     character.indicator.rotation.y += dt * 3.2;
     character.indicator.position.y = 2.08 + Math.sin(elapsed * 3) * .05;
     character.phase += dt * 7;
+    if (character.bubble) {
+      character.bubbleLife -= dt;
+      const life = character.bubbleLife;
+      if (life <= 0) {
+        character.group.remove(character.bubble);
+        disposeObject(character.bubble);
+        character.bubble = null;
+      } else if (character.bubble.material) {
+        // Hold full opacity for the first ~3s then fade over the last 1s.
+        const opacity = life > 1 ? 1 : Math.max(0, life);
+        character.bubble.material.opacity = opacity;
+      }
+    }
     if (character.target) {
       const pos = character.group.position;
       const dx = character.target.x - pos.x;
       const dz = character.target.z - pos.z;
       const distance = Math.sqrt(dx * dx + dz * dz);
       if (distance > .24) {
-        pos.x += (dx / distance) * dt * 4.2;
-        pos.z += (dz / distance) * dt * 4.2;
+        pos.x += (dx / distance) * dt * 8.0;
+        pos.z += (dz / distance) * dt * 8.0;
         character.group.rotation.y = Math.atan2(dx, dz);
         character.legs.forEach((leg, index) => {
-          leg.rotation.x = Math.sin(character.phase + index * Math.PI) * .5;
+          leg.rotation.x = Math.sin(character.phase + index * Math.PI) * .65;
         });
       } else {
         character.target = null;
         character.legs.forEach((leg) => { leg.rotation.x = 0; });
-        if (character.role === "npc") {
-          character.nextIdleAt = elapsed + 4 + Math.random() * 5;
-        }
       }
-    } else if (character.role === "npc" && character.nextIdleAt != null
-        && elapsed >= character.nextIdleAt) {
-      const stations = Object.values(sim.servicePositions);
-      if (stations.length) {
-        const target = stations[Math.floor(Math.random() * stations.length)];
-        const angle = Math.random() * Math.PI * 2;
-        character.target = {
-          x: target.x + Math.cos(angle) * 1.75,
-          z: target.z + Math.sin(angle) * 1.75,
-        };
-        character.nextIdleAt = null;
-      }
+    } else if (
+      character.role === "npc"
+      && character.homeDesk
+      && character.returnHomeAt != null
+      && elapsed >= character.returnHomeAt
+    ) {
+      // Drift back to the home desk after the colleague visit. No
+      // random wandering — chatters either sit at their desk or are
+      // visiting a specific colleague.
+      character.target = neighborOffset(character.homeDesk, character.group.userData.actorId || "");
+      character.returnHomeAt = null;
     }
   });
+
+  if (sim.pendingDialogue && sim.pendingDialogue.length) {
+    sim.pendingDialogue = sim.pendingDialogue.filter((line) => {
+      if (elapsed < line.atTime) return true;
+      // Only fire the bubble if the character is still in the scene
+      // — they may have been disposed by a topology rebuild between
+      // queueing and firing.
+      if (Object.values(sim.characters).includes(line.character)) {
+        spawnSpeechBubble(line.character, line.text);
+      }
+      return false;
+    });
+  }
 
   for (let index = sim.effects.length - 1; index >= 0; index -= 1) {
     const effect = sim.effects[index];
@@ -874,9 +1058,12 @@ function renderSimulationChrome() {
   const taskCount = (model.topology.tasks || []).length;
   const hasSnapshot = Boolean(model.topology.snapshot_id);
   const health = model.state.health || {};
-  document.getElementById("sim-subtitle").textContent = hasSnapshot
+  const subtitleEl = document.getElementById("sim-subtitle");
+  const baseSubtitle = hasSnapshot
     ? `${model.briefing.title || "Admitted world"} - ${plural(taskCount, "task")}`
     : "Waiting for an admitted snapshot";
+  subtitleEl.dataset.base = baseSubtitle;
+  subtitleEl.textContent = baseSubtitle;
   document.getElementById("sim-status").textContent = status.replaceAll("_", " ");
   document.getElementById("sim-clock").textContent =
     String(eventCount).padStart(2, "0");
@@ -1077,10 +1264,192 @@ document.querySelectorAll("button[data-action]").forEach((button) => {
     await refresh();
   });
 });
-const events = new EventSource("/api/events/stream");
-events.addEventListener("agent_step", refresh);
-events.addEventListener("env_turn", refresh);
-events.addEventListener("note", refresh);
-const narration = new EventSource("/api/narrate/stream");
-narration.addEventListener("narration", refresh);
-refresh();
+
+function closeStreams() {
+  if (runState.events) {
+    runState.events.close();
+    runState.events = null;
+  }
+  if (runState.narration) {
+    runState.narration.close();
+    runState.narration = null;
+  }
+}
+
+// Coalesce SSE bursts: ``subscribe_sync`` can yield 200+ backlog
+// events in one frame, and the API fetch is whole-state anyway, so
+// one refresh per 150ms is enough.
+let _refreshScheduled = false;
+function scheduleRefresh() {
+  if (_refreshScheduled) return;
+  _refreshScheduled = true;
+  setTimeout(() => {
+    _refreshScheduled = false;
+    refresh();
+  }, 150);
+}
+
+function openStreams() {
+  closeStreams();
+  if (!runState.activeRun) return;
+  runState.events = new EventSource(withRun("/api/events/stream"));
+  // builder_step is included so the SPA refetches topology the
+  // moment the build lands — the empty-state placeholder hands off
+  // to the live world without waiting for the first env_turn.
+  for (const eventType of ["agent_step", "env_turn", "note", "builder_step"]) {
+    runState.events.addEventListener(eventType, scheduleRefresh);
+  }
+  runState.narration = new EventSource(withRun("/api/narrate/stream"));
+  runState.narration.addEventListener("narration", scheduleRefresh);
+}
+
+function applyRunsToPicker(runs, defaultId) {
+  const list = document.getElementById("sim-runs-list");
+  const counter = document.getElementById("sim-runs-count");
+  if (!list) return;
+  if (counter) {
+    counter.textContent = runs.length
+      ? `${runs.length}${runState.followLatest ? " · following latest" : ""}`
+      : "0";
+  }
+  const previous = runState.activeRun;
+  if (!runs.length) {
+    list.innerHTML = '<li class="sim-runs-empty">No runs found</li>';
+    runState.activeRun = null;
+    closeStreams();
+    return;
+  }
+  const newest = defaultId || runs[0].id;
+  let target;
+  if (runState.followLatest) {
+    target = newest;
+  } else if (previous && runs.some((r) => r.id === previous)) {
+    target = previous;
+  } else {
+    target = newest;
+  }
+  list.innerHTML = "";
+  for (const run of runs) {
+    const item = document.createElement("li");
+    item.className = "sim-run-item" + (run.id === target ? " is-active" : "");
+    item.dataset.runId = run.id;
+    const ts = run.modified ? new Date(run.modified * 1000) : null;
+    item.innerHTML = `
+      <span class="sim-run-id">${escapeHtml(run.id)}</span>
+      <span class="sim-run-meta">${escapeHtml(ts ? ts.toLocaleString() : "")}</span>
+    `;
+    item.addEventListener("click", () => selectRun(run.id, /* fromUser */ true));
+    list.appendChild(item);
+  }
+  if (target !== runState.activeRun) {
+    runState.activeRun = target;
+    openStreams();
+    refresh();
+  }
+}
+
+function selectRun(runId, fromUser) {
+  if (!runId || runId === runState.activeRun) return;
+  if (fromUser) {
+    const followToggle = document.getElementById("sim-run-follow");
+    if (followToggle && followToggle.checked) {
+      followToggle.checked = false;
+      runState.followLatest = false;
+    }
+  }
+  runState.activeRun = runId;
+  document.querySelectorAll(".sim-run-item").forEach((el) => {
+    el.classList.toggle("is-active", el.dataset.runId === runId);
+  });
+  const counter = document.getElementById("sim-runs-count");
+  if (counter && runState.runs.length) {
+    counter.textContent = `${runState.runs.length}${
+      runState.followLatest ? " · following latest" : ""
+    }`;
+  }
+  openStreams();
+  refresh();
+}
+
+function setRunsDrawerOpen(open) {
+  const drawer = document.getElementById("sim-runs-drawer");
+  const toggle = document.getElementById("sim-runs-toggle");
+  if (!drawer || !toggle) return;
+  drawer.classList.toggle("is-open", open);
+  drawer.setAttribute("aria-hidden", open ? "false" : "true");
+  toggle.setAttribute("aria-expanded", open ? "true" : "false");
+}
+
+async function refreshRuns() {
+  try {
+    const payload = await fetch("/api/runs").then((r) => r.json());
+    runState.runs = payload.runs || [];
+    applyRunsToPicker(runState.runs, payload.default || null);
+  } catch (err) {
+    console.warn("failed to list runs", err);
+  }
+}
+
+document.getElementById("sim-run-follow").addEventListener("change", async (e) => {
+  runState.followLatest = e.target.checked;
+  if (runState.followLatest) {
+    await refreshRuns();
+  } else {
+    applyRunsToPicker(runState.runs, null);
+  }
+});
+
+document.getElementById("sim-runs-toggle").addEventListener("click", () => {
+  const drawer = document.getElementById("sim-runs-drawer");
+  const open = drawer && !drawer.classList.contains("is-open");
+  setRunsDrawerOpen(open);
+});
+
+document.addEventListener("keydown", (e) => {
+  if (e.key === "Escape") {
+    setRunsDrawerOpen(false);
+  }
+});
+
+async function safeRefresh() {
+  try {
+    await refresh();
+    runState.lastRefreshAt = Date.now();
+  } catch (err) {
+    console.warn("refresh failed", err);
+  }
+}
+
+async function safeRefreshRuns() {
+  try {
+    await refreshRuns();
+  } catch (err) {
+    console.warn("refreshRuns failed", err);
+  }
+}
+
+function tickFreshnessIndicator() {
+  const subtitle = document.getElementById("sim-subtitle");
+  if (!subtitle || !runState.lastRefreshAt) return;
+  const ageSec = Math.floor((Date.now() - runState.lastRefreshAt) / 1000);
+  if (!subtitle.dataset.base) {
+    subtitle.dataset.base = subtitle.textContent || "";
+  }
+  subtitle.textContent = ageSec > 5
+    ? `${subtitle.dataset.base} · last update ${ageSec}s ago`
+    : subtitle.dataset.base;
+}
+
+(async () => {
+  await safeRefreshRuns();
+  await safeRefresh();
+  setInterval(safeRefreshRuns, 5000);
+  // 1s polling is the primary live-update path; SSE is a secondary
+  // optimization that fills in events between polls. If SSE drops
+  // silently (browser quirk, proxy timeout, idle close) the poll
+  // keeps the UI accurate.
+  setInterval(() => {
+    if (runState.activeRun) safeRefresh();
+  }, 1000);
+  setInterval(tickFreshnessIndicator, 1000);
+})();

@@ -20,6 +20,7 @@ subclass with different priors flows through automatically.
 
 from __future__ import annotations
 
+import hashlib
 import random
 from collections.abc import Mapping
 from dataclasses import replace
@@ -45,18 +46,20 @@ from cyber_webapp.sampling import (
     TASK_VERBS,
     sample_graph,
 )
-from openrange.core.builder_protocol import Builder
-from openrange.core.errors import AdmissionError, PackError
-from openrange.core.graph import CheckScript, WorldGraph
-from openrange.core.pack import (
+from openrange import (
+    AdmissionError,
+    Builder,
+    CheckScript,
     Entrypoint,
+    PackError,
     Task,
+    WorldGraph,
     admission_state_from_source,
     verifier_from_source,
 )
 
 if TYPE_CHECKING:
-    from openrange.core.builder import BuildState
+    from openrange import BuildState
 
 
 _DEFAULT_TASK_INSTRUCTION = (
@@ -151,8 +154,14 @@ class ProceduralBuilder(Builder):
     def _seed_for_state(self, state: BuildState) -> int:
         # Mix the configured seed with the manifest pack id so two builds
         # with different manifests but the same builder seed don't
-        # produce identical graphs by accident.
-        return self._seed ^ hash(state.manifest.pack.id) & 0xFFFF
+        # produce identical graphs by accident. SHA1 because Python's
+        # built-in ``hash`` is randomized per process — using it makes
+        # CI flake on graph-feasibility-sensitive seeds.
+        pack_digest = int(
+            hashlib.sha1(state.manifest.pack.id.encode()).hexdigest()[:4],
+            16,
+        )
+        return self._seed ^ pack_digest
 
     # ------------------------------------------------------------------
     # Tasks

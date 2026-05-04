@@ -77,8 +77,12 @@ def test_realize_rejects_graph_without_flag() -> None:
             Node(
                 id="ep_x",
                 type="endpoint",
-                attrs={"path": "/", "method": "GET", "auth_required": False,
-                       "behavior_ref": "web.default"},
+                attrs={
+                    "path": "/",
+                    "method": "GET",
+                    "auth_required": False,
+                    "behavior_ref": "web.default",
+                },
             ),
         ),
         edges=(Edge(source="svc_x", relation="exposes", target="ep_x"),),
@@ -140,7 +144,8 @@ def test_realized_app_serves_root_route(tmp_path: Path) -> None:
     try:
         _wait_for_port(port)
         with urllib.request.urlopen(
-            f"http://127.0.0.1:{port}/", timeout=2,
+            f"http://127.0.0.1:{port}/",
+            timeout=2,
         ) as response:
             assert response.status == 200
     finally:
@@ -158,7 +163,8 @@ def test_realized_app_404s_unknown_route(tmp_path: Path) -> None:
         _wait_for_port(port)
         with pytest.raises(urllib.error.HTTPError) as exc_info:
             urllib.request.urlopen(
-                f"http://127.0.0.1:{port}/__no_such_route__", timeout=2,
+                f"http://127.0.0.1:{port}/__no_such_route__",
+                timeout=2,
             )
         assert exc_info.value.code == 404
     finally:
@@ -175,28 +181,60 @@ def _build_with_specific_vuln(kind: str) -> WorldGraph:
     """Build a small graph with a single named vuln on a web endpoint."""
     flag_value = "ORANGE{exfiltrated}"
     nodes = (
-        Node(id="net", type="network",
-             attrs={"name": "n", "isolation": "bridge", "zone": "dmz"}),
-        Node(id="host_web", type="host",
-             attrs={"hostname": "w", "os": "linux", "zone": "dmz"}),
-        Node(id="svc_web", type="service",
-             attrs={"name": "web", "kind": "web", "language": "python",
-                    "exposure": "public"}),
-        Node(id="ep_web_search", type="endpoint",
-             attrs={"path": "/search", "method": "GET",
-                    "auth_required": False, "behavior_ref": "web.default"}),
-        Node(id="ds_web", type="data_store",
-             attrs={"name": "web", "kind": "kv", "engine": "in_memory"}),
-        Node(id="rec_flag", type="record",
-             attrs={"key": "admin_flag", "fields": {"value": flag_value}}),
-        Node(id="secret_flag", type="secret",
-             attrs={"kind": "flag", "value_ref": flag_value, "description": ""}),
-        Node(id="vuln_x", type="vulnerability",
-             attrs={
-                 "kind": kind,
-                 "family": "code_web",
-                 "params": _params_for(kind),
-             }),
+        Node(
+            id="net",
+            type="network",
+            attrs={"name": "n", "isolation": "bridge", "zone": "dmz"},
+        ),
+        Node(
+            id="host_web",
+            type="host",
+            attrs={"hostname": "w", "os": "linux", "zone": "dmz"},
+        ),
+        Node(
+            id="svc_web",
+            type="service",
+            attrs={
+                "name": "web",
+                "kind": "web",
+                "language": "python",
+                "exposure": "public",
+            },
+        ),
+        Node(
+            id="ep_web_search",
+            type="endpoint",
+            attrs={
+                "path": "/search",
+                "method": "GET",
+                "auth_required": False,
+                "behavior_ref": "web.default",
+            },
+        ),
+        Node(
+            id="ds_web",
+            type="data_store",
+            attrs={"name": "web", "kind": "kv", "engine": "in_memory"},
+        ),
+        Node(
+            id="rec_flag",
+            type="record",
+            attrs={"key": "admin_flag", "fields": {"value": flag_value}},
+        ),
+        Node(
+            id="secret_flag",
+            type="secret",
+            attrs={"kind": "flag", "value_ref": flag_value, "description": ""},
+        ),
+        Node(
+            id="vuln_x",
+            type="vulnerability",
+            attrs={
+                "kind": kind,
+                "family": "code_web",
+                "params": _params_for(kind),
+            },
+        ),
     )
     edges = (
         Edge(source="svc_web", relation="runs_on", target="host_web"),
@@ -238,7 +276,8 @@ def test_realized_sql_injection_exfiltrates_flag(tmp_path: Path) -> None:
         _wait_for_port(port)
         # benign request: returns no rows (no record with key='public').
         with urllib.request.urlopen(
-            f"http://127.0.0.1:{port}/search?q=public", timeout=2,
+            f"http://127.0.0.1:{port}/search?q=public",
+            timeout=2,
         ) as response:
             payload = json.loads(response.read().decode())
         assert "rows" in payload
@@ -249,7 +288,8 @@ def test_realized_sql_injection_exfiltrates_flag(tmp_path: Path) -> None:
 
         evil = quote("' UNION SELECT key, value FROM records -- ")
         with urllib.request.urlopen(
-            f"http://127.0.0.1:{port}/search?q={evil}", timeout=2,
+            f"http://127.0.0.1:{port}/search?q={evil}",
+            timeout=2,
         ) as response:
             payload = json.loads(response.read().decode())
         rows = payload.get("rows", [])
@@ -274,7 +314,8 @@ def test_realized_broken_authz_grants_admin_with_forged_header(tmp_path: Path) -
         # No header → 403.
         with pytest.raises(urllib.error.HTTPError) as exc_info:
             urllib.request.urlopen(
-                f"http://127.0.0.1:{port}/search", timeout=2,
+                f"http://127.0.0.1:{port}/search",
+                timeout=2,
             )
         assert exc_info.value.code == 403
 
@@ -283,7 +324,8 @@ def test_realized_broken_authz_grants_admin_with_forged_header(tmp_path: Path) -
 
         admin_q = quote("admin")
         with urllib.request.urlopen(
-            f"http://127.0.0.1:{port}/search?X-User-Role={admin_q}", timeout=2,
+            f"http://127.0.0.1:{port}/search?X-User-Role={admin_q}",
+            timeout=2,
         ) as response:
             payload = json.loads(response.read().decode())
         # The leak_field is "value"; the broken_authz template returns a
@@ -305,11 +347,7 @@ def test_patched_vuln_removed_from_generated_app() -> None:
 
     s1 = build(V1_MANIFEST)
     kinds_before = sorted(
-        {
-            n.attrs["kind"]
-            for n in s1.world_graph.nodes
-            if n.type == "vulnerability"
-        },
+        {n.attrs["kind"] for n in s1.world_graph.nodes if n.type == "vulnerability"},
     )
     s2 = evolve(s1, curriculum={"patch": list(kinds_before)})
     src_after = dict(s2.runtime.files())["app.py"]
@@ -324,10 +362,10 @@ def test_patched_vuln_removed_from_generated_app() -> None:
     # Default handlers vary per service kind; the per-kind markers tell
     # us at least one default body landed.
     default_markers = (
-        '"items": []',          # api default
-        '"count": len(rows)',   # db default (parameterized SELECT)
-        '"session": None',      # auth default
-        "<h1>",                 # web default (HTML)
-        '"status": "ok"',       # generic fallback
+        '"items": []',  # api default
+        '"count": len(rows)',  # db default (parameterized SELECT)
+        '"session": None',  # auth default
+        "<h1>",  # web default (HTML)
+        '"status": "ok"',  # generic fallback
     )
     assert any(m in src_after for m in default_markers), src_after

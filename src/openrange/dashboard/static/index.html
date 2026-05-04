@@ -29,6 +29,35 @@
     <span id="sim-status">Waiting</span>
   </div>
 
+  <button
+    type="button"
+    class="sim-runs-toggle"
+    id="sim-runs-toggle"
+    aria-expanded="false"
+    aria-controls="sim-runs-drawer"
+    aria-label="Toggle runs sidebar"
+    title="Toggle runs sidebar"
+  ></button>
+
+  <aside
+    class="sim-overlay sim-runs-drawer"
+    id="sim-runs-drawer"
+    aria-hidden="true"
+    aria-label="Runs sidebar"
+  >
+    <header class="sim-runs-head">
+      <div class="sim-panel-title">Runs</div>
+      <span id="sim-runs-count" class="sim-runs-count">0</span>
+    </header>
+    <label class="sim-run-follow">
+      <input type="checkbox" id="sim-run-follow" checked>
+      Follow latest
+    </label>
+    <ul class="sim-runs-list" id="sim-runs-list">
+      <li class="sim-runs-empty">No runs found</li>
+    </ul>
+  </aside>
+
   <div class="sim-overlay sim-panel sim-event-panel">
     <div class="sim-panel-title">Live Event Feed</div>
     <ul class="sim-event-list" id="sim-event-log"></ul>

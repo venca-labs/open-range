@@ -221,9 +221,7 @@ def _build_with_repair(state: BuildState, *, max_repairs: int) -> BuildState:
             attempt_state = state
             result = AdmissionResult(
                 accepted=False,
-                failures=(
-                    AdmissionFailure(reason=str(exc), stage="generation"),
-                ),
+                failures=(AdmissionFailure(reason=str(exc), stage="generation"),),
             )
         last_result = result
         if result.accepted:

@@ -14,6 +14,7 @@ from collections.abc import Mapping
 from dataclasses import dataclass
 from pathlib import Path
 
+from openrange.agent_backend import AgentBackend
 from openrange.core import (
     Manifest,
     Snapshot,
@@ -45,6 +46,18 @@ class RunConfig:
     reset_dashboard: bool = True
     dashboard_host: str = "127.0.0.1"
     dashboard_port: int | None = None
+    # AgentBackend handed to LLM-backed NPCs (those declaring
+    # ``requires_llm = True``). Pluggable: strands for tool dispatch,
+    # codex for tool-less / cheap testing, or any custom impl. If
+    # ``None`` and ``npc_llm_model`` is also unset, LLM-backed NPCs
+    # mark themselves broken at start with a clear "no backend
+    # configured" reason.
+    npc_agent_backend: AgentBackend | None = None
+    # Convenience: a strands model id string. Auto-promotes to
+    # ``StrandsAgentBackend(model=npc_llm_model)`` when
+    # ``npc_agent_backend`` is unset. Mutually exclusive with the
+    # explicit form.
+    npc_llm_model: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -58,7 +71,8 @@ class DashboardServerHandle:
         return f"http://{host}:{self.server.server_address[1]}"
 
     def close(self) -> None:
-        self.server.view.bridge.close()
+        if self.server.view is not None:
+            self.server.view.close()
         self.server.shutdown()
         self.server.server_close()
         self.thread.join(timeout=5)
@@ -77,6 +91,18 @@ class OpenRangeRun:
         self.config = (
             config if isinstance(config, RunConfig) else RunConfig(Path(config))
         )
+        # Validate mutual exclusivity up front rather than waiting for
+        # ``episode_service()`` to surface the conflict — the operator
+        # gets a clear error at the point of misconfiguration instead
+        # of midway through a run.
+        if (
+            self.config.npc_agent_backend is not None
+            and self.config.npc_llm_model is not None
+        ):
+            raise ValueError(
+                "RunConfig: pass either 'npc_agent_backend' or "
+                "'npc_llm_model', not both",
+            )
         self.root = self.config.root
         self.root.mkdir(parents=True, exist_ok=True)
         self._dashboard = (
@@ -128,7 +154,12 @@ class OpenRangeRun:
 
     def episode_service(self, snapshot: Snapshot) -> EpisodeService:
         view = self._ensure_dashboard_view(snapshot)
-        return EpisodeService(self.root, dashboard=view)
+        return EpisodeService(
+            self.root,
+            dashboard=view,
+            npc_agent_backend=self.config.npc_agent_backend,
+            npc_llm_model=self.config.npc_llm_model,
+        )
 
     def serve_dashboard(
         self,

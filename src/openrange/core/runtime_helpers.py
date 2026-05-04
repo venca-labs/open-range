@@ -16,6 +16,8 @@ finalization hook so non-HTTP packs can pick their own conventions.
 from __future__ import annotations
 
 import json
+import os
+import signal
 import subprocess
 import sys
 from collections.abc import Callable, Mapping
@@ -48,7 +50,14 @@ def start_runtime_process(
     world: Mapping[str, object],
     request_log: Path,
 ) -> subprocess.Popen[str]:
-    """Spawn a Python subprocess for the entrypoint's runtime artifact."""
+    """Spawn a Python subprocess for the entrypoint's runtime artifact.
+
+    Owns its own process group via ``start_new_session=True`` so
+    ``stop_process`` can SIGTERM the whole tree (uvicorn workers,
+    request threads, anything spawned downstream) without affecting
+    the harness, and so a Ctrl+C on the harness terminal doesn't
+    race-clean the runtime via the shared foreground group.
+    """
     if not app_path.exists():
         raise EpisodeRuntimeError(f"runtime artifact is missing: {app_path.name}")
     return subprocess.Popen(
@@ -60,6 +69,7 @@ def start_runtime_process(
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,
         text=True,
+        start_new_session=True,
     )
 
 
@@ -197,11 +207,41 @@ def cast_final_state(value: object) -> Mapping[str, Mapping[str, object]]:
 
 
 def stop_process(process: subprocess.Popen[str] | None) -> None:
+    """Terminate a runtime subprocess; if it owns its own process
+    group, terminate the whole group so descendants don't outlive
+    it. Falls back to ``process.terminate()`` for bare ``Popen``
+    instances that share the caller's pgid — group-killing those
+    would terminate the caller. SIGKILL after 2s if still alive.
+    """
     if process is None or process.poll() is not None:
         return
-    process.terminate()
+    own_group = False
+    pgid: int | None = None
+    try:
+        pgid = os.getpgid(process.pid)
+        own_group = pgid != os.getpgid(0)
+    except ProcessLookupError, OSError:
+        pgid = None
+    try:
+        if own_group and pgid is not None:
+            os.killpg(pgid, signal.SIGTERM)
+        else:
+            process.terminate()
+    except ProcessLookupError, OSError:
+        return
+    try:
+        process.wait(timeout=2)
+        return
+    except subprocess.TimeoutExpired:
+        pass
+    try:
+        if own_group and pgid is not None:
+            os.killpg(pgid, signal.SIGKILL)
+        else:
+            process.kill()
+    except ProcessLookupError, OSError:
+        return
     try:
         process.wait(timeout=2)
     except subprocess.TimeoutExpired:
-        process.kill()
-        process.wait()
+        return

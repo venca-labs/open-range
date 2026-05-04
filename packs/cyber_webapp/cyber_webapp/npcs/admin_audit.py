@@ -16,7 +16,7 @@ from __future__ import annotations
 from collections.abc import Mapping
 
 from cyber_webapp.npcs import _HTTPCadenceNPC
-from openrange.core.npc import NPC
+from openrange.npc import NPC
 
 
 class AdminAudit(_HTTPCadenceNPC):

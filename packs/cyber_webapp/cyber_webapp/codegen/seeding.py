@@ -17,8 +17,7 @@ from __future__ import annotations
 from collections.abc import Mapping
 from types import MappingProxyType
 
-from openrange.core.errors import PackError
-from openrange.core.graph import Node, WorldGraph
+from openrange import Node, PackError, WorldGraph
 
 _DEFAULT_TABLE = "records"
 _DEFAULT_KEY_COLUMN = "key"
@@ -169,7 +168,8 @@ def _retarget_records(
 
 
 def _populate_secrets_with_flag(
-    secrets: Mapping[str, str], flag: str,
+    secrets: Mapping[str, str],
+    flag: str,
 ) -> dict[str, str]:
     """Mirror the flag under every leak_field broken_authz might pick."""
     populated = dict(secrets)

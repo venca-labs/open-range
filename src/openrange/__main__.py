@@ -8,7 +8,11 @@ import webbrowser
 from pathlib import Path
 
 from openrange.core import Snapshot, SnapshotStore, build
-from openrange.dashboard import DashboardHTTPServer, DashboardView
+from openrange.dashboard import (
+    DashboardHTTPServer,
+    DashboardView,
+    RunsRegistry,
+)
 from openrange.llm import CodexBackend
 
 
@@ -25,13 +29,25 @@ def main() -> None:
     inspect_parser.add_argument("snapshot", type=Path)
 
     dashboard_parser = subparsers.add_parser("dashboard")
-    dashboard_parser.add_argument("--store-dir", type=Path, default=Path("snapshots"))
-    dashboard_parser.add_argument("--snapshot-id")
+    dashboard_parser.add_argument(
+        "--runs-dir",
+        type=Path,
+        default=Path("or-runs"),
+        help="Directory containing run subdirs. Default: ./or-runs",
+    )
     dashboard_parser.add_argument(
         "--run-root",
         type=Path,
-        help="Open a previous run directory containing dashboard artifacts",
+        help="Single-run mode. Opens just this directory and skips multi-run "
+        "discovery.",
     )
+    dashboard_parser.add_argument(
+        "--store-dir",
+        type=Path,
+        default=Path("snapshots"),
+        help="Snapshot store for legacy --snapshot-id mode (no live events).",
+    )
+    dashboard_parser.add_argument("--snapshot-id")
     dashboard_parser.add_argument("--host", default="127.0.0.1")
     dashboard_parser.add_argument("--port", type=int, default=8000)
     dashboard_parser.add_argument("--no-browser", action="store_true")
@@ -51,42 +67,7 @@ def main() -> None:
             print(json.dumps(payload, sort_keys=True))
         return
     if args.command == "dashboard":
-        snapshot_id = args.snapshot_id or latest_snapshot_id(args.store_dir)
-        dashboard_snapshot: Snapshot | None = None
-        if args.run_root is None and snapshot_id is not None:
-            dashboard_snapshot = SnapshotStore(args.store_dir).load(snapshot_id)
-        event_log_path = None
-        state_path = None
-        reset_artifacts = True
-        if args.run_root is not None:
-            event_log_path = args.run_root / "dashboard.events.jsonl"
-            state_path = args.run_root / "dashboard.json"
-            if not event_log_path.exists() or not state_path.exists():
-                parser.error(
-                    "--run-root must contain dashboard.events.jsonl and dashboard.json",
-                )
-            reset_artifacts = False
-        server = DashboardHTTPServer(
-            (args.host, args.port),
-            DashboardView(
-                dashboard_snapshot,
-                event_log_path=event_log_path,
-                state_path=state_path,
-                reset_artifacts=reset_artifacts,
-            ),
-        )
-        host = str(server.server_address[0])
-        url = f"http://{host}:{server.server_address[1]}"
-        print(url, flush=True)
-        if not args.no_browser:
-            webbrowser.open(url)
-        try:
-            server.serve_forever()
-        except KeyboardInterrupt:
-            pass
-        finally:
-            server.view.bridge.close()
-            server.server_close()
+        _run_dashboard(args, parser)
         return
     data = json.loads(args.snapshot.read_text(encoding="utf-8"))
     print(
@@ -101,8 +82,63 @@ def main() -> None:
     )
 
 
+def _run_dashboard(args: argparse.Namespace, parser: argparse.ArgumentParser) -> None:
+    """Boot the dashboard server in one of three modes.
+
+    1. ``--run-root`` set       -> single-run mode (one DashboardView).
+    2. ``--snapshot-id`` set    -> snapshot-store mode (no live events).
+    3. otherwise (default)      -> tensorboard-style multi-run mode
+       backed by a ``RunsRegistry`` over ``--runs-dir``.
+    """
+    server: DashboardHTTPServer
+    if args.run_root is not None:
+        events = args.run_root / "dashboard.events.jsonl"
+        state = args.run_root / "dashboard.json"
+        if not events.exists() or not state.exists():
+            parser.error(
+                f"{args.run_root} is missing dashboard.events.jsonl or dashboard.json",
+            )
+        view = DashboardView(
+            event_log_path=events,
+            state_path=state,
+            reset_artifacts=False,
+            tail=True,
+        )
+        server = DashboardHTTPServer((args.host, args.port), view=view)
+    elif args.snapshot_id is not None:
+        snapshot: Snapshot | None = SnapshotStore(args.store_dir).load(args.snapshot_id)
+        view = DashboardView(snapshot)
+        server = DashboardHTTPServer((args.host, args.port), view=view)
+    else:
+        args.runs_dir.mkdir(parents=True, exist_ok=True)
+        registry = RunsRegistry(args.runs_dir)
+        server = DashboardHTTPServer((args.host, args.port), runs=registry)
+
+    host = str(server.server_address[0])
+    url = f"http://{host}:{server.server_address[1]}"
+    print(url, flush=True)
+    if server.runs is not None:
+        print(f"watching: {server.runs.runs_dir}", flush=True)
+    if not args.no_browser:
+        webbrowser.open(url)
+    try:
+        server.serve_forever()
+    except KeyboardInterrupt:
+        pass
+    finally:
+        if server.runs is not None:
+            server.runs.close()
+        elif server.view is not None:
+            server.view.close()
+        server.server_close()
+
+
 def latest_snapshot_id(store_dir: Path) -> str | None:
     snapshots = sorted(store_dir.glob("*.json"))
     if not snapshots:
         return None
     return snapshots[-1].stem
+
+
+if __name__ == "__main__":
+    main()

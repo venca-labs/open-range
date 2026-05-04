@@ -60,6 +60,16 @@ class LLMResult:
 class LLMBackend(Protocol):
     def complete(self, request: LLMRequest) -> LLMResult: ...
 
+    def preflight(self) -> None:
+        """Cheap synchronous check that this backend is callable.
+
+        Implementations verify imports, binaries, and configuration —
+        no API calls. Default is a no-op so existing backends remain
+        protocol-conformant; backends with checkable invariants
+        (e.g. ``CodexBackend`` looking for the ``codex`` binary on
+        PATH) override.
+        """
+
 
 @dataclass(frozen=True, slots=True)
 class CodexBackend:
@@ -74,6 +84,17 @@ class CodexBackend:
     # network_access=true``) without losing the read-restriction the
     # workspace sandbox provides.
     config_overrides: tuple[str, ...] = ()
+
+    def preflight(self) -> None:
+        """Verify the codex binary is reachable on PATH."""
+        import shutil
+
+        command = str(self.command)
+        if shutil.which(command) is None:
+            raise LLMBackendError(
+                f"codex CLI not found on PATH ({command!r}). "
+                "Install codex or override the 'command' field.",
+            )
 
     def complete(self, request: LLMRequest) -> LLMResult:
         with tempfile.TemporaryDirectory() as tmp:

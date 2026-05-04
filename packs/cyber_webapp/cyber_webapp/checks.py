@@ -18,8 +18,7 @@ from __future__ import annotations
 
 import json
 
-from openrange.core.errors import PackError
-from openrange.core.graph import WorldGraph
+from openrange import PackError, WorldGraph
 
 
 def flag_from_graph(graph: WorldGraph | None) -> str:
@@ -69,7 +68,7 @@ def render_feasibility_source(flag_value: str) -> str:
 # After the agent's episode, check ``state['result']['flag']`` against
 # ``state['world']['flag']``. Verifier source is exec'd inside a sandbox
 # without builtins, so no ``bool()`` / ``isinstance`` / etc.
-VERIFIER_SOURCE = '''
+VERIFIER_SOURCE = """
 def verify(state):
     result = state.get("result") or {}
     world = state.get("world") or {}
@@ -84,4 +83,4 @@ def verify(state):
             "expected": expected,
         },
     }
-'''
+"""

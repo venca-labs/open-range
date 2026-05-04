@@ -1,5 +1,11 @@
 """OpenRange public API."""
 
+from openrange.agent_backend import (
+    AgentBackend,
+    AgentBackendError,
+    CodexAgentBackend,
+    StrandsAgentBackend,
+)
 from openrange.core import (
     BUILDERS,
     PACKS,
@@ -15,6 +21,8 @@ from openrange.core import (
     BuildFailed,
     BuildState,
     CheckScript,
+    CurriculumPolicy,
+    Direction,
     Edge,
     EdgeType,
     Entrypoint,
@@ -22,6 +30,7 @@ from openrange.core import (
     LineageNode,
     Manifest,
     ManifestError,
+    Mutation,
     Node,
     NodeType,
     OpenRangeError,
@@ -41,7 +50,9 @@ from openrange.core import (
     WorldGraph,
     WorldSchema,
     admission_state_from_source,
+    auto_evolve,
     build,
+    direction_from_reports,
     evolve,
     verifier_from_source,
 )
@@ -68,6 +79,13 @@ from openrange.llm import (
     LLMRequestError,
     LLMResult,
 )
+from openrange.npc import (
+    NPC,
+    NPCS,
+    AgentNPC,
+    NPCError,
+    NPCRegistry,
+)
 from openrange.runtime import (
     DashboardServerHandle,
     EpisodeRuntimeError,
@@ -82,6 +100,8 @@ __all__ = [
     "AdmissionResult",
     "ActorTurn",
     "AdvanceRequest",
+    "AgentBackend",
+    "AgentBackendError",
     "AgentTurn",
     "BUILDERS",
     "BuildContext",
@@ -92,8 +112,11 @@ __all__ = [
     "BuilderRegistry",
     "CODEX_DEFAULT_MODEL",
     "CheckScript",
+    "CodexAgentBackend",
     "CodexBackend",
+    "CurriculumPolicy",
     "DashboardServerHandle",
+    "Direction",
     "Edge",
     "EdgeType",
     "Entrypoint",
@@ -114,6 +137,12 @@ __all__ = [
     "LineageNode",
     "Manifest",
     "ManifestError",
+    "Mutation",
+    "NPC",
+    "NPCError",
+    "NPCRegistry",
+    "NPCS",
+    "AgentNPC",
     "Node",
     "NodeType",
     "Observation",
@@ -132,6 +161,7 @@ __all__ = [
     "Snapshot",
     "SnapshotStore",
     "StoreError",
+    "StrandsAgentBackend",
     "Task",
     "TickRequest",
     "TickResult",
@@ -139,7 +169,9 @@ __all__ = [
     "WorldGraph",
     "WorldSchema",
     "admission_state_from_source",
+    "auto_evolve",
     "build",
+    "direction_from_reports",
     "evolve",
     "verifier_from_source",
 ]

@@ -9,18 +9,20 @@ agent action; ``record_turn`` is observational only. ``tick`` and
 
 from __future__ import annotations
 
+import atexit
 import shutil
 import tempfile
 import threading
 import uuid
-from collections.abc import Mapping
+import weakref
+from collections.abc import Callable, Mapping
 from dataclasses import dataclass, field
 from pathlib import Path
 from types import MappingProxyType
 from typing import TYPE_CHECKING, Any, Literal
 
+from openrange.agent_backend import AgentBackend, StrandsAgentBackend
 from openrange.core.errors import OpenRangeError
-from openrange.core.npc import NPC, resolve_manifest_npcs
 from openrange.core.pack import Entrypoint, Task
 from openrange.core.runtime_backing import (
     RUNTIME_BACKINGS,
@@ -34,6 +36,7 @@ from openrange.core.runtime_helpers import (
     write_task_file,
 )
 from openrange.core.turn import ActorTurn
+from openrange.npc import NPC, resolve_manifest_npcs
 
 if TYPE_CHECKING:
     from openrange.core.snapshot import Snapshot
@@ -114,9 +117,7 @@ class EpisodeReport:
             "task_id": self.task_id,
             "final_state": dict(self.final_state),
             "verifier_result": (
-                None
-                if self.verifier_result is None
-                else dict(self.verifier_result)
+                None if self.verifier_result is None else dict(self.verifier_result)
             ),
             "agent_summary": self.agent_summary,
         }
@@ -184,11 +185,33 @@ class EpisodeService:
         run_root: str | Path,
         *,
         dashboard: DashboardView | None = None,
+        npc_agent_backend: AgentBackend | None = None,
+        npc_llm_model: str | None = None,
     ) -> None:
         self.run_root = Path(run_root)
         self.run_root.mkdir(parents=True, exist_ok=True)
         self.dashboard = dashboard
+        # Resolve the NPC agent backend now: an explicit backend wins;
+        # otherwise the model-id convenience auto-promotes to a
+        # StrandsAgentBackend. Both unset means LLM-backed NPCs go
+        # broken at start with a clear "no backend configured" reason.
+        if npc_agent_backend is not None and npc_llm_model is not None:
+            raise EpisodeError(
+                "EpisodeService: pass either 'npc_agent_backend' or "
+                "'npc_llm_model', not both",
+            )
+        if npc_agent_backend is not None:
+            self.npc_agent_backend: AgentBackend | None = npc_agent_backend
+        elif npc_llm_model is not None:
+            self.npc_agent_backend = StrandsAgentBackend(model=npc_llm_model)
+        else:
+            self.npc_agent_backend = None
         self._episodes: dict[str, _RunningEpisode] = {}
+        # Backstop: if the caller's try/finally misses ``close()``
+        # (KeyboardInterrupt mid-cleanup, uncaught exception, etc.)
+        # this still kills runtime subprocesses so they don't get
+        # reparented to PID 1.
+        atexit.register(_atexit_kill_episodes, weakref.ref(self))
 
     # -- lifecycle ----------------------------------------------------------
 
@@ -561,21 +584,32 @@ class EpisodeService:
         )
 
     def _start_npcs(self, running: _RunningEpisode) -> None:
-        # Construction errors propagate — a bad manifest is a config
-        # error, not something to silently swallow at episode start.
+        # Manifest-shape errors (unknown type, malformed config) still
+        # propagate from ``resolve_manifest_npcs`` — those are config
+        # mistakes the operator needs to fix. Per-NPC SDK / preflight
+        # failures are caught inside the NPC and surfaced via
+        # ``broken_reason`` (recorded below as a dashboard event).
         npcs = resolve_manifest_npcs(running.snapshot.manifest.npc)
         if not npcs:
             return
-        context = MappingProxyType(
-            {
-                "episode_id": running.handle.id,
-                "snapshot_id": running.snapshot.id,
-                "task_id": running.task.id,
-                "base_url": running.base_url,
-            },
-        )
+        base_context: dict[str, Any] = {
+            "episode_id": running.handle.id,
+            "snapshot_id": running.snapshot.id,
+            "task_id": running.task.id,
+            "base_url": running.base_url,
+        }
         for npc in npcs:
-            npc.start(context)
+            ctx = dict(base_context)
+            ctx["record_action"] = self._make_npc_recorder(running, npc)
+            if npc.requires_llm:
+                ctx["agent_backend"] = self.npc_agent_backend
+            npc.start(MappingProxyType(ctx))
+            # NPCs may set ``broken_reason`` during start() (e.g. the
+            # AgentNPC pre-flight catching a missing SDK). Report it
+            # so it surfaces in the dashboard immediately rather than
+            # waiting for the first acting tick.
+            if npc.broken_reason is not None:
+                self._record_npc_broken(running, npc)
         running.npcs = npcs
 
     def _step_npcs(self, running: _RunningEpisode) -> None:
@@ -586,10 +620,58 @@ class EpisodeService:
         # Per-NPC failures are swallowed: one NPC throwing on a
         # malformed response shouldn't sink the whole episode.
         for npc in running.npcs:
+            already_broken = npc.broken_reason is not None
             try:
                 npc.step(interface)
             except Exception:  # noqa: BLE001
                 continue
+            if not already_broken and npc.broken_reason is not None:
+                self._record_npc_broken(running, npc)
+
+    def _make_npc_recorder(
+        self,
+        running: _RunningEpisode,
+        npc: NPC,
+    ) -> Callable[..., None]:
+        """Build the per-NPC ``record_action`` callable handed via context.
+
+        Returns a closure tagged with the NPC's ``actor_id`` so events
+        flow into the dashboard with consistent attribution. Errors
+        (e.g. dashboard offline) are silent — recording is
+        observational and must never sink an NPC tick.
+        """
+
+        def record(
+            action: Mapping[str, object],
+            *,
+            target: str | None = None,
+            observation: Mapping[str, object] | None = None,
+        ) -> None:
+            if running.dashboard is None:
+                return
+            try:
+                running.dashboard.record_turn(
+                    ActorTurn(
+                        running.task.id,
+                        npc.actor_id,
+                        "npc",
+                        target if target is not None else "office",
+                        action,
+                        observation=observation,
+                    ),
+                )
+            except Exception:  # noqa: BLE001 — observational, never raise
+                return
+
+        return record
+
+    def _record_npc_broken(self, running: _RunningEpisode, npc: NPC) -> None:
+        """Surface an NPC's transition to broken on the dashboard."""
+        self._record_system(
+            running,
+            {"npc_broken": type(npc).__name__},
+            observation={"reason": npc.broken_reason or ""},
+        )
 
     def _stop_npcs(self, running: _RunningEpisode) -> None:
         for npc in running.npcs:
@@ -626,6 +708,22 @@ class EpisodeService:
                 backing.stop(running.running_artifact)
                 running.running_artifact = None
         self._episodes.clear()
+
+
+def _atexit_kill_episodes(service_ref: weakref.ref[EpisodeService]) -> None:
+    service = service_ref()
+    if service is None:
+        return
+    for running in list(service._episodes.values()):
+        artifact = running.running_artifact
+        if artifact is None:
+            continue
+        try:
+            backing = RUNTIME_BACKINGS.require(artifact.kind)
+            backing.stop(artifact)
+        except Exception:  # noqa: BLE001 — best-effort cleanup
+            continue
+        running.running_artifact = None
 
 
 def _auto_tick_loop(

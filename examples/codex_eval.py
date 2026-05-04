@@ -10,7 +10,12 @@ Four stages, top to bottom:
                workspace with the task instruction.
   3. Verify  — OpenRange grades whatever the agent wrote to
                ``result.json`` against the world's actual flag.
-  4. Report  — write the report to an immutable run directory.
+  4. Evolve  — when ``--max-steps`` > 1, ``auto_evolve`` mutates the
+               world based on the last report (harden after a pass,
+               soften after a fail) and the next step runs against
+               the evolved snapshot.
+  5. Report  — write the per-step reports + lineage to an immutable
+               run directory.
 
 Run::
 
@@ -29,10 +34,20 @@ from datetime import UTC, datetime
 from pathlib import Path
 
 import openrange as OR
+from examples._office_demo import office_chatter_entries
 
 MANIFEST: dict[str, object] = {
     "world": {"goal": "find the admin flag in a vulnerable webapp"},
     "pack": {"id": "cyber.webapp", "source": {"kind": "builtin"}},
+    "runtime": {"tick": {"mode": "auto", "rate_hz": 1.5}},
+    "npc": [
+        {
+            "type": "cyber.browsing_user",
+            "count": 2,
+            "config": {"cadence_ticks": 3, "paths": ["/openapi.json", "/"]},
+        },
+        *office_chatter_entries(),
+    ],
 }
 
 
@@ -50,27 +65,59 @@ def main() -> None:
             dashboard_port=args.dashboard_port,
         ),
     )
-    builder_llm = None if args.no_builder_llm else OR.CodexBackend(
-        command=args.codex_command,
-        model=args.model,
-        timeout=args.builder_timeout,
+    builder_llm = (
+        None
+        if args.no_builder_llm
+        else OR.CodexBackend(
+            command=args.codex_command,
+            model=args.model,
+            timeout=args.builder_timeout,
+        )
     )
     snapshot = run.build(MANIFEST, llm=builder_llm)
+    if not args.no_dashboard:
+        print(
+            f"dashboard: run `uv run python -m openrange dashboard` "
+            f"(watching {args.runs_dir})",
+            flush=True,
+        )
 
-    # 2 + 3. Run + Verify, once per task in the snapshot.
+    # 2 + 3 (+ 4). Run + Verify per task; between steps, auto_evolve
+    # picks the next world based on the last report's pass/fail.
     harness = CodexHarness(
         command=args.codex_command,
         model=args.model,
         sandbox=args.agent_sandbox,
         timeout=args.agent_timeout,
     )
-    reports = [_run_task(snapshot, task, harness, run) for task in snapshot.get_tasks()]
+    steps: list[dict[str, object]] = []
+    for step_num in range(1, args.max_steps + 1):
+        report = _run_task(snapshot, snapshot.get_tasks()[0], harness, run)
+        steps.append(
+            {
+                "step": step_num,
+                "snapshot_id": snapshot.id,
+                "report": report.as_dict(),
+            }
+        )
+        evolved = OR.auto_evolve(snapshot, report, llm=builder_llm)
+        if evolved is None:
+            break
+        snapshot = evolved
 
-    # 4. Report — single JSON document per run.
+    # 5. Report — single JSON document covering all steps + lineage.
     output = {
         "run_root": str(run.root),
-        "snapshot_id": snapshot.id,
-        "reports": reports,
+        "final_snapshot_id": snapshot.id,
+        "steps": steps,
+        "lineage": [
+            {
+                "snapshot_id": node.id,
+                "parent_id": node.parent_id,
+                "curriculum": dict(node.curriculum or {}),
+            }
+            for node in snapshot.lineage
+        ],
     }
     (run.root / "report.json").write_text(
         json.dumps(output, indent=2, sort_keys=True) + "\n",
@@ -84,7 +131,7 @@ def _run_task(
     task: OR.Task,
     harness: CodexHarness,
     run: OR.OpenRangeRun,
-) -> dict[str, object]:
+) -> OR.EpisodeReport:
     """Start an episode, run the agent against it, return the report."""
     svc = run.episode_service(snapshot)
     handle = svc.start_episode(snapshot, task.id)
@@ -95,16 +142,9 @@ def _run_task(
         result = harness.run(task.instruction, svc.agent_root(handle))
         svc.record_turn(handle, OR.AgentTurn(message=result.text))
         # stop_episode runs the verifier and returns a structured report.
-        report = svc.stop_episode(handle)
+        return svc.stop_episode(handle)
     finally:
         svc.close()
-    return {
-        **report.as_dict(),
-        "passed": (
-            report.verifier_result is not None
-            and report.verifier_result.get("passed") is True
-        ),
-    }
 
 
 @dataclass(frozen=True, slots=True)
@@ -130,9 +170,7 @@ class CodexHarness:
     def run(self, prompt: str, cwd: Path) -> OR.LLMResult:
         config_overrides: tuple[str, ...] = ()
         if self.sandbox == "workspace-write":
-            config_overrides = (
-                "sandbox_workspace_write.network_access=true",
-            )
+            config_overrides = ("sandbox_workspace_write.network_access=true",)
         return OR.CodexBackend(
             command=self.command,
             model=self.model,
@@ -152,16 +190,25 @@ def _parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--runs-dir", type=Path, default=Path("or-runs"))
     parser.add_argument("--run-root", type=Path)
+    parser.add_argument(
+        "--max-steps",
+        type=int,
+        default=2,
+        help="Number of episodes; auto_evolve runs between each (default 2).",
+    )
     parser.add_argument("--codex-command", type=Path, default=Path("codex"))
     parser.add_argument("--model", default=OR.CODEX_DEFAULT_MODEL)
     parser.add_argument(
-        "--agent-sandbox", "--codex-sandbox",
-        dest="agent_sandbox", default="workspace-write",
+        "--agent-sandbox",
+        "--codex-sandbox",
+        dest="agent_sandbox",
+        default="workspace-write",
     )
     parser.add_argument("--builder-timeout", type=float, default=300.0)
     parser.add_argument("--agent-timeout", type=float, default=300.0)
     parser.add_argument(
-        "--no-builder-llm", action="store_true",
+        "--no-builder-llm",
+        action="store_true",
         help="Skip Codex enrichment at build — use procedural defaults.",
     )
     parser.add_argument("--dashboard-host", default="127.0.0.1")
