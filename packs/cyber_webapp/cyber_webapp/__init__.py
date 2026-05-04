@@ -21,7 +21,7 @@ entry-point group declared in this package's pyproject.toml.
 
 from __future__ import annotations
 
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
 from pathlib import Path
 from types import MappingProxyType
 from typing import TYPE_CHECKING
@@ -31,7 +31,7 @@ from cyber_webapp.priors import PRIORS
 from openrange import Builder, Manifest, Pack, RuntimeBundle, WorldGraph, WorldSchema
 
 if TYPE_CHECKING:
-    from openrange import BuildContext
+    from openrange import BuildContext, EpisodeReport, LLMBackend, Mutation, Snapshot
 
 
 class CyberWebappPack(Pack):
@@ -69,6 +69,34 @@ class CyberWebappPack(Pack):
 
     def generation_priors(self) -> Mapping[str, object]:
         return PRIORS
+
+    def available_mutations(
+        self,
+        snapshot: Snapshot,
+        reports: Sequence[EpisodeReport],
+        *,
+        llm: LLMBackend | None = None,
+    ) -> tuple[Mutation, ...]:
+        """Procedural enumeration with optional LLM relevance enrichment.
+
+        The procedural floor is always emitted (deterministic, fast).
+        When an ``llm`` is supplied, a single enrichment call refines
+        relevance scores and notes using semantic reading of the request
+        log; on any LLM failure the procedural list passes through.
+        """
+        from cyber_webapp.mutation import available_mutations as procedural
+
+        options = procedural(snapshot, reports)
+        if llm is None or not options:
+            return options
+        from cyber_webapp.llm_generation import enrich_mutations
+
+        return enrich_mutations(
+            options,
+            graph=snapshot.world_graph,
+            reports=reports,
+            llm=llm,
+        )
 
     def project_world(self, graph: WorldGraph) -> Mapping[str, object]:
         """Project the graph back to a flat world dict.
