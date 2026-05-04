@@ -6,6 +6,26 @@
 - Understand the root cause of an issue or bug, and patch the root cause instead of an ad hoc superficial fix.
 - Before you write code, wait and think if the code is simple, elegant, general, and minimal.
 
+## Comments
+
+- Default to writing no comments. Only add one when the WHY is non-obvious: a hidden constraint, a subtle invariant, a workaround for a specific bug, behavior that would surprise a reader.
+- Don't explain WHAT the code does — well-named identifiers do that.
+- Don't reference the current task, fix, phase, or version ("Phase 5: ...", "v0 captures ...", "Future: forward to ..."). Those rot as the codebase evolves; commits and PRs are the right place for that context.
+- Don't tag implementation state with version markers (no "in v0", "for v1", "until C4") in comments unless the reader genuinely needs to know what's deferred and why. Prefer rephrasing without the version tag.
+- If removing the comment wouldn't confuse a future reader, don't write it.
+
+## Docstrings
+
+- Long docstrings are fine on PUBLIC things (top-level package APIs, public classes, public methods) when they explain semantics, contracts, or non-obvious behavior the signature can't convey.
+- Internal helpers (underscore-prefixed) should not have docstrings unless something genuinely needs clarifying. The function name + body should speak for themselves.
+- Don't write docstrings that just restate the function name in a sentence ("Resolve manifest NPCs" on `_start_npcs` is bloat). If the only useful content is one line of WHY, write it as an inline `# comment` and drop the docstring.
+
+## __all__
+
+- Use `__all__` ONLY in package-level `__init__.py` files where you're explicitly curating the public surface.
+- Do NOT add `__all__` to leaf modules — every public name is already not-underscored, and `__all__` just duplicates that signal while silently going stale when names are added.
+- "Re-export for convenience" comments above `__all__` are noise; if a re-export needs explanation, the explanation belongs on the import or the module docstring, not as a floating comment.
+
 ## Testing Instructions
 
 - Run lint and typecheckers and fix any lint and typecheck errors.

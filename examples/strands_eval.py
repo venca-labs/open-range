@@ -1,4 +1,8 @@
-"""Minimal Strands Agents eval loop over an OpenRange episode."""
+"""Minimal Strands Agents eval loop over an OpenRange episode.
+
+Builds a v1 cyber webapp world (procedural — no LLM at build time),
+then drops a Strands agent into the episode workspace to solve it.
+"""
 
 from __future__ import annotations
 
@@ -16,7 +20,14 @@ import openrange as OR
 
 MANIFEST: dict[str, object] = {
     "world": {"goal": "find the admin flag in a vulnerable webapp"},
-    "pack": {"id": "cyber.webapp.offense", "source": {"kind": "builtin"}},
+    "pack": {"id": "cyber.webapp.offense.v1", "source": {"kind": "builtin"}},
+    "npc": [
+        {
+            "type": "cyber.browsing_user",
+            "count": 2,
+            "config": {"cadence_ticks": 3, "paths": ["/openapi.json", "/"]},
+        },
+    ],
 }
 DEFAULT_RUN_ROOT = Path("or-runs/strands-eval")
 
@@ -60,17 +71,20 @@ def run_task(
     harness: EpisodeHarness,
     run: OR.OpenRangeRun,
 ) -> dict[str, object]:
-    env = run.episode_environment(snapshot, task)
-    episode = env.reset()
+    svc = run.episode_service(snapshot)
+    handle = svc.start_episode(snapshot, task.id)
     try:
-        episode_report = env.finish(harness.run(task.instruction, episode.agent_root))
+        agent_result = harness.run(task.instruction, svc.agent_root(handle))
+        svc.record_turn(handle, OR.AgentTurn(message=agent_result.text))
+        episode_report = svc.stop_episode(handle)
     finally:
-        env.close()
-    verifier_result = task.verify(episode_report.final_state)
+        svc.close()
     return {
         **episode_report.as_dict(),
-        "passed": verifier_result.get("passed") is True,
-        "verifier_result": dict(verifier_result),
+        "passed": (
+            episode_report.verifier_result is not None
+            and episode_report.verifier_result.get("passed") is True
+        ),
     }
 
 
@@ -78,6 +92,15 @@ def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--run-root", type=Path, default=DEFAULT_RUN_ROOT)
     parser.add_argument("--agent-model")
+    parser.add_argument(
+        "--no-builder-llm",
+        action="store_true",
+        help=(
+            "Skip the LLM enrichment step at build time — graphs are "
+            "still procedurally sampled, but task instruction and "
+            "verifier source come from templates instead of Codex."
+        ),
+    )
     parser.add_argument("--builder-codex-command", type=Path, default=Path("codex"))
     parser.add_argument("--builder-model", default=OR.CODEX_DEFAULT_MODEL)
     parser.add_argument("--builder-timeout", type=float, default=300.0)
@@ -94,14 +117,14 @@ def main() -> None:
             dashboard_port=args.dashboard_port,
         ),
     )
-    snapshot = run.build(
-        MANIFEST,
-        llm=OR.CodexBackend(
+    builder_llm: OR.LLMBackend | None = None
+    if not args.no_builder_llm:
+        builder_llm = OR.CodexBackend(
             command=args.builder_codex_command,
             model=args.builder_model,
             timeout=args.builder_timeout,
-        ),
-    )
+        )
+    snapshot = run.build(MANIFEST, llm=builder_llm)
     harness = StrandsAgentHarness(model=args.agent_model)
     try:
         reports = [

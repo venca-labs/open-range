@@ -14,6 +14,12 @@
 
 OpenRange is a domain-agnostic environment platform for training and evaluating agents. Give it a manifest and a pack; it builds a runnable world, verifies that tasks are actually solvable in the generated environment, freezes the result as a snapshot, and hands your agent harness a stable episode to run against.
 
+### Why OpenRange
+
+- **Train on realistic scenarios, not static benches.** Each build samples a fresh, runnable world — new structure, new content, new exploit paths — so agents have to actually solve, not memorize.
+- **Same training setup, different env and domain.** Swap the pack and you go from cyber to trading to robotics without rewriting your harness, training loop, or reward policy.
+- **Solvable by construction.** Every task is admission-checked against the realized world before an episode starts — no broken evals, no impossible tasks.
+
 > [!WARNING]
 > OpenRange moves fast. Some docs describe the current implementation, while others describe the direction the project is working toward. APIs, pack contracts, examples, and dashboard details may change as the project stabilizes.
 
@@ -82,16 +88,16 @@ run = OR.OpenRangeRun(OR.RunConfig("or-runs/dev-run", dashboard=True))
 snapshot = run.build(
     {
         "world": {"goal": "find the admin flag in a vulnerable webapp"},
-        "pack": {"id": "cyber.webapp.offense", "source": {"kind": "builtin"}},
+        "pack": {"id": "cyber.webapp.offense.v1", "source": {"kind": "builtin"}},
     },
-    llm=OR.CodexBackend(),
+    llm=OR.CodexBackend(),  # optional — enriches task instruction + verifier
 )
 
 for task in snapshot.get_tasks():
     print(task.id, task.instruction)
 ```
 
-The built-in `cyber.webapp.offense` pack is a loopback-only vulnerable Python HTTP app used as source context for generated web-offense tasks.
+The built-in `cyber.webapp.offense.v1` pack procedurally samples a multi-service webapp world (graph topology, vulnerabilities, accounts, secrets), AST-splices vulnerability templates into the realized service code, and ships with NPCs that generate background traffic alongside the agent. Pass an LLM and the build also produces a graph-aware task instruction and a per-task verifier; without one, it falls back to deterministic templates.
 
 ## Run an eval
 

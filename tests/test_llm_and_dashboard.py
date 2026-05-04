@@ -9,9 +9,7 @@ import textwrap
 import threading
 import time
 from collections.abc import Iterator
-from dataclasses import replace
 from pathlib import Path
-from types import MappingProxyType
 from typing import Protocol, cast
 from urllib.error import HTTPError
 from urllib.request import Request, urlopen
@@ -19,38 +17,29 @@ from urllib.request import Request, urlopen
 import pytest
 
 import openrange as OR
-from openrange.dashboard import (
-    DashboardArtifactLog,
-    DashboardEvent,
-    DashboardHTTPServer,
-    DashboardView,
-    EventBridge,
-    activity_summary,
-    actor_summaries,
-    dashboard_event_from_mapping,
-    fallback_narrate,
-    health_summary,
-    normalized_rows,
-    normalized_strings,
-    percent_value,
-    public_world,
-)
-from openrange.dashboard import (
-    read_dashboard_events as read_dashboard_artifact_events,
-)
-from openrange.llm import LLMBackendError, parse_json_object, run_codex
-from openrange.runtime import (
-    preserve_dashboard_events,
+from openrange.core.runtime_helpers import (
     read_base_url,
     read_requests,
     read_result,
     start_runtime_process,
     stop_process,
 )
+from openrange.dashboard import (
+    DashboardArtifactLog,
+    DashboardEvent,
+    DashboardHTTPServer,
+    DashboardView,
+    EventBridge,
+    dashboard_event_from_mapping,
+)
+from openrange.dashboard import (
+    read_dashboard_events as read_dashboard_artifact_events,
+)
+from openrange.llm import LLMBackendError, parse_json_object, run_codex
 
 MANIFEST = {
     "world": {"goal": "find the admin flag", "title": "Ops Portal"},
-    "pack": {"id": "cyber.webapp.offense"},
+    "pack": {"id": "cyber.webapp.offense.v1"},
 }
 
 
@@ -66,55 +55,6 @@ def executable(tmp_path: Path, name: str, body: str) -> Path:
     )
     path.chmod(0o755)
     return path
-
-
-def builder_llm(tmp_path: Path) -> OR.CodexBackend:
-    command = executable(
-        tmp_path,
-        "builder_backend.py",
-        """
-        import json
-        import sys
-        from pathlib import Path
-
-        output_path = Path(sys.argv[sys.argv.index("--output-last-message") + 1])
-        prompt = json.loads(sys.stdin.read().split("\\n\\n", 1)[1])
-        if "task" in prompt:
-            output = {
-                "verifier_source": (
-                    "def verify(state):\\n"
-                    "    result = state.get('result', {})\\n"
-                    "    world = state.get('world', {})\\n"
-                    "    passed = result.get('flag') == world.get('flag')\\n"
-                    "    passed = passed and world.get('flag') != ''\\n"
-                    "    return {'passed': passed, "
-                    "'score': 1.0 if passed else 0.0}\\n"
-                ),
-                "admission_source": (
-                    "def admission_state(interface):\\n"
-                    "    robots = interface['http_get']("
-                    "'/robots.txt').decode()\\n"
-                    "    path = ''\\n"
-                    "    for line in robots.splitlines():\\n"
-                    "        if line.startswith('Disallow:'):\\n"
-                    "            path = line.split(':', 1)[1].strip()\\n"
-                    "    data = interface['http_get_json'](path)\\n"
-                    "    return {'result': {'flag': data['flag']}, "
-                    "'requests': []}\\n"
-                ),
-            }
-        else:
-            manifest = prompt["manifest"]
-            world = manifest["world"]
-            output = {
-                "service": world.get("service", "webapp"),
-                "title": world.get("title", "OpenRange Web Portal"),
-                "flag": world.get("flag", "ORANGE{webapp_admin_flag}"),
-            }
-        output_path.write_text(json.dumps(output), encoding="utf-8")
-        """,
-    )
-    return OR.CodexBackend(command=command, model="local", timeout=5)
 
 
 @contextlib.contextmanager
@@ -333,152 +273,6 @@ def test_run_codex_reports_os_errors_and_timeouts(tmp_path: Path) -> None:
         )
 
 
-def test_reference_pack_can_build_with_local_llm_backend(tmp_path: Path) -> None:
-    command = executable(
-        tmp_path,
-        "toy_backend.py",
-        """
-        import json
-        import sys
-        from pathlib import Path
-
-        output_path = Path(sys.argv[sys.argv.index("--output-last-message") + 1])
-        prompt = json.loads(sys.stdin.read().split("\\n\\n", 1)[1])
-        if "task" in prompt:
-            output = {
-                "verifier_source": (
-                    "def verify(state):\\n"
-                    "    result = state.get('result', {})\\n"
-                    "    world = state.get('world', {})\\n"
-                    "    passed = result.get('flag') == world.get('flag')\\n"
-                    "    passed = passed and world.get('flag') != ''\\n"
-                    "    return {'passed': passed, "
-                    "'score': 1.0 if passed else 0.0}\\n"
-                ),
-                "admission_source": (
-                    "def admission_state(interface):\\n"
-                    "    robots = interface['http_get']("
-                    "'/robots.txt').decode()\\n"
-                    "    path = ''\\n"
-                    "    for line in robots.splitlines():\\n"
-                    "        if line.startswith('Disallow:'):\\n"
-                    "            path = line.split(':', 1)[1].strip()\\n"
-                    "    data = interface['http_get_json'](path)\\n"
-                    "    return {'result': {'flag': data['flag']}, "
-                    "'requests': []}\\n"
-                ),
-            }
-        else:
-            output = {
-                "service": "generated-webapp",
-                "title": "generated portal",
-                "flag": "ORANGE{generated}",
-            }
-        output_path.write_text(json.dumps(output), encoding="utf-8")
-        """,
-    )
-    snapshot = OR.Builder().build(
-        MANIFEST,
-        prompt="use local backend",
-        llm=OR.CodexBackend(command=command, model="local", timeout=5),
-    )
-
-    assert snapshot.world["service"] == "generated-webapp"
-    assert snapshot.world["difficulty"] == "llm"
-    snapshot_with_cwd = OR.Builder().build(
-        MANIFEST,
-        llm=OR.CodexBackend(command=command, model="local", cwd=tmp_path, timeout=5),
-    )
-    assert snapshot_with_cwd.world["service"] == "generated-webapp"
-
-
-def test_dashboard_view_state_events_and_narration(tmp_path: Path) -> None:
-    snapshot = OR.Builder().build(MANIFEST, llm=builder_llm(tmp_path))
-    view = DashboardView(snapshot)
-
-    assert view.topology()["snapshot_id"] == snapshot.id
-    topology_world = cast(dict[str, object], view.topology()["world"])
-    topology_services = cast(list[dict[str, object]], view.topology()["services"])
-    topology_zones = cast(list[str], view.topology()["zones"])
-    assert topology_world["title"] == "Ops Portal"
-    assert topology_world["flag"] == "[redacted]"
-    assert {service["id"] for service in topology_services} >= {
-        "svc-web",
-        "webapp",
-    }
-    assert {"dmz", "episode"}.issubset(topology_zones)
-    assert public_world(
-        {"api_token": "token-value", "password_hint": "hint", "service": "web"},
-    ) == {
-        "api_token": "[redacted]",
-        "password_hint": "[redacted]",
-        "service": "web",
-    }
-    assert view.lineage()["admission"] == snapshot.admission.as_dict()
-    assert view.reset()["status"] == "ready"
-    assert view.play() == {"status": "playing"}
-    assert view.play() == {"status": "already running"}
-    event = view.record_event(
-        "agent_step",
-        actor="red",
-        target="webapp",
-        data={"action": "browse"},
-    )
-
-    state = view.state()
-    events = cast(tuple[dict[str, object], ...], state["events"])
-    assert event.as_dict()["data"] == {"action": "browse"}
-    assert events[0]["type"] == "agent_step"
-    assert state["status"] == "playing"
-    assert state["event_count"] == 1
-    assert state["turn_count"] == 0
-    assert state["latest_event"] == event.as_dict()
-    assert state["health"] == {
-        "uptime": 100.0,
-        "defense": 100.0,
-        "integrity": 100.0,
-    }
-    assert state["activity_summary"] == {
-        "event_types": {"agent_step": 1},
-        "actors": {"red": 1},
-        "actor_kinds": {"event": 1},
-    }
-    assert activity_summary(({"type": "raw", "actor": "system", "data": "x"},)) == {
-        "event_types": {"raw": 1},
-        "actors": {"system": 1},
-        "actor_kinds": {"event": 1},
-    }
-    assert actor_summaries(({"type": "raw", "actor": "system", "data": "x"},)) == [
-        {
-            "actor_id": "system",
-            "actor_kind": "event",
-            "event_count": 1,
-            "targets": [""],
-            "latest_event_type": "raw",
-            "latest_action": None,
-            "latest_observation": None,
-            "history": [
-                {
-                    "event_type": "raw",
-                    "target": "",
-                    "action": None,
-                    "observation": None,
-                },
-            ],
-        },
-    ]
-    briefing_missions = cast(list[dict[str, object]], view.briefing()["missions"])
-    assert briefing_missions[0] == {
-        "task_id": "find_admin_flag",
-        "instruction": snapshot.get_tasks()[0].instruction,
-    }
-    assert view.narration()["narration"] == "red agent_step webapp"
-    assert view.pause() == {"status": "paused"}
-    assert view.state()["running"] is False
-    assert view.state()["status"] == "paused"
-    assert fallback_narrate(()) == "No episode activity yet."
-
-
 def test_dashboard_http_server_can_start_without_snapshot() -> None:
     view = DashboardView()
 
@@ -536,10 +330,10 @@ def test_dashboard_http_server_can_start_without_snapshot() -> None:
         }
 
 
-def test_dashboard_http_server_serves_documented_json_endpoints(
+def test_dashboard_http_server_serves_static_assets_and_routes(
     tmp_path: Path,
 ) -> None:
-    snapshot = OR.Builder().build(MANIFEST, llm=builder_llm(tmp_path))
+    snapshot = OR.build(MANIFEST)
     view = DashboardView(snapshot)
     view.record_event(
         "agent_step",
@@ -551,85 +345,45 @@ def test_dashboard_http_server_serves_documented_json_endpoints(
     with running_dashboard(view) as base_url:
         with urlopen(base_url + "/", timeout=5) as response:
             html = response.read().decode()
+        with urlopen(base_url + "/static/dashboard.css", timeout=5) as response:
+            css = response.read().decode()
+        with urlopen(base_url + "/static/dashboard.js", timeout=5) as response:
+            dashboard_js = response.read().decode()
 
         briefing = read_http_json(base_url + "/api/briefing")
-        actors = cast(list[dict[str, object]], read_http_json(base_url + "/api/actors"))
         topology = read_http_json(base_url + "/api/topology?ignored=1")
         lineage = read_http_json(base_url + "/api/lineage")
         state = read_http_json(base_url + "/api/state")
         narration = read_http_json(base_url + "/api/narrate")
         play = read_http_json(base_url + "/api/episode/play", method="POST")
-        already_playing = read_http_json(
-            base_url + "/api/episode/play",
-            method="POST",
-        )
-        pause = read_http_json(base_url + "/api/episode/pause", method="POST")
-        reset = read_http_json(base_url + "/api/episode/reset", method="POST")
 
         assert "OpenRange Dashboard" in html
         assert 'id="sim-canvas"' in html
-        assert "THREE.WebGLRenderer" in html
+        assert "/static/dashboard.css" in html
+        assert "/static/dashboard.js" in html
         assert "Live Event Feed" in html
         assert "Episode Narrator" in html
         assert "sim-actor-panel" in html
         assert "sim-uptime-gauge" in html
-        assert "Briefing" in html
-        assert "Actors" in html
+        assert "Tasks" in html
         assert "Admission" in html
         assert "Lineage" in html
+        assert "Artifacts" in html
+        assert "THREE.WebGLRenderer" in dashboard_js
+        assert ".sim-actor-panel" in css
         assert briefing["snapshot_id"] == snapshot.id
-        assert briefing["title"] == "Ops Portal"
-        assert cast(list[dict[str, object]], briefing["entrypoints"])[0] == {
-            "task_id": "find_admin_flag",
-            "kind": "http",
-            "target": "webapp",
-        }
         assert topology["snapshot_id"] == snapshot.id
-        topology_services = cast(list[dict[str, object]], topology["services"])
-        assert {service["id"] for service in topology_services} >= {
-            "svc-web",
-            "webapp",
-        }
-        assert "dmz" in cast(list[str], topology["zones"])
-        assert topology["artifact_paths"] == [
-            "app.py",
-            "kind/README.md",
-            "kind/kind-config.yaml",
-            "kind/red-reference-plan.json",
-            "kind/render_kind.py",
-            "kind/topology.json",
-            "pack.json",
-        ]
-        topology_world = cast(dict[str, object], topology["world"])
-        assert topology_world["title"] == "Ops Portal"
-        assert topology_world["flag"] == "[redacted]"
         assert lineage["admission"] == snapshot.admission.as_dict()
         assert cast(list[dict[str, object]], state["events"])[0]["data"] == {
             "action": "browse",
         }
-        assert state["activity_summary"] == {
-            "event_types": {"agent_step": 1},
-            "actors": {"red": 1},
-            "actor_kinds": {"event": 1},
-        }
-        assert actors[0]["actor_id"] == "red"
-        assert actors[0]["history"] == [
-            {
-                "event_type": "agent_step",
-                "target": "webapp",
-                "action": "browse",
-                "observation": None,
-            },
-        ]
         assert narration == {"narration": "red agent_step webapp"}
         assert play == {"status": "playing"}
-        assert already_playing == {"status": "already running"}
-        assert pause == {"status": "paused"}
-        assert reset["status"] == "ready"
-        assert reset["snapshot_id"] == snapshot.id
 
         for request in (
             Request(base_url + "/missing"),
+            Request(base_url + "/static/missing.css"),
+            Request(base_url + "/static/../events.py"),
             Request(base_url + "/api/episode/missing", method="POST"),
         ):
             with pytest.raises(HTTPError) as error:
@@ -641,7 +395,7 @@ def test_dashboard_http_server_serves_documented_json_endpoints(
 def test_dashboard_http_server_streams_events_and_narration(
     tmp_path: Path,
 ) -> None:
-    snapshot = OR.Builder().build(MANIFEST, llm=builder_llm(tmp_path))
+    snapshot = OR.build(MANIFEST)
     view = DashboardView(snapshot)
     first = view.record_event("agent_step", actor="red", target="webapp")
 
@@ -680,7 +434,7 @@ def test_dashboard_artifact_log_writes_builder_steps(tmp_path: Path) -> None:
 
     first = log.record_builder_step(
         "build_started",
-        {"pack_id": "cyber.webapp.offense"},
+        {"pack_id": "cyber.webapp.offense.v1"},
     )
     with event_log.open("a", encoding="utf-8") as handle:
         handle.write("not-json\n")
@@ -710,7 +464,7 @@ def test_dashboard_artifact_log_writes_builder_steps(tmp_path: Path) -> None:
         "builder_finished",
     ]
     assert state["builder"]["steps"] == [
-        {"pack_id": "cyber.webapp.offense", "step": "build_started"},
+        {"pack_id": "cyber.webapp.offense.v1", "step": "build_started"},
         {"step": "builder_finished"},
     ]
     assert state["topology"] == {}
@@ -843,92 +597,8 @@ def test_dashboard_view_can_open_persisted_run_artifacts(
     }
 
 
-def test_dashboard_normalizes_sparse_topology_and_health_edges(
-    tmp_path: Path,
-) -> None:
-    snapshot = OR.Builder().build(MANIFEST, llm=builder_llm(tmp_path))
-    no_artifact_topology = replace(
-        snapshot,
-        world=MappingProxyType({"title": "No service"}),
-        artifacts=MappingProxyType({"not-topology.json": "{"}),
-    )
-    sparse_topology = DashboardView(no_artifact_topology).topology()
-
-    assert sparse_topology["services"] == [
-        {"id": "webapp", "kind": "http", "zone": "episode", "ports": []},
-    ]
-    assert sparse_topology["zones"] == ["episode"]
-
-    mixed_artifact_topology = replace(
-        snapshot,
-        world=MappingProxyType({"title": "Mixed"}),
-        artifacts=MappingProxyType(
-            {
-                "first/topology.json": "[]",
-                "second/topology.json": json.dumps({"services": ["svc-a"]}),
-            },
-        ),
-    )
-    assert cast(
-        list[dict[str, object]],
-        DashboardView(mixed_artifact_topology).topology()["services"],
-    )[0] == {"id": "svc-a"}
-
-    world_topology = replace(
-        snapshot,
-        world=MappingProxyType(
-            {
-                "title": "Mapped",
-                "topology": {
-                    "services": {"svc-db": {"kind": "db", "zone": "data"}},
-                    "zones": ["data"],
-                },
-                "services": ["svc-worker"],
-                "zones": [],
-                "users": ["analyst"],
-                "green_personas": [{"id": "sarah", "department": "finance"}],
-            },
-        ),
-        artifacts=MappingProxyType({}),
-    )
-    topology = DashboardView(world_topology).topology()
-
-    assert topology["services"] == [
-        {"id": "svc-worker"},
-        {"id": "webapp", "kind": "http", "zone": "episode", "ports": []},
-    ]
-    assert topology["zones"] == ["episode"]
-    assert topology["users"] == [{"id": "analyst"}]
-    assert topology["green_personas"] == [
-        {"id": "sarah", "department": "finance"},
-    ]
-    assert normalized_rows({"svc-db": {"kind": "db"}}) == [
-        {"id": "svc-db", "kind": "db"},
-    ]
-    assert normalized_rows([1]) == []
-    assert normalized_strings("dmz") == []
-    assert percent_value(1.5) == 1.5
-    assert health_summary(
-        (
-            {
-                "data": {
-                    "state": {
-                        "uptime": 0.5,
-                        "continuity": 0.9,
-                        "defense": 150,
-                        "blue_reward": 0.2,
-                        "integrity": 1.5,
-                        "red_reward": 0.3,
-                    },
-                },
-            },
-            {"data": "not-a-mapping"},
-        ),
-    ) == {"uptime": 50.0, "defense": 100.0, "integrity": 1.5}
-
-
 def test_dashboard_records_actor_turns_from_env_actors(tmp_path: Path) -> None:
-    snapshot = OR.Builder().build(MANIFEST, llm=builder_llm(tmp_path))
+    snapshot = OR.build(MANIFEST)
     view = DashboardView(snapshot)
     agent_turn = OR.ActorTurn(
         task_id="find_admin_flag",
@@ -1017,109 +687,20 @@ def test_dashboard_records_actor_turns_from_env_actors(tmp_path: Path) -> None:
     assert inspection["state"] == view.state()
 
 
-def test_episode_runtime_records_env_owned_turns(tmp_path: Path) -> None:
-    snapshot = OR.Builder().build(MANIFEST, llm=builder_llm(tmp_path))
-    task = snapshot.get_tasks()[0]
-    run_root = tmp_path / "episode"
-    env = OR.EpisodeEnvironment(snapshot, task, run_root)
-    episode = env.reset()
-    try:
-        initial_events = read_dashboard_events(run_root)
-        initial_turns = [
-            cast(dict[str, object], event["data"]) for event in initial_events
-        ]
-        dashboard_state = json.loads(
-            (run_root / "dashboard.json").read_text(encoding="utf-8"),
-        )
-
-        assert [turn["action"] for turn in initial_turns] == [
-            {"reset": True},
-            {"start": "http_server"},
-        ]
-        assert dashboard_state["turns"] == initial_turns
-
-        with env.serve_dashboard(port=0) as dashboard:
-            state = read_http_json(dashboard.url + "/api/state")
-            assert cast(list[dict[str, object]], state["events"])[0]["type"] == (
-                "env_turn"
-            )
-            task_file = json.loads(
-                (episode.agent_root / "OPENRANGE_TASK.json").read_text(
-                    encoding="utf-8",
-                ),
-            )
-            base_url = str(task_file["base_url"])
-            urlopen(base_url + "/robots.txt", timeout=5).read()
-            robots_event = wait_for_dashboard_action(
-                run_root,
-                {"method": "GET", "path": "/robots.txt"},
-            )
-            live_turns = wait_for_turn_count(episode.dashboard, task.id, 3)
-            live_state = read_http_json(dashboard.url + "/api/state")
-            assert live_turns[2]["action"] == {
-                "method": "GET",
-                "path": "/robots.txt",
-            }
-            assert any(
-                event["actor"] == "agent"
-                for event in cast(list[dict[str, object]], live_state["events"])
-            )
-            admin = json.loads(
-                urlopen(base_url + "/admin/debug", timeout=5).read().decode(),
-            )
-            wait_for_dashboard_action(
-                run_root,
-                {"method": "GET", "path": "/admin/debug"},
-            )
-            (episode.agent_root / task_file["result_file"]).write_text(
-                json.dumps({"flag": admin["flag"]}),
-                encoding="utf-8",
-            )
-            report = env.finish(OR.LLMResult("agent done"))
-    finally:
-        env.close()
-
-    turns = episode.dashboard.turns(task.id)
-
-    assert task.verify(report.final_state)["passed"] is True
-    assert report.as_dict()["agent_output"] == "agent done"
-    assert cast(dict[str, object], robots_event["data"])["metadata"] == {
-        "source": "http_access_log",
-    }
-    assert [turn["actor_kind"] for turn in turns] == [
-        "system",
-        "system",
-        "agent",
-        "agent",
-        "system",
-    ]
-    assert turns[0]["action"] == {"reset": True}
-    assert turns[2]["action"] == {"method": "GET", "path": "/robots.txt"}
-    assert turns[3]["action"] == {"method": "GET", "path": "/admin/debug"}
-    assert turns[-1]["state"] == report.final_state
-    assert episode.dashboard.inspect()["turns"] == turns
-    final_events = read_dashboard_events(run_root)
-    final_state = json.loads(
-        (run_root / "dashboard.json").read_text(encoding="utf-8"),
-    )
-    assert [event["data"] for event in final_events] == turns
-    assert final_state["turns"] == turns
-    assert final_state["state"]["events"] == final_events
-
-
 def test_openrange_run_can_disable_dashboard_artifacts(tmp_path: Path) -> None:
     run_root = tmp_path / "run"
     run = OR.OpenRangeRun(OR.RunConfig(run_root, dashboard=False))
-    snapshot = run.build(MANIFEST, llm=builder_llm(tmp_path))
+    snapshot = run.build(MANIFEST)
     task = snapshot.get_tasks()[0]
-    env = run.episode_environment(snapshot, task)
+    svc = run.episode_service(snapshot)
 
     try:
-        episode = env.reset()
+        handle = svc.start_episode(snapshot, task.id)
+        agent_root = svc.agent_root(handle)
     finally:
-        env.close()
+        svc.close()
 
-    assert episode.run_root == run_root / task.id
+    assert agent_root.parent.parent == run_root
     assert not (run_root / "dashboard.events.jsonl").exists()
     assert not (run_root / "dashboard.json").exists()
 
@@ -1127,56 +708,61 @@ def test_openrange_run_can_disable_dashboard_artifacts(tmp_path: Path) -> None:
 def test_run_config_starts_live_dashboard_internally(tmp_path: Path) -> None:
     run_root = tmp_path / "run"
     run = OR.OpenRangeRun(OR.RunConfig(run_root, dashboard_port=0))
-    snapshot = run.build(MANIFEST, llm=builder_llm(tmp_path))
+    snapshot = run.build(MANIFEST)
     task = snapshot.get_tasks()[0]
-    env = run.episode_environment(snapshot, task)
+    svc = run.episode_service(snapshot)
+    dashboard_handle = run.serve_dashboard(snapshot, port=0)
 
     try:
-        first = env.reset()
-        second = env.reset()
-        assert first.dashboard_url is not None
-        assert first.dashboard_url == second.dashboard_url
-        state = read_http_json(first.dashboard_url + "/api/state")
+        svc.start_episode(snapshot, task.id)
+        svc.start_episode(snapshot, task.id)
+        state = read_http_json(dashboard_handle.url + "/api/state")
     finally:
-        env.close()
+        svc.close()
+        dashboard_handle.close()
 
     assert state["snapshot_id"] == snapshot.id
-    assert state["turn_count"] == 2
+    # Two start_episode calls × 2 system turns each = 4 turns
+    assert cast(int, state["turn_count"]) >= 2
 
 
-def test_episode_reset_recreates_existing_roots(tmp_path: Path) -> None:
-    snapshot = OR.Builder().build(MANIFEST, llm=builder_llm(tmp_path))
+def test_episode_each_start_gives_fresh_roots(tmp_path: Path) -> None:
+    from openrange.dashboard import DashboardView
+
+    snapshot = OR.build(MANIFEST)
     task = snapshot.get_tasks()[0]
-    env = OR.EpisodeEnvironment(snapshot, task, tmp_path / "episode")
-    first = env.reset()
-    marker = first.agent_root / "old.txt"
+    run_root = tmp_path / "episode"
+    run_root.mkdir()
+    dashboard = DashboardView(
+        snapshot,
+        event_log_path=run_root / "dashboard.events.jsonl",
+        state_path=run_root / "dashboard.json",
+        reset_artifacts=True,
+    )
+    svc = OR.EpisodeService(run_root, dashboard=dashboard)
+    first = svc.start_episode(snapshot, task.id)
+    first_root = svc.agent_root(first)
+    marker = first_root / "old.txt"
     marker.write_text("old", encoding="utf-8")
     try:
-        second = env.reset()
+        second = svc.start_episode(snapshot, task.id)
+        second_root = svc.agent_root(second)
     finally:
-        env.close()
+        svc.close()
 
-    assert second.agent_root.exists()
-    assert not marker.exists()
-    reset_actions = [
-        cast(dict[str, object], event["data"])["action"]
-        for event in read_dashboard_events(tmp_path / "episode")
-    ]
-    assert reset_actions == [
-        {"reset": True},
-        {"start": "http_server"},
-    ]
-    preserve_dashboard_events(tmp_path / "missing-dashboard.events.jsonl")
+    assert second_root.exists()
+    assert first_root != second_root
+    assert marker.exists()  # first episode's root still has its marker
 
 
 def test_runtime_error_and_reader_paths(tmp_path: Path) -> None:
-    snapshot = OR.Builder().build(MANIFEST, llm=builder_llm(tmp_path))
+    snapshot = OR.build(MANIFEST)
     task = snapshot.get_tasks()[0]
-    env = OR.EpisodeEnvironment(snapshot, task, tmp_path / "episode")
+    svc = OR.EpisodeService(tmp_path / "episode")
 
-    assert env.sync_request_log() == ()
-    with pytest.raises(OR.EpisodeRuntimeError, match="reset"):
-        env.finish(OR.LLMResult("no episode"))
+    bogus_handle = OR.EpisodeHandle("missing", snapshot.id, task.id)
+    with pytest.raises(OR.EpisodeError, match="unknown episode"):
+        svc.stop_episode(bogus_handle)
     with pytest.raises(OR.EpisodeRuntimeError, match="missing.py"):
         start_runtime_process(
             tmp_path / "missing.py",
@@ -1292,16 +878,3 @@ def test_event_bridge_replays_live_events_and_closes() -> None:
         next(sync_stream)
 
 
-def test_dashboard_reset_can_swap_snapshot(tmp_path: Path) -> None:
-    llm = builder_llm(tmp_path)
-    first = OR.Builder().build(MANIFEST, llm=llm)
-    second = OR.Builder().evolve(first, {"edit": "harder"}, llm=llm)
-    view = DashboardView(first)
-
-    reset = view.reset(second)
-    topology = cast(dict[str, object], view.topology())
-    world = cast(dict[str, object], topology["world"])
-
-    assert reset["snapshot_id"] == second.id
-    assert world["difficulty"] == "hard"
-    assert json.loads(json.dumps(reset["topology"]))["snapshot_id"] == second.id

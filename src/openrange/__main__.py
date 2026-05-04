@@ -7,7 +7,7 @@ import json
 import webbrowser
 from pathlib import Path
 
-from openrange.core import Builder, Snapshot, SnapshotStore
+from openrange.core import Snapshot, SnapshotStore, build
 from openrange.dashboard import DashboardHTTPServer, DashboardView
 from openrange.llm import CodexBackend
 
@@ -38,7 +38,7 @@ def main() -> None:
 
     args = parser.parse_args()
     if args.command == "build":
-        snapshot = Builder().build(
+        snapshot = build(
             args.manifest,
             prompt=args.prompt,
             llm=CodexBackend(),

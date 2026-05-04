@@ -1,26 +1,20 @@
-"""Bundled pack directory registry."""
+"""Bundled cyber pack implementations.
+
+Each pack lives in its own folder under this module:
+
+  - ``cyber_webapp_offense_v1/`` — procedural builder + codegen,
+    multi-node ontology, NPCs
+  - ``cyber_vulnerabilities/``   — shared vuln catalog used by v1+
+
+Pack classes are re-exported here so the
+``[project.entry-points."openrange.packs"]`` lines in pyproject.toml
+can resolve them through ``openrange.packs:<ClassName>``. New
+built-in packs add an import + entry-point line; everything else
+lives in the pack folder.
+"""
 
 from __future__ import annotations
 
-import json
-from pathlib import Path
-from typing import cast
+from openrange.packs.cyber_webapp_offense_v1 import CyberWebappOffenseV1Pack
 
-from openrange.core.pack import PACKS, Pack
-
-
-def register_builtin_pack(pack_dir: Path) -> None:
-    descriptor = cast(
-        dict[str, object],
-        json.loads((pack_dir / "pack.json").read_text(encoding="utf-8")),
-    )
-    PACKS.register(
-        Pack(
-            str(descriptor["id"]),
-            str(descriptor["version"]),
-            pack_dir,
-        ),
-    )
-
-
-register_builtin_pack(Path(__file__).parent / "cyber_webapp_offense")
+__all__ = ["CyberWebappOffenseV1Pack"]

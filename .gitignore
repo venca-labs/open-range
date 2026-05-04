@@ -4,6 +4,7 @@
 # Editors
 .idea/
 .vscode/
+.claude/
 *.swp
 *.swo
 
@@ -13,6 +14,7 @@
 !.env.example
 
 # Python
+.python-version
 __pycache__/
 *.py[cod]
 .pytest_cache/
@@ -37,3 +39,11 @@ node_modules/
 /AGENTS.md
 TASKLIST.md
 snapshots/
+
+# Working / planning docs (kept local, not committed)
+docs/migration-plan.md
+docs/ontology/
+docs/runtime/
+docs/cyber-pack-plan.md
+docs/v1-live-eval-audit.md
+.claude/
