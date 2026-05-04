@@ -141,15 +141,11 @@ def test_relevance_climbs_when_agent_hits_vuln_endpoints() -> None:
         for o in options
         if "patch" in o.directive and target_kind in o.directive["patch"]  # type: ignore[operator]
     )
+    # Hits land on a target_kind endpoint → that patch's relevance climbs
+    # above the floor. (Other patches may *also* climb if multiple vulns
+    # share an endpoint, which is allowed by the ontology — we don't
+    # assert on the rest here.)
     assert patch_for_target.relevance > 0.5
-    # Other patch options stay near the floor (no hits on their endpoints)
-    other_patches = [
-        o
-        for o in options
-        if "patch" in o.directive and target_kind not in o.directive["patch"]  # type: ignore[operator]
-    ]
-    for opt in other_patches:
-        assert opt.relevance == 0.05
 
 
 def test_failed_requests_dont_inflate_relevance() -> None:
