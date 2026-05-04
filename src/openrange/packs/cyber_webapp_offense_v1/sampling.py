@@ -121,7 +121,7 @@ def sample_graph(rng: random.Random, priors: Mapping[str, object]) -> WorldGraph
         id="rec_admin_flag",
         type="record",
         attrs=MappingProxyType(
-            {"key": "admin_flag", "fields": MappingProxyType({"value": flag_value})},
+            {"key": "admin_flag", "fields": {"value": flag_value}},
         ),
     )
     nodes.append(flag_record)
@@ -340,7 +340,7 @@ def _sample_vulnerabilities(
                 {
                     "kind": kind,
                     "family": catalog_entry.family,
-                    "params": MappingProxyType(default_vuln_params(kind, target_node)),
+                    "params": default_vuln_params(kind, target_node),
                 },
             ),
         )
@@ -461,13 +461,3 @@ def _pick_deepest_service(
     """
     priority = {"db": 4, "auth": 3, "api": 2, "web": 1}
     return max(services, key=lambda svc: priority.get(svc["kind"], 0))
-
-
-__all__ = [
-    "ENDPOINT_PATHS_BY_KIND",
-    "default_vuln_params",
-    "generate_flag",
-    "sample_graph",
-    "sample_int",
-    "weighted_pool",
-]

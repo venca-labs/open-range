@@ -67,6 +67,3 @@ def build_discovery(graph: WorldGraph) -> dict[str, object]:
         "scope": "loopback training target",
         "services": services_payload,
     }
-
-
-__all__ = ["build_discovery"]

@@ -311,13 +311,3 @@ ONTOLOGY = WorldSchema(
         OraclePathExistsConstraint(),
     ),
 )
-
-
-__all__ = [
-    "EDGE_TYPES",
-    "NODE_TYPES",
-    "ONTOLOGY",
-    "NoOrphanNodesConstraint",
-    "OraclePathExistsConstraint",
-    "SecretReachableConstraint",
-]

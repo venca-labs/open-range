@@ -24,7 +24,6 @@ strands = [
 openrange = "openrange.__main__:main"
 
 [project.entry-points."openrange.packs"]
-"cyber.webapp.offense" = "openrange.packs:CyberWebappOffensePack"
 "cyber.webapp.offense.v1" = "openrange.packs:CyberWebappOffenseV1Pack"
 
 [project.entry-points."openrange.npcs"]

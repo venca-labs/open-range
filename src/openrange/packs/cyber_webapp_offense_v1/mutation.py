@@ -134,9 +134,7 @@ def _add_vulns_by_kind(
                     {
                         "kind": kind,
                         "family": catalog_entry.family,
-                        "params": MappingProxyType(
-                            default_vuln_params(kind, target),
-                        ),
+                        "params": default_vuln_params(kind, target),
                     },
                 ),
             ),
@@ -153,6 +151,3 @@ def _add_vulns_by_kind(
         )
         existing_kinds_by_target.add((kind, target.id))
     return new_nodes, new_edges
-
-
-__all__ = ["apply_curriculum", "coerce_string_list"]

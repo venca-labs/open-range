@@ -150,15 +150,3 @@ class RuntimeRegistry:
 
 
 RUNTIME_BACKINGS = RuntimeRegistry()
-
-
-# Re-export for convenience; concrete backings register themselves in
-# ``openrange.core.backings`` on import.
-__all__ = [
-    "RUNTIME_BACKINGS",
-    "ArtifactCheckpoint",
-    "BackingContext",
-    "RunningArtifact",
-    "RuntimeBacking",
-    "RuntimeRegistry",
-]

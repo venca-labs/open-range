@@ -3,13 +3,8 @@
 The agent acts on the world through whatever entrypoints the world
 exposes (HTTP, shell, file, MCP, browser). OpenRange does not own the
 agent action; ``record_turn`` is observational only. ``tick`` and
-``advance`` move the world (NPCs, timers, state machines). ``checkpoint``
-/ ``restore`` / ``fork`` enable counterfactual training.
-
-The cyber pack today has no scheduler, so ``tick`` is a no-op and
-``advance(until="terminal")`` polls until the agent writes its result file
-or a timeout fires. The shape of the API is what matters for future
-hybrid packs.
+``advance`` move the world (NPCs, timers, state machines).
+``checkpoint`` / ``restore`` / ``fork`` enable counterfactual training.
 """
 
 from __future__ import annotations
@@ -48,12 +43,6 @@ class EpisodeHandle:
     id: str
     snapshot_id: str
     task_id: str
-
-    @property
-    def running_world_id(self) -> str:
-        # Phase 5: one running world per episode. Will diverge once
-        # episodes can attach to a shared pre-warmed world.
-        return self.id
 
 
 @dataclass(frozen=True, slots=True)
@@ -127,9 +116,9 @@ class EpisodeCheckpoint:
     """Captured state for a running episode.
 
     Cheap for stateless backings (process: just record the log offset);
-    expensive for stateful ones (pickle the state machine). v0 captures
-    enough to restart the cyber pack's HTTP server fresh while preserving
-    the agent_root contents.
+    expensive for stateful ones (pickle the state machine). Captures
+    enough to restart the cyber pack's HTTP server fresh while
+    preserving the agent_root contents.
     """
 
     id: str
@@ -262,18 +251,13 @@ class EpisodeService:
             self._start_auto_tick(running, snapshot.manifest.runtime.tick.rate_hz)
         return handle
 
-    def stop_episode(
-        self,
-        episode: EpisodeHandle,
-        reason: str = "completed",
-    ) -> EpisodeReport:
+    def stop_episode(self, episode: EpisodeHandle) -> EpisodeReport:
         from openrange.core.runtime_helpers import (
             final_state_from_episode,
             read_requests,
             validate_public_interface_interaction,
         )
 
-        del reason
         running = self._require(episode)
         self._stop_auto_tick(running)
         self._stop_npcs(running)
@@ -281,8 +265,6 @@ class EpisodeService:
             backing = RUNTIME_BACKINGS.require(running.running_artifact.kind)
             backing.stop(running.running_artifact)
             running.running_artifact = None
-        # Drain any remaining log entries to the dashboard, then read the
-        # full request history for validation + final-state assembly.
         self._sync_request_log(running)
         requests = (
             read_requests(running.request_log)
@@ -313,7 +295,7 @@ class EpisodeService:
         """Idempotent: returns the report from a stopped episode."""
         running = self._require(episode)
         if running.final_state is None:
-            return self.stop_episode(episode, reason="checked")
+            return self.stop_episode(episode)
         return EpisodeReport(
             snapshot_id=running.snapshot.id,
             task_id=running.task.id,
@@ -343,8 +325,6 @@ class EpisodeService:
         running = self._require(episode)
         if turn.message:
             running.agent_summary = turn.message
-        # Future: forward to dashboard as ActorTurn. For Phase 5 we keep it
-        # observational; dashboard wiring lives outside the public API.
 
     def tick(
         self,
@@ -395,7 +375,7 @@ class EpisodeService:
     def checkpoint(self, episode: EpisodeHandle) -> EpisodeCheckpoint:
         """Capture enough state to spin up a sibling episode at this point.
 
-        v0 captures the request log offset and a copy of the agent_root.
+        Captures the request log offset and a copy of the agent_root.
         Restoring kills the process and starts a fresh one — the cyber
         pack's HTTP server is stateless modulo the log + flag arg, so
         a fresh start at the same flag value yields a comparable world.
@@ -420,12 +400,12 @@ class EpisodeService:
     def restore(self, checkpoint: EpisodeCheckpoint) -> EpisodeHandle:
         """Spin up a fresh episode from the checkpoint.
 
-        v0: starts the world fresh with the same snapshot+task and copies
+        Starts the world fresh with the same snapshot+task and copies
         agent-written files from the captured agent_root, giving the
-        agent the same workspace contents it had at checkpoint time. The
-        env-supplied task file is preserved from the new episode so the
-        agent talks to the new world. Process state itself is not
-        preserved — packs that need that ship a stateful backing.
+        agent the same workspace contents it had at checkpoint time.
+        The env-supplied task file is preserved from the new episode
+        so the agent talks to the new world. Process state itself is
+        not preserved — packs that need that ship a stateful backing.
         """
         running = self._episodes.get(checkpoint.episode_id)
         if running is None:
@@ -443,8 +423,8 @@ class EpisodeService:
     def fork(self, episode: EpisodeHandle) -> EpisodeHandle:
         """Spin up a sibling episode from the current point.
 
-        Equivalent to checkpoint+restore in v0; differs only in not
-        leaving a checkpoint artifact on disk.
+        Equivalent to checkpoint+restore; differs only in not leaving
+        a checkpoint artifact on disk.
         """
         running = self._require(episode)
         new_handle = self.start_episode(running.snapshot, running.task.id)
@@ -457,13 +437,10 @@ class EpisodeService:
         source: Path,
         target_running: _RunningEpisode,
     ) -> None:
-        """Copy agent-written files into the new episode's agent_root.
-
-        Skips env-supplied files (the task file) so the agent always sees
-        the fresh world's URL.
-        """
         if not source.exists():
             return
+        # Skip env-supplied files so the agent sees the new world's URL,
+        # not the parent's stale task file.
         task_file_name = target_running.entrypoint.metadata.get(
             "task_file",
             "OPENRANGE_TASK.json",
@@ -558,12 +535,8 @@ class EpisodeService:
         )
 
     def _start_npcs(self, running: _RunningEpisode) -> None:
-        """Resolve manifest NPCs and call their ``start`` hook.
-
-        Failures during construction or start raise — a manifest that
-        references an unknown NPC type is a config error, not something
-        to silently swallow at episode start.
-        """
+        # Construction errors propagate — a bad manifest is a config
+        # error, not something to silently swallow at episode start.
         npcs = resolve_manifest_npcs(running.snapshot.manifest.npc)
         if not npcs:
             return
@@ -580,25 +553,19 @@ class EpisodeService:
         running.npcs = npcs
 
     def _step_npcs(self, running: _RunningEpisode) -> None:
-        """Step every NPC against the runtime backing's interface.
-
-        Per-NPC failures are swallowed to keep the episode running —
-        an NPC throwing on a malformed response shouldn't sink the
-        whole episode. NPCs that need to react to errors handle them
-        internally.
-        """
         if not running.npcs or running.running_artifact is None:
             return
         backing = RUNTIME_BACKINGS.require(running.running_artifact.kind)
         interface = backing.interface(running.running_artifact)
+        # Per-NPC failures are swallowed: one NPC throwing on a
+        # malformed response shouldn't sink the whole episode.
         for npc in running.npcs:
             try:
                 npc.step(interface)
-            except Exception:  # noqa: BLE001 — see docstring
+            except Exception:  # noqa: BLE001
                 continue
 
     def _stop_npcs(self, running: _RunningEpisode) -> None:
-        """Call ``stop`` on every NPC. Failures are swallowed."""
         for npc in running.npcs:
             try:
                 npc.stop()
@@ -607,13 +574,6 @@ class EpisodeService:
         running.npcs = []
 
     def _start_auto_tick(self, running: _RunningEpisode, rate_hz: float) -> None:
-        """Run ``tick`` in the background at ``rate_hz`` while the episode is alive.
-
-        The auto-tick keeps NPCs / timers moving without harness intervention.
-        For packs without a scheduler (cyber today) this is essentially a
-        cheap polling loop; that's intentional — the *contract* is what
-        future packs depend on.
-        """
         running.tick_stop = threading.Event()
         running.tick_thread = threading.Thread(
             target=_auto_tick_loop,
@@ -655,19 +615,3 @@ def _auto_tick_loop(
             service.tick(running.handle)
         except EpisodeError:
             return  # episode was stopped
-
-
-# Re-export for convenience
-__all__ = [
-    "AdvanceRequest",
-    "AgentTurn",
-    "EpisodeCheckpoint",
-    "EpisodeError",
-    "EpisodeHandle",
-    "EpisodeReport",
-    "EpisodeService",
-    "EpisodeUpdate",
-    "Observation",
-    "TickRequest",
-    "TickResult",
-]

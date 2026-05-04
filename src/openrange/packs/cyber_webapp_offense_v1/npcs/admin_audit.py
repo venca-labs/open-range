@@ -67,6 +67,3 @@ def factory(config: Mapping[str, object]) -> NPC:
         audit_path=audit_path_raw,
         timeout_seconds=float(timeout_raw),
     )
-
-
-__all__ = ["AdminAudit", "factory"]

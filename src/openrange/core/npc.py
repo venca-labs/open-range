@@ -184,14 +184,3 @@ def resolve_manifest_npcs(
         for _ in range(count_raw):
             npcs.append(reg.resolve(npc_type, config_raw))
     return npcs
-
-
-__all__ = [
-    "NPC",
-    "NPCS",
-    "NPCError",
-    "NPCFactory",
-    "NPCRegistry",
-    "NPC_ENTRY_POINT_GROUP",
-    "resolve_manifest_npcs",
-]

@@ -173,6 +173,3 @@ def _handler_name(service_name: str, endpoint_id: str) -> str:
     safe_service = service_name.replace(".", "_").replace("-", "_")
     safe_endpoint = endpoint_id.replace(".", "_").replace("-", "_")
     return f"handle__{safe_service}__{safe_endpoint}"
-
-
-__all__ = ["build_handlers_and_routes"]

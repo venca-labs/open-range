@@ -79,6 +79,3 @@ def project_seed(graph: WorldGraph) -> Mapping[str, object]:
             "records": records,
         },
     )
-
-
-__all__ = ["project_seed"]

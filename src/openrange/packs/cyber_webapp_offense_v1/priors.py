@@ -48,6 +48,3 @@ PRIORS: Mapping[str, object] = MappingProxyType(
         "account_count": MappingProxyType({"min": 1, "max": 3}),
     },
 )
-
-
-__all__ = ["PRIORS"]

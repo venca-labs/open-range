@@ -57,6 +57,3 @@ def http_entrypoint(manifest: Manifest) -> Entrypoint:
             },
         ),
     )
-
-
-__all__ = ["http_entrypoint"]

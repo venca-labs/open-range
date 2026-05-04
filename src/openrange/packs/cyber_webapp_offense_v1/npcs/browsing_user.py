@@ -77,6 +77,3 @@ def factory(config: Mapping[str, object]) -> NPC:
         paths=tuple(paths_raw),
         timeout_seconds=float(timeout_raw),
     )
-
-
-__all__ = ["BrowsingUser", "factory"]
