@@ -86,12 +86,9 @@ class OfficeChatter(NPC):
         # same offset across re-runs so the gif stays reproducible.
         self._cooldown = self._rng.randrange(cadence_ticks) if cadence_ticks > 1 else 0
         self._record: Any = None
-        self._known_targets: tuple[str, ...] = ()
 
     def start(self, context: Mapping[str, Any]) -> None:
         self._record = context.get("record_action")
-        if self._home:
-            self._known_targets = (self._home,)
         # Announce presence so the dashboard can spawn this chatter
         # at their home desk *before* their first cadence-driven act.
         # Otherwise the office looks empty until the staggered initial
@@ -100,11 +97,6 @@ class OfficeChatter(NPC):
             self._record({"present": True})
 
     def step(self, interface: Mapping[str, Any]) -> None:
-        # Refresh known walk targets from whatever the runtime backing
-        # exposes. For HTTPBacking the interface doesn't carry service
-        # ids directly, so we keep whatever was set at start() (the
-        # configured ``home``) plus any seen targets. Without targets
-        # we still speak — just don't try to walk.
         del interface
         if self._cooldown > 0:
             self._cooldown -= 1
@@ -112,9 +104,19 @@ class OfficeChatter(NPC):
         self._cooldown = self._cadence_ticks - 1
         if self._record is None:
             return
-        if self._known_targets and self._rng.random() < self._walk_probability:
-            target = self._rng.choice(self._known_targets)
-            self._record({"move": "wandering"}, target=target)
+        # Walk vs. speak is a single coin flip on ``walk_probability``.
+        # The dashboard picks the destination desk client-side based on
+        # the chatter's home — the backend doesn't need to know any
+        # service ids to emit a walk. Previously this was gated on a
+        # ``self._known_targets`` set populated only when ``home`` was
+        # configured, which meant the example manifest (no home) never
+        # walked at all.
+        if self._rng.random() < self._walk_probability:
+            target = self._home if self._home else None
+            if target is not None:
+                self._record({"move": "wandering"}, target=target)
+            else:
+                self._record({"move": "wandering"})
         else:
             line = self._rng.choice(self._lines)
             self._record({"speak": line})
