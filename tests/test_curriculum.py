@@ -212,7 +212,7 @@ def test_auto_evolve_picks_highest_relevance_in_direction(monkeypatch) -> None: 
     monkeypatch.setattr("openrange.core.builder.evolve", _stub_evolve)
 
     result = auto_evolve(cast(object, snap), _report(True))  # type: ignore[arg-type]
-    assert result == "evolved"
+    assert cast(object, result) == "evolved"
     assert chosen_directive == {"patch": ["sql_injection"]}
 
 
@@ -252,5 +252,5 @@ def test_auto_evolve_custom_policy(monkeypatch) -> None:  # type: ignore[no-unty
         _report(True),
         policy=lambda _reports: "diversify",
     )
-    assert result == "evolved"
+    assert cast(object, result) == "evolved"
     assert captured["directive"] == {"add": ["x"]}

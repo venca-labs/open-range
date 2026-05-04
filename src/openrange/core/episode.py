@@ -13,7 +13,7 @@ import shutil
 import tempfile
 import threading
 import uuid
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping
 from dataclasses import dataclass, field
 from pathlib import Path
 from types import MappingProxyType
@@ -593,6 +593,7 @@ class EpisodeService:
         }
         for npc in npcs:
             ctx = dict(base_context)
+            ctx["record_action"] = self._make_npc_recorder(running, npc)
             if npc.requires_llm:
                 ctx["agent_backend"] = self.npc_agent_backend
             npc.start(MappingProxyType(ctx))
@@ -619,6 +620,43 @@ class EpisodeService:
                 continue
             if not already_broken and npc.broken_reason is not None:
                 self._record_npc_broken(running, npc)
+
+    def _make_npc_recorder(
+        self,
+        running: _RunningEpisode,
+        npc: NPC,
+    ) -> Callable[..., None]:
+        """Build the per-NPC ``record_action`` callable handed via context.
+
+        Returns a closure tagged with the NPC's ``actor_id`` so events
+        flow into the dashboard with consistent attribution. Errors
+        (e.g. dashboard offline) are silent — recording is
+        observational and must never sink an NPC tick.
+        """
+
+        def record(
+            action: Mapping[str, object],
+            *,
+            target: str | None = None,
+            observation: Mapping[str, object] | None = None,
+        ) -> None:
+            if running.dashboard is None:
+                return
+            try:
+                running.dashboard.record_turn(
+                    ActorTurn(
+                        running.task.id,
+                        npc.actor_id,
+                        "npc",
+                        target if target is not None else "office",
+                        action,
+                        observation=observation,
+                    ),
+                )
+            except Exception:  # noqa: BLE001 — observational, never raise
+                return
+
+        return record
 
     def _record_npc_broken(self, running: _RunningEpisode, npc: NPC) -> None:
         """Surface an NPC's transition to broken on the dashboard."""

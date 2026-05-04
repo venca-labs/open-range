@@ -102,6 +102,7 @@ def _run_dashboard(args: argparse.Namespace, parser: argparse.ArgumentParser) ->
             event_log_path=events,
             state_path=state,
             reset_artifacts=False,
+            tail=True,
         )
         server = DashboardHTTPServer((args.host, args.port), view=view)
     elif args.snapshot_id is not None:
@@ -128,7 +129,7 @@ def _run_dashboard(args: argparse.Namespace, parser: argparse.ArgumentParser) ->
         if server.runs is not None:
             server.runs.close()
         elif server.view is not None:
-            server.view.bridge.close()
+            server.view.close()
         server.server_close()
 
 

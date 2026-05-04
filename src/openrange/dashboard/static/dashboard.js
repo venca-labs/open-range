@@ -109,8 +109,10 @@ const sim = {
   worldGroup: null,
   clock: null,
   servicePositions: {},
+  deskPositions: [],
   characters: {},
   effects: [],
+  pendingReplies: [],
   selectedActorId: "",
 };
 
@@ -218,11 +220,21 @@ function actorDefinitions() {
 }
 
 function simulationFingerprint() {
+  // Fingerprint stability matters: any change here triggers a full
+  // world rebuild that disposes characters mid-walk. Limit it to
+  // *topology-derived* identity (stations + personas declared by
+  // the snapshot) — event-derived actors (chatters firing speech)
+  // are added incrementally by ``applySimulationEvent`` and don't
+  // need to bounce the scene.
   const stationIds = stationDefinitions().map((station) => station.id).join("|");
-  const actorIds = actorDefinitions().map((actor) => (
-    `${actor.id}:${actor.role}`
-  )).join("|");
-  return `${model.topology.snapshot_id || "empty"}:${stationIds}:${actorIds}`;
+  const personas = (model.topology.green_personas || []).length
+    ? model.topology.green_personas
+    : model.topology.users || [];
+  const personaIds = personas
+    .map((persona) => persona.id || persona.email || "")
+    .filter(Boolean)
+    .join("|");
+  return `${model.topology.snapshot_id || "empty"}:${stationIds}:${personaIds}`;
 }
 
 function initSimulation() {
@@ -330,8 +342,42 @@ function clearSimulationWorld() {
     sim.worldGroup.remove(child);
   }
   sim.servicePositions = {};
+  sim.deskPositions = [];
   sim.characters = {};
   sim.effects = [];
+}
+
+// Office-staff desks. Independent of cyber services — services are
+// the agent's attack surface; desks are where the chatter NPCs live
+// their day. Two rows of four desks running along the south side of
+// the floor, away from the service rack on the north/center.
+const DESK_GRID_OFFSETS = [
+  [-9, 8], [-3, 8], [3, 8], [9, 8],
+  [-9, 13], [-3, 13], [3, 13], [9, 13],
+];
+
+function addOfficeDesks() {
+  DESK_GRID_OFFSETS.forEach(([x, z], index) => {
+    const station = {
+      id: `desk-${index}`,
+      label: "", // unlabeled — desks are scenery, not nav targets
+      kind: "desk",
+      zone: "office",
+    };
+    addStation(station, x, z, index + 100); // offset accent palette so desks look uniform
+    sim.deskPositions.push(sim.servicePositions[station.id]);
+  });
+}
+
+function homeDeskFor(actorId) {
+  // Stable per-name hash → desk index. Same name always maps to the
+  // same desk so a re-run of the eval re-plays the same seating.
+  if (!sim.deskPositions.length) return null;
+  let hash = 0;
+  for (let i = 0; i < actorId.length; i += 1) {
+    hash = (hash * 31 + actorId.charCodeAt(i)) >>> 0;
+  }
+  return sim.deskPositions[hash % sim.deskPositions.length];
 }
 
 function disposeObject(object) {
@@ -362,17 +408,22 @@ function rebuildSimulationWorld() {
     addStation(station, pos.x, pos.z, index);
   });
 
-  actorDefinitions().forEach((actor, index) => {
-    const profile = actorProfile(actor.id);
-    const home = profile ? sim.servicePositions[profile.home_host] : null;
-    const side = actor.role === "agent" ? -1 : actor.role === "system" ? 1 : 0;
-    const x = home
-      ? home.x + (index % 3 - 1) * 1.7
-      : side ? side * 18 : -8 + index * 3.2;
-    const z = home
-      ? home.z + 2 + Math.floor(index / 3) * .7
-      : side ? 13 - index * 2.4 : 12;
-    addCharacter(actor.id, actor.role, x, z);
+  // Office desks live independently of the cyber services. NPCs sit
+  // at desks; the agent attacks services. Render desks last so their
+  // accent rings sit on top of the floor grid.
+  addOfficeDesks();
+
+  actorDefinitions().forEach((actor) => {
+    // Only NPCs get rendered as people. The agent (red) and runtime
+    // (blue) actors live in the request log + service ring flashes —
+    // they are not bodies in the office. Keeping them out keeps the
+    // floor a clean office scene.
+    if (actor.role !== "npc") return;
+    const home = homeDeskFor(actor.id);
+    if (home) {
+      addCharacter(actor.id, actor.role, home.x, home.z + 1.0);
+      sim.characters[actor.id].homeDesk = home;
+    }
   });
 }
 
@@ -466,13 +517,9 @@ function addStation(station, x, z, index) {
   ring.position.y = .04;
   group.add(ring);
 
-  const label = makeLabelSprite(
-    station.label.toUpperCase(),
-    "#dbeafe",
-    "rgba(15, 23, 42, .72)",
-  );
-  label.position.set(0, .08, 1.45);
-  group.add(label);
+  // Stations (services + desks) render unlabeled. The office is
+  // visual scenery; if a viewer needs to know which station is what,
+  // they'll click on the actor or read the live event feed.
 
   sim.worldGroup.add(group);
   sim.servicePositions[station.id] = { x, z, ring, accent };
@@ -531,7 +578,8 @@ function addCharacter(id, role, x, z) {
     indicator,
     target: null,
     phase: Math.random() * 4,
-    nextIdleAt: role === "npc" ? Math.random() * 4 : null,
+    homeDesk: null,
+    returnHomeAt: null,
   };
 }
 
@@ -578,23 +626,160 @@ function applySimulationEvent(event) {
   const role = simulationRole(event);
   const data = eventData(event);
   const actorId = data.actor_id || event.actor || role;
+  const action = (data.action && typeof data.action === "object") ? data.action : {};
+
+  // Non-NPC events (agent HTTP traffic, system/runtime events) don't
+  // render as bodies in the office. Flash the target service's ring
+  // so the viewer sees activity on the rack, and that's it — no
+  // walking figure crashing the office scene.
+  if (role !== "npc") {
+    const target = sim.servicePositions[event.target]
+      || sim.servicePositions[data.target];
+    if (target?.ring) {
+      target.ring.material.color.setHex(roleColor(role));
+    }
+    return;
+  }
+
   if (!sim.characters[actorId]) {
-    addCharacter(actorId, role, role === "agent" ? -18 : 18, 10);
+    const home = homeDeskFor(actorId);
+    if (home) {
+      addCharacter(actorId, role, home.x, home.z + 1.0);
+      sim.characters[actorId].homeDesk = home;
+    } else {
+      addCharacter(actorId, role, 18, 10);
+    }
   }
   const character = sim.characters[actorId];
-  const target = sim.servicePositions[event.target]
-    || sim.servicePositions[data.target]
-    || Object.values(sim.servicePositions)[0];
-  if (!target || !character) return;
+  if (!character) return;
 
+  // Presence events spawn the character (handled above) and do
+  // nothing else — no bubble, no walk. Lets chatters show up at
+  // their desks the instant their NPC.start fires, before any
+  // cadence-driven action.
+  if (action.present) return;
+
+  // Speech events: pop a fading bubble over the character and stop —
+  // don't yank them across the floor toward an unrelated target.
+  if (typeof action.speak === "string" && action.speak.length > 0) {
+    spawnSpeechBubble(character, action.speak);
+    return;
+  }
+
+  // "move" event: walk to a colleague's desk for a chat, then return
+  // home a longer beat later. Desks only — services are off limits,
+  // the agent owns those. While the visitor is at the host's desk,
+  // schedule a brief reply bubble from the host so the exchange
+  // reads as a real two-way conversation rather than one NPC
+  // talking at a desk.
+  if (character.homeDesk && action.move) {
+    const targetDesk = pickColleagueDesk(character.homeDesk);
+    if (!targetDesk) return;
+    character.target = neighborOffset(targetDesk, actorId);
+    const now = sim.clock?.getElapsedTime() || 0;
+    character.returnHomeAt = now + 9 + Math.random() * 4;
+    scheduleColleagueReply(targetDesk, now + 2.5 + Math.random() * 1.5);
+  }
+}
+
+const _COLLEAGUE_REPLIES = [
+  "yeah", "totally", "huh", "right", "no way", "fair", "got it",
+  "okay", "hmm", "sure", "later", "noted",
+];
+
+function scheduleColleagueReply(targetDesk, atTime) {
+  // Find which NPC lives at the target desk and queue a one-line
+  // reply on the animation timeline. Cheap timer — checks each
+  // tick against ``sim.clock.getElapsedTime()``.
+  const host = Object.values(sim.characters).find(
+    (character) => character.homeDesk === targetDesk,
+  );
+  if (!host) return;
+  const reply = _COLLEAGUE_REPLIES[
+    Math.floor(Math.random() * _COLLEAGUE_REPLIES.length)
+  ];
+  if (!sim.pendingReplies) sim.pendingReplies = [];
+  sim.pendingReplies.push({ host, reply, atTime });
+}
+
+function pickColleagueDesk(homeDesk) {
+  const others = sim.deskPositions.filter((desk) => desk !== homeDesk);
+  if (!others.length) return null;
+  return others[Math.floor(Math.random() * others.length)];
+}
+
+function neighborOffset(target, actorId) {
   const offset = actorId.split("").reduce((sum, char) => sum + char.charCodeAt(0), 0);
   const angle = (offset % 8) * Math.PI / 4;
-  character.target = {
-    x: target.x + Math.cos(angle) * 1.75,
-    z: target.z + Math.sin(angle) * 1.75,
+  return {
+    x: target.x + Math.cos(angle) * 1.5,
+    z: target.z + Math.sin(angle) * 1.5,
   };
-  spawnPulse(character.group.position, target, role);
-  if (target.ring) target.ring.material.color.setHex(roleColor(role));
+}
+
+function spawnSpeechBubble(character, text) {
+  // One bubble per character at a time — replace any prior one so a
+  // fast-talking NPC doesn't stack five bubbles vertically.
+  if (character.bubble) {
+    character.group.remove(character.bubble);
+    disposeObject(character.bubble);
+    character.bubble = null;
+  }
+  const sprite = makeBubbleSprite(shortText(text, 56));
+  sprite.position.set(0, 3.05, 0);
+  character.group.add(sprite);
+  character.bubble = sprite;
+  character.bubbleLife = 4.0;
+}
+
+function makeBubbleSprite(text) {
+  const canvas = document.createElement("canvas");
+  const ctx = canvas.getContext("2d");
+  canvas.width = 512;
+  canvas.height = 128;
+  ctx.clearRect(0, 0, canvas.width, canvas.height);
+  // Rounded-rect bubble.
+  const radius = 28;
+  const padding = 18;
+  const x = padding;
+  const y = padding;
+  const w = canvas.width - padding * 2;
+  const h = canvas.height - padding * 2 - 14;
+  ctx.fillStyle = "rgba(255, 255, 255, .94)";
+  ctx.strokeStyle = "rgba(15, 23, 42, .85)";
+  ctx.lineWidth = 4;
+  ctx.beginPath();
+  ctx.moveTo(x + radius, y);
+  ctx.lineTo(x + w - radius, y);
+  ctx.quadraticCurveTo(x + w, y, x + w, y + radius);
+  ctx.lineTo(x + w, y + h - radius);
+  ctx.quadraticCurveTo(x + w, y + h, x + w - radius, y + h);
+  // Tail.
+  ctx.lineTo(canvas.width / 2 + 16, y + h);
+  ctx.lineTo(canvas.width / 2, y + h + 18);
+  ctx.lineTo(canvas.width / 2 - 16, y + h);
+  ctx.lineTo(x + radius, y + h);
+  ctx.quadraticCurveTo(x, y + h, x, y + h - radius);
+  ctx.lineTo(x, y + radius);
+  ctx.quadraticCurveTo(x, y, x + radius, y);
+  ctx.closePath();
+  ctx.fill();
+  ctx.stroke();
+  ctx.fillStyle = "#0f172a";
+  ctx.font = "700 30px Nunito, system-ui, sans-serif";
+  ctx.textAlign = "center";
+  ctx.textBaseline = "middle";
+  ctx.fillText(text, canvas.width / 2, padding + h / 2 - 4);
+  const texture = new THREE.CanvasTexture(canvas);
+  texture.minFilter = THREE.LinearFilter;
+  const material = new THREE.SpriteMaterial({
+    map: texture,
+    transparent: true,
+    depthTest: false,
+  });
+  const sprite = new THREE.Sprite(material);
+  sprite.scale.set(4.4, 1.1, 1);
+  return sprite;
 }
 
 function spawnPulse(from, to, role) {
@@ -639,6 +824,19 @@ function animateSimulation() {
     character.indicator.rotation.y += dt * 3.2;
     character.indicator.position.y = 2.08 + Math.sin(elapsed * 3) * .05;
     character.phase += dt * 7;
+    if (character.bubble) {
+      character.bubbleLife -= dt;
+      const life = character.bubbleLife;
+      if (life <= 0) {
+        character.group.remove(character.bubble);
+        disposeObject(character.bubble);
+        character.bubble = null;
+      } else if (character.bubble.material) {
+        // Hold full opacity for the first ~3s then fade over the last 1s.
+        const opacity = life > 1 ? 1 : Math.max(0, life);
+        character.bubble.material.opacity = opacity;
+      }
+    }
     if (character.target) {
       const pos = character.group.position;
       const dx = character.target.x - pos.x;
@@ -654,24 +852,31 @@ function animateSimulation() {
       } else {
         character.target = null;
         character.legs.forEach((leg) => { leg.rotation.x = 0; });
-        if (character.role === "npc") {
-          character.nextIdleAt = elapsed + 4 + Math.random() * 5;
-        }
       }
-    } else if (character.role === "npc" && character.nextIdleAt != null
-        && elapsed >= character.nextIdleAt) {
-      const stations = Object.values(sim.servicePositions);
-      if (stations.length) {
-        const target = stations[Math.floor(Math.random() * stations.length)];
-        const angle = Math.random() * Math.PI * 2;
-        character.target = {
-          x: target.x + Math.cos(angle) * 1.75,
-          z: target.z + Math.sin(angle) * 1.75,
-        };
-        character.nextIdleAt = null;
-      }
+    } else if (
+      character.role === "npc"
+      && character.homeDesk
+      && character.returnHomeAt != null
+      && elapsed >= character.returnHomeAt
+    ) {
+      // Drift back to the home desk after the colleague visit. No
+      // random wandering — chatters either sit at their desk or are
+      // visiting a specific colleague.
+      character.target = neighborOffset(character.homeDesk, character.group.userData.actorId || "");
+      character.returnHomeAt = null;
     }
   });
+
+  if (sim.pendingReplies && sim.pendingReplies.length) {
+    sim.pendingReplies = sim.pendingReplies.filter((reply) => {
+      if (elapsed < reply.atTime) return true;
+      if (sim.characters[reply.host.group?.userData?.actorId] === reply.host
+          || Object.values(sim.characters).includes(reply.host)) {
+        spawnSpeechBubble(reply.host, reply.reply);
+      }
+      return false;
+    });
+  }
 
   for (let index = sim.effects.length - 1; index >= 0; index -= 1) {
     const effect = sim.effects[index];
@@ -1110,6 +1315,11 @@ function openStreams() {
   runState.events.addEventListener("agent_step", refresh);
   runState.events.addEventListener("env_turn", refresh);
   runState.events.addEventListener("note", refresh);
+  // Also catch builder_step — without this the SPA stalls in the
+  // "no admitted world" empty state right after the build finishes
+  // and before the first env_turn fires, since nothing else triggers
+  // a topology re-fetch in that window.
+  runState.events.addEventListener("builder_step", refresh);
   runState.narration = new EventSource(withRun("/api/narrate/stream"));
   runState.narration.addEventListener("narration", refresh);
 }

@@ -13,6 +13,7 @@ from openrange.core.snapshot import json_safe
 from openrange.dashboard.events import (
     DashboardEvent,
     EventBridge,
+    dashboard_event_from_mapping,
     fallback_narrate,
     read_dashboard_events,
     read_dashboard_state,
@@ -32,6 +33,79 @@ from openrange.dashboard.topology import (
 )
 
 
+class _EventLogTail:
+    """Background polling tail for ``dashboard.events.jsonl``.
+
+    Writer-side processes (``OpenRangeRun``) append events line-by-
+    line. Reader-side processes (``openrange dashboard --run-root``,
+    or the multi-run server reading directories written elsewhere)
+    use this thread to surface those appends in their bridge as
+    they arrive. Polling — not ``inotify`` / ``fsevents`` — keeps it
+    dependency-free and cross-platform; the writer flushes per line
+    so 250 ms feels instant to a human watching the dashboard.
+
+    Defensive against truncation: if the file shrinks below the
+    last-seen offset (rotation, manual edit), the offset resets to
+    zero so the next poll re-reads from the start.
+    """
+
+    POLL_INTERVAL_SEC: float = 0.25
+
+    def __init__(
+        self,
+        path: Path,
+        bridge: EventBridge,
+        *,
+        initial_offset: int,
+    ) -> None:
+        self._path = path
+        self._bridge = bridge
+        self._offset = initial_offset
+        self._stop = threading.Event()
+        self._thread = threading.Thread(target=self._loop, daemon=True)
+
+    def start(self) -> None:
+        self._thread.start()
+
+    def stop(self) -> None:
+        self._stop.set()
+        if self._thread.is_alive():
+            self._thread.join(timeout=2)
+
+    def _loop(self) -> None:
+        while not self._stop.wait(self.POLL_INTERVAL_SEC):
+            self._poll_once()
+
+    def _poll_once(self) -> None:
+        try:
+            size = self._path.stat().st_size
+        except OSError:
+            return
+        if size < self._offset:
+            self._offset = 0
+        if size == self._offset:
+            return
+        try:
+            with self._path.open("r", encoding="utf-8") as handle:
+                handle.seek(self._offset)
+                chunk = handle.read()
+        except OSError:
+            return
+        last_newline = chunk.rfind("\n")
+        if last_newline == -1:
+            return
+        self._offset += last_newline + 1
+        for line in chunk[: last_newline + 1].splitlines():
+            if not line:
+                continue
+            try:
+                data = json.loads(line)
+            except json.JSONDecodeError:
+                continue
+            if isinstance(data, Mapping):
+                self._bridge.push(dashboard_event_from_mapping(data))
+
+
 class DashboardView:
     def __init__(
         self,
@@ -41,6 +115,7 @@ class DashboardView:
         event_log_path: str | Path | None = None,
         state_path: str | Path | None = None,
         reset_artifacts: bool = True,
+        tail: bool = False,
     ) -> None:
         self.snapshot = snapshot
         self.bridge = bridge or EventBridge()
@@ -64,6 +139,29 @@ class DashboardView:
         if self._state_path is not None:
             self._state_path.parent.mkdir(parents=True, exist_ok=True)
             self._write_state(self._state_path)
+        # Reader-mode tailing: when the writer is a separate process
+        # the only way new events reach our bridge is to poll the
+        # file. Writer-mode (the in-process OpenRangeRun) leaves
+        # ``tail=False`` so it doesn't re-publish its own writes.
+        self._tail: _EventLogTail | None = None
+        if tail and self._event_log_path is not None and not reset_artifacts:
+            try:
+                offset = self._event_log_path.stat().st_size
+            except OSError:
+                offset = 0
+            self._tail = _EventLogTail(
+                self._event_log_path,
+                self.bridge,
+                initial_offset=offset,
+            )
+            self._tail.start()
+
+    def close(self) -> None:
+        """Stop the tail thread and signal the bridge."""
+        if self._tail is not None:
+            self._tail.stop()
+            self._tail = None
+        self.bridge.close()
 
     def topology(self) -> Mapping[str, object]:
         if self.snapshot is None:
@@ -279,6 +377,15 @@ class DashboardView:
         write_dashboard_state(state_path, self.bridge.snapshot_buffer(), self)
 
     def _stored_section(self, key: str) -> Mapping[str, object]:
+        # Reader-mode: re-read ``dashboard.json`` on each request so a
+        # snapshot the writer process lands after this view was
+        # constructed surfaces immediately. Writer-mode (snapshot is
+        # set on the view directly) never reaches this branch — the
+        # snapshot accessors above short-circuit it.
+        if self.snapshot is None and self._state_path is not None:
+            fresh = read_dashboard_state(self._state_path)
+            if fresh:
+                self._stored_dashboard = fresh
         section = self._stored_dashboard.get(key)
         if isinstance(section, Mapping):
             return section

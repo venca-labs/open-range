@@ -98,6 +98,19 @@ class NPC(ABC):
     requires_llm: ClassVar[bool] = False
     broken_reason: str | None = None
 
+    @property
+    def actor_id(self) -> str:
+        """Stable identifier for this NPC in dashboard events / logs.
+
+        Override (or set ``self._actor_id`` in ``__init__``) to give a
+        meaningful display name — by default the class name with a
+        short instance hash to disambiguate counts > 1.
+        """
+        explicit = getattr(self, "_actor_id", None)
+        if isinstance(explicit, str) and explicit:
+            return explicit
+        return f"{type(self).__name__}-{id(self) & 0xFFFF:04x}"
+
     @abstractmethod
     def step(self, interface: Mapping[str, Any]) -> None:
         """One tick of action.
@@ -116,8 +129,13 @@ class NPC(ABC):
         minimum ``{episode_id, snapshot_id, task_id, base_url}``. NPCs
         with ``requires_llm = True`` additionally receive an
         ``agent_backend`` key (an
-        :class:`~openrange.agent_backend.AgentBackend`, or
-        ``None``). Default: no-op.
+        :class:`~openrange.agent_backend.AgentBackend`, or ``None``).
+        All NPCs receive a ``record_action`` key — a callable
+        ``(action, *, target=None, observation=None) -> None`` that
+        publishes a dashboard event tagged with this NPC's
+        ``actor_id``. Use it to surface in-world actions (movement,
+        speech, observations) to the simulation viewer. Default:
+        no-op.
         """
         del context
 

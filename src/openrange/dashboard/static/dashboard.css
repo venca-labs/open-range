@@ -74,37 +74,44 @@ main {
   color: #f8fafc;
   pointer-events: auto;
 }
-/* Reserve a left-corner slot for the runs toggle by parameterizing
-   its footprint here. Both the toggle and the title read from the
-   same vars so changing the button width re-flows the title in one
-   place. */
-:root {
-  --sim-title-offset: 1.2rem;
-  --sim-toggle-width: 5.6rem;
-  --sim-title-left: calc(var(--sim-title-offset) + var(--sim-toggle-width));
-}
 .sim-title {
-  top: var(--sim-title-offset);
-  left: var(--sim-title-left);
-  width: min(32rem, calc(100% - var(--sim-title-left) - var(--sim-title-offset)));
+  top: 1.2rem;
+  left: 1.2rem;
+  width: min(32rem, calc(100% - 2.4rem));
   padding: .9rem 1rem;
 }
+/* Tiny chevron flush in the very upper-left corner. Empty button
+   content in HTML; the chevron comes from ::before so we can flip
+   the glyph based on aria-expanded without touching the DOM. */
 .sim-runs-toggle {
   position: absolute;
-  top: var(--sim-title-offset);
-  left: var(--sim-title-offset);
-  width: var(--sim-toggle-width);
-  z-index: 7;
-  font-family: inherit;
-  font-size: .72rem;
-  font-weight: 800;
-  letter-spacing: .12em;
-  padding: .55rem .9rem;
-  background: var(--sim-panel);
+  top: 0;
+  left: 0;
+  z-index: 8;
+  width: 1.6rem;
+  height: 1.6rem;
+  padding: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(15, 23, 42, .92);
   color: #f8fafc;
-  border: 3px solid var(--sim-line);
-  box-shadow: 5px 5px 0 rgba(0, 0, 0, .72);
+  border: 0;
+  border-right: 2px solid var(--sim-line);
+  border-bottom: 2px solid var(--sim-line);
+  box-shadow: none;
   cursor: pointer;
+  font: inherit;
+  line-height: 1;
+}
+.sim-runs-toggle::before {
+  content: "\203A"; /* › single right chevron */
+  font-size: 1.15rem;
+  font-weight: 900;
+  margin-top: -.1rem;
+}
+.sim-runs-toggle[aria-expanded="true"]::before {
+  content: "\2039"; /* ‹ flips when drawer is open */
 }
 .sim-runs-toggle:hover {
   background: rgba(0, 0, 0, .55);

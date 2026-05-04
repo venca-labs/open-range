@@ -26,7 +26,7 @@ def test_strands_backend_preflight_raises_when_strands_missing(
 
     real_import = builtins.__import__
 
-    def fake_import(name: str, *args: object, **kwargs: object) -> Any:
+    def fake_import(name: str, *args: Any, **kwargs: Any) -> Any:
         if name == "strands" or name.startswith("strands."):
             raise ImportError(f"No module named {name!r}")
         return real_import(name, *args, **kwargs)
@@ -45,7 +45,7 @@ def test_strands_backend_build_agent_raises_when_strands_missing(
 
     real_import = builtins.__import__
 
-    def fake_import(name: str, *args: object, **kwargs: object) -> Any:
+    def fake_import(name: str, *args: Any, **kwargs: Any) -> Any:
         if name == "strands" or name.startswith("strands."):
             raise ImportError(f"No module named {name!r}")
         return real_import(name, *args, **kwargs)

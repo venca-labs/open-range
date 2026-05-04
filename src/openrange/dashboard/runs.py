@@ -9,9 +9,9 @@ switch between.
 Discovery is filesystem-driven and refreshed lazily — each call to
 ``RunsRegistry.list_runs()`` re-scans, so newly minted run directories
 appear without a server restart. Per-run ``DashboardView`` instances
-are cached on first request (creating one re-reads the event log) and
-reused thereafter; events keep flowing into the cached view via the
-``EventBridge`` it owns.
+are cached on first request and reused thereafter; each one is
+constructed with ``tail=True`` so its bridge keeps pace with events
+the writer process appends after the view was created.
 """
 
 from __future__ import annotations
@@ -74,6 +74,11 @@ class RunsRegistry:
     request via ``view_for(run_id)``; the registry creates views
     lazily and caches them so the event bridge stays warm across
     requests within a run.
+
+    Each cached view is constructed with ``tail=True`` so it polls
+    the on-disk event log and surfaces new appends in near-real-time
+    — otherwise the dashboard would freeze on whatever was on disk
+    at view-creation time.
     """
 
     def __init__(self, runs_dir: Path) -> None:
@@ -100,6 +105,7 @@ class RunsRegistry:
                 event_log_path=events,
                 state_path=state,
                 reset_artifacts=False,
+                tail=True,
             )
             self._views[run_id] = view
             return view
@@ -128,7 +134,7 @@ class RunsRegistry:
             views = list(self._views.values())
             self._views.clear()
         for view in views:
-            view.bridge.close()
+            view.close()
 
     def cached_view_ids(self) -> Iterable[str]:
         with self._lock:

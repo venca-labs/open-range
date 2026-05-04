@@ -71,7 +71,8 @@ class DashboardServerHandle:
         return f"http://{host}:{self.server.server_address[1]}"
 
     def close(self) -> None:
-        self.server.view.bridge.close()
+        if self.server.view is not None:
+            self.server.view.close()
         self.server.shutdown()
         self.server.server_close()
         self.thread.join(timeout=5)

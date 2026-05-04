@@ -79,8 +79,10 @@ def test_available_mutations_returns_options_for_v1_world() -> None:
     for opt in options:
         directive = opt.directive
         for verb in ("patch", "add"):
-            for kind in directive.get(verb, ()):
-                kinds_in_directives.add(str(kind))
+            value = directive.get(verb, ())
+            if isinstance(value, list | tuple):
+                for kind in value:
+                    kinds_in_directives.add(str(kind))
     assert set(VULN_CATALOG).issubset(kinds_in_directives)
 
 
@@ -106,7 +108,9 @@ def test_add_options_tagged_by_world_presence() -> None:
     for opt in options:
         if "add" not in opt.directive:
             continue
-        kinds = list(opt.directive["add"])  # type: ignore[arg-type]
+        add_value = opt.directive["add"]
+        assert isinstance(add_value, list | tuple)
+        kinds = list(add_value)
         assert len(kinds) == 1
         kind = str(kinds[0])
         if kind in kinds_in_world:

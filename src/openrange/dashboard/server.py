@@ -127,7 +127,8 @@ class DashboardRequestHandler(BaseHTTPRequestHandler):
 
     def _resolve_view(self, query: str) -> DashboardView | None:
         params = parse_qs(query)
-        run_id = (params.get("run") or [None])[0]
+        values = params.get("run") or []
+        run_id = values[0] if values else None
         return self.dashboard_server.view_for(run_id)
 
     def _runs_payload(self) -> dict[str, object]:
@@ -135,17 +136,27 @@ class DashboardRequestHandler(BaseHTTPRequestHandler):
         registry = server.runs
         if registry is None:
             view = server.view
-            if view is None or view.snapshot is None:
+            if view is None:
                 return {"runs": [], "default": None}
+            # Single-run mode: synthesize one entry. Prefer the live
+            # snapshot id when the writer is in-process; otherwise
+            # read it from the stored dashboard.json so the SPA gets
+            # a non-null ``default`` and ``openStreams`` actually
+            # opens the SSE connection. Falling back on a literal
+            # "single" id keeps the SPA functional even when no
+            # snapshot has landed yet.
+            run_id: str
+            if view.snapshot is not None:
+                run_id = view.snapshot.id
+            else:
+                stored = view._stored_section("topology")  # noqa: SLF001
+                stored_id = stored.get("snapshot_id")
+                run_id = stored_id if isinstance(stored_id, str) else "single"
             return {
                 "runs": [
-                    {
-                        "id": view.snapshot.id,
-                        "path": "<embedded>",
-                        "modified": 0.0,
-                    },
+                    {"id": run_id, "path": "<embedded>", "modified": 0.0},
                 ],
-                "default": view.snapshot.id,
+                "default": run_id,
             }
         runs = [record.as_dict() for record in registry.list_runs()]
         return {"runs": runs, "default": registry.default_run_id()}

@@ -190,6 +190,7 @@ def test_curious_employee_factory_constructs_with_defaults() -> None:
 
 def test_curious_employee_factory_promotes_model_to_strands_backend() -> None:
     """Per-NPC ``model`` config builds a StrandsAgentBackend override."""
+    from cyber_webapp.npcs.curious_employee import CuriousEmployee
     from cyber_webapp.npcs.curious_employee import factory as ce_factory
 
     from openrange.agent_backend import StrandsAgentBackend
@@ -201,6 +202,7 @@ def test_curious_employee_factory_promotes_model_to_strands_backend() -> None:
             "system_prompt": "You are a tester.",
         },
     )
+    assert isinstance(npc, CuriousEmployee)
     assert npc._cadence_ticks == 2
     assert isinstance(npc._backend_override, StrandsAgentBackend)
     assert npc._backend_override._model == "claude-sonnet-4-20250514"
@@ -223,3 +225,141 @@ def test_curious_employee_registered_via_entry_point() -> None:
     from openrange.npc import NPCS
 
     assert "cyber.curious_employee" in NPCS.ids()
+
+
+# ---------------------------------------------------------------------------
+# OfficeChatter — scripted "person walking around the office" NPC
+# ---------------------------------------------------------------------------
+
+
+def test_office_chatter_factory_constructs_with_required_name() -> None:
+    from cyber_webapp.npcs.office_chatter import OfficeChatter
+    from cyber_webapp.npcs.office_chatter import factory as oc_factory
+
+    npc = oc_factory({"name": "Alice"})
+    assert isinstance(npc, OfficeChatter)
+    assert npc.actor_id == "Alice"
+    assert npc.requires_llm is False
+
+
+def test_office_chatter_factory_rejects_bad_config() -> None:
+    from cyber_webapp.npcs.office_chatter import factory as oc_factory
+
+    with pytest.raises(ValueError, match="name"):
+        oc_factory({})
+    with pytest.raises(ValueError, match="cadence_ticks"):
+        oc_factory({"name": "x", "cadence_ticks": "fast"})
+    with pytest.raises(ValueError, match="lines"):
+        oc_factory({"name": "x", "lines": "not-a-list"})
+    with pytest.raises(ValueError, match="walk_probability"):
+        oc_factory({"name": "x", "walk_probability": "high"})
+
+
+def test_office_chatter_speaks_via_record_action() -> None:
+    """A speech-only chatter publishes its line through record_action."""
+    from cyber_webapp.npcs.office_chatter import OfficeChatter
+
+    npc = OfficeChatter(
+        name="Alice",
+        cadence_ticks=1,
+        lines=("morning",),
+        walk_probability=0.0,  # always speak
+        seed=1,
+    )
+    recorded: list[dict[str, Any]] = []
+
+    def record(
+        action: dict[str, Any],
+        *,
+        target: str | None = None,
+        observation: object = None,
+    ) -> None:
+        recorded.append({"action": dict(action), "target": target})
+
+    npc.start({"record_action": record})
+    # start() publishes a presence event; cadence-driven speech follows.
+    assert recorded[0]["action"] == {"present": True}
+    npc.step({})
+    npc.step({})
+    npc.step({})
+    speech = [e for e in recorded if e["action"] != {"present": True}]
+    assert len(speech) == 3
+    assert all(entry["action"] == {"speak": "morning"} for entry in speech)
+    assert all(entry["target"] is None for entry in speech)
+
+
+def test_office_chatter_walks_to_known_target() -> None:
+    """When walk_probability is 1.0 and a home is set, every tick is a walk."""
+    from cyber_webapp.npcs.office_chatter import OfficeChatter
+
+    npc = OfficeChatter(
+        name="Bob",
+        cadence_ticks=1,
+        home="svc-web",
+        walk_probability=1.0,
+        seed=1,
+    )
+    recorded: list[dict[str, Any]] = []
+
+    def record(
+        action: dict[str, Any],
+        *,
+        target: str | None = None,
+        observation: object = None,
+    ) -> None:
+        recorded.append({"action": dict(action), "target": target})
+
+    npc.start({"record_action": record})
+    npc.step({})
+    npc.step({})
+    walks = [e for e in recorded if e["action"] != {"present": True}]
+    assert all(entry["action"] == {"move": "wandering"} for entry in walks)
+    assert all(entry["target"] == "svc-web" for entry in walks)
+
+
+def test_office_chatter_obeys_cadence() -> None:
+    from cyber_webapp.npcs.office_chatter import OfficeChatter
+
+    npc = OfficeChatter(
+        name="Carol",
+        cadence_ticks=3,
+        lines=("hi",),
+        walk_probability=0.0,
+        seed=1,
+    )
+    calls: list[dict[str, Any]] = []
+
+    def record(
+        action: dict[str, Any],
+        *,
+        target: str | None = None,
+        observation: object = None,
+    ) -> None:
+        calls.append(dict(action))
+
+    npc.start({"record_action": record})
+    # Drop the start-time presence event; only step-driven actions
+    # should be cadence-shaped. Initial cooldown is staggered (random
+    # in [0, cadence_ticks)) so test against the expected count
+    # within a 30-tick window: cadence=3 → 10 actions in 30 ticks
+    # regardless of where the stagger lands.
+    calls.clear()
+    for _ in range(30):
+        npc.step({})
+    assert len(calls) == 10
+
+
+def test_office_chatter_silent_without_record_action() -> None:
+    """No record_action in context → NPC is a no-op, doesn't raise."""
+    from cyber_webapp.npcs.office_chatter import OfficeChatter
+
+    npc = OfficeChatter(name="Dave", cadence_ticks=1, seed=1)
+    npc.start({})  # no record_action key
+    npc.step({})  # must not raise
+    npc.step({})
+
+
+def test_office_chatter_registered_via_entry_point() -> None:
+    from openrange.npc import NPCS
+
+    assert "cyber.office_chatter" in NPCS.ids()
