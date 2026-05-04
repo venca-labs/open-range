@@ -1314,20 +1314,34 @@ function closeStreams() {
   }
 }
 
+// Coalesce rapid-fire SSE events (the backlog burst on reconnect can
+// be 200 events in one frame) into a single refresh per ~150ms. The
+// model is fetched whole anyway — there's no value in hammering the
+// API once per event.
+let _refreshScheduled = false;
+function scheduleRefresh() {
+  if (_refreshScheduled) return;
+  _refreshScheduled = true;
+  setTimeout(() => {
+    _refreshScheduled = false;
+    refresh();
+  }, 150);
+}
+
 function openStreams() {
   closeStreams();
   if (!runState.activeRun) return;
   runState.events = new EventSource(withRun("/api/events/stream"));
-  runState.events.addEventListener("agent_step", refresh);
-  runState.events.addEventListener("env_turn", refresh);
-  runState.events.addEventListener("note", refresh);
+  runState.events.addEventListener("agent_step", scheduleRefresh);
+  runState.events.addEventListener("env_turn", scheduleRefresh);
+  runState.events.addEventListener("note", scheduleRefresh);
   // Also catch builder_step — without this the SPA stalls in the
   // "no admitted world" empty state right after the build finishes
   // and before the first env_turn fires, since nothing else triggers
   // a topology re-fetch in that window.
-  runState.events.addEventListener("builder_step", refresh);
+  runState.events.addEventListener("builder_step", scheduleRefresh);
   runState.narration = new EventSource(withRun("/api/narrate/stream"));
-  runState.narration.addEventListener("narration", refresh);
+  runState.narration.addEventListener("narration", scheduleRefresh);
 }
 
 function applyRunsToPicker(runs, defaultId) {
@@ -1441,7 +1455,17 @@ document.addEventListener("keydown", (e) => {
 (async () => {
   await refreshRuns();
   await refresh();
+  // Re-discover runs every 5s so a fresh run dir created by the
+  // writer mid-session shows up.
   setInterval(async () => {
     await refreshRuns();
   }, 5000);
+  // Polling refresh as a fallback for the SSE stream. SSE is the
+  // primary live-update path; the poll catches up the UI if the
+  // SSE connection ever drops silently (browser-side
+  // disconnects, intermediary timeouts, etc.) — without it the SPA
+  // can land on a snapshot that's older than the on-disk state.
+  setInterval(async () => {
+    if (runState.activeRun) await refresh();
+  }, 2000);
 })();
