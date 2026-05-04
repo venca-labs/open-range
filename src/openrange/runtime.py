@@ -89,6 +89,7 @@ class OpenRangeRun:
             )
         )
         self._dashboard_view: DashboardView | None = None
+        self._dashboard_server: DashboardServerHandle | None = None
 
     def build(
         self,
@@ -128,7 +129,36 @@ class OpenRangeRun:
 
     def episode_service(self, snapshot: Snapshot) -> EpisodeService:
         view = self._ensure_dashboard_view(snapshot)
+        if view is not None and self._dashboard_server is None:
+            self._dashboard_server = self._start_dashboard_server(snapshot)
         return EpisodeService(self.root, dashboard=view)
+
+    def _start_dashboard_server(
+        self, snapshot: Snapshot,
+    ) -> DashboardServerHandle | None:
+        port = self.config.dashboard_port if self.config.dashboard_port else 0
+        try:
+            handle = self.serve_dashboard(
+                snapshot,
+                host=self.config.dashboard_host,
+                port=port,
+            )
+        except OSError as exc:
+            print(f"dashboard server failed to start: {exc}", flush=True)
+            return None
+        print(f"dashboard: {handle.url}", flush=True)
+        return handle
+
+    def close(self) -> None:
+        if self._dashboard_server is not None:
+            self._dashboard_server.close()
+            self._dashboard_server = None
+
+    def __enter__(self) -> OpenRangeRun:
+        return self
+
+    def __exit__(self, *exc_info: object) -> None:
+        self.close()
 
     def serve_dashboard(
         self,

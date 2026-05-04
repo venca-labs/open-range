@@ -76,18 +76,97 @@ class CyberWebappPack(Pack):
     def project_world(self, graph: WorldGraph) -> Mapping[str, object]:
         """Project the graph back to a flat world dict.
 
-        Surfaces the flag value so verifiers can compare against the
-        agent's submitted result. Other multi-node attrs are
-        intentionally omitted — the verifier only cares about the
-        flag; richer projections (service map, account index) come
-        when verifiers need them.
+        Surfaces the flag (for the verifier) plus a topology view
+        (services + edges + zones + users) the dashboard renders. The
+        dashboard auto-redacts ``flag`` / ``secret`` / ``password`` /
+        ``token`` keys, so the projected topology is safe to publish.
         """
+        flag = ""
         for node in graph.nodes:
             if node.type == "secret" and node.attrs.get("kind") == "flag":
-                return MappingProxyType(
-                    {"flag": str(node.attrs.get("value_ref", ""))},
-                )
-        return MappingProxyType({})
+                flag = str(node.attrs.get("value_ref", ""))
+                break
+
+        services: list[dict[str, object]] = []
+        zones: set[str] = set()
+        host_zone: dict[str, str] = {}
+        for node in graph.nodes:
+            if node.type == "host":
+                zone = str(node.attrs.get("zone", ""))
+                if zone:
+                    host_zone[node.id] = zone
+                    zones.add(zone)
+        service_host: dict[str, str] = {}
+        for edge in graph.edges:
+            if edge.relation == "runs_on":
+                service_host[edge.source] = edge.target
+        endpoints_by_service: dict[str, list[str]] = {}
+        for edge in graph.edges:
+            if edge.relation == "exposes":
+                endpoints_by_service.setdefault(edge.source, []).append(edge.target)
+        endpoint_path: dict[str, str] = {
+            n.id: str(n.attrs.get("path", "")) for n in graph.nodes if n.type == "endpoint"
+        }
+        vuln_targets: dict[str, str] = {}
+        vuln_kind: dict[str, str] = {}
+        for n in graph.nodes:
+            if n.type == "vulnerability":
+                vuln_kind[n.id] = str(n.attrs.get("kind", ""))
+        for edge in graph.edges:
+            if edge.relation == "affects":
+                vuln_targets[edge.source] = edge.target
+
+        for node in graph.nodes:
+            if node.type != "service":
+                continue
+            host_id = service_host.get(node.id)
+            zone = host_zone.get(host_id, "")
+            paths = sorted(endpoint_path.get(ep, "") for ep in endpoints_by_service.get(node.id, []))
+            vulns_on_service = [
+                vuln_kind[vid] for vid, target in vuln_targets.items()
+                if target == node.id and vid in vuln_kind
+            ]
+            vulns_on_endpoints = [
+                vuln_kind[vid] for vid, target in vuln_targets.items()
+                if target in endpoints_by_service.get(node.id, []) and vid in vuln_kind
+            ]
+            services.append({
+                "id": str(node.attrs.get("name", node.id)),
+                "kind": str(node.attrs.get("kind", "")),
+                "zone": zone or "default",
+                "exposure": str(node.attrs.get("exposure", "")),
+                "ports": [],
+                "paths": paths,
+                "vulns": sorted(set(vulns_on_service + vulns_on_endpoints)),
+            })
+
+        edges: list[dict[str, object]] = []
+        service_name_by_id: dict[str, str] = {
+            n.id: str(n.attrs.get("name", n.id)) for n in graph.nodes if n.type == "service"
+        }
+        for edge in graph.edges:
+            if edge.relation == "backed_by":
+                src = service_name_by_id.get(edge.source)
+                if src:
+                    edges.append({"source": src, "target": str(edge.target), "relation": "backed_by"})
+
+        users: list[dict[str, object]] = [
+            {
+                "id": str(n.attrs.get("username", n.id)),
+                "role": str(n.attrs.get("role", "user")),
+            }
+            for n in graph.nodes if n.type == "account"
+        ]
+
+        return MappingProxyType({
+            "flag": flag,
+            "topology": {
+                "services": services,
+                "edges": edges,
+                "zones": sorted(zones),
+                "users": users,
+            },
+        })
 
 
 __all__ = ["CyberWebappPack"]
