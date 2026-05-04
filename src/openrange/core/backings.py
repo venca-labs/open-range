@@ -50,7 +50,7 @@ class HTTPBacking(RuntimeBacking):
         world: Mapping[str, Any],
         ctx: BackingContext,
     ) -> RunningArtifact:
-        from openrange.runtime import (
+        from openrange.core.runtime_helpers import (
             materialize_artifacts,
             read_base_url,
             start_runtime_process,
@@ -78,7 +78,7 @@ class HTTPBacking(RuntimeBacking):
         )
 
     def stop(self, instance: RunningArtifact) -> None:
-        from openrange.runtime import stop_process
+        from openrange.core.runtime_helpers import stop_process
 
         stop_process(cast("subprocess.Popen[str]", instance.handle))
 

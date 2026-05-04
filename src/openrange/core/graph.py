@@ -46,6 +46,17 @@ class Node:
     type: str
     attrs: Mapping[str, Any] = field(default_factory=dict)
 
+    def as_dict(self) -> dict[str, Any]:
+        return {"id": self.id, "type": self.type, "attrs": dict(self.attrs)}
+
+    @classmethod
+    def from_mapping(cls, data: Mapping[str, Any]) -> Node:
+        return cls(
+            id=str(data["id"]),
+            type=str(data["type"]),
+            attrs=dict(data.get("attrs", {})),
+        )
+
 
 @dataclass(frozen=True, slots=True)
 class Edge:
@@ -53,6 +64,23 @@ class Edge:
     relation: str
     target: str
     attrs: Mapping[str, Any] = field(default_factory=dict)
+
+    def as_dict(self) -> dict[str, Any]:
+        return {
+            "source": self.source,
+            "relation": self.relation,
+            "target": self.target,
+            "attrs": dict(self.attrs),
+        }
+
+    @classmethod
+    def from_mapping(cls, data: Mapping[str, Any]) -> Edge:
+        return cls(
+            source=str(data["source"]),
+            relation=str(data["relation"]),
+            target=str(data["target"]),
+            attrs=dict(data.get("attrs", {})),
+        )
 
 
 @dataclass(frozen=True, slots=True)
@@ -151,6 +179,31 @@ class WorldGraph:
     def nodes_of(self, type_name: str) -> tuple[Node, ...]:
         return tuple(node for node in self.nodes if node.type == type_name)
 
+    def first_node_attrs(self) -> Mapping[str, Any]:
+        """Return the first node's attrs, or empty mapping if no nodes.
+
+        Used by callers that need to project a single-node graph back to
+        the flat attrs dict (cyber-pack v0 ontology shape).
+        """
+        if not self.nodes:
+            return {}
+        return self.nodes[0].attrs
+
+    def as_dict(self) -> dict[str, Any]:
+        return {
+            "nodes": [node.as_dict() for node in self.nodes],
+            "edges": [edge.as_dict() for edge in self.edges],
+        }
+
+    @classmethod
+    def from_mapping(cls, data: Mapping[str, Any]) -> WorldGraph:
+        nodes = data.get("nodes", [])
+        edges = data.get("edges", [])
+        return cls(
+            nodes=tuple(Node.from_mapping(n) for n in nodes),
+            edges=tuple(Edge.from_mapping(e) for e in edges),
+        )
+
 
 @dataclass(frozen=True, slots=True)
 class CheckScript:
@@ -168,6 +221,26 @@ class CheckScript:
     kind: CheckKind
     source: str
 
+    def as_dict(self) -> dict[str, Any]:
+        return {
+            "id": self.id,
+            "task_id": self.task_id,
+            "kind": self.kind,
+            "source": self.source,
+        }
+
+    @classmethod
+    def from_mapping(cls, data: Mapping[str, Any]) -> CheckScript:
+        kind = data["kind"]
+        if kind not in {"feasibility", "episode"}:
+            raise ValueError(f"unknown check kind {kind!r}")
+        return cls(
+            id=str(data["id"]),
+            task_id=str(data["task_id"]),
+            kind=kind,
+            source=str(data["source"]),
+        )
+
 
 @dataclass(frozen=True, slots=True)
 class RuntimeArtifact:
@@ -181,6 +254,17 @@ class RuntimeArtifact:
     id: str
     kind: str
     metadata: Mapping[str, Any] = field(default_factory=dict)
+
+    def as_dict(self) -> dict[str, Any]:
+        return {"id": self.id, "kind": self.kind, "metadata": dict(self.metadata)}
+
+    @classmethod
+    def from_mapping(cls, data: Mapping[str, Any]) -> RuntimeArtifact:
+        return cls(
+            id=str(data["id"]),
+            kind=str(data["kind"]),
+            metadata=dict(data.get("metadata", {})),
+        )
 
 
 @dataclass(frozen=True, slots=True)
@@ -206,4 +290,20 @@ class RuntimeBundle:
                 for artifact in self.artifacts
                 if artifact.kind == "file"
             },
+        )
+
+    def as_dict(self) -> dict[str, Any]:
+        return {
+            "artifacts": [artifact.as_dict() for artifact in self.artifacts],
+            # Entrypoints round-trip via openrange.core.pack.Entrypoint;
+            # snapshots store entrypoints on Tasks, so the bundle's
+            # entrypoints field is implicit and not serialized here.
+        }
+
+    @classmethod
+    def from_mapping(cls, data: Mapping[str, Any]) -> RuntimeBundle:
+        artifacts = data.get("artifacts", [])
+        return cls(
+            artifacts=tuple(RuntimeArtifact.from_mapping(a) for a in artifacts),
+            entrypoints=(),
         )

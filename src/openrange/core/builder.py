@@ -182,9 +182,7 @@ def resolve_pack(manifest: Manifest, registry: PackRegistry) -> Pack:
             raise PackError("'pack.source.uri' is required for path packs")
         path = Path(source.uri).expanduser().resolve()
         pack_cls = registry.resolve_class(manifest.pack.id)
-        # The Pack ABC's signature doesn't accept args; subclasses
-        # conventionally accept ``dir: Path | None`` for path-loading.
-        pack = pack_cls(path)  # type: ignore[call-arg]
+        pack = pack_cls(path)
         if pack.id != manifest.pack.id:
             raise PackError("manifest pack id does not match pack source")
         return pack
@@ -335,9 +333,9 @@ def _run_admission_probe(state: BuildState) -> BuildState:
 
 
 def _world_dict_from_state(state: BuildState) -> dict[str, object]:
-    if state.world_graph is None or not state.world_graph.nodes:
+    if state.world_graph is None:
         return {}
-    return dict(state.world_graph.nodes[0].attrs)
+    return dict(state.world_graph.first_node_attrs())
 
 
 def _final_state_key_for_world(entrypoint: object) -> str | None:

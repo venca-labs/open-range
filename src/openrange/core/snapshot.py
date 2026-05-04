@@ -4,13 +4,14 @@ from __future__ import annotations
 
 import json
 from collections.abc import Mapping
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from hashlib import sha256
 from types import MappingProxyType
 from typing import TYPE_CHECKING, cast
 
 from openrange.core.admission import AdmissionReport
 from openrange.core.errors import AdmissionError, StoreError
+from openrange.core.graph import CheckScript, RuntimeBundle, WorldGraph
 from openrange.core.manifest import Manifest
 from openrange.core.pack import (
     Entrypoint,
@@ -84,6 +85,15 @@ class LineageNode:
 
 @dataclass(frozen=True, slots=True)
 class Snapshot:
+    """Admitted, frozen world.
+
+    Stores both the canonical pipeline shape (``world_graph``, ``runtime``,
+    ``feasibility_checks``, ``episode_checks``, ``admission_probe``) and
+    the legacy projection (``world``, ``artifacts``, ``verifier_sources``,
+    ``generated``) used by older snapshot consumers. The legacy fields
+    are derived from the canonical ones at freeze time.
+    """
+
     id: str
     manifest: Manifest
     world: Mapping[str, object]
@@ -93,6 +103,12 @@ class Snapshot:
     artifacts: Mapping[str, str]
     admission: AdmissionReport
     lineage: tuple[LineageNode, ...]
+    # Canonical pipeline shape (Phase audit-fix #4):
+    world_graph: WorldGraph = field(default_factory=WorldGraph)
+    runtime: RuntimeBundle = field(default_factory=RuntimeBundle)
+    feasibility_checks: tuple[CheckScript, ...] = ()
+    episode_checks: tuple[CheckScript, ...] = ()
+    admission_probe: Mapping[str, object] = field(default_factory=dict)
 
     def get_tasks(self) -> tuple[Task, ...]:
         return self.tasks
@@ -125,6 +141,11 @@ class Snapshot:
             "artifacts": dict(self.artifacts),
             "admission": self.admission.as_dict(),
             "lineage": [node.as_dict() for node in self.lineage],
+            "world_graph": self.world_graph.as_dict(),
+            "runtime": self.runtime.as_dict(),
+            "feasibility_checks": [c.as_dict() for c in self.feasibility_checks],
+            "episode_checks": [c.as_dict() for c in self.episode_checks],
+            "admission_probe": dict(self.admission_probe),
         }
 
     @classmethod
@@ -159,6 +180,24 @@ class Snapshot:
         }
         parsed_tasks = tuple(task_from_mapping(row) for row in tasks)
         parsed_artifacts = {str(key): str(value) for key, value in artifacts.items()}
+        # New canonical fields — present on snapshots written after the
+        # audit-fix; defaulted to empty for older snapshots so loading
+        # legacy JSON keeps working.
+        graph_data = data.get("world_graph", {})
+        runtime_data = data.get("runtime", {})
+        feasibility_data = data.get("feasibility_checks", [])
+        episode_data = data.get("episode_checks", [])
+        probe_data = data.get("admission_probe", {})
+        if not isinstance(graph_data, Mapping):
+            raise StoreError("stored world_graph is invalid")
+        if not isinstance(runtime_data, Mapping):
+            raise StoreError("stored runtime is invalid")
+        if not isinstance(feasibility_data, list):
+            raise StoreError("stored feasibility_checks is invalid")
+        if not isinstance(episode_data, list):
+            raise StoreError("stored episode_checks is invalid")
+        if not isinstance(probe_data, Mapping):
+            raise StoreError("stored admission_probe is invalid")
         return cls(
             snapshot_id,
             Manifest.from_mapping(cast(Mapping[str, object], manifest)),
@@ -172,6 +211,15 @@ class Snapshot:
                 LineageNode.from_mapping(cast(Mapping[str, object], row))
                 for row in lineage
             ),
+            world_graph=WorldGraph.from_mapping(graph_data),
+            runtime=RuntimeBundle.from_mapping(runtime_data),
+            feasibility_checks=tuple(
+                CheckScript.from_mapping(c) for c in feasibility_data
+            ),
+            episode_checks=tuple(
+                CheckScript.from_mapping(c) for c in episode_data
+            ),
+            admission_probe=MappingProxyType(dict(probe_data)),
         )
 
 
@@ -290,23 +338,19 @@ def freeze(state: BuildState) -> Snapshot:
         artifacts,
         state.admission,
         (*previous_lineage, lineage),
+        world_graph=state.world_graph,
+        runtime=state.runtime,
+        feasibility_checks=state.feasibility_checks,
+        episode_checks=state.episode_checks,
+        admission_probe=MappingProxyType(dict(state.admission_probe or {})),
     )
 
 
 def _world_dict_from_state(state: BuildState) -> Mapping[str, object]:
-    """Project the world graph back to a flat dict for snapshot.world.
-
-    Phase 3 stopgap: legacy snapshot consumers expect a flat ``world``
-    dict. The cyber pack ontology has a single ``webapp`` node whose
-    attrs are exactly that dict. Future phases store the WorldGraph
-    directly on Snapshot and drop this projection.
-    """
+    """Project the world graph back to a flat dict for snapshot.world."""
     if state.world_graph is None:
         return {}
-    nodes = state.world_graph.nodes
-    if not nodes:
-        return {}
-    return MappingProxyType(dict(nodes[0].attrs))
+    return MappingProxyType(dict(state.world_graph.first_node_attrs()))
 
 
 def _generated_view(

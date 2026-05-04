@@ -960,17 +960,94 @@ def test_builder_registry_discovers_via_entry_points(
     registry.discover()
     assert "external.builder" in registry.ids()
 
-    pack = OR.PACKS.resolve("cyber.webapp.offense")
-    state = OR.BuildState(
-        manifest=Manifest.load(MANIFEST),
-        pack=pack,
-        builder=_ExternalBuilder(),
-        context=BuildContext(prompt="hello"),
-    )
-    _ = state  # silence unused
     builder = registry.resolve("external.builder", BuildContext(prompt="hello"))
     assert isinstance(builder, _ExternalBuilder)
     assert construction_log == ["prompt='hello'"]
+
+
+def test_external_pack_loads_via_path_source(tmp_path: Path) -> None:
+    """A pack registered only in PACKS (not bundled) can be path-loaded."""
+    cyber = OR.PACKS.resolve("cyber.webapp.offense")
+    pack_dir = tmp_path / "external_pack"
+    copy_pack(cyber.dir, pack_dir)
+    descriptor = json.loads((pack_dir / "pack.json").read_text(encoding="utf-8"))
+    descriptor["id"] = "external.demo"
+    (pack_dir / "pack.json").write_text(json.dumps(descriptor), encoding="utf-8")
+
+    from openrange.packs import CyberWebappOffensePack
+
+    class _ExternalPack(CyberWebappOffensePack):
+        id = "external.demo"
+        DEFAULT_DIR = pack_dir
+
+    OR.PACKS.register(_ExternalPack(pack_dir))
+    try:
+        # Build via path source — orchestrator does
+        # registry.resolve_class("external.demo")(custom_dir).
+        snapshot = build(
+            {
+                "world": {"goal": "external pack via path"},
+                "pack": {
+                    "id": "external.demo",
+                    "source": {"kind": "path", "uri": str(pack_dir)},
+                },
+            },
+            llm=builder_llm(tmp_path),
+        )
+        assert snapshot.manifest.pack.id == "external.demo"
+        assert snapshot.lineage[0].pack["id"] == "external.demo"
+    finally:
+        OR.PACKS._packs.pop("external.demo", None)  # noqa: SLF001
+
+
+def test_manifest_builder_routes_through_BUILDERS(tmp_path: Path) -> None:
+    """End-to-end: manifest.builder='<id>' uses the registered builder."""
+    from dataclasses import replace as _replace
+
+    from openrange.core.admission import BuildFailed
+    from openrange.core.builder_protocol import BUILDERS, Builder
+
+    seed = build(MANIFEST, llm=builder_llm(tmp_path))
+    invoked: list[str] = []
+
+    class _ManifestBuilder(Builder):
+        def generate_world_graph(self, state: OR.BuildState) -> OR.BuildState:
+            invoked.append("world")
+            graph = OR.WorldGraph(
+                nodes=(OR.Node("webapp", "webapp", dict(seed.world)),),
+            )
+            return _replace(state, world_graph=graph)
+
+        def generate_tasks(self, state: OR.BuildState) -> OR.BuildState:
+            invoked.append("tasks")
+            return _replace(state, tasks=())
+
+        def generate_feasibility_checks(
+            self,
+            state: OR.BuildState,
+        ) -> OR.BuildState:
+            invoked.append("feasibility")
+            return state
+
+        def generate_episode_checks(self, state: OR.BuildState) -> OR.BuildState:
+            invoked.append("episode")
+            return state
+
+    BUILDERS.register(
+        "test.manifest_builder",
+        lambda ctx: _ManifestBuilder(),
+    )
+    try:
+        manifest = {**MANIFEST, "builder": "test.manifest_builder"}
+        with pytest.raises(BuildFailed):
+            build(manifest, llm=object(), max_repairs=1)
+    finally:
+        # Unregister so we don't leak into other tests.
+        BUILDERS._factories.pop("test.manifest_builder", None)  # noqa: SLF001
+
+    # Builder methods ran in the orchestrator's order.
+    assert invoked[:2] == ["world", "tasks"]
+    # tasks=() forced admission failure as expected.
 
 
 class _NoopBuilder:

@@ -196,7 +196,7 @@ class EpisodeService:
         task_id: str | None = None,
     ) -> EpisodeHandle:
         from openrange.core.runtime_backing import RUNTIME_BACKINGS, BackingContext
-        from openrange.runtime import write_task_file
+        from openrange.core.runtime_helpers import write_task_file
 
         task = (
             snapshot.task(task_id) if task_id is not None else snapshot.get_tasks()[0]
@@ -264,7 +264,7 @@ class EpisodeService:
         episode: EpisodeHandle,
         reason: str = "completed",
     ) -> EpisodeReport:
-        from openrange.runtime import (
+        from openrange.core.runtime_helpers import (
             final_state_from_episode,
             read_requests,
             validate_public_interface_interaction,
@@ -495,7 +495,7 @@ class EpisodeService:
         self,
         running: _RunningEpisode,
     ) -> tuple[Mapping[str, Any], ...]:
-        from openrange.runtime import read_requests
+        from openrange.core.runtime_helpers import read_requests
 
         if running.request_log is None:
             return ()

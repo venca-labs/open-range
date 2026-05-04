@@ -131,6 +131,17 @@ class Pack(ABC):
     version: str = ""
     dir: Path | None = None
 
+    def __init__(self, dir: Path | None = None) -> None:
+        """Default constructor: filesystem-backed packs may pass a custom dir.
+
+        Subclasses are free to override with their own signature, but the
+        ``dir: Path | None = None`` convention is what path-pack loading
+        relies on. Non-filesystem packs typically just leave ``dir = None``
+        and ignore this argument.
+        """
+        if dir is not None:
+            self.dir = dir
+
     @property
     @abstractmethod
     def ontology(self) -> WorldSchema: ...
