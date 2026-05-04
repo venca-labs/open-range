@@ -62,6 +62,13 @@ warn_unreachable = true
 module = "yaml"
 ignore_missing_imports = true
 
+# Strands is an optional dependency (``openrange[strands]``). Skip
+# import resolution so the core type-checks cleanly even when it
+# isn't installed.
+[[tool.mypy.overrides]]
+module = ["strands", "strands.*", "strands_tools", "strands_tools.*"]
+ignore_missing_imports = true
+
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 

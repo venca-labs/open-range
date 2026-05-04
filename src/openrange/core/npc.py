@@ -31,13 +31,29 @@ Manifest schema:
           paths: ["/search?q=alpha"]
 
 ``count`` defaults to 1; ``config`` defaults to ``{}``.
+
+Two NPC shapes ship in core:
+
+* ``NPC`` — the bare ABC. Subclasses implement ``step`` against the
+  backing's interface. Use this for scripted NPCs (cron-job style:
+  cadence + a fixed action).
+* ``AgentNPC`` — an LLM-backed agent loop with a tool surface and a
+  persona. Subclasses define ``_build_tools(interface)`` and a system
+  prompt; the runtime supplies the model. The agent loop itself is
+  delegated to the optional ``strands-agents`` SDK so we don't
+  re-invent tool dispatch / streaming / cancellation.
+
+NPCs that opt into LLM access set ``requires_llm = True``. The
+episode runtime then injects an ``llm`` key (a model id string, or
+``None`` if the runtime wasn't configured with one) into the
+``context`` mapping passed to ``start()``.
 """
 
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
-from collections.abc import Callable, Mapping
-from typing import Any
+from collections.abc import Callable, Mapping, Sequence
+from typing import Any, ClassVar
 
 from openrange.core.errors import OpenRangeError
 
@@ -56,7 +72,15 @@ class NPC(ABC):
     Subclasses implement ``step``. Default ``start`` and ``stop`` are
     no-ops; override them when the NPC needs setup / teardown that
     can't happen in ``__init__``.
+
+    Set ``requires_llm = True`` (class attribute) to opt into LLM
+    access — the episode runtime then includes an ``llm`` key in the
+    ``context`` mapping passed to ``start()``. NPCs that don't opt in
+    pay nothing; the runtime never builds or charges for a model on
+    their behalf.
     """
+
+    requires_llm: ClassVar[bool] = False
 
     @abstractmethod
     def step(self, interface: Mapping[str, Any]) -> None:
@@ -73,7 +97,9 @@ class NPC(ABC):
         """Optional setup hook, called once when the episode starts.
 
         ``context`` carries metadata about the running world — at
-        minimum ``{episode_id, snapshot_id, task_id}``. Default: no-op.
+        minimum ``{episode_id, snapshot_id, task_id, base_url}``. NPCs
+        with ``requires_llm = True`` additionally receive an ``llm``
+        key (a model id string, or ``None``). Default: no-op.
         """
         del context
 
@@ -83,6 +109,141 @@ class NPC(ABC):
         Default: no-op. Subclasses release resources here (close
         connections, flush state, etc.).
         """
+
+
+class AgentNPC(NPC):
+    """An NPC backed by an LLM agent loop with a tool surface.
+
+    Subclasses provide a persona (``system_prompt``) and a
+    ``_build_tools(interface)`` hook that returns tool callables bound
+    over the runtime backing's interface. The agent loop itself is
+    delegated to the optional ``strands-agents`` SDK — we let it own
+    tool dispatch, retries, and streaming rather than re-inventing
+    those pieces.
+
+    Cadence: like scripted NPCs, an ``AgentNPC`` does not invoke its
+    LLM every tick — it acts once every ``cadence_ticks`` ticks. The
+    LLM call is the expensive part; cadence is the budget knob.
+
+    Failure model: per-NPC failures stay silent (the episode
+    contract). If strands isn't installed or the model can't be
+    constructed, the NPC marks itself broken on the first acting tick
+    and stops trying — no per-tick retries.
+
+    Subclasses override:
+
+    * ``_build_tools(interface)`` — required. Return a list of
+      ``@strands.tool``-decorated callables that close over the
+      interface. The base class doesn't import strands itself; the
+      decoration happens in the subclass so test doubles can skip it.
+    * ``_user_prompt(interface)`` — optional. The message handed to
+      the agent on each acting tick. Default: a generic "act
+      consistently with your role" prompt.
+    """
+
+    requires_llm: ClassVar[bool] = True
+
+    def __init__(
+        self,
+        *,
+        system_prompt: str,
+        cadence_ticks: int = 5,
+        model: str | None = None,
+    ) -> None:
+        if not system_prompt:
+            raise ValueError("system_prompt must be non-empty")
+        if cadence_ticks < 1:
+            raise ValueError("cadence_ticks must be >= 1")
+        self._system_prompt = system_prompt
+        self._cadence_ticks = cadence_ticks
+        self._model_override = model
+        self._runtime_model: str | None = None
+        self._cooldown = 0
+        self._agent: Any = None
+        self._broken = False
+
+    def start(self, context: Mapping[str, Any]) -> None:
+        llm = context.get("llm")
+        if llm is None or isinstance(llm, str):
+            self._runtime_model = llm
+        else:  # defensive — runtime contract is str | None
+            self._runtime_model = None
+
+    def step(self, interface: Mapping[str, Any]) -> None:
+        if self._broken:
+            return
+        if self._cooldown > 0:
+            self._cooldown -= 1
+            return
+        self._cooldown = self._cadence_ticks - 1
+        if self._agent is None:
+            try:
+                tools = list(self._build_tools(interface))
+                self._agent = self._build_agent(tools)
+            except Exception:  # noqa: BLE001 — silent broken state
+                self._broken = True
+                self._agent = None
+                return
+        try:
+            self._invoke_agent(self._user_prompt(interface))
+        except Exception:  # noqa: BLE001 — per-tick LLM failures are silent
+            return
+
+    def stop(self) -> None:
+        self._agent = None
+
+    # -- subclass extension points ----------------------------------------
+
+    @abstractmethod
+    def _build_tools(
+        self,
+        interface: Mapping[str, Any],
+    ) -> Sequence[Callable[..., Any]]:
+        """Return tool callables bound over ``interface``.
+
+        Subclasses typically wrap interface methods (``http_get``,
+        ``http_get_json``, ...) with ``@strands.tool`` decorators so
+        the agent loop can call them. The base class does not import
+        strands itself — keep the decoration in the subclass.
+        """
+
+    def _user_prompt(self, interface: Mapping[str, Any]) -> str:
+        """The prompt handed to the agent on each acting tick."""
+        del interface
+        return (
+            "Take one realistic action consistent with your role. "
+            "Use the available tools. Keep it short."
+        )
+
+    # -- overridable seams (tests inject fakes here) ----------------------
+
+    def _build_agent(self, tools: Sequence[Callable[..., Any]]) -> Any:
+        """Construct the underlying agent. Default: ``strands.Agent``.
+
+        Override in tests to inject a fake without installing strands.
+        """
+        try:
+            from strands import Agent
+        except ImportError as exc:
+            raise NPCError(
+                "AgentNPC requires the optional 'strands-agents' package. "
+                "Install with `pip install openrange[strands]`.",
+            ) from exc
+        kwargs: dict[str, Any] = {
+            "tools": list(tools),
+            "system_prompt": self._system_prompt,
+            "callback_handler": None,
+        }
+        model = self._model_override or self._runtime_model
+        if model is not None:
+            kwargs["model"] = model
+        return Agent(**kwargs)
+
+    def _invoke_agent(self, prompt: str) -> None:
+        """Run one agent turn with ``prompt``. Override for testing."""
+        if self._agent is None:
+            return
+        self._agent(prompt)
 
 
 class NPCRegistry:

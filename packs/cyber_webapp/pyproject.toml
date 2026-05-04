@@ -21,6 +21,7 @@ dependencies = [
 [project.entry-points."openrange.npcs"]
 "cyber.browsing_user" = "cyber_webapp.npcs.browsing_user:factory"
 "cyber.admin_audit" = "cyber_webapp.npcs.admin_audit:factory"
+"cyber.curious_employee" = "cyber_webapp.npcs.curious_employee:factory"
 
 [tool.hatch.build.targets.wheel]
 packages = ["cyber_webapp"]

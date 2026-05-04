@@ -168,3 +168,55 @@ def test_admin_audit_rejects_empty_audit_path() -> None:
 def test_admin_audit_factory_rejects_bad_path() -> None:
     with pytest.raises(ValueError, match="audit_path must be a string"):
         admin_audit_factory({"audit_path": 42})
+
+
+# ---------------------------------------------------------------------------
+# CuriousEmployee (LLM-backed agent NPC)
+# ---------------------------------------------------------------------------
+
+
+def test_curious_employee_factory_constructs_with_defaults() -> None:
+    from cyber_webapp.npcs.curious_employee import CuriousEmployee
+    from cyber_webapp.npcs.curious_employee import factory as ce_factory
+
+    npc = ce_factory({})
+    assert isinstance(npc, CuriousEmployee)
+    assert npc.requires_llm is True
+    assert npc._cadence_ticks == 5
+    assert npc._model_override is None
+    assert "internal employee" in npc._system_prompt
+
+
+def test_curious_employee_factory_honors_overrides() -> None:
+    from cyber_webapp.npcs.curious_employee import (
+        factory as ce_factory,
+    )
+
+    npc = ce_factory(
+        {
+            "cadence_ticks": 2,
+            "model": "claude-sonnet-4-20250514",
+            "system_prompt": "You are a tester.",
+        },
+    )
+    assert npc._cadence_ticks == 2
+    assert npc._model_override == "claude-sonnet-4-20250514"
+    assert npc._system_prompt == "You are a tester."
+
+
+def test_curious_employee_factory_rejects_bad_config() -> None:
+    from cyber_webapp.npcs.curious_employee import factory as ce_factory
+
+    with pytest.raises(ValueError, match="cadence_ticks"):
+        ce_factory({"cadence_ticks": "fast"})
+    with pytest.raises(ValueError, match="model"):
+        ce_factory({"model": 42})
+    with pytest.raises(ValueError, match="system_prompt"):
+        ce_factory({"system_prompt": ""})
+
+
+def test_curious_employee_registered_via_entry_point() -> None:
+    """The pack's pyproject.toml registers cyber.curious_employee."""
+    from openrange.core.npc import NPCS
+
+    assert "cyber.curious_employee" in NPCS.ids()

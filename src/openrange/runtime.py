@@ -45,6 +45,10 @@ class RunConfig:
     reset_dashboard: bool = True
     dashboard_host: str = "127.0.0.1"
     dashboard_port: int | None = None
+    # Model id passed to LLM-backed NPCs (those declaring
+    # ``requires_llm = True``). ``None`` means "let the NPC fall back
+    # to its own default" — typically whatever the strands SDK picks.
+    npc_llm_model: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -128,7 +132,11 @@ class OpenRangeRun:
 
     def episode_service(self, snapshot: Snapshot) -> EpisodeService:
         view = self._ensure_dashboard_view(snapshot)
-        return EpisodeService(self.root, dashboard=view)
+        return EpisodeService(
+            self.root,
+            dashboard=view,
+            npc_llm_model=self.config.npc_llm_model,
+        )
 
     def serve_dashboard(
         self,

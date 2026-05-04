@@ -184,10 +184,12 @@ class EpisodeService:
         run_root: str | Path,
         *,
         dashboard: DashboardView | None = None,
+        npc_llm_model: str | None = None,
     ) -> None:
         self.run_root = Path(run_root)
         self.run_root.mkdir(parents=True, exist_ok=True)
         self.dashboard = dashboard
+        self.npc_llm_model = npc_llm_model
         self._episodes: dict[str, _RunningEpisode] = {}
 
     # -- lifecycle ----------------------------------------------------------
@@ -566,16 +568,17 @@ class EpisodeService:
         npcs = resolve_manifest_npcs(running.snapshot.manifest.npc)
         if not npcs:
             return
-        context = MappingProxyType(
-            {
-                "episode_id": running.handle.id,
-                "snapshot_id": running.snapshot.id,
-                "task_id": running.task.id,
-                "base_url": running.base_url,
-            },
-        )
+        base_context: dict[str, Any] = {
+            "episode_id": running.handle.id,
+            "snapshot_id": running.snapshot.id,
+            "task_id": running.task.id,
+            "base_url": running.base_url,
+        }
         for npc in npcs:
-            npc.start(context)
+            ctx = dict(base_context)
+            if npc.requires_llm:
+                ctx["llm"] = self.npc_llm_model
+            npc.start(MappingProxyType(ctx))
         running.npcs = npcs
 
     def _step_npcs(self, running: _RunningEpisode) -> None:

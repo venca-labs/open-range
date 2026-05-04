@@ -129,3 +129,120 @@ def test_v1_episode_unknown_npc_type_fails_cleanly(tmp_path: Path) -> None:
     service = EpisodeService(tmp_path / "runs")
     with pytest.raises(NPCError, match="unknown NPC"):
         service.start_episode(snapshot)
+
+
+def test_v1_episode_injects_llm_into_npc_context(tmp_path: Path) -> None:
+    """LLM-opt-in NPCs receive an ``llm`` key in start() context.
+
+    Plain NPCs do not. Verifies the runtime honors ``requires_llm``
+    on a per-NPC basis and threads ``EpisodeService.npc_llm_model``
+    through.
+    """
+    from collections.abc import Mapping
+    from typing import Any
+
+    from openrange.core.npc import NPC, NPCS, AgentNPC
+
+    seen_contexts: dict[str, Mapping[str, Any]] = {}
+
+    class _RecordingPlainNPC(NPC):
+        # Inherits requires_llm = False
+        def start(self, context: Mapping[str, Any]) -> None:
+            seen_contexts["plain"] = dict(context)
+
+        def step(self, interface: Mapping[str, Any]) -> None: ...
+
+    class _RecordingAgentNPC(AgentNPC):
+        # Inherits requires_llm = True
+        def start(self, context: Mapping[str, Any]) -> None:
+            super().start(context)
+            seen_contexts["agent"] = dict(context)
+
+        def _build_tools(self, interface: Mapping[str, Any]) -> tuple[Any, ...]:
+            return ()
+
+        def _build_agent(self, tools: Any) -> Any:
+            return None  # never invoked — cadence won't matter
+
+    NPCS.register("test.recording_plain", lambda config: _RecordingPlainNPC())
+    NPCS.register(
+        "test.recording_agent",
+        lambda config: _RecordingAgentNPC(system_prompt="x", cadence_ticks=999),
+    )
+    try:
+        manifest = {
+            **V1_MANIFEST,
+            "npc": [
+                {"type": "test.recording_plain"},
+                {"type": "test.recording_agent"},
+            ],
+        }
+        snapshot = build(manifest)
+        service = EpisodeService(
+            tmp_path / "runs",
+            npc_llm_model="claude-sonnet-4-20250514",
+        )
+        handle = service.start_episode(snapshot)
+        try:
+            base_url = service.base_url(handle)
+            with urllib.request.urlopen(f"{base_url}/", timeout=2) as response:
+                assert response.status == 200
+            (service.agent_root(handle) / "result.json").write_text(
+                json.dumps({"flag": _flag_value(snapshot)}),
+                encoding="utf-8",
+            )
+        finally:
+            service.stop_episode(handle)
+    finally:
+        # Best-effort cleanup — NPCRegistry has no public unregister.
+        NPCS._factories.pop("test.recording_plain", None)
+        NPCS._factories.pop("test.recording_agent", None)
+
+    assert "llm" not in seen_contexts["plain"]
+    assert seen_contexts["agent"]["llm"] == "claude-sonnet-4-20250514"
+
+
+def test_v1_episode_omits_llm_when_runtime_model_unset(tmp_path: Path) -> None:
+    """An LLM-opt-in NPC sees ``llm = None`` when the service has no model."""
+    from collections.abc import Mapping
+    from typing import Any
+
+    from openrange.core.npc import NPCS, AgentNPC
+
+    seen: dict[str, Mapping[str, Any]] = {}
+
+    class _Recording(AgentNPC):
+        def start(self, context: Mapping[str, Any]) -> None:
+            super().start(context)
+            seen["ctx"] = dict(context)
+
+        def _build_tools(self, interface: Mapping[str, Any]) -> tuple[Any, ...]:
+            return ()
+
+        def _build_agent(self, tools: Any) -> Any:
+            return None
+
+    NPCS.register(
+        "test.no_llm_runtime",
+        lambda config: _Recording(system_prompt="x", cadence_ticks=999),
+    )
+    try:
+        manifest = {**V1_MANIFEST, "npc": [{"type": "test.no_llm_runtime"}]}
+        snapshot = build(manifest)
+        service = EpisodeService(tmp_path / "runs")  # npc_llm_model defaults to None
+        handle = service.start_episode(snapshot)
+        try:
+            base_url = service.base_url(handle)
+            with urllib.request.urlopen(f"{base_url}/", timeout=2) as response:
+                assert response.status == 200
+            (service.agent_root(handle) / "result.json").write_text(
+                json.dumps({"flag": _flag_value(snapshot)}),
+                encoding="utf-8",
+            )
+        finally:
+            service.stop_episode(handle)
+    finally:
+        NPCS._factories.pop("test.no_llm_runtime", None)
+
+    assert "llm" in seen["ctx"]
+    assert seen["ctx"]["llm"] is None
