@@ -1,0 +1,37 @@
+"""Rendered SSRF handler.
+
+Template parameters:
+  target_param     — query parameter holding the URL to fetch
+  allowlist_pattern — regex compiled but applied AFTER the fetch (or not at
+                     all) — that's the bug
+
+The bug: the handler accepts an attacker-supplied URL and fetches it
+without validating destination *before* dispatch. An agent can hit
+internal services (metadata endpoints, admin APIs) reachable from the
+service's network position.
+"""
+import json
+import re
+from urllib.error import URLError
+from urllib.request import urlopen
+
+_ALLOWLIST = re.compile({{ allowlist_pattern | tojson }})
+
+
+def handle(query, state):
+    values = query.get({{ target_param | tojson }}, [""])
+    target = values[0] if values else ""
+    if not target:
+        return 400, {}, b"missing url"
+    # VULN: fetch first, validate later. Even the post-hoc validation is
+    # weak (only checks the response URL string, not the actual destination).
+    try:
+        with urlopen(target, timeout=2) as response:  # noqa: S310 (intentional)
+            body = response.read()
+            final_url = response.geturl()
+    except URLError as exc:
+        return 502, {}, str(exc).encode()
+    if not _ALLOWLIST.match(final_url):
+        # post-hoc check; data already exfiltrated by the time we hit this.
+        return 403, {}, b"allowlist violation"
+    return 200, {"Content-Type": "application/octet-stream"}, body or b""
