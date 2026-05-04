@@ -25,6 +25,11 @@ openrange = "openrange.__main__:main"
 
 [project.entry-points."openrange.packs"]
 "cyber.webapp.offense" = "openrange.packs:CyberWebappOffensePack"
+"cyber.webapp.offense.v1" = "openrange.packs:CyberWebappOffenseV1Pack"
+
+[project.entry-points."openrange.npcs"]
+"cyber.browsing_user" = "openrange.packs.cyber_webapp_offense_v1.npcs.browsing_user:factory"
+"cyber.admin_audit" = "openrange.packs.cyber_webapp_offense_v1.npcs.admin_audit:factory"
 
 [dependency-groups]
 dev = [

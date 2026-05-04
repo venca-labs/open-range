@@ -24,6 +24,7 @@ from types import MappingProxyType
 from typing import TYPE_CHECKING, Any, Literal
 
 from openrange.core.errors import OpenRangeError
+from openrange.core.npc import NPC, resolve_manifest_npcs
 from openrange.core.pack import Entrypoint, Task
 from openrange.core.runtime_backing import RUNTIME_BACKINGS, RunningArtifact
 from openrange.core.turn import ActorTurn
@@ -167,6 +168,7 @@ class _RunningEpisode:
     verifier_result: Mapping[str, object] | None = None
     tick_thread: threading.Thread | None = None
     tick_stop: threading.Event | None = None
+    npcs: list[NPC] = field(default_factory=list)
 
 
 # ---------------------------------------------------------------------------
@@ -255,6 +257,7 @@ class EpisodeService:
             {"start": "http_server"},
             observation={"base_url": base_url},
         )
+        self._start_npcs(running)
         if snapshot.manifest.runtime.tick.mode == "auto":
             self._start_auto_tick(running, snapshot.manifest.runtime.tick.rate_hz)
         return handle
@@ -272,11 +275,12 @@ class EpisodeService:
 
         del reason
         running = self._require(episode)
+        self._stop_auto_tick(running)
+        self._stop_npcs(running)
         if running.running_artifact is not None:
             backing = RUNTIME_BACKINGS.require(running.running_artifact.kind)
             backing.stop(running.running_artifact)
             running.running_artifact = None
-        self._stop_auto_tick(running)
         # Drain any remaining log entries to the dashboard, then read the
         # full request history for validation + final-state assembly.
         self._sync_request_log(running)
@@ -347,8 +351,10 @@ class EpisodeService:
         episode: EpisodeHandle,
         request: TickRequest | None = None,
     ) -> TickResult:
-        del request  # cyber pack has no scheduler; future packs read this
+        request = request or TickRequest()
         running = self._require(episode)
+        if request.process_npcs:
+            self._step_npcs(running)
         events = self._sync_request_log(running)
         done, reason = self._terminal_state(running)
         return TickResult(events=events, done=done, terminal_reason=reason)
@@ -551,6 +557,55 @@ class EpisodeService:
             ),
         )
 
+    def _start_npcs(self, running: _RunningEpisode) -> None:
+        """Resolve manifest NPCs and call their ``start`` hook.
+
+        Failures during construction or start raise — a manifest that
+        references an unknown NPC type is a config error, not something
+        to silently swallow at episode start.
+        """
+        npcs = resolve_manifest_npcs(running.snapshot.manifest.npc)
+        if not npcs:
+            return
+        context = MappingProxyType(
+            {
+                "episode_id": running.handle.id,
+                "snapshot_id": running.snapshot.id,
+                "task_id": running.task.id,
+                "base_url": running.base_url,
+            },
+        )
+        for npc in npcs:
+            npc.start(context)
+        running.npcs = npcs
+
+    def _step_npcs(self, running: _RunningEpisode) -> None:
+        """Step every NPC against the runtime backing's interface.
+
+        Per-NPC failures are swallowed to keep the episode running —
+        an NPC throwing on a malformed response shouldn't sink the
+        whole episode. NPCs that need to react to errors handle them
+        internally.
+        """
+        if not running.npcs or running.running_artifact is None:
+            return
+        backing = RUNTIME_BACKINGS.require(running.running_artifact.kind)
+        interface = backing.interface(running.running_artifact)
+        for npc in running.npcs:
+            try:
+                npc.step(interface)
+            except Exception:  # noqa: BLE001 — see docstring
+                continue
+
+    def _stop_npcs(self, running: _RunningEpisode) -> None:
+        """Call ``stop`` on every NPC. Failures are swallowed."""
+        for npc in running.npcs:
+            try:
+                npc.stop()
+            except Exception:  # noqa: BLE001
+                continue
+        running.npcs = []
+
     def _start_auto_tick(self, running: _RunningEpisode, rate_hz: float) -> None:
         """Run ``tick`` in the background at ``rate_hz`` while the episode is alive.
 
@@ -578,11 +633,12 @@ class EpisodeService:
     def close(self) -> None:
         """Stop all live episodes."""
         for running in list(self._episodes.values()):
+            self._stop_auto_tick(running)
+            self._stop_npcs(running)
             if running.running_artifact is not None:
                 backing = RUNTIME_BACKINGS.require(running.running_artifact.kind)
                 backing.stop(running.running_artifact)
                 running.running_artifact = None
-            self._stop_auto_tick(running)
         self._episodes.clear()
 
 

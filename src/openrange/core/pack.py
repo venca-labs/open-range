@@ -173,6 +173,17 @@ class Pack(ABC):
         """
         return ()
 
+    def project_world(self, graph: WorldGraph) -> Mapping[str, object]:
+        """Project the graph back to the flat ``world`` dict the runtime expects.
+
+        Used by core to populate ``argv``-from-world placeholders and the
+        verifier's ``state['world']`` view. Default: the attrs of the
+        first node (matches the cyber-pack v0 single-node convention).
+        Multi-node ontologies override to project the relevant attrs
+        (e.g. flag value, service URLs) into a flat mapping.
+        """
+        return dict(graph.first_node_attrs())
+
     def as_dict(self) -> dict[str, object]:
         return {
             "id": self.id,

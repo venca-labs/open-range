@@ -7,10 +7,10 @@ with an example world that passes and one that fails.
 from __future__ import annotations
 
 from openrange.core.graph import Edge, Node, WorldGraph
-from openrange.packs.cyber_ontology import (
-    CYBER_EDGE_TYPES,
-    CYBER_NODE_TYPES,
-    CYBER_WEBAPP_ONTOLOGY_V1,
+from openrange.packs.cyber_webapp_offense_v1.ontology import (
+    EDGE_TYPES,
+    NODE_TYPES,
+    ONTOLOGY,
     NoOrphanNodesConstraint,
     OraclePathExistsConstraint,
     SecretReachableConstraint,
@@ -65,7 +65,7 @@ def _minimal_valid_world() -> WorldGraph:
 
 def test_minimal_world_passes_all_constraints() -> None:
     graph = _minimal_valid_world()
-    errors = CYBER_WEBAPP_ONTOLOGY_V1.validate(graph)
+    errors = ONTOLOGY.validate(graph)
     assert errors == [], f"expected no errors, got: {[e.message for e in errors]}"
 
 
@@ -164,7 +164,7 @@ def test_schema_node_and_edge_types_complete() -> None:
         "host", "service", "endpoint", "account", "credential",
         "secret", "vulnerability", "network", "data_store", "record",
     }
-    declared = {nt.name for nt in CYBER_NODE_TYPES}
+    declared = {nt.name for nt in NODE_TYPES}
     assert declared == expected_nodes
 
     expected_edges = {
@@ -183,14 +183,14 @@ def test_schema_node_and_edge_types_complete() -> None:
     }
     declared_edges = {
         (et.source_type, et.relation, et.target_type)
-        for et in CYBER_EDGE_TYPES
+        for et in EDGE_TYPES
     }
     assert declared_edges == expected_edges
 
 
 def test_schema_validate_unknown_node_type_caught() -> None:
     graph = WorldGraph(nodes=(_node("x", "imaginary"),))
-    errors = CYBER_WEBAPP_ONTOLOGY_V1.validate(graph)
+    errors = ONTOLOGY.validate(graph)
     assert any("unknown node type" in e.message for e in errors)
 
 
@@ -246,5 +246,5 @@ def test_realistic_two_service_chain_passes() -> None:
             _edge("vuln_ssrf", "enables", "vuln_authz"),
         ),
     )
-    errors = CYBER_WEBAPP_ONTOLOGY_V1.validate(graph)
+    errors = ONTOLOGY.validate(graph)
     assert errors == [], [e.message for e in errors]

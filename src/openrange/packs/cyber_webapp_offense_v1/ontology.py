@@ -1,17 +1,13 @@
 """Cyber webapp offense ontology v1.
 
-Defines the typed graph language a procedural builder samples over to
-produce realistic cyber worlds. Replaces the v0 single-``webapp``-node
-stopgap with structure that admits real generation and combination.
+Defines the typed graph language the procedural builder samples over to
+produce realistic cyber worlds. Multi-node-type structure that admits
+real generation and combination.
 
 Scope: HTTP-shaped web-offense scenarios at business scale (3-10
 services, multi-host topologies, vulnerability chains across services).
 Out of scope for v1: kubernetes-native primitives (CRDs, operators),
 cloud-IAM-shaped permission graphs, defender NPCs, scheduled jobs.
-
-The ontology lives separately from the existing v0
-``CYBER_WEBAPP_ONTOLOGY`` so the existing LLM-driven builder keeps
-working until the procedural builder (Phase C2) replaces it.
 """
 
 from __future__ import annotations
@@ -102,7 +98,7 @@ _RECORD_ATTRS: Mapping[str, type] = {
 # ---------------------------------------------------------------------------
 
 
-CYBER_NODE_TYPES: tuple[NodeType, ...] = (
+NODE_TYPES: tuple[NodeType, ...] = (
     NodeType("host", _HOST_ATTRS),
     NodeType("service", _SERVICE_ATTRS),
     NodeType("endpoint", _ENDPOINT_ATTRS),
@@ -130,7 +126,7 @@ _ENABLES_ATTRS: Mapping[str, type] = {}  # vuln chain: vuln A enables vuln B
 _DERIVES_ATTRS: Mapping[str, type] = {}  # credential derives from secret
 
 
-CYBER_EDGE_TYPES: tuple[EdgeType, ...] = (
+EDGE_TYPES: tuple[EdgeType, ...] = (
     EdgeType("service", "exposes", "endpoint", _EXPOSES_ATTRS),
     EdgeType("service", "backed_by", "data_store", _BACKED_BY_ATTRS),
     EdgeType("data_store", "contains", "record", _CONTAINS_ATTRS),
@@ -306,9 +302,9 @@ class OraclePathExistsConstraint(GraphConstraint):
 # ---------------------------------------------------------------------------
 
 
-CYBER_WEBAPP_ONTOLOGY_V1 = WorldSchema(
-    node_types=CYBER_NODE_TYPES,
-    edge_types=CYBER_EDGE_TYPES,
+ONTOLOGY = WorldSchema(
+    node_types=NODE_TYPES,
+    edge_types=EDGE_TYPES,
     constraints=(
         NoOrphanNodesConstraint(),
         SecretReachableConstraint(),
@@ -318,9 +314,9 @@ CYBER_WEBAPP_ONTOLOGY_V1 = WorldSchema(
 
 
 __all__ = [
-    "CYBER_EDGE_TYPES",
-    "CYBER_NODE_TYPES",
-    "CYBER_WEBAPP_ONTOLOGY_V1",
+    "EDGE_TYPES",
+    "NODE_TYPES",
+    "ONTOLOGY",
     "NoOrphanNodesConstraint",
     "OraclePathExistsConstraint",
     "SecretReachableConstraint",

@@ -335,7 +335,7 @@ def _run_admission_probe(state: BuildState) -> BuildState:
 def _world_dict_from_state(state: BuildState) -> dict[str, object]:
     if state.world_graph is None:
         return {}
-    return dict(state.world_graph.first_node_attrs())
+    return dict(state.pack.project_world(state.world_graph))
 
 
 def _final_state_key_for_world(entrypoint: object) -> str | None:

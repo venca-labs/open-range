@@ -1,4 +1,16 @@
-"""Bundled pack registry and built-in pack implementations."""
+"""Bundled cyber pack implementations.
+
+Each pack lives in its own folder under this module:
+
+  - ``cyber_webapp_offense/``    — v0 LLM-driven, single-node-type
+  - ``cyber_webapp_offense_v1/`` — v1 procedural + codegen, multi-node
+  - ``cyber_vulnerabilities/``   — shared vuln catalog used by v1+
+
+Pack classes are re-exported here so the ``[project.entry-points.
+"openrange.packs"]`` references in ``pyproject.toml`` can resolve them
+through ``openrange.packs:<ClassName>``. New built-in packs add an
+import + entry-point line; everything else lives in the pack folder.
+"""
 
 from __future__ import annotations
 
@@ -19,9 +31,14 @@ from openrange.core.graph import (
 )
 from openrange.core.manifest import Manifest
 from openrange.core.pack import Entrypoint, Pack
+from openrange.packs.cyber_webapp_offense_v1 import CyberWebappOffenseV1Pack
 
 if TYPE_CHECKING:
     from openrange.core.builder import BuildContext
+
+# ---------------------------------------------------------------------------
+# v0 pack — LLM-driven, single-node ontology, copies app.py
+# ---------------------------------------------------------------------------
 
 CYBER_WEBAPP_ONTOLOGY = WorldSchema(
     node_types=(
@@ -43,14 +60,16 @@ CYBER_WEBAPP_ONTOLOGY = WorldSchema(
 
 
 class CyberWebappOffensePack(Pack):
-    """Single-host vulnerable HTTP webapp scenarios.
+    """Single-host vulnerable HTTP webapp scenarios (v0, LLM-driven).
 
-    Phase 2 ontology: one ``webapp`` node carrying the LLM-populated
-    parameters (service, title, flag, plus build-derived mode/difficulty/
-    npc_count). The realizer copies the static pack source files
-    (``app.py``, ``pack.json``) into runtime artifacts and builds the
-    HTTP entrypoint the runtime binds to. Future iterations will enrich
-    the ontology and have realize() generate ``app.py`` from the graph.
+    One ``webapp`` node carries the LLM-populated parameters (service,
+    title, flag, plus build-derived mode/difficulty/npc_count). The
+    realizer copies the static pack source files (``app.py``,
+    ``pack.json``) into runtime artifacts and builds the HTTP entrypoint
+    the runtime binds to.
+
+    Superseded by ``CyberWebappOffenseV1Pack`` for new scenarios; v0
+    remains for legacy LLM tests until those migrate.
     """
 
     id = "cyber.webapp.offense"
@@ -158,7 +177,8 @@ def _read_pack_files(pack_dir: Path) -> dict[str, str]:
     return files
 
 
-# Cyber pack is now discovered via the ``openrange.packs`` entry-point
-# group declared in pyproject.toml. The PackRegistry calls
-# ``CyberWebappOffensePack()`` (parameterless default ctor) on first
-# access.
+__all__ = [
+    "CYBER_WEBAPP_ONTOLOGY",
+    "CyberWebappOffensePack",
+    "CyberWebappOffenseV1Pack",
+]
