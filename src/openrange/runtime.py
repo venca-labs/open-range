@@ -21,6 +21,7 @@ from openrange.core import (
 from openrange.core import (
     build as core_build,
 )
+from openrange.core.agent_backend import AgentBackend
 from openrange.core.episode import EpisodeService
 from openrange.core.runtime_helpers import EpisodeRuntimeError
 from openrange.dashboard import (
@@ -45,9 +46,17 @@ class RunConfig:
     reset_dashboard: bool = True
     dashboard_host: str = "127.0.0.1"
     dashboard_port: int | None = None
-    # Model id passed to LLM-backed NPCs (those declaring
-    # ``requires_llm = True``). ``None`` means "let the NPC fall back
-    # to its own default" — typically whatever the strands SDK picks.
+    # AgentBackend handed to LLM-backed NPCs (those declaring
+    # ``requires_llm = True``). Pluggable: strands for tool dispatch,
+    # codex for tool-less / cheap testing, or any custom impl. If
+    # ``None`` and ``npc_llm_model`` is also unset, LLM-backed NPCs
+    # mark themselves broken at start with a clear "no backend
+    # configured" reason.
+    npc_agent_backend: AgentBackend | None = None
+    # Convenience: a strands model id string. Auto-promotes to
+    # ``StrandsAgentBackend(model=npc_llm_model)`` when
+    # ``npc_agent_backend`` is unset. Mutually exclusive with the
+    # explicit form.
     npc_llm_model: str | None = None
 
 
@@ -135,6 +144,7 @@ class OpenRangeRun:
         return EpisodeService(
             self.root,
             dashboard=view,
+            npc_agent_backend=self.config.npc_agent_backend,
             npc_llm_model=self.config.npc_llm_model,
         )
 

@@ -10,8 +10,11 @@ from __future__ import annotations
 import json
 import time
 import urllib.request
+from collections.abc import Callable  # noqa: TC003 — used in lazy-imported tests
 from pathlib import Path
 from typing import cast
+
+import pytest
 
 import openrange as OR
 from openrange.core.builder import build
@@ -117,8 +120,6 @@ def test_v1_episode_runs_npcs_during_ticks(tmp_path: Path) -> None:
 
 def test_v1_episode_unknown_npc_type_fails_cleanly(tmp_path: Path) -> None:
     """Bad manifest NPC type raises during start_episode, not silently."""
-    import pytest
-
     from openrange.core.npc import NPCError
 
     manifest = {
@@ -131,38 +132,45 @@ def test_v1_episode_unknown_npc_type_fails_cleanly(tmp_path: Path) -> None:
         service.start_episode(snapshot)
 
 
-def test_v1_episode_injects_llm_into_npc_context(tmp_path: Path) -> None:
-    """LLM-opt-in NPCs receive an ``llm`` key in start() context.
+def test_v1_episode_injects_agent_backend_into_npc_context(tmp_path: Path) -> None:
+    """LLM-opt-in NPCs receive an ``agent_backend`` key; plain NPCs don't.
 
-    Plain NPCs do not. Verifies the runtime honors ``requires_llm``
-    on a per-NPC basis and threads ``EpisodeService.npc_llm_model``
-    through.
+    Verifies the runtime honors ``requires_llm`` per-NPC and threads
+    ``EpisodeService.npc_agent_backend`` through.
     """
-    from collections.abc import Mapping
+    from collections.abc import Mapping, Sequence
     from typing import Any
 
+    from openrange.core.agent_backend import AgentBackend
     from openrange.core.npc import NPC, NPCS, AgentNPC
 
     seen_contexts: dict[str, Mapping[str, Any]] = {}
 
     class _RecordingPlainNPC(NPC):
-        # Inherits requires_llm = False
         def start(self, context: Mapping[str, Any]) -> None:
             seen_contexts["plain"] = dict(context)
 
         def step(self, interface: Mapping[str, Any]) -> None: ...
 
+    class _SilentBackend:
+        def preflight(self) -> None: ...
+
+        def build_agent(self, **_kwargs: Any) -> Any:
+            def session(_prompt: str) -> Any:
+                return None
+
+            return session
+
     class _RecordingAgentNPC(AgentNPC):
-        # Inherits requires_llm = True
         def start(self, context: Mapping[str, Any]) -> None:
             super().start(context)
             seen_contexts["agent"] = dict(context)
 
-        def _build_tools(self, interface: Mapping[str, Any]) -> tuple[Any, ...]:
+        def _build_tools(
+            self,
+            interface: Mapping[str, Any],
+        ) -> Sequence[Callable[..., Any]]:
             return ()
-
-        def _build_agent(self, tools: Any) -> Any:
-            return None  # never invoked — cadence won't matter
 
     NPCS.register("test.recording_plain", lambda config: _RecordingPlainNPC())
     NPCS.register(
@@ -178,10 +186,8 @@ def test_v1_episode_injects_llm_into_npc_context(tmp_path: Path) -> None:
             ],
         }
         snapshot = build(manifest)
-        service = EpisodeService(
-            tmp_path / "runs",
-            npc_llm_model="claude-sonnet-4-20250514",
-        )
+        backend: AgentBackend = _SilentBackend()
+        service = EpisodeService(tmp_path / "runs", npc_agent_backend=backend)
         handle = service.start_episode(snapshot)
         try:
             base_url = service.base_url(handle)
@@ -194,17 +200,17 @@ def test_v1_episode_injects_llm_into_npc_context(tmp_path: Path) -> None:
         finally:
             service.stop_episode(handle)
     finally:
-        # Best-effort cleanup — NPCRegistry has no public unregister.
         NPCS._factories.pop("test.recording_plain", None)
         NPCS._factories.pop("test.recording_agent", None)
 
-    assert "llm" not in seen_contexts["plain"]
-    assert seen_contexts["agent"]["llm"] == "claude-sonnet-4-20250514"
+    assert "agent_backend" not in seen_contexts["plain"]
+    assert seen_contexts["agent"]["agent_backend"] is backend
 
 
-def test_v1_episode_omits_llm_when_runtime_model_unset(tmp_path: Path) -> None:
-    """An LLM-opt-in NPC sees ``llm = None`` when the service has no model."""
-    from collections.abc import Mapping
+def test_v1_episode_omits_backend_when_runtime_unset(tmp_path: Path) -> None:
+    """LLM-opt-in NPC sees ``agent_backend = None`` when the service has no
+    backend configured. The NPC should mark itself broken at start()."""
+    from collections.abc import Mapping, Sequence
     from typing import Any
 
     from openrange.core.npc import NPCS, AgentNPC
@@ -216,20 +222,20 @@ def test_v1_episode_omits_llm_when_runtime_model_unset(tmp_path: Path) -> None:
             super().start(context)
             seen["ctx"] = dict(context)
 
-        def _build_tools(self, interface: Mapping[str, Any]) -> tuple[Any, ...]:
+        def _build_tools(
+            self,
+            interface: Mapping[str, Any],
+        ) -> Sequence[Callable[..., Any]]:
             return ()
 
-        def _build_agent(self, tools: Any) -> Any:
-            return None
-
     NPCS.register(
-        "test.no_llm_runtime",
+        "test.no_backend_runtime",
         lambda config: _Recording(system_prompt="x", cadence_ticks=999),
     )
     try:
-        manifest = {**V1_MANIFEST, "npc": [{"type": "test.no_llm_runtime"}]}
+        manifest = {**V1_MANIFEST, "npc": [{"type": "test.no_backend_runtime"}]}
         snapshot = build(manifest)
-        service = EpisodeService(tmp_path / "runs")  # npc_llm_model defaults to None
+        service = EpisodeService(tmp_path / "runs")  # backend defaults to None
         handle = service.start_episode(snapshot)
         try:
             base_url = service.base_url(handle)
@@ -242,7 +248,33 @@ def test_v1_episode_omits_llm_when_runtime_model_unset(tmp_path: Path) -> None:
         finally:
             service.stop_episode(handle)
     finally:
-        NPCS._factories.pop("test.no_llm_runtime", None)
+        NPCS._factories.pop("test.no_backend_runtime", None)
 
-    assert "llm" in seen["ctx"]
-    assert seen["ctx"]["llm"] is None
+    assert "agent_backend" in seen["ctx"]
+    assert seen["ctx"]["agent_backend"] is None
+
+
+def test_episode_service_rejects_both_backend_and_model(tmp_path: Path) -> None:
+    """Both knobs together is a configuration error."""
+    from openrange.core.agent_backend import StrandsAgentBackend
+    from openrange.core.episode import EpisodeError
+
+    with pytest.raises(EpisodeError, match="not both"):
+        EpisodeService(
+            tmp_path / "runs",
+            npc_agent_backend=StrandsAgentBackend(),
+            npc_llm_model="claude-sonnet-4-20250514",
+        )
+
+
+def test_episode_service_npc_llm_model_promotes_to_strands_backend(
+    tmp_path: Path,
+) -> None:
+    """The model-id convenience auto-constructs a StrandsAgentBackend."""
+    from openrange.core.agent_backend import StrandsAgentBackend
+
+    service = EpisodeService(
+        tmp_path / "runs",
+        npc_llm_model="claude-sonnet-4-20250514",
+    )
+    assert isinstance(service.npc_agent_backend, StrandsAgentBackend)

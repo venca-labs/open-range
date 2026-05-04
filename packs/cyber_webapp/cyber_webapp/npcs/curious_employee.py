@@ -1,19 +1,32 @@
 """``cyber.curious_employee`` — LLM-backed agent NPC.
 
 Reference implementation of the agent-NPC shape: a persona, a tool
-surface bound over the HTTP backing's ``interface``, and ``strands``
-running the loop. Roughly: an internal employee poking around the
-company webapp out of boredom — a few GETs per turn, no destructive
-intent.
+surface bound over the HTTP backing's ``interface``, and an
+:class:`~openrange.core.agent_backend.AgentBackend` driving the
+loop. Default backend is strands (set centrally via
+``RunConfig.npc_agent_backend``); per-NPC ``model`` config still
+works as a convenience for picking a strands model id without
+constructing a backend by hand.
 
-Goes silent (and stays silent) if ``strands-agents`` is not
-installed; the episode is unaffected.
+Roughly: an internal employee poking around the company webapp out
+of boredom — a few GETs per turn, no destructive intent.
+
+If the configured backend can't run (e.g. ``strands-agents`` not
+installed) the NPC marks itself permanently broken at episode
+start, logs a single WARNING to ``openrange.core.npc`` with the
+import error, and the rest of the episode runs without it. See
+:class:`AgentNPC` for the full failure model.
 
 Config:
     cadence_ticks: int = 5         — invoke the agent every Nth tick
-    model: str | None = None       — override the runtime-supplied
-                                     model id (else uses
-                                     ``RunConfig.npc_llm_model``)
+    model: str | None = None       — convenience override: builds a
+                                     ``StrandsAgentBackend(model=...)``
+                                     for this NPC (overrides the
+                                     runtime-supplied backend). For
+                                     non-strands backends, leave this
+                                     unset and configure
+                                     ``RunConfig.npc_agent_backend``
+                                     instead.
     system_prompt: str | None      — override the default persona
 """
 
@@ -22,6 +35,7 @@ from __future__ import annotations
 from collections.abc import Callable, Mapping, Sequence
 from typing import Any, cast
 
+from openrange.core.agent_backend import StrandsAgentBackend
 from openrange.core.npc import NPC, AgentNPC
 
 _DEFAULT_SYSTEM_PROMPT = (
@@ -77,8 +91,9 @@ def factory(config: Mapping[str, object]) -> NPC:
         raise ValueError("model must be a string or unset")
     if not isinstance(prompt_raw, str) or not prompt_raw:
         raise ValueError("system_prompt must be a non-empty string")
+    backend = StrandsAgentBackend(model=model_raw) if model_raw is not None else None
     return CuriousEmployee(
         system_prompt=prompt_raw,
         cadence_ticks=cadence_raw,
-        model=model_raw,
+        agent_backend=backend,
     )

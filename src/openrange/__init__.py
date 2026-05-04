@@ -45,6 +45,12 @@ from openrange.core import (
     evolve,
     verifier_from_source,
 )
+from openrange.core.agent_backend import (
+    AgentBackend,
+    AgentBackendError,
+    CodexAgentBackend,
+    StrandsAgentBackend,
+)
 from openrange.core.episode import (
     AdvanceRequest,
     AgentTurn,
@@ -82,6 +88,8 @@ __all__ = [
     "AdmissionResult",
     "ActorTurn",
     "AdvanceRequest",
+    "AgentBackend",
+    "AgentBackendError",
     "AgentTurn",
     "BUILDERS",
     "BuildContext",
@@ -92,6 +100,7 @@ __all__ = [
     "BuilderRegistry",
     "CODEX_DEFAULT_MODEL",
     "CheckScript",
+    "CodexAgentBackend",
     "CodexBackend",
     "DashboardServerHandle",
     "Edge",
@@ -132,6 +141,7 @@ __all__ = [
     "Snapshot",
     "SnapshotStore",
     "StoreError",
+    "StrandsAgentBackend",
     "Task",
     "TickRequest",
     "TickResult",

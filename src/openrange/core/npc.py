@@ -44,18 +44,25 @@ Two NPC shapes ship in core:
   re-invent tool dispatch / streaming / cancellation.
 
 NPCs that opt into LLM access set ``requires_llm = True``. The
-episode runtime then injects an ``llm`` key (a model id string, or
+episode runtime then injects an ``agent_backend`` key (an
+:class:`~openrange.core.agent_backend.AgentBackend` instance, or
 ``None`` if the runtime wasn't configured with one) into the
-``context`` mapping passed to ``start()``.
+``context`` mapping passed to ``start()``. The backend is the seam
+between AgentNPCs and the LLM provider — strands, codex, or
+anything else implementing the protocol.
 """
 
 from __future__ import annotations
 
+import logging
 from abc import ABC, abstractmethod
 from collections.abc import Callable, Mapping, Sequence
 from typing import Any, ClassVar
 
+from openrange.core.agent_backend import AgentBackend, AgentBackendError
 from openrange.core.errors import OpenRangeError
+
+_log = logging.getLogger(__name__)
 
 NPC_ENTRY_POINT_GROUP = "openrange.npcs"
 
@@ -78,9 +85,16 @@ class NPC(ABC):
     ``context`` mapping passed to ``start()``. NPCs that don't opt in
     pay nothing; the runtime never builds or charges for a model on
     their behalf.
+
+    Broken-state contract: when an NPC cannot run (missing optional
+    dep, model unreachable, etc.) it sets ``self.broken_reason`` to a
+    human-readable string and short-circuits its ``step``. The episode
+    service polls ``broken_reason`` after each tick and surfaces the
+    transition to the dashboard so a silent NPC never goes unnoticed.
     """
 
     requires_llm: ClassVar[bool] = False
+    broken_reason: str | None = None
 
     @abstractmethod
     def step(self, interface: Mapping[str, Any]) -> None:
@@ -98,8 +112,10 @@ class NPC(ABC):
 
         ``context`` carries metadata about the running world — at
         minimum ``{episode_id, snapshot_id, task_id, base_url}``. NPCs
-        with ``requires_llm = True`` additionally receive an ``llm``
-        key (a model id string, or ``None``). Default: no-op.
+        with ``requires_llm = True`` additionally receive an
+        ``agent_backend`` key (an
+        :class:`~openrange.core.agent_backend.AgentBackend`, or
+        ``None``). Default: no-op.
         """
         del context
 
@@ -117,25 +133,41 @@ class AgentNPC(NPC):
     Subclasses provide a persona (``system_prompt``) and a
     ``_build_tools(interface)`` hook that returns tool callables bound
     over the runtime backing's interface. The agent loop itself is
-    delegated to the optional ``strands-agents`` SDK — we let it own
-    tool dispatch, retries, and streaming rather than re-inventing
-    those pieces.
+    delegated to an :class:`~openrange.core.agent_backend.AgentBackend`
+    — usually
+    :class:`~openrange.core.agent_backend.StrandsAgentBackend`, which
+    wraps ``strands.Agent`` and handles tool dispatch + multi-turn +
+    streaming. Backends are pluggable: a tool-less NPC can use
+    :class:`~openrange.core.agent_backend.CodexAgentBackend` (driving
+    the same Codex CLI the builder uses) for cheap chatter, no
+    ``strands-agents`` install needed.
+
+    The backend can be supplied at construction (typical for packs
+    that pin a specific provider) or by the runtime via
+    ``context["agent_backend"]`` at ``start()`` time (typical when
+    ``RunConfig.npc_agent_backend`` is set centrally). A
+    constructor-supplied backend always wins over the runtime's.
 
     Cadence: like scripted NPCs, an ``AgentNPC`` does not invoke its
     LLM every tick — it acts once every ``cadence_ticks`` ticks. The
     LLM call is the expensive part; cadence is the budget knob.
 
-    Failure model: per-NPC failures stay silent (the episode
-    contract). If strands isn't installed or the model can't be
-    constructed, the NPC marks itself broken on the first acting tick
-    and stops trying — no per-tick retries.
+    Failure model:
+      * Initialization failure (backend preflight fails, no backend
+        configured, tool builder raises) marks the NPC permanently
+        broken on construction or first acting tick, logs one
+        ``WARNING`` to ``openrange.core.npc`` with the traceback, and
+        stops trying.
+      * Per-tick LLM failures (rate limits, timeouts) log at ``DEBUG``
+        and the NPC tries again next cadence window.
 
     Subclasses override:
 
     * ``_build_tools(interface)`` — required. Return a list of
-      ``@strands.tool``-decorated callables that close over the
-      interface. The base class doesn't import strands itself; the
-      decoration happens in the subclass so test doubles can skip it.
+      callables the backend can dispatch. For ``StrandsAgentBackend``
+      these are typically ``@strands.tool``-decorated functions; the
+      decoration lives in the subclass so backend-free test doubles
+      stay clean.
     * ``_user_prompt(interface)`` — optional. The message handed to
       the agent on each acting tick. Default: a generic "act
       consistently with your role" prompt.
@@ -148,7 +180,7 @@ class AgentNPC(NPC):
         *,
         system_prompt: str,
         cadence_ticks: int = 5,
-        model: str | None = None,
+        agent_backend: AgentBackend | None = None,
     ) -> None:
         if not system_prompt:
             raise ValueError("system_prompt must be non-empty")
@@ -156,18 +188,52 @@ class AgentNPC(NPC):
             raise ValueError("cadence_ticks must be >= 1")
         self._system_prompt = system_prompt
         self._cadence_ticks = cadence_ticks
-        self._model_override = model
-        self._runtime_model: str | None = None
+        self._backend_override = agent_backend
+        self._runtime_backend: AgentBackend | None = None
         self._cooldown = 0
         self._agent: Any = None
         self._broken = False
+        # Pre-flight at construction when we already have a backend so
+        # a missing SDK / binary is detectable as soon as the manifest
+        # is resolved into NPC objects — long before any episode tick.
+        # If the backend is runtime-supplied, the same preflight runs
+        # in ``start()`` once we have it. Either way, ``broken_reason``
+        # carries the explanation and ``EpisodeService`` surfaces it
+        # on the dashboard.
+        if agent_backend is not None:
+            try:
+                agent_backend.preflight()
+            except Exception as exc:
+                self._mark_broken(f"backend preflight failed: {exc}", exc=exc)
 
     def start(self, context: Mapping[str, Any]) -> None:
-        llm = context.get("llm")
-        if llm is None or isinstance(llm, str):
-            self._runtime_model = llm
-        else:  # defensive — runtime contract is str | None
-            self._runtime_model = None
+        if self._broken:
+            return
+        runtime_backend = context.get("agent_backend")
+        # Trust the runtime contract: anything put under ``agent_backend``
+        # is expected to satisfy the protocol. We don't isinstance-check
+        # — Protocols aren't ``@runtime_checkable`` by default and adding
+        # that would only confirm method presence, not signatures.
+        if runtime_backend is not None:
+            self._runtime_backend = runtime_backend
+        backend = self._backend_override or self._runtime_backend
+        if backend is None:
+            self._mark_broken(
+                "no AgentBackend configured "
+                "(set RunConfig.npc_agent_backend or pass agent_backend "
+                "to the NPC constructor)",
+            )
+            return
+        # Preflight the runtime backend (constructor backends were
+        # already preflighted in __init__).
+        if self._backend_override is None:
+            try:
+                backend.preflight()
+            except Exception as exc:
+                self._mark_broken(
+                    f"runtime backend preflight failed: {exc}",
+                    exc=exc,
+                )
 
     def step(self, interface: Mapping[str, Any]) -> None:
         if self._broken:
@@ -180,14 +246,36 @@ class AgentNPC(NPC):
             try:
                 tools = list(self._build_tools(interface))
                 self._agent = self._build_agent(tools)
-            except Exception:  # noqa: BLE001 — silent broken state
-                self._broken = True
+            except Exception as exc:
+                self._mark_broken(f"failed to construct agent: {exc}", exc=exc)
                 self._agent = None
                 return
         try:
             self._invoke_agent(self._user_prompt(interface))
-        except Exception:  # noqa: BLE001 — per-tick LLM failures are silent
+        except Exception:
+            # Transient: rate limits, network blips, model timeouts.
+            # Log at DEBUG so verbose runs see them, but the default
+            # operator view stays clean.
+            _log.debug(
+                "NPC %s tick failed; will retry next cadence window",
+                type(self).__name__,
+                exc_info=True,
+            )
             return
+
+    def _mark_broken(self, reason: str, *, exc: BaseException | None = None) -> None:
+        """Set the broken sentinel + log one WARNING with the traceback."""
+        if self._broken:
+            return
+        self._broken = True
+        self.broken_reason = reason
+        _log.warning(
+            "NPC %s is permanently broken (%s); "
+            "the rest of the episode runs without it",
+            type(self).__name__,
+            reason,
+            exc_info=exc if exc is not None else True,
+        )
 
     def stop(self) -> None:
         self._agent = None
@@ -218,26 +306,19 @@ class AgentNPC(NPC):
     # -- overridable seams (tests inject fakes here) ----------------------
 
     def _build_agent(self, tools: Sequence[Callable[..., Any]]) -> Any:
-        """Construct the underlying agent. Default: ``strands.Agent``.
+        """Construct the agent session via the configured backend.
 
-        Override in tests to inject a fake without installing strands.
+        Override in tests to bypass the backend entirely.
         """
-        try:
-            from strands import Agent
-        except ImportError as exc:
-            raise NPCError(
-                "AgentNPC requires the optional 'strands-agents' package. "
-                "Install with `pip install openrange[strands]`.",
-            ) from exc
-        kwargs: dict[str, Any] = {
-            "tools": list(tools),
-            "system_prompt": self._system_prompt,
-            "callback_handler": None,
-        }
-        model = self._model_override or self._runtime_model
-        if model is not None:
-            kwargs["model"] = model
-        return Agent(**kwargs)
+        backend = self._backend_override or self._runtime_backend
+        if backend is None:
+            raise AgentBackendError(
+                "no AgentBackend available — start() did not capture one",
+            )
+        return backend.build_agent(
+            system_prompt=self._system_prompt,
+            tools=list(tools),
+        )
 
     def _invoke_agent(self, prompt: str) -> None:
         """Run one agent turn with ``prompt``. Override for testing."""

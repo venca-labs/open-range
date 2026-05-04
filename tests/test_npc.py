@@ -7,6 +7,7 @@ from typing import Any
 
 import pytest
 
+from openrange.core.agent_backend import AgentBackendError
 from openrange.core.npc import (
     NPC,
     AgentNPC,
@@ -202,13 +203,36 @@ class _FakeAgent:
         return {"message": "ok"}
 
 
+class _FakeBackend:
+    """AgentBackend test double — returns a _FakeAgent, never raises."""
+
+    def __init__(self, *, label: str = "fake", reject_tools: bool = False) -> None:
+        self.label = label
+        self.reject_tools = reject_tools
+        self.preflight_calls = 0
+        self.builds: list[tuple[str, tuple[Callable[..., Any], ...]]] = []
+        self.fake = _FakeAgent()
+
+    def preflight(self) -> None:
+        self.preflight_calls += 1
+
+    def build_agent(
+        self,
+        *,
+        system_prompt: str,
+        tools: Sequence[Callable[..., Any]] = (),
+    ) -> Any:
+        if self.reject_tools and tools:
+            raise AgentBackendError("this fake backend rejects tools")
+        self.builds.append((system_prompt, tuple(tools)))
+        return self.fake
+
+
 class _StubAgentNPC(AgentNPC):
-    """Test double: counts ``_build_agent`` invocations and uses _FakeAgent."""
+    """AgentNPC subclass with a single trivial tool."""
 
     def __init__(self, **kwargs: Any) -> None:
         super().__init__(**kwargs)
-        self.fake = _FakeAgent()
-        self.build_count = 0
         self.tool_calls: list[Mapping[str, Any]] = []
 
     def _build_tools(
@@ -222,10 +246,6 @@ class _StubAgentNPC(AgentNPC):
 
         return [visit]
 
-    def _build_agent(self, tools: Sequence[Callable[..., Any]]) -> Any:
-        self.build_count += 1
-        return self.fake
-
 
 def test_agent_npc_requires_llm_is_true_by_default() -> None:
     assert AgentNPC.requires_llm is True
@@ -233,87 +253,116 @@ def test_agent_npc_requires_llm_is_true_by_default() -> None:
 
 def test_agent_npc_rejects_invalid_construction() -> None:
     with pytest.raises(ValueError, match="system_prompt"):
-        _StubAgentNPC(system_prompt="")
+        _StubAgentNPC(system_prompt="", agent_backend=_FakeBackend())
     with pytest.raises(ValueError, match="cadence_ticks"):
-        _StubAgentNPC(system_prompt="x", cadence_ticks=0)
+        _StubAgentNPC(
+            system_prompt="x",
+            cadence_ticks=0,
+            agent_backend=_FakeBackend(),
+        )
+
+
+def test_agent_npc_preflights_constructor_backend() -> None:
+    backend = _FakeBackend()
+    _StubAgentNPC(system_prompt="x", agent_backend=backend)
+    assert backend.preflight_calls == 1
+
+
+def test_agent_npc_marks_broken_when_constructor_preflight_fails() -> None:
+    class _BadBackend(_FakeBackend):
+        def preflight(self) -> None:
+            raise AgentBackendError("boom")
+
+    backend = _BadBackend()
+    npc = _StubAgentNPC(system_prompt="x", agent_backend=backend)
+    assert npc.broken_reason is not None
+    assert "preflight failed" in npc.broken_reason
 
 
 def test_agent_npc_acts_on_first_step_then_obeys_cadence() -> None:
-    npc = _StubAgentNPC(system_prompt="be curious", cadence_ticks=3)
+    backend = _FakeBackend()
+    npc = _StubAgentNPC(
+        system_prompt="be curious",
+        cadence_ticks=3,
+        agent_backend=backend,
+    )
     iface: dict[str, Any] = {"base_url": "http://x"}
 
     npc.step(iface)
-    assert npc.fake.calls == [npc._user_prompt(iface)]
-    assert npc.build_count == 1
+    assert backend.fake.calls == [npc._user_prompt(iface)]
+    assert len(backend.builds) == 1
 
     npc.step(iface)
     npc.step(iface)
-    assert len(npc.fake.calls) == 1  # cooldown
+    assert len(backend.fake.calls) == 1  # cooldown
 
     npc.step(iface)
-    assert len(npc.fake.calls) == 2
-    assert npc.build_count == 1  # agent built once, reused
+    assert len(backend.fake.calls) == 2
+    assert len(backend.builds) == 1  # agent built once, reused
 
 
-def test_agent_npc_captures_runtime_model_from_context() -> None:
+def test_agent_npc_captures_runtime_backend_from_context() -> None:
+    runtime_backend = _FakeBackend(label="runtime")
     npc = _StubAgentNPC(system_prompt="x", cadence_ticks=1)
-    npc.start({"episode_id": "e", "llm": "claude-sonnet-4-20250514"})
-    assert npc._runtime_model == "claude-sonnet-4-20250514"
+    npc.start({"episode_id": "e", "agent_backend": runtime_backend})
+    assert npc._runtime_backend is runtime_backend
+    assert runtime_backend.preflight_calls == 1
+    npc.step({})
+    assert len(runtime_backend.builds) == 1
 
 
-def test_agent_npc_constructor_model_overrides_runtime() -> None:
+def test_agent_npc_constructor_backend_overrides_runtime() -> None:
+    explicit = _FakeBackend(label="explicit")
+    runtime_backend = _FakeBackend(label="runtime")
     npc = _StubAgentNPC(
         system_prompt="x",
         cadence_ticks=1,
-        model="explicit-model",
+        agent_backend=explicit,
     )
-    npc.start({"episode_id": "e", "llm": "runtime-model"})
-    assert npc._model_override == "explicit-model"
-    # _build_agent receives the override; we exercise via the seam.
-
-    captured: dict[str, Any] = {}
-
-    class _CaptureNPC(_StubAgentNPC):
-        def _build_agent(
-            self,
-            tools: Sequence[Callable[..., Any]],
-        ) -> Any:
-            captured["model"] = self._model_override or self._runtime_model
-            return self.fake
-
-    over = _CaptureNPC(
-        system_prompt="x",
-        cadence_ticks=1,
-        model="explicit-model",
-    )
-    over.start({"episode_id": "e", "llm": "runtime-model"})
-    over.step({})
-    assert captured["model"] == "explicit-model"
+    npc.start({"episode_id": "e", "agent_backend": runtime_backend})
+    npc.step({})
+    # Constructor backend used, runtime backend ignored.
+    assert len(explicit.builds) == 1
+    assert len(runtime_backend.builds) == 0
 
 
-def test_agent_npc_handles_none_runtime_model() -> None:
-    """No model configured at runtime → start() captures None gracefully."""
+def test_agent_npc_marks_broken_when_no_backend_anywhere() -> None:
+    """No constructor backend + no runtime backend → broken at start()."""
     npc = _StubAgentNPC(system_prompt="x", cadence_ticks=1)
-    npc.start({"episode_id": "e", "llm": None})
-    assert npc._runtime_model is None
+    npc.start({"episode_id": "e", "agent_backend": None})
+    assert npc.broken_reason is not None
+    assert "no AgentBackend configured" in npc.broken_reason
+    npc.step({})  # short-circuited by broken flag
+    npc.step({})
+
+
+def test_agent_npc_marks_broken_when_runtime_preflight_fails() -> None:
+    class _BadRuntimeBackend(_FakeBackend):
+        def preflight(self) -> None:
+            raise AgentBackendError("runtime boom")
+
+    npc = _StubAgentNPC(system_prompt="x", cadence_ticks=1)
+    npc.start({"episode_id": "e", "agent_backend": _BadRuntimeBackend()})
+    assert npc.broken_reason is not None
+    assert "runtime backend preflight failed" in npc.broken_reason
 
 
 def test_agent_npc_marks_broken_on_build_failure() -> None:
-    """If _build_agent raises (e.g. strands missing), NPC stays silent."""
+    """If backend.build_agent raises, NPC stays silent."""
 
-    class _BrokenNPC(_StubAgentNPC):
-        def _build_agent(
-            self,
-            tools: Sequence[Callable[..., Any]],
-        ) -> Any:
-            raise NPCError("strands not installed")
+    class _BuildFailBackend(_FakeBackend):
+        def build_agent(self, **_kwargs: Any) -> Any:
+            raise AgentBackendError("build failed")
 
-    npc = _BrokenNPC(system_prompt="x", cadence_ticks=1)
-    npc.step({})  # tries to build, fails, marks broken
-    assert npc._broken is True
-    npc.step({})  # would normally build again — but broken short-circuits
+    backend = _BuildFailBackend()
+    npc = _StubAgentNPC(system_prompt="x", cadence_ticks=1, agent_backend=backend)
     npc.step({})
-    assert npc.fake.calls == []
+    assert npc._broken is True
+    assert npc.broken_reason is not None
+    assert "failed to construct agent" in npc.broken_reason
+    # Subsequent steps short-circuit; no further builds attempted.
+    npc.step({})
+    npc.step({})
 
 
 def test_agent_npc_swallows_invocation_errors() -> None:
@@ -323,49 +372,41 @@ def test_agent_npc_swallows_invocation_errors() -> None:
         def __call__(self, prompt: str) -> object:
             raise RuntimeError("model went poof")
 
-    class _ThrowingNPC(_StubAgentNPC):
-        def _build_agent(
-            self,
-            tools: Sequence[Callable[..., Any]],
-        ) -> Any:
+    class _ThrowingBackend(_FakeBackend):
+        def build_agent(self, **kwargs: Any) -> Any:
             return _ThrowingAgent()
 
-    npc = _ThrowingNPC(system_prompt="x", cadence_ticks=1)
+    npc = _StubAgentNPC(
+        system_prompt="x",
+        cadence_ticks=1,
+        agent_backend=_ThrowingBackend(),
+    )
     # Must not raise.
     npc.step({})
     npc.step({})
 
 
 def test_agent_npc_stop_clears_agent_reference() -> None:
-    npc = _StubAgentNPC(system_prompt="x", cadence_ticks=1)
+    npc = _StubAgentNPC(
+        system_prompt="x",
+        cadence_ticks=1,
+        agent_backend=_FakeBackend(),
+    )
     npc.step({})
     assert npc._agent is not None
     npc.stop()
     assert npc._agent is None
 
 
-def test_agent_npc_real_build_path_raises_when_strands_missing(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """The default ``_build_agent`` surfaces a clear error if strands is absent."""
-    import builtins
-
-    real_import = builtins.__import__
-
-    def fake_import(name: str, *args: object, **kwargs: object) -> Any:
-        if name == "strands" or name.startswith("strands."):
-            raise ImportError(f"No module named {name!r}")
-        return real_import(name, *args, **kwargs)
-
-    monkeypatch.setattr(builtins, "__import__", fake_import)
-
-    class _RealishAgentNPC(AgentNPC):
-        def _build_tools(
-            self,
-            interface: Mapping[str, Any],
-        ) -> Sequence[Callable[..., Any]]:
-            return ()
-
-    npc = _RealishAgentNPC(system_prompt="x")
-    with pytest.raises(NPCError, match="strands-agents"):
-        npc._build_agent(())
+def test_agent_npc_passes_system_prompt_and_tools_to_backend() -> None:
+    backend = _FakeBackend()
+    npc = _StubAgentNPC(
+        system_prompt="be curious",
+        cadence_ticks=1,
+        agent_backend=backend,
+    )
+    npc.step({"base_url": "http://x"})
+    assert len(backend.builds) == 1
+    system_prompt, tools = backend.builds[0]
+    assert system_prompt == "be curious"
+    assert len(tools) == 1  # the trivial visit() tool from _StubAgentNPC

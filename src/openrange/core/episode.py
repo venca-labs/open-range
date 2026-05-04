@@ -19,6 +19,7 @@ from pathlib import Path
 from types import MappingProxyType
 from typing import TYPE_CHECKING, Any, Literal
 
+from openrange.core.agent_backend import AgentBackend, StrandsAgentBackend
 from openrange.core.errors import OpenRangeError
 from openrange.core.npc import NPC, resolve_manifest_npcs
 from openrange.core.pack import Entrypoint, Task
@@ -114,9 +115,7 @@ class EpisodeReport:
             "task_id": self.task_id,
             "final_state": dict(self.final_state),
             "verifier_result": (
-                None
-                if self.verifier_result is None
-                else dict(self.verifier_result)
+                None if self.verifier_result is None else dict(self.verifier_result)
             ),
             "agent_summary": self.agent_summary,
         }
@@ -184,12 +183,27 @@ class EpisodeService:
         run_root: str | Path,
         *,
         dashboard: DashboardView | None = None,
+        npc_agent_backend: AgentBackend | None = None,
         npc_llm_model: str | None = None,
     ) -> None:
         self.run_root = Path(run_root)
         self.run_root.mkdir(parents=True, exist_ok=True)
         self.dashboard = dashboard
-        self.npc_llm_model = npc_llm_model
+        # Resolve the NPC agent backend now: an explicit backend wins;
+        # otherwise the model-id convenience auto-promotes to a
+        # StrandsAgentBackend. Both unset means LLM-backed NPCs go
+        # broken at start with a clear "no backend configured" reason.
+        if npc_agent_backend is not None and npc_llm_model is not None:
+            raise EpisodeError(
+                "EpisodeService: pass either 'npc_agent_backend' or "
+                "'npc_llm_model', not both",
+            )
+        if npc_agent_backend is not None:
+            self.npc_agent_backend: AgentBackend | None = npc_agent_backend
+        elif npc_llm_model is not None:
+            self.npc_agent_backend = StrandsAgentBackend(model=npc_llm_model)
+        else:
+            self.npc_agent_backend = None
         self._episodes: dict[str, _RunningEpisode] = {}
 
     # -- lifecycle ----------------------------------------------------------
@@ -577,8 +591,14 @@ class EpisodeService:
         for npc in npcs:
             ctx = dict(base_context)
             if npc.requires_llm:
-                ctx["llm"] = self.npc_llm_model
+                ctx["agent_backend"] = self.npc_agent_backend
             npc.start(MappingProxyType(ctx))
+            # NPCs may set ``broken_reason`` during start() (e.g. the
+            # AgentNPC pre-flight catching a missing SDK). Report it
+            # so it surfaces in the dashboard immediately rather than
+            # waiting for the first acting tick.
+            if npc.broken_reason is not None:
+                self._record_npc_broken(running, npc)
         running.npcs = npcs
 
     def _step_npcs(self, running: _RunningEpisode) -> None:
@@ -589,10 +609,21 @@ class EpisodeService:
         # Per-NPC failures are swallowed: one NPC throwing on a
         # malformed response shouldn't sink the whole episode.
         for npc in running.npcs:
+            already_broken = npc.broken_reason is not None
             try:
                 npc.step(interface)
             except Exception:  # noqa: BLE001
                 continue
+            if not already_broken and npc.broken_reason is not None:
+                self._record_npc_broken(running, npc)
+
+    def _record_npc_broken(self, running: _RunningEpisode, npc: NPC) -> None:
+        """Surface an NPC's transition to broken on the dashboard."""
+        self._record_system(
+            running,
+            {"npc_broken": type(npc).__name__},
+            observation={"reason": npc.broken_reason or ""},
+        )
 
     def _stop_npcs(self, running: _RunningEpisode) -> None:
         for npc in running.npcs:

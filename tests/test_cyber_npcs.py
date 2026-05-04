@@ -183,14 +183,16 @@ def test_curious_employee_factory_constructs_with_defaults() -> None:
     assert isinstance(npc, CuriousEmployee)
     assert npc.requires_llm is True
     assert npc._cadence_ticks == 5
-    assert npc._model_override is None
+    # No per-NPC backend by default; runtime supplies one via context.
+    assert npc._backend_override is None
     assert "internal employee" in npc._system_prompt
 
 
-def test_curious_employee_factory_honors_overrides() -> None:
-    from cyber_webapp.npcs.curious_employee import (
-        factory as ce_factory,
-    )
+def test_curious_employee_factory_promotes_model_to_strands_backend() -> None:
+    """Per-NPC ``model`` config builds a StrandsAgentBackend override."""
+    from cyber_webapp.npcs.curious_employee import factory as ce_factory
+
+    from openrange.core.agent_backend import StrandsAgentBackend
 
     npc = ce_factory(
         {
@@ -200,7 +202,8 @@ def test_curious_employee_factory_honors_overrides() -> None:
         },
     )
     assert npc._cadence_ticks == 2
-    assert npc._model_override == "claude-sonnet-4-20250514"
+    assert isinstance(npc._backend_override, StrandsAgentBackend)
+    assert npc._backend_override._model == "claude-sonnet-4-20250514"
     assert npc._system_prompt == "You are a tester."
 
 
