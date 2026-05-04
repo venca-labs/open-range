@@ -120,7 +120,7 @@ def test_v1_episode_runs_npcs_during_ticks(tmp_path: Path) -> None:
 
 def test_v1_episode_unknown_npc_type_fails_cleanly(tmp_path: Path) -> None:
     """Bad manifest NPC type raises during start_episode, not silently."""
-    from openrange.core.npc import NPCError
+    from openrange.npc import NPCError
 
     manifest = {
         **V1_MANIFEST,
@@ -141,8 +141,8 @@ def test_v1_episode_injects_agent_backend_into_npc_context(tmp_path: Path) -> No
     from collections.abc import Mapping, Sequence
     from typing import Any
 
-    from openrange.core.agent_backend import AgentBackend
-    from openrange.core.npc import NPC, NPCS, AgentNPC
+    from openrange.agent_backend import AgentBackend
+    from openrange.npc import NPC, NPCS, AgentNPC
 
     seen_contexts: dict[str, Mapping[str, Any]] = {}
 
@@ -213,7 +213,7 @@ def test_v1_episode_omits_backend_when_runtime_unset(tmp_path: Path) -> None:
     from collections.abc import Mapping, Sequence
     from typing import Any
 
-    from openrange.core.npc import NPCS, AgentNPC
+    from openrange.npc import NPCS, AgentNPC
 
     seen: dict[str, Mapping[str, Any]] = {}
 
@@ -256,7 +256,7 @@ def test_v1_episode_omits_backend_when_runtime_unset(tmp_path: Path) -> None:
 
 def test_episode_service_rejects_both_backend_and_model(tmp_path: Path) -> None:
     """Both knobs together is a configuration error."""
-    from openrange.core.agent_backend import StrandsAgentBackend
+    from openrange.agent_backend import StrandsAgentBackend
     from openrange.core.episode import EpisodeError
 
     with pytest.raises(EpisodeError, match="not both"):
@@ -271,7 +271,7 @@ def test_episode_service_npc_llm_model_promotes_to_strands_backend(
     tmp_path: Path,
 ) -> None:
     """The model-id convenience auto-constructs a StrandsAgentBackend."""
-    from openrange.core.agent_backend import StrandsAgentBackend
+    from openrange.agent_backend import StrandsAgentBackend
 
     service = EpisodeService(
         tmp_path / "runs",

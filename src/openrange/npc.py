@@ -45,7 +45,7 @@ Two NPC shapes ship in core:
 
 NPCs that opt into LLM access set ``requires_llm = True``. The
 episode runtime then injects an ``agent_backend`` key (an
-:class:`~openrange.core.agent_backend.AgentBackend` instance, or
+:class:`~openrange.agent_backend.AgentBackend` instance, or
 ``None`` if the runtime wasn't configured with one) into the
 ``context`` mapping passed to ``start()``. The backend is the seam
 between AgentNPCs and the LLM provider — strands, codex, or
@@ -59,7 +59,7 @@ from abc import ABC, abstractmethod
 from collections.abc import Callable, Mapping, Sequence
 from typing import Any, ClassVar
 
-from openrange.core.agent_backend import AgentBackend, AgentBackendError
+from openrange.agent_backend import AgentBackend, AgentBackendError
 from openrange.core.errors import OpenRangeError
 
 _log = logging.getLogger(__name__)
@@ -114,7 +114,7 @@ class NPC(ABC):
         minimum ``{episode_id, snapshot_id, task_id, base_url}``. NPCs
         with ``requires_llm = True`` additionally receive an
         ``agent_backend`` key (an
-        :class:`~openrange.core.agent_backend.AgentBackend`, or
+        :class:`~openrange.agent_backend.AgentBackend`, or
         ``None``). Default: no-op.
         """
         del context
@@ -133,12 +133,12 @@ class AgentNPC(NPC):
     Subclasses provide a persona (``system_prompt``) and a
     ``_build_tools(interface)`` hook that returns tool callables bound
     over the runtime backing's interface. The agent loop itself is
-    delegated to an :class:`~openrange.core.agent_backend.AgentBackend`
+    delegated to an :class:`~openrange.agent_backend.AgentBackend`
     — usually
-    :class:`~openrange.core.agent_backend.StrandsAgentBackend`, which
+    :class:`~openrange.agent_backend.StrandsAgentBackend`, which
     wraps ``strands.Agent`` and handles tool dispatch + multi-turn +
     streaming. Backends are pluggable: a tool-less NPC can use
-    :class:`~openrange.core.agent_backend.CodexAgentBackend` (driving
+    :class:`~openrange.agent_backend.CodexAgentBackend` (driving
     the same Codex CLI the builder uses) for cheap chatter, no
     ``strands-agents`` install needed.
 
@@ -156,7 +156,7 @@ class AgentNPC(NPC):
       * Initialization failure (backend preflight fails, no backend
         configured, tool builder raises) marks the NPC permanently
         broken on construction or first acting tick, logs one
-        ``WARNING`` to ``openrange.core.npc`` with the traceback, and
+        ``WARNING`` to ``openrange.npc`` with the traceback, and
         stops trying.
       * Per-tick LLM failures (rate limits, timeouts) log at ``DEBUG``
         and the NPC tries again next cadence window.

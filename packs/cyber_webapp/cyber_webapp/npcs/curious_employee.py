@@ -2,7 +2,7 @@
 
 Reference implementation of the agent-NPC shape: a persona, a tool
 surface bound over the HTTP backing's ``interface``, and an
-:class:`~openrange.core.agent_backend.AgentBackend` driving the
+:class:`~openrange.agent_backend.AgentBackend` driving the
 loop. Default backend is strands (set centrally via
 ``RunConfig.npc_agent_backend``); per-NPC ``model`` config still
 works as a convenience for picking a strands model id without
@@ -13,7 +13,7 @@ of boredom — a few GETs per turn, no destructive intent.
 
 If the configured backend can't run (e.g. ``strands-agents`` not
 installed) the NPC marks itself permanently broken at episode
-start, logs a single WARNING to ``openrange.core.npc`` with the
+start, logs a single WARNING to ``openrange.npc`` with the
 import error, and the rest of the episode runs without it. See
 :class:`AgentNPC` for the full failure model.
 
@@ -35,8 +35,8 @@ from __future__ import annotations
 from collections.abc import Callable, Mapping, Sequence
 from typing import Any, cast
 
-from openrange.core.agent_backend import StrandsAgentBackend
-from openrange.core.npc import NPC, AgentNPC
+from openrange.agent_backend import StrandsAgentBackend
+from openrange.npc import NPC, AgentNPC
 
 _DEFAULT_SYSTEM_PROMPT = (
     "You are an internal employee at a small company, casually browsing "

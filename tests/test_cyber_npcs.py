@@ -192,7 +192,7 @@ def test_curious_employee_factory_promotes_model_to_strands_backend() -> None:
     """Per-NPC ``model`` config builds a StrandsAgentBackend override."""
     from cyber_webapp.npcs.curious_employee import factory as ce_factory
 
-    from openrange.core.agent_backend import StrandsAgentBackend
+    from openrange.agent_backend import StrandsAgentBackend
 
     npc = ce_factory(
         {
@@ -220,6 +220,6 @@ def test_curious_employee_factory_rejects_bad_config() -> None:
 
 def test_curious_employee_registered_via_entry_point() -> None:
     """The pack's pyproject.toml registers cyber.curious_employee."""
-    from openrange.core.npc import NPCS
+    from openrange.npc import NPCS
 
     assert "cyber.curious_employee" in NPCS.ids()

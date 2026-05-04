@@ -14,6 +14,7 @@ from collections.abc import Mapping
 from dataclasses import dataclass
 from pathlib import Path
 
+from openrange.agent_backend import AgentBackend
 from openrange.core import (
     Manifest,
     Snapshot,
@@ -21,7 +22,6 @@ from openrange.core import (
 from openrange.core import (
     build as core_build,
 )
-from openrange.core.agent_backend import AgentBackend
 from openrange.core.episode import EpisodeService
 from openrange.core.runtime_helpers import EpisodeRuntimeError
 from openrange.dashboard import (

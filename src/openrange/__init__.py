@@ -1,5 +1,11 @@
 """OpenRange public API."""
 
+from openrange.agent_backend import (
+    AgentBackend,
+    AgentBackendError,
+    CodexAgentBackend,
+    StrandsAgentBackend,
+)
 from openrange.core import (
     BUILDERS,
     PACKS,
@@ -45,12 +51,6 @@ from openrange.core import (
     evolve,
     verifier_from_source,
 )
-from openrange.core.agent_backend import (
-    AgentBackend,
-    AgentBackendError,
-    CodexAgentBackend,
-    StrandsAgentBackend,
-)
 from openrange.core.episode import (
     AdvanceRequest,
     AgentTurn,
@@ -73,6 +73,13 @@ from openrange.llm import (
     LLMRequest,
     LLMRequestError,
     LLMResult,
+)
+from openrange.npc import (
+    NPC,
+    NPCS,
+    AgentNPC,
+    NPCError,
+    NPCRegistry,
 )
 from openrange.runtime import (
     DashboardServerHandle,
@@ -123,6 +130,11 @@ __all__ = [
     "LineageNode",
     "Manifest",
     "ManifestError",
+    "NPC",
+    "NPCError",
+    "NPCRegistry",
+    "NPCS",
+    "AgentNPC",
     "Node",
     "NodeType",
     "Observation",

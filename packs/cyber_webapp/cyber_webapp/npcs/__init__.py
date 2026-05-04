@@ -13,7 +13,7 @@ from abc import abstractmethod
 from collections.abc import Mapping
 from typing import Any, cast
 
-from openrange.core.npc import NPC
+from openrange.npc import NPC
 
 
 class _HTTPCadenceNPC(NPC):

@@ -6,7 +6,7 @@ from typing import Any
 
 import pytest
 
-from openrange.core.agent_backend import (
+from openrange.agent_backend import (
     AgentBackendError,
     CodexAgentBackend,
     StrandsAgentBackend,

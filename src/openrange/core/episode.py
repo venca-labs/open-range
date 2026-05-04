@@ -19,9 +19,8 @@ from pathlib import Path
 from types import MappingProxyType
 from typing import TYPE_CHECKING, Any, Literal
 
-from openrange.core.agent_backend import AgentBackend, StrandsAgentBackend
+from openrange.agent_backend import AgentBackend, StrandsAgentBackend
 from openrange.core.errors import OpenRangeError
-from openrange.core.npc import NPC, resolve_manifest_npcs
 from openrange.core.pack import Entrypoint, Task
 from openrange.core.runtime_backing import (
     RUNTIME_BACKINGS,
@@ -35,6 +34,7 @@ from openrange.core.runtime_helpers import (
     write_task_file,
 )
 from openrange.core.turn import ActorTurn
+from openrange.npc import NPC, resolve_manifest_npcs
 
 if TYPE_CHECKING:
     from openrange.core.snapshot import Snapshot

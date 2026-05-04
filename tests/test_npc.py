@@ -7,8 +7,8 @@ from typing import Any
 
 import pytest
 
-from openrange.core.agent_backend import AgentBackendError
-from openrange.core.npc import (
+from openrange.agent_backend import AgentBackendError
+from openrange.npc import (
     NPC,
     AgentNPC,
     NPCError,
@@ -70,7 +70,7 @@ def test_registry_default_does_not_autodiscover() -> None:
 
 def test_registry_global_autodiscovers_cyber_npcs() -> None:
     """The autodiscover global picks up the entry-point-registered cyber NPCs."""
-    from openrange.core.npc import NPCS
+    from openrange.npc import NPCS
 
     ids = NPCS.ids()
     assert "cyber.browsing_user" in ids
